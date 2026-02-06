@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Binary } from 'polkadot-api'
 import { PolkadotSigner } from 'polkadot-api/signer'
+import { usePostCost, calculatePostCost } from '@/hooks/usePostCost'
 import styles from './PostForm.module.css'
 
 interface Props {
@@ -18,7 +19,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   'ContentTooLong': 'コンテンツが長すぎます（最大10,000バイト）',
   'TooManyPosts': '投稿数の上限に達しました',
   'ParentPostNotFound': '返信先の投稿が見つかりません',
-  'InsufficientMoralBalance': '$moral残高が不足しています（基本10 + 0.1/byte が必要）',
+  'InsufficientMoralBalance': '$moral残高が不足しています',
   // Moral pallet errors
   'InsufficientBalance': '$moral残高が不足しています',
   'Overflow': '数値がオーバーフローしました',
@@ -74,14 +75,13 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [status, setStatus] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null)
 
-  // コスト計算定数 (runtime設定と同期)
-  const POST_BASE_COST = 10  // 基本コスト: 10 MORAL
-  const POST_BYTE_COST = 0.1 // バイト単価: 0.1 MORAL/byte
+  // ブロックチェーンからコスト設定を動的に取得
+  const costConfig = usePostCost(unsafeApi)
 
   // バイト数とコストをリアルタイム計算
   const contentBytes = new TextEncoder().encode(content)
   const byteCount = contentBytes.length
-  const estimatedCost = POST_BASE_COST + POST_BYTE_COST * byteCount
+  const estimatedCost = calculatePostCost(byteCount, costConfig)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -145,12 +145,19 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
           {byteCount.toLocaleString()} bytes
         </span>
         <span className={styles.cost}>
-          投稿コスト: {estimatedCost.toFixed(1)} $moral
+          {costConfig.isLoading ? (
+            '読込中...'
+          ) : (
+            <>
+              投稿コスト: {estimatedCost.toFixed(1)} $moral
+              {!costConfig.isFromChain && <span title="チェーンから取得できないためデフォルト値を使用"> *</span>}
+            </>
+          )}
         </span>
         <button 
           className={styles.submitBtn}
           type="submit"
-          disabled={isSubmitting || !content.trim() || !unsafeApi || !signer}
+          disabled={isSubmitting || !content.trim() || !unsafeApi || !signer || costConfig.isLoading}
         >
           {isSubmitting ? '送信中...' : '投稿'}
         </button>
