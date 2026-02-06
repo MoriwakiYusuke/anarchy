@@ -1,46 +1,52 @@
 'use client'
 
 import { useState } from 'react'
-import { ApiPromise } from '@polkadot/api'
-import { Keyring } from '@polkadot/keyring'
+import { Binary } from 'polkadot-api'
+import { PolkadotSigner } from 'polkadot-api/signer'
 import styles from './PostForm.module.css'
 
 interface Props {
-  api: ApiPromise | null
-  account: string
+  unsafeApi: any
+  signer: PolkadotSigner | null
+  derivePath: string
 }
 
-export function PostForm({ api, account }: Props) {
+export function PostForm({ unsafeApi, signer, derivePath }: Props) {
   const [content, setContent] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!api || !content.trim()) return
+    if (!unsafeApi || !signer || !content.trim()) return
 
     setIsSubmitting(true)
     setStatus('投稿を送信中...')
 
     try {
-      // 開発用: シードから署名者を取得
-      const keyring = new Keyring({ type: 'sr25519' })
-      // accountはアドレスなので、対応するシードを見つける必要がある
-      // 簡略化のためAliceを使用
-      const signer = keyring.addFromUri('//Alice')
-
       // Post palletのcreate_postを呼び出し
-      const tx = api.tx.post.createPost(content, null)
-
-      await tx.signAndSend(signer, ({ status, events }) => {
-        if (status.isInBlock) {
-          setStatus(`ブロック ${status.asInBlock} に含まれました`)
-        } else if (status.isFinalized) {
-          setStatus('投稿が完了しました！')
-          setContent('')
-          setTimeout(() => setStatus(null), 3000)
-        }
+      // PAPI uses Binary type for byte arrays
+      const contentBytes = Binary.fromText(content)
+      
+      // Check if post pallet exists
+      if (!unsafeApi.tx.Post) {
+        throw new Error('Post pallet not found in chain')
+      }
+      
+      const tx = unsafeApi.tx.Post.create_post({
+        content: contentBytes,
+        parent_id: undefined
       })
+
+      const result = await tx.signAndSubmit(signer)
+      
+      if (result.ok) {
+        setStatus(`投稿が完了しました！ (ブロック #${result.block.number.toString()})`)
+        setContent('')
+        setTimeout(() => setStatus(null), 3000)
+      } else {
+        setStatus(`エラー: トランザクションが失敗しました`)
+      }
     } catch (err) {
       setStatus(`エラー: ${err instanceof Error ? err.message : '不明なエラー'}`)
     } finally {
@@ -65,7 +71,7 @@ export function PostForm({ api, account }: Props) {
         <button 
           className={styles.submitBtn}
           type="submit"
-          disabled={isSubmitting || !content.trim() || !api}
+          disabled={isSubmitting || !content.trim() || !unsafeApi || !signer}
         >
           {isSubmitting ? '送信中...' : '投稿'}
         </button>

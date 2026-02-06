@@ -7,6 +7,7 @@ import styles from './WalletConnect.module.css'
 interface Props {
   account: string | null
   setAccount: (account: string | null) => void
+  setAccountSeed: (seed: string | null) => void
 }
 
 // 開発用: テストアカウント
@@ -16,19 +17,25 @@ const TEST_ACCOUNTS = [
   { name: 'Charlie', seed: '//Charlie' },
 ]
 
-export function WalletConnect({ account, setAccount }: Props) {
+export function WalletConnect({ account, setAccount, setAccountSeed }: Props) {
   const [selectedAccount, setSelectedAccount] = useState<string>('')
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     if (!selectedAccount) return
 
+    // WASM暗号モジュールの初期化を待つ
+    const { cryptoWaitReady } = await import('@polkadot/util-crypto')
+    await cryptoWaitReady()
+    
     const keyring = new Keyring({ type: 'sr25519' })
     const pair = keyring.addFromUri(selectedAccount)
     setAccount(pair.address)
+    setAccountSeed(selectedAccount)
   }
 
   const handleDisconnect = () => {
     setAccount(null)
+    setAccountSeed(null)
     setSelectedAccount('')
   }
 

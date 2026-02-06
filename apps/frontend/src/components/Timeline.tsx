@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ApiPromise } from '@polkadot/api'
+import { PolkadotClient } from 'polkadot-api'
 import styles from './Timeline.module.css'
 
 interface Post {
@@ -13,41 +13,45 @@ interface Post {
 }
 
 interface Props {
-  api: ApiPromise | null
+  client: PolkadotClient | null
+  unsafeApi: any
 }
 
-export function Timeline({ api }: Props) {
+export function Timeline({ client, unsafeApi }: Props) {
   const [posts, setPosts] = useState<Post[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    if (!api) return
+    if (!unsafeApi) return
 
     const fetchPosts = async () => {
       try {
-        // 投稿数を取得
-        const nextId = await api.query.post.nextPostId()
-        const totalPosts = (nextId as any).toNumber()
-
-        // 全投稿を取得（最新順）
-        const fetchedPosts: Post[] = []
-        for (let i = totalPosts - 1; i >= 0 && fetchedPosts.length < 50; i--) {
-          const post = await api.query.post.posts(i)
-          if (post.isSome) {
-            const p = post.unwrap()
-            fetchedPosts.push({
-              id: i,
-              author: (p as any).author.toString(),
-              contentHash: (p as any).contentHash.toHex(),
-              createdAt: (p as any).createdAt.toNumber(),
-              parentId: (p as any).parentId.isSome 
-                ? (p as any).parentId.unwrap().toNumber() 
-                : null,
-            })
-          }
+        // Check if Post pallet exists
+        if (!unsafeApi.query.Post) {
+          console.log('Post pallet not found')
+          setIsLoading(false)
+          return
         }
 
-        setPosts(fetchedPosts)
+        // getEntriesを使用して全投稿を取得
+        const entries = await unsafeApi.query.Post.Posts.getEntries()
+        
+        const fetchedPosts: Post[] = entries.map((entry: any) => {
+          const postId = Number(entry.keyArgs[0])
+          const post = entry.value
+          return {
+            id: postId,
+            author: post.author || 'unknown',
+            contentHash: post.content_hash?.asHex?.() || '',
+            createdAt: Number(post.created_at || 0),
+            parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
+          }
+        })
+
+        // 最新順（作成ブロック番号の降順）でソート
+        fetchedPosts.sort((a, b) => b.createdAt - a.createdAt)
+
+        setPosts(fetchedPosts.slice(0, 50))
       } catch (err) {
         console.error('投稿の取得に失敗:', err)
       } finally {
@@ -57,29 +61,12 @@ export function Timeline({ api }: Props) {
 
     fetchPosts()
 
-    // イベントをサブスクライブして新規投稿を検知
-    let unsubscribe: () => void
-
-    const subscribe = async () => {
-      unsubscribe = await api.query.system.events((events: any) => {
-        events.forEach((record: any) => {
-          const { event } = record
-          if (event.section === 'post' && event.method === 'PostCreated') {
-            // 新規投稿があったら再取得
-            fetchPosts()
-          }
-        })
-      })
-    }
-
-    subscribe()
-
-    return () => {
-      if (unsubscribe) unsubscribe()
-    }
-  }, [api])
+    // Note: PAPI event subscription is different, skipping for now
+    // TODO: Add event subscription for new posts
+  }, [unsafeApi])
 
   const shortenAddress = (addr: string) => {
+    if (addr.startsWith('0x')) addr = addr.slice(2)
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`
   }
 
