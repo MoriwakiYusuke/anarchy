@@ -5,6 +5,7 @@ members = [
     "runtime",
     "pallets/post",
     "pallets/moral",
+    "pallets/identity",
 ]
 
 [workspace.lints.rust]
@@ -82,6 +83,7 @@ log = "0.4"
 # Local pallets
 pallet-post = { path = "pallets/post", default-features = false }
 pallet-moral = { path = "pallets/moral", default-features = false }
+pallet-identity = { path = "pallets/identity", default-features = false }
 anarchy-runtime = { path = "runtime" }
 
 [profile.release]

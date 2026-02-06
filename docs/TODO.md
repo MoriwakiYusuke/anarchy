@@ -28,10 +28,10 @@
 
 - [x] Substrate ノードテンプレート初期化 (Polkadot SDK stable2503)
 
-- [ ] **Identity Pallet** 作成
-  - [ ] WebAuthn公開鍵の登録ストレージ
-  - [ ] マルチデバイス対応（1 Identity → N Passkeys）
-  - [ ] 公開鍵の追加/削除エクストリンシック
+- [x] **Identity Pallet** 作成
+  - [x] WebAuthn公開鍵の登録ストレージ
+  - [x] マルチデバイス対応（1 Identity → N Passkeys）
+  - [x] 公開鍵の追加/削除エクストリンシック
 
 - [x] **Moral Token Pallet** 作成
   - [x] トークン発行（mint）ロジック

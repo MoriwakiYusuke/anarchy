@@ -1,50 +1,81 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Anarchy Constitution
+
+> **支配なき秩序（Order without Masters）**
+> 中央集権的な管理者を介さず、数学的・経済的メカニズムによってユーザーの言論の自由を保護する
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Network Anonymity（ネットワーク秘匿）【NON-NEGOTIABLE】
+libp2pトランスポート層にTor/I2Pを**強制統合**し、IPアドレス等のメタデータを物理的に遮断する。
+- 「オプションとしての匿名」ではなく、プロトコルレベルで「匿名以外を許可しない」設計
+- ノード間通信は必ず匿名化レイヤーを経由
+- フロントエンドへのIP露出は「許容」するが、オンチェーンデータとの紐付けは「数学的に切断」
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Keyless UX（秘密鍵の排除）【NON-NEGOTIABLE】
+ユーザーに秘密鍵（シードフレーズ）を扱わせない。
+- WebAuthn（パスキー）+ アカウント抽象化（AA）でSecure Enclave署名を前提
+- 秘密鍵はハードウェアから一歩も出さない
+- 1 Identity ID → N Passkeys（マルチデバイス対応）
+- パスワードやシードフレーズを排除し、Web2.0同等の利便性で暗号学的安全性を実現
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Client-Side Completion（クライアントサイド完結）【NON-NEGOTIABLE】
+暗号化、断片化（SSS）、メタデータ削除は**必ずクライアント側で実行してから送信**。
+- フロントエンドが悪意を持っていても、プロトコルに書き込まれる時点で浄化（クレンジング）
+- ステルスアドレスとZKPによって実名との紐付けを数学的に切断
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Zero-Trust Hydra（ゼロトラスト・フロントエンド）
+悪意あるフロントエンド（ハイドラ）の存在を許容しつつ、プロトコル層で数学的に無効化する。
+- フロントエンドを「信頼しない」前提で設計
+- WYSIWYS（What You See Is What You Sign）でなりすまし防止
+- 「入り口は自由、出口は浄化」パラダイム
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Economic Autonomy（経済的自律性）
+参加者全員が「自分の利益」を追求することが、結果としてネットワークの安全と成長につながる。
+- 正直者が最も得をする報酬設計（バリデーター報酬）
+- ハイドラ（フロント）の自由競争による高品質サービス供給
+- 需要のないデータは報酬停止により自然消滅（経済的忘却）
+- 報酬計算: `Reward = Σ(Reaction × Power_cpu) × γ`
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### VI. Test-First Development
+全ての機能はテストから始まる。
+- パレット単体テスト: `cargo test -p pallet-xxx`
+- 統合テスト: ブロック同期、コンセンサス、ノードリカバリ、スケーラビリティ
+- フロントエンド: E2Eテスト（将来）
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+## Technology Stack
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+| レイヤー | 技術 |
+|---------|------|
+| L1 Core | Rust + Polkadot SDK (stable2503) |
+| Consensus | Aura (dev) → NPoS (production) |
+| Networking | libp2p + Tor/I2P (Arti) |
+| Frontend | Next.js 15 + TypeScript + PAPI |
+| Crypto | WebAuthn, SSS, X25519, ZKP (Circom/Noir) |
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+**重要**: @polkadot/api は使用禁止。メタデータv16対応の PAPI (polkadot-api) を使用すること。
+
+## Security Requirements
+
+| 信頼の対象 | セキュリティの根拠 |
+|-----------|------------------|
+| フロントエンド | 信頼しない（IP/投稿内容は一時的に露出） |
+| 秘密鍵 | ハードウェア（Passkey）で物理的に保護 |
+| オンチェーンデータ | ステルスアドレスとTor/I2Pで切断 |
+| システム全体 | SBOMによる検証可能性 |
+
+## Development Workflow
+
+1. **仕様定義**: speckit でスペック作成
+2. **テスト作成**: 受け入れ条件に基づくテストを先に書く
+3. **実装**: テストをパスする最小限のコードを書く
+4. **レビュー**: Constitution準拠を確認
+5. **統合テスト**: マルチノード環境でのテスト実行
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- この Constitution は他の全ての慣行に優先する
+- 原則 I〜III（NON-NEGOTIABLE）の変更は禁止
+- 修正には: ドキュメント更新、影響分析、マイグレーション計画が必要
+- 全ての PR/レビューは Constitution 準拠を検証すること
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-02-07 | **Last Amended**: 2026-02-07
