@@ -28,3 +28,6 @@ npm-debug.log*
 
 # Substrate
 *.wasm
+
+apps/blockchain/data/
+apps/blockchain/logs/
