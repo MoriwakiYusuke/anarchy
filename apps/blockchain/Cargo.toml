@@ -1,0 +1,88 @@
+[workspace]
+resolver = "2"
+members = [
+    "node",
+    "runtime",
+    "pallets/post",
+    "pallets/moral",
+]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.package]
+authors = ["Anarchy Team"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/anarchy-project/anarchy"
+
+[workspace.dependencies]
+# Substrate dependencies - Polkadot SDK stable2503
+frame-support = { version = "45.1.0", default-features = false }
+frame-system = { version = "45.0.0", default-features = false }
+frame-executive = { version = "45.0.0", default-features = false }
+sp-core = { version = "39.0.0", default-features = false }
+sp-std = { version = "14.0.0", default-features = false }
+sp-runtime = { version = "45.0.0", default-features = false }
+sp-api = { version = "40.0.0", default-features = false }
+sp-io = { version = "44.0.0", default-features = false }
+sp-version = { version = "43.0.0", default-features = false }
+sp-genesis-builder = { version = "0.21.0", default-features = false }
+sp-storage = { version = "22.0.0", default-features = false }
+sp-block-builder = { version = "40.0.0", default-features = false }
+sp-transaction-pool = { version = "40.0.0", default-features = false }
+sp-offchain = { version = "40.0.0", default-features = false }
+sp-session = { version = "42.0.0", default-features = false }
+sp-inherents = { version = "40.0.0", default-features = false }
+sp-consensus-aura = { version = "0.46.0", default-features = false }
+sp-consensus-grandpa = { version = "27.0.0", default-features = false }
+sp-timestamp = { version = "40.0.0", default-features = false }
+sp-keyring = { version = "45.0.0", default-features = false }
+sp-blockchain = { version = "43.0.0" }
+frame-system-rpc-runtime-api = { version = "40.0.0", default-features = false }
+
+pallet-balances = { version = "46.0.0", default-features = false }
+pallet-timestamp = { version = "44.0.0", default-features = false }
+pallet-transaction-payment = { version = "45.0.0", default-features = false }
+pallet-transaction-payment-rpc-runtime-api = { version = "45.0.0", default-features = false }
+pallet-aura = { version = "44.0.0", default-features = false }
+pallet-grandpa = { version = "45.0.0", default-features = false }
+pallet-sudo = { version = "45.0.0", default-features = false }
+
+# Node dependencies
+sc-cli = "0.57.0"
+sc-executor = "0.47.0"
+sc-service = "0.56.0"
+sc-client-api = "44.0.0"
+sc-consensus = "0.54.0"
+sc-consensus-aura = "0.55.0"
+sc-consensus-grandpa = "0.40.0"
+sc-network = "0.55.0"
+sc-transaction-pool = "44.1.0"
+sc-transaction-pool-api = "43.0.0"
+sc-rpc-api = "0.54.0"
+sc-basic-authorship = "0.53.0"
+sc-offchain = "50.0.0"
+sc-telemetry = "30.0.0"
+substrate-frame-rpc-system = "49.0.0"
+pallet-transaction-payment-rpc = "48.0.0"
+
+# Codec
+parity-scale-codec = { version = "3.6.9", default-features = false, features = ["derive"] }
+scale-info = { version = "2.10.0", default-features = false, features = ["derive"] }
+
+# Other
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+futures = "0.3"
+jsonrpsee = { version = "0.24", features = ["server"] }
+log = "0.4"
+
+# Local pallets
+pallet-post = { path = "pallets/post", default-features = false }
+pallet-moral = { path = "pallets/moral", default-features = false }
+anarchy-runtime = { path = "runtime" }
+
+[profile.release]
+panic = "unwind"

@@ -1,0 +1,53 @@
+[package]
+name = "anarchy-node"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+clap = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+jsonrpsee = { workspace = true }
+log = { workspace = true }
+
+# Substrate Client
+sc-cli = { workspace = true }
+sc-executor = { workspace = true }
+sc-service = { workspace = true }
+sc-client-api = { workspace = true }
+sc-consensus = { workspace = true }
+sc-consensus-aura = { workspace = true }
+sc-consensus-grandpa = { workspace = true }
+sc-network = { workspace = true }
+sc-transaction-pool = { workspace = true }
+sc-transaction-pool-api = { workspace = true }
+sc-rpc-api = { workspace = true }
+sc-basic-authorship = { workspace = true }
+sc-offchain = { workspace = true }
+sc-telemetry = { workspace = true }
+
+# Substrate Primitives
+sp-core = { workspace = true, features = ["std"] }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true, features = ["std"] }
+sp-timestamp = { workspace = true, features = ["std"] }
+sp-inherents = { workspace = true, features = ["std"] }
+sp-keyring = { workspace = true, features = ["std"] }
+sp-consensus-aura = { workspace = true, features = ["std"] }
+sp-consensus-grandpa = { workspace = true, features = ["std"] }
+sp-block-builder = { workspace = true, features = ["std"] }
+sp-blockchain = { workspace = true }
+sp-api = { workspace = true, features = ["std"] }
+
+# RPC
+substrate-frame-rpc-system = { workspace = true }
+pallet-transaction-payment-rpc = { workspace = true }
+
+# Local
+anarchy-runtime = { workspace = true, features = ["std"] }
+
+[build-dependencies]
+substrate-build-script-utils = "11.0.0"
