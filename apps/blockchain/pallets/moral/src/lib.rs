@@ -17,6 +17,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use sp_runtime::traits::{CheckedAdd, CheckedSub, Zero};
+    use sp_std::vec::Vec;
 
     pub type BalanceOf<T> = <T as Config>::Balance;
 
@@ -41,13 +42,29 @@ pub mod pallet {
             + CheckedSub
             + Zero;
 
-        /// 投稿1回あたりのコスト
-        #[pallet::constant]
-        type PostCost: Get<BalanceOf<Self>>;
-
         /// 新規アカウントへの初期配布量
         #[pallet::constant]
         type InitialBalance: Get<BalanceOf<Self>>;
+    }
+
+    /// Genesis設定
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T: Config> {
+        /// 初期残高: (アカウント, 残高) のリスト
+        pub balances: Vec<(T::AccountId, BalanceOf<T>)>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            let mut total: BalanceOf<T> = Zero::zero();
+            for (account, balance) in &self.balances {
+                Balances::<T>::insert(account, balance);
+                total = total.checked_add(balance).expect("Total supply overflow at genesis");
+            }
+            TotalSupply::<T>::put(total);
+        }
     }
 
     /// 残高ストレージ

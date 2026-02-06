@@ -56,14 +56,12 @@ impl frame_system::Config for Test {
 }
 
 parameter_types! {
-    pub const PostCost: u128 = 1_000;
     pub const InitialBalance: u128 = 100_000;
 }
 
 impl pallet_moral::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Balance = u128;
-    type PostCost = PostCost;
     type InitialBalance = InitialBalance;
 }
 

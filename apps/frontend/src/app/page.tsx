@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { PostForm } from '@/components/PostForm'
 import { Timeline } from '@/components/Timeline'
@@ -11,12 +11,18 @@ export default function Home() {
   const { client, unsafeApi, isConnected, error, createSigner } = useApi()
   const [account, setAccount] = useState<string | null>(null)
   const [accountSeed, setAccountSeed] = useState<string | null>(null)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
 
   // Create signer when accountSeed changes
   const signer = useMemo(() => {
     if (!accountSeed) return null
     return createSigner(accountSeed)
   }, [accountSeed, createSigner])
+
+  // 投稿成功時にデータを更新
+  const handlePostSuccess = useCallback(() => {
+    setRefreshTrigger(prev => prev + 1)
+  }, [])
 
   return (
     <main className={styles.main}>
@@ -40,6 +46,10 @@ export default function Home() {
             account={account} 
             setAccount={setAccount}
             setAccountSeed={setAccountSeed}
+            unsafeApi={unsafeApi}
+            signer={signer}
+            accountSeed={accountSeed}
+            refreshTrigger={refreshTrigger}
           />
         </aside>
 
@@ -49,9 +59,10 @@ export default function Home() {
               unsafeApi={unsafeApi} 
               signer={signer}
               derivePath={accountSeed || '//Alice'}
+              onPostSuccess={handlePostSuccess}
             />
           )}
-          <Timeline client={client} unsafeApi={unsafeApi} />
+          <Timeline client={client} unsafeApi={unsafeApi} refreshTrigger={refreshTrigger} />
         </section>
       </div>
 

@@ -63,13 +63,14 @@ impl frame_system::Config for Test {
 impl pallet_moral::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Balance = u128;
-    type PostCost = ConstU128<1_000>; // テスト用: 1000 MORAL
     type InitialBalance = ConstU128<100_000>; // テスト用: 100000 MORAL
 }
 
 impl pallet_post::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxContentLength = ConstU32<10000>;
+    type PostBaseCost = ConstU128<100>; // テスト用: 基本100
+    type PostByteCost = ConstU128<10>;  // テスト用: 1バイトあたり10
 }
 
 // テスト環境のビルダー
@@ -120,8 +121,10 @@ fn create_post_works() {
         assert_eq!(user_posts[0], 0);
 
         // Moralトークンが消費されている
+        // cost = base(100) + len(15) * byte_cost(10) = 250
         let new_balance = pallet_moral::Balances::<Test>::get(author);
-        assert_eq!(new_balance, initial_balance - 1_000);
+        let expected_cost = 100 + (content.len() as u128) * 10;
+        assert_eq!(new_balance, initial_balance - expected_cost);
 
         // イベントが発行されている
         System::assert_has_event(RuntimeEvent::PostModule(Event::PostCreated {
@@ -230,8 +233,10 @@ fn multiple_posts_by_same_user() {
         assert_eq!(user_posts.to_vec(), vec![0, 1, 2]);
 
         // 3回分のMoralが消費されている
+        // "Post number X" は13バイト → cost = 100 + 13 * 10 = 230 各
         let balance = pallet_moral::Balances::<Test>::get(author);
-        assert_eq!(balance, 100_000 - 3 * 1_000);
+        let single_cost: u128 = 100 + 13 * 10; // = 230
+        assert_eq!(balance, 100_000 - 3 * single_cost);
     });
 }
 

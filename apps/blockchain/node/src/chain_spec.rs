@@ -105,6 +105,7 @@ fn testnet_genesis(
     _enable_println: bool,
 ) -> serde_json::Value {
     const ENDOWMENT: Balance = 10_000_000_000_000_000_000_000; // 10,000トークン
+    const MORAL_INITIAL: u128 = 10_000_000_000_000_000; // 10,000 moral (12桁精度)
 
     serde_json::json!({
         "balances": {
@@ -118,6 +119,9 @@ fn testnet_genesis(
         },
         "sudo": {
             "key": Some(root_key)
+        },
+        "moral": {
+            "balances": endowed_accounts.iter().cloned().map(|k| (k, MORAL_INITIAL)).collect::<Vec<_>>()
         }
     })
 }

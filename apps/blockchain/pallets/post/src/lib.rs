@@ -42,6 +42,14 @@ pub mod pallet {
         /// 投稿の最大長（バイト）
         #[pallet::constant]
         type MaxContentLength: Get<u32>;
+
+        /// 投稿の基本コスト（バイト数に関係なく必ずかかる）
+        #[pallet::constant]
+        type PostBaseCost: Get<pallet_moral::BalanceOf<Self>>;
+
+        /// 1バイトあたりの追加コスト
+        #[pallet::constant]
+        type PostByteCost: Get<pallet_moral::BalanceOf<Self>>;
     }
 
     /// 次の投稿ID
@@ -102,7 +110,7 @@ pub mod pallet {
         /// * `parent_id` - 親投稿ID（リプライの場合）
         ///
         /// # Cost
-        /// * PostCost分の$moralトークンを消費
+        /// * 基本コスト + (バイト数 × バイト単価) の $moral トークンを消費
         #[pallet::call_index(0)]
         #[pallet::weight(10_000)]
         pub fn create_post(
@@ -123,8 +131,15 @@ pub mod pallet {
                 ensure!(Posts::<T>::contains_key(pid), Error::<T>::ParentPostNotFound);
             }
 
+            // バイト数に基づくコスト計算: 基本コスト + (バイト数 × バイト単価)
+            let content_len = content.len() as u128;
+            let base_cost: u128 = T::PostBaseCost::get().try_into().unwrap_or(0);
+            let byte_cost: u128 = T::PostByteCost::get().try_into().unwrap_or(0);
+            let total_cost = base_cost.saturating_add(content_len.saturating_mul(byte_cost));
+            let cost = total_cost.try_into().unwrap_or(T::PostBaseCost::get());
+
             // $moralトークンを消費（投稿コスト）
-            pallet_moral::Pallet::<T>::do_burn(&who, T::PostCost::get())
+            pallet_moral::Pallet::<T>::do_burn(&who, cost)
                 .map_err(|_| Error::<T>::InsufficientMoralBalance)?;
 
             // コンテンツハッシュを計算

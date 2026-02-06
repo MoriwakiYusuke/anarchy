@@ -16,9 +16,10 @@ interface Post {
 interface Props {
   client: PolkadotClient | null
   unsafeApi: any
+  refreshTrigger?: number
 }
 
-export function Timeline({ client, unsafeApi }: Props) {
+export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
   const [posts, setPosts] = useState<Post[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -82,7 +83,7 @@ export function Timeline({ client, unsafeApi }: Props) {
 
     // Note: PAPI event subscription is different, skipping for now
     // TODO: Add event subscription for new posts
-  }, [unsafeApi])
+  }, [unsafeApi, refreshTrigger])
 
   const shortenAddress = (addr: string) => {
     if (addr.startsWith('0x')) addr = addr.slice(2)
