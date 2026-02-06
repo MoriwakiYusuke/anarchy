@@ -54,6 +54,14 @@
   margin-bottom: 0.75rem;
 }
 
+.text {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
 .hash {
   font-family: monospace;
   font-size: 0.8rem;

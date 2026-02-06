@@ -1,10 +1,10 @@
 //! Post Palletのテスト
 
-use crate::{self as pallet_post, Error, Event, Posts, NextPostId, UserPosts};
+use crate::{self as pallet_post, Error, Event, Posts, NextPostId, UserPosts, Contents};
 use frame_support::{
     assert_noop, assert_ok,
     parameter_types,
-    traits::{ConstU32, ConstU64},
+    traits::{ConstU32, ConstU64, ConstU128},
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -18,6 +18,7 @@ type Block = frame_system::mocking::MockBlock<Test>;
 frame_support::construct_runtime!(
     pub enum Test {
         System: frame_system,
+        MoralModule: pallet_moral,
         PostModule: pallet_post,
     }
 );
@@ -59,6 +60,13 @@ impl frame_system::Config for Test {
     type ExtensionsWeightInfo = ();
 }
 
+impl pallet_moral::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = u128;
+    type PostCost = ConstU128<1_000>; // テスト用: 1000 MORAL
+    type InitialBalance = ConstU128<100_000>; // テスト用: 100000 MORAL
+}
+
 impl pallet_post::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxContentLength = ConstU32<10000>;
@@ -70,7 +78,13 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         .build_storage()
         .unwrap();
     let mut ext = sp_io::TestExternalities::new(t);
-    ext.execute_with(|| System::set_block_number(1));
+    ext.execute_with(|| {
+        System::set_block_number(1);
+        // テストユーザーに初期Moralを付与
+        pallet_moral::Pallet::<Test>::do_mint(&1u64, 100_000).unwrap();
+        pallet_moral::Pallet::<Test>::do_mint(&2u64, 100_000).unwrap();
+        pallet_moral::Pallet::<Test>::do_mint(&3u64, 100_000).unwrap();
+    });
     ext
 }
 
@@ -79,6 +93,7 @@ fn create_post_works() {
     new_test_ext().execute_with(|| {
         let author = 1u64;
         let content = b"Hello, Anarchy!".to_vec();
+        let initial_balance = pallet_moral::Balances::<Test>::get(author);
 
         // 投稿作成
         assert_ok!(PostModule::create_post(
@@ -95,10 +110,18 @@ fn create_post_works() {
         assert_eq!(post.author, author);
         assert_eq!(post.parent_id, None);
 
+        // コンテンツ本文が保存されている
+        let stored_content = Contents::<Test>::get(0).expect("コンテンツが存在するはず");
+        assert_eq!(stored_content.to_vec(), content);
+
         // ユーザーの投稿一覧に追加されている
         let user_posts = UserPosts::<Test>::get(author);
         assert_eq!(user_posts.len(), 1);
         assert_eq!(user_posts[0], 0);
+
+        // Moralトークンが消費されている
+        let new_balance = pallet_moral::Balances::<Test>::get(author);
+        assert_eq!(new_balance, initial_balance - 1_000);
 
         // イベントが発行されている
         System::assert_has_event(RuntimeEvent::PostModule(Event::PostCreated {
@@ -168,6 +191,23 @@ fn content_too_long_fails() {
 }
 
 #[test]
+fn insufficient_moral_balance_fails() {
+    new_test_ext().execute_with(|| {
+        let poor_user = 99u64; // Moralを持っていないユーザー
+
+        // 残高不足で投稿失敗
+        assert_noop!(
+            PostModule::create_post(
+                RuntimeOrigin::signed(poor_user),
+                b"I have no moral".to_vec(),
+                None
+            ),
+            Error::<Test>::InsufficientMoralBalance
+        );
+    });
+}
+
+#[test]
 fn multiple_posts_by_same_user() {
     new_test_ext().execute_with(|| {
         let author = 1u64;
@@ -188,6 +228,10 @@ fn multiple_posts_by_same_user() {
         let user_posts = UserPosts::<Test>::get(author);
         assert_eq!(user_posts.len(), 3);
         assert_eq!(user_posts.to_vec(), vec![0, 1, 2]);
+
+        // 3回分のMoralが消費されている
+        let balance = pallet_moral::Balances::<Test>::get(author);
+        assert_eq!(balance, 100_000 - 3 * 1_000);
     });
 }
 

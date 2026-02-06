@@ -7,6 +7,7 @@ import styles from './Timeline.module.css'
 interface Post {
   id: number
   author: string
+  content: string
   contentHash: string
   createdAt: number
   parentId: number | null
@@ -33,15 +34,33 @@ export function Timeline({ client, unsafeApi }: Props) {
           return
         }
 
-        // getEntriesを使用して全投稿を取得
-        const entries = await unsafeApi.query.Post.Posts.getEntries()
+        // getEntriesを使用して全投稿メタデータを取得
+        const postEntries = await unsafeApi.query.Post.Posts.getEntries()
         
-        const fetchedPosts: Post[] = entries.map((entry: any) => {
+        // コンテンツ本文も取得
+        const contentEntries = await unsafeApi.query.Post.Contents.getEntries()
+        const contentMap = new Map<number, string>()
+        for (const entry of contentEntries) {
+          const postId = Number(entry.keyArgs[0])
+          // BoundedVec<u8, MaxContentLength> をテキストに変換
+          const bytes = entry.value?.asBytes?.() || entry.value
+          if (bytes) {
+            try {
+              const text = new TextDecoder().decode(new Uint8Array(bytes))
+              contentMap.set(postId, text)
+            } catch {
+              contentMap.set(postId, '(デコードエラー)')
+            }
+          }
+        }
+        
+        const fetchedPosts: Post[] = postEntries.map((entry: any) => {
           const postId = Number(entry.keyArgs[0])
           const post = entry.value
           return {
             id: postId,
             author: post.author || 'unknown',
+            content: contentMap.get(postId) || '(コンテンツなし)',
             contentHash: post.content_hash?.asHex?.() || '',
             createdAt: Number(post.created_at || 0),
             parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
@@ -100,9 +119,7 @@ export function Timeline({ client, unsafeApi }: Props) {
             </span>
           </header>
           <div className={styles.content}>
-            <code className={styles.hash}>
-              Content Hash: {post.contentHash.slice(0, 18)}...
-            </code>
+            <p className={styles.text}>{post.content}</p>
           </div>
           <footer className={styles.postFooter}>
             <span className={styles.postId}>

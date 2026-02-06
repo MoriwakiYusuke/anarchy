@@ -5,7 +5,19 @@
     "dev:frontend": "pnpm --filter @anarchy/frontend dev",
     "build:frontend": "pnpm --filter @anarchy/frontend build",
     "build:blockchain": "cd apps/blockchain && cargo build --release",
-    "dev:node": "cd apps/blockchain && cargo run -- --dev"
+    "dev:node": "cd apps/blockchain && cargo run -- --dev",
+    "testnet:start": "cd apps/blockchain && ./scripts/run-multi-node.sh start",
+    "testnet:stop": "cd apps/blockchain && ./scripts/run-multi-node.sh stop",
+    "testnet:status": "cd apps/blockchain && ./scripts/run-multi-node.sh status",
+    "testnet:logs": "cd apps/blockchain && ./scripts/run-multi-node.sh logs",
+    "testnet:purge": "cd apps/blockchain && ./scripts/run-multi-node.sh purge",
+    "test:integration": "cd apps/blockchain/tests/integration && ./run_all_tests.sh",
+    "test:integration:quick": "cd apps/blockchain/tests/integration && ./run_all_tests.sh --quick",
+    "test:sync": "cd apps/blockchain/tests/integration && ./test_block_sync.sh",
+    "test:consensus": "cd apps/blockchain/tests/integration && ./test_consensus.sh",
+    "test:invalid": "cd apps/blockchain/tests/integration && ./test_invalid_data.sh",
+    "test:recovery": "cd apps/blockchain/tests/integration && ./test_node_recovery.sh",
+    "test:scalability": "cd apps/blockchain/tests/integration && ./test_scalability.sh"
   },
   "devDependencies": {
     "typescript": "^5.3.3"
