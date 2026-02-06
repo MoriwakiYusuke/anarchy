@@ -2502,3 +2502,4 @@ Block cache entry stats(count,size,portion): DataBlock(9,425.43 KB,0.122554%) Fi
 2026/02/07-03:14:43.838550 119891 EVENT_LOG_v1 {"time_micros": 1770401683838548, "job": 4, "event": "table_file_deletion", "file_number": 45, "status": "OK"}
 2026/02/07-03:14:43.838661 119891 [file/delete_scheduler.cc:71] Deleted file /home/moriwaki-y/self/anarchy/apps/blockchain/data/bob/chains/local_testnet/db/full/000052.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 805708, max_trash_db_ratio 0.250000
 2026/02/07-03:14:43.838667 119891 EVENT_LOG_v1 {"time_micros": 1770401683838666, "job": 4, "event": "table_file_deletion", "file_number": 52, "status": "OK"}
+2026/02/07-03:20:49.091453 120153 [db/db_impl/db_impl_write.cc:2587] [col8] New memtable created with log file: #54. Immutable memtables: 0.
