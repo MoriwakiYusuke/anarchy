@@ -205,6 +205,14 @@ impl pallet_moral::Config for Runtime {
     type InitialBalance = ConstU128<100_000_000_000_000>; // 100 MORAL (faucet)
 }
 
+// Identity Pallet設定
+impl pallet_identity::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type MaxPasskeys = ConstU32<10>;
+    type MaxPublicKeyLength = ConstU32<256>;
+    type MaxDeviceNameLength = ConstU32<64>;
+}
+
 // Runtime構築
 construct_runtime!(
     pub struct Runtime {
@@ -218,6 +226,7 @@ construct_runtime!(
         // カスタムパレット
         Post: pallet_post,
         Moral: pallet_moral,
+        Identity: pallet_identity,
     }
 );
 
