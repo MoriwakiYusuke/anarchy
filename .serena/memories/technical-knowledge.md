@@ -39,49 +39,39 @@ const tx = api.tx.Post.create_post({
 })
 await tx.signAndSubmit(signer)
 
-// ストレージ読み取り（getValue()ではなくgetEntries()を使用）
+// ストレージ読み取り
 const entries = await api.query.Post.Posts.getEntries()
 ```
 
-### ストレージ読み取りの注意
-- `getValue(key)` はジェネリック型構造体で型不一致エラーになることがある
-- `getEntries()` を使用して全エントリを取得する方が安全
+## ⚠️ 未解決: PAPI Constants アクセス問題
+
+### 症状
+- `unsafeApi.constants.Post.PostBaseCost()` を呼び出すと:
+- エラー: `Runtime entry Constant(Post.PostBaseCost) not found`
+
+### 状況
+- Rust側で `#[pallet::constant]` 属性は付与済み
+- ビルド・再起動後もエラー継続
+- メタデータに定数が公開されていない可能性
+
+### 現在の対処
+- フロントエンドでフォールバック値を使用
+- 実際のコスト計算はオンチェーンで正しく行われる
 
 ## パレット間連携
 
 ### PostパレットからMoralを消費
 ```rust
-// Config で pallet_moral を要求
 pub trait Config: frame_system::Config + pallet_moral::Config {
-    // ...
+    #[pallet::constant]
+    type PostBaseCost: Get<pallet_moral::BalanceOf<Self>>;
+    
+    #[pallet::constant]
+    type PostByteCost: Get<pallet_moral::BalanceOf<Self>>;
 }
-
-// create_post 内で消費
-pallet_moral::Pallet::<T>::do_burn(&who, T::PostCost::get())
-    .map_err(|_| Error::<T>::InsufficientMoralBalance)?;
 ```
 
-### Cargo.toml依存関係
-```toml
-[dependencies]
-pallet-moral = { path = "../moral", default-features = false }
-
-[features]
-std = [
-    # ...
-    "pallet-moral/std",
-]
-```
-
-## ブロックチェーン起動コマンド
-```bash
-# 開発モード（一時ストレージ）
-./target/release/anarchy-node --dev --tmp
-
-# ビルド
-cargo build --release
-
-# テスト
-cargo test -p pallet-post
-cargo test -p pallet-moral
-```
+## Moral Token 精度
+- 12 decimals（1 MORAL = 1_000_000_000_000 units）
+- PostBaseCost = 10_000_000_000_000 (10 MORAL)
+- PostByteCost = 100_000_000_000 (0.1 MORAL)

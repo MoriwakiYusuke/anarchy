@@ -12,10 +12,10 @@
 
 ### 1.1 プロジェクト基盤
 
-- [ ] モノレポ構成のセットアップ
-  - [ ] `pnpm-workspace.yaml` 作成
-  - [ ] `apps/blockchain/` - Substrate L1
-  - [ ] `apps/frontend/` - Next.js PWA
+- [x] モノレポ構成のセットアップ
+  - [x] `pnpm-workspace.yaml` 作成
+  - [x] `apps/blockchain/` - Substrate L1
+  - [x] `apps/frontend/` - Next.js PWA
   - [ ] `packages/sdk/` - 共有暗号SDK
   - [ ] `packages/wasm-engine/` - Rust→Wasm
 
@@ -26,27 +26,28 @@
 
 ### 1.2 Substrate L1 Core (`apps/blockchain/`)
 
-- [ ] Substrate ノードテンプレート初期化
-  ```bash
-  substrate-node-new anarchy-node
-  ```
+- [x] Substrate ノードテンプレート初期化 (Polkadot SDK stable2503)
 
 - [ ] **Identity Pallet** 作成
   - [ ] WebAuthn公開鍵の登録ストレージ
   - [ ] マルチデバイス対応（1 Identity → N Passkeys）
   - [ ] 公開鍵の追加/削除エクストリンシック
 
-- [ ] **Moral Token Pallet** 作成
-  - [ ] トークン発行（mint）ロジック
-  - [ ] トークン焼却（burn）ロジック
-  - [ ] 残高管理ストレージ
-  - [ ] 転送エクストリンシック
+- [x] **Moral Token Pallet** 作成
+  - [x] トークン発行（mint）ロジック
+  - [x] トークン焼却（burn）ロジック
+  - [x] 残高管理ストレージ
+  - [x] 転送エクストリンシック
+  - [x] Genesis設定でテストアカウントにMoral配布
 
-- [ ] **Post Pallet** 作成（最小限）
-  - [ ] 投稿データ構造定義
-  - [ ] 投稿ストレージ
-  - [ ] 投稿作成エクストリンシック
-  - [ ] 投稿コスト（PoWまたは$moral）の検証
+- [x] **Post Pallet** 作成
+  - [x] 投稿データ構造定義
+  - [x] 投稿ストレージ（Posts, Contents, UserPosts）
+  - [x] 投稿作成エクストリンシック
+  - [x] 投稿コスト（$moral）の検証
+  - [x] **動的コスト計算（byte数ベース）**
+    - PostBaseCost = 10 MORAL（基本料金）
+    - PostByteCost = 0.1 MORAL/byte（バイト単価）
 
 ### 1.3 libp2p + Tor 統合
 
@@ -80,8 +81,8 @@
 
 ### 1.5 フロントエンド MVP (`apps/frontend/`)
 
-- [ ] Next.js プロジェクト初期化
-  - [ ] TypeScript設定
+- [x] Next.js プロジェクト初期化
+  - [x] TypeScript設定
   - [ ] PWA設定（next-pwa）
 
 - [ ] WebAuthn統合
@@ -89,10 +90,12 @@
   - [ ] パスキー認証フロー
   - [ ] 署名リクエスト（投稿時）
 
-- [ ] 基本UI
-  - [ ] タイムライン表示
-  - [ ] 投稿フォーム
-  - [ ] ウォレット残高表示
+- [x] 基本UI
+  - [x] タイムライン表示
+  - [x] 投稿フォーム（動的コスト表示付き）
+  - [x] ウォレット残高表示
+  - [x] PAPI (polkadot-api) によるチェーン接続
+  - [ ] Runtime constantsからのコスト設定取得（フォールバック対応済み）
 
 ---
 
@@ -205,27 +208,30 @@ Phase 3.1 (Reaction) ─┬── Phase 3.2 (ZKP)
 
 ## 優先度マトリクス
 
-| タスク | 重要度 | 難易度 | 優先順位 |
-|--------|--------|--------|----------|
-| Substrate基盤 | 高 | 中 | **1** |
-| Identity Pallet | 高 | 中 | **2** |
-| WebAuthn検証 | 高 | 中 | **3** |
-| libp2p基盤 | 高 | 低 | **4** |
-| フロントMVP | 高 | 低 | **5** |
-| Arti(Tor)統合 | 中 | 高 | 6 |
-| SSS実装 | 中 | 低 | 7 |
-| ステルスアドレス | 中 | 中 | 8 |
-| 反応マイニング | 低 | 中 | 9 |
-| ZKP回路 | 低 | 高 | 10 |
+| タスク | 重要度 | 難易度 | 優先順位 | 状態 |
+|--------|--------|--------|----------|------|
+| Substrate基盤 | 高 | 中 | **1** | ✅完了 |
+| Moral Pallet | 高 | 低 | **1.5** | ✅完了 |
+| Post Pallet | 高 | 中 | **1.5** | ✅完了 |
+| フロントMVP | 高 | 低 | **2** | ✅完了 |
+| Identity Pallet | 高 | 中 | **3** | 未着手 |
+| WebAuthn検証 | 高 | 中 | **4** | 未着手 |
+| libp2p基盤 | 高 | 低 | **5** | 未着手 |
+| Arti(Tor)統合 | 中 | 高 | 6 | 未着手 |
+| SSS実装 | 中 | 低 | 7 | 未着手 |
+| ステルスアドレス | 中 | 中 | 8 | 未着手 |
+| 反応マイニング | 低 | 中 | 9 | 未着手 |
+| ZKP回路 | 低 | 高 | 10 | 未着手 |
 
 ---
 
 ## マイルストーン
 
-### M1: 動作するローカルネット（2週間）
+### M1: 動作するローカルネット ✅完了
 - Substrateノード起動
-- 基本的なトークン転送
+- 基本的なトークン転送（Moral）
 - シンプルな投稿機能
+- **追加達成**: 動的投稿コスト、Genesis設定
 
 ### M2: 認証統合（2週間）
 - WebAuthn署名検証
