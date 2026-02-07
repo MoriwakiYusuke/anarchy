@@ -1,0 +1,35 @@
+/**
+ * MatrixBackground Styles
+ * 
+ * Styling for full-screen matrix background animation.
+ */
+
+.background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  background-color: #000;
+}
+
+/* Static fallback for prefers-reduced-motion */
+.static {
+  /* Subtle static pattern instead of animation */
+  background-color: #000;
+  background-image: 
+    linear-gradient(
+      0deg, 
+      transparent 0%, 
+      rgba(51, 51, 51, 0.03) 50%, 
+      transparent 100%
+    );
+}
+
+/* Ensure canvas fills viewport */
+.background canvas,
+canvas.background {
+  display: block;
+}

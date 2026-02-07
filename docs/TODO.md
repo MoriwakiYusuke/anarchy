@@ -166,7 +166,11 @@
   - [ ] アルゴリズム: SHA256 or Blake2b（ASIC耐性不要）
   - [ ] 匿名性: KYC不要、IPログなし
 
-### 2.4 ステルスアドレス統合
+---
+
+## Phase 3: 自律エコシステム
+
+### 3.1 ステルスアドレス統合
 
 - [ ] **Stealth Pallet** 作成
   - [ ] ステルスアドレス宛トランザクション
@@ -177,11 +181,7 @@
   - [ ] 自分宛トランザクション検出
   - [ ] 復号・残高更新
 
----
-
-## Phase 3: 自律エコシステム
-
-### 3.1 反応マイニング
+### 3.2 反応マイニング
 
 - [ ] **Reaction Pallet** 作成
   - [ ] 反応データ構造（いいね、ブースト等）
@@ -205,7 +205,7 @@
   - [ ] 難易度自動調整アルゴリズム
   - [ ] インフレ/デフレ抑制メカニズム
 
-### 3.2 ZKP匿名人間証明 (`packages/circuits/`)
+### 3.3 ZKP匿名人間証明 (`packages/circuits/`)
 
 - [ ] **Circom/Noir回路設計**
   - [ ] 「ユニークな人間である」証明
@@ -217,7 +217,7 @@
   - [ ] 証明データ格納
   - [ ] Nullifier重複チェック
 
-### 3.3 DM機能（Stealth Messaging）
+### 3.4 DM機能（Stealth Messaging）
 
 - [ ] E2EE実装
   - [ ] ChaCha20-Poly1305暗号化
@@ -310,12 +310,10 @@ Phase 1.2 (Substrate) ──┬── Phase 1.3 (libp2p+Tor)
 Phase 2.1 (Wasm) ──────── Phase 2.2 (Storage Pallet + Storage Node)
                         │
                         └── Phase 2.3 (PoW Faucet)
-                        │
-                        └── Phase 2.4 (Stealth)
 
-Phase 3.1 (Reaction) ─┬── Phase 3.2 (ZKP)
-                      │
-                      └── Phase 3.3 (DM)
+Phase 3.1 (Stealth) ─── Phase 3.2 (Reaction) ─┬── Phase 3.3 (ZKP)
+                                              │
+                                              └── Phase 3.4 (DM)
 
 Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 ```

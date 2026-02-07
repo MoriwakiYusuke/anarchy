@@ -36,6 +36,41 @@
   border-radius: 4px;
 }
 
+.fullAddress {
+  font-family: monospace;
+  font-size: 0.75rem;
+  background: var(--bg-primary);
+  padding: 0.5rem;
+  border-radius: 4px;
+  word-break: break-all;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.addressRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.copyBtn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.4rem;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.copyBtn:hover {
+  background: var(--bg-secondary);
+}
+
 .connect {
   display: flex;
   flex-direction: column;

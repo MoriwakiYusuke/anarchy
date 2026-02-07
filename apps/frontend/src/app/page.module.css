@@ -1,13 +1,36 @@
 .main {
+  position: relative;
+  z-index: 1;
   min-height: 100vh;
   padding: 2rem;
+  padding-top: 0;
 }
 
 .header {
+  position: relative;
+  z-index: 2;
   text-align: center;
-  margin-bottom: 3rem;
-  padding-bottom: 2rem;
+  margin: 0 auto 3rem;
+  padding: 2rem;
   border-bottom: 1px solid var(--border);
+  background-color: #000;
+}
+
+.headerBg {
+  position: relative;
+  z-index: 2;
+  background-color: #000;
+  padding-top: 2rem;
+  margin-left: -2rem;
+  margin-right: -2rem;
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+.headerTop {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
 }
 
 .title {
@@ -71,11 +94,37 @@
 }
 
 @media (max-width: 768px) {
+  .main {
+    padding: 1rem;
+  }
+
+  .header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+  }
+
+  .title {
+    font-size: 2rem;
+  }
+
+  .subtitle {
+    font-size: 0.875rem;
+  }
+
   .container {
     grid-template-columns: 1fr;
+    gap: 1rem;
   }
 
   .sidebar {
     position: static;
+  }
+
+  .error {
+    left: 1rem;
+    right: 1rem;
+    transform: none;
+    padding: 0.75rem 1rem;
+    text-align: center;
   }
 }

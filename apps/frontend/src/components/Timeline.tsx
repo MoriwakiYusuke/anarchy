@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { PolkadotClient } from 'polkadot-api'
+import { useLocale } from '@/i18n'
 import styles from './Timeline.module.css'
 
 interface Post {
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
+  const { t } = useLocale()
   const [posts, setPosts] = useState<Post[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -73,7 +75,7 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
 
         setPosts(fetchedPosts.slice(0, 50))
       } catch (err) {
-        console.error('投稿の取得に失敗:', err)
+        console.error('Failed to fetch posts:', err)
       } finally {
         setIsLoading(false)
       }
@@ -93,7 +95,7 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
   if (isLoading) {
     return (
       <div className={styles.loading}>
-        タイムラインを読み込み中...
+        {t('timeline.loading')}
       </div>
     )
   }
@@ -101,8 +103,7 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
   if (posts.length === 0) {
     return (
       <div className={styles.empty}>
-        <p>まだ投稿がありません</p>
-        <p className={styles.hint}>最初の投稿者になりましょう</p>
+        <p>{t('timeline.empty')}</p>
       </div>
     )
   }

@@ -5,7 +5,8 @@ import { createClient, PolkadotClient, Binary } from 'polkadot-api'
 import { getWsProvider } from 'polkadot-api/ws-provider/web'
 import { getPolkadotSigner, PolkadotSigner } from 'polkadot-api/signer'
 import { DEV_PHRASE } from '@polkadot-labs/hdkd-helpers'
-import { Keyring } from '@polkadot/keyring'
+// Dynamic import for @polkadot/keyring to avoid SSR issues with octal escape sequences
+// import { Keyring } from '@polkadot/keyring'
 
 const WS_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT || 'ws://127.0.0.1:9944'
 
@@ -14,7 +15,7 @@ export interface UseApiResult {
   unsafeApi: any
   isConnected: boolean
   error: string | null
-  createSigner: (seedPhrase: string) => PolkadotSigner | null
+  createSigner: (seedPhrase: string) => Promise<PolkadotSigner | null>
 }
 
 export function useApi(): UseApiResult {
@@ -61,9 +62,11 @@ export function useApi(): UseApiResult {
   // Create signer from seed phrase or derivation path
   // If seedPhrase starts with //, treat it as a derivation path from DEV_PHRASE
   // Otherwise, use it as a mnemonic seed phrase directly
-  const createSigner = useCallback((seedPhrase: string): PolkadotSigner | null => {
+  const createSigner = useCallback(async (seedPhrase: string): Promise<PolkadotSigner | null> => {
     try {
       // Use @polkadot/keyring for all cases to match WalletConnect's address derivation
+      // Dynamic import to avoid SSR issues with octal escape sequences in the package
+      const { Keyring } = await import('@polkadot/keyring')
       const keyring = new Keyring({ type: 'sr25519' })
       let pair
       

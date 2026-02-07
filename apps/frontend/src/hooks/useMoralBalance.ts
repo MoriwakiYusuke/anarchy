@@ -71,7 +71,7 @@ export function formatMoralBalance(balance: bigint | null): string {
   const fraction = (balance % divisor) / BigInt(10_000_000_000) // 小数点以下2桁
   
   if (fraction === BigInt(0)) {
-    return whole.toString()
+    return `${whole.toString()} MORAL`
   }
-  return `${whole}.${fraction.toString().padStart(2, '0')}`
+  return `${whole}.${fraction.toString().padStart(2, '0')} MORAL`
 }
