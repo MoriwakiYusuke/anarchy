@@ -68,16 +68,16 @@
 
 ### 1.4 WebAuthn 署名検証
 
-- [ ] **Rust署名検証ライブラリ** (`packages/sdk/`)
-  - [ ] COSE公開鍵パーサー
-  - [ ] ES256 (P-256) 署名検証
-  - [ ] authenticatorData パース
-  - [ ] clientDataJSON 検証
+- [x] **Rust署名検証ライブラリ** (`apps/blockchain/pallets/identity/src/`)
+  - [x] COSE公開鍵パーサー (`cose.rs`)
+  - [x] ES256 (P-256) 署名検証 (`webauthn.rs`)
+  - [x] authenticatorData パース (`webauthn.rs`)
+  - [x] clientDataJSON 検証 (`webauthn.rs`)
 
-- [ ] **Substrate統合**
-  - [ ] `sp-io` カスタムホスト関数（オプション）
-  - [ ] オンチェーンWebAuthn検証ロジック
-  - [ ] WYSIWYS: challengeに投稿ハッシュ埋め込み
+- [x] **Substrate統合**
+  - [x] オンチェーンWebAuthn検証ロジック
+  - [x] WYSIWYS: challengeに投稿ハッシュ埋め込み
+  - [x] `create_post_with_webauthn` エクストリンシック（Post Pallet）
 
 ### 1.5 フロントエンド MVP (`apps/frontend/`)
 
@@ -95,7 +95,7 @@
   - [x] 投稿フォーム（動的コスト表示付き）
   - [x] ウォレット残高表示
   - [x] PAPI (polkadot-api) によるチェーン接続
-  - [ ] Runtime constantsからのコスト設定取得（フォールバック対応済み）
+  - [x] Runtime constantsからのコスト設定取得（フォールバック対応済み）
 
 ---
 
@@ -267,8 +267,8 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | Moral Pallet | 高 | 低 | **1.5** | ✅完了 |
 | Post Pallet | 高 | 中 | **1.5** | ✅完了 |
 | フロントMVP | 高 | 低 | **2** | ✅完了 |
-| Identity Pallet | 高 | 中 | **3** | 未着手 |
-| WebAuthn検証 | 高 | 中 | **4** | 未着手 |
+| Identity Pallet | 高 | 中 | **3** | ✅完了 |
+| WebAuthn検証 | 高 | 中 | **4** | ✅完了 |
 | libp2p基盤 | 高 | 低 | **5** | 未着手 |
 | Arti(Tor)統合 | 中 | 高 | 6 | 未着手 |
 | SSS実装 | 中 | 低 | 7 | 未着手 |
@@ -287,9 +287,11 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 - シンプルな投稿機能
 - **追加達成**: 動的投稿コスト、Genesis設定
 
-### M2: 認証統合（2週間）
-- WebAuthn署名検証
-- フロントエンドでのパスキー登録/認証
+### M2: 認証統合 ✅完了
+- [x] WebAuthn署名検証（COSE/P-256/WYSIWYS）
+- [x] Identity Pallet（Passkey登録/管理）
+- [x] Post Pallet WebAuthn統合
+- [ ] フロントエンドでのパスキー登録/認証（残作業）
 
 ### M3: P2Pネットワーク（2週間）
 - 複数ノード間の通信確立

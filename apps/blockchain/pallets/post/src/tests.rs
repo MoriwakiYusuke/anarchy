@@ -19,6 +19,7 @@ frame_support::construct_runtime!(
     pub enum Test {
         System: frame_system,
         MoralModule: pallet_moral,
+        IdentityModule: pallet_identity,
         PostModule: pallet_post,
     }
 );
@@ -64,6 +65,13 @@ impl pallet_moral::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Balance = u128;
     type InitialBalance = ConstU128<100_000>; // テスト用: 100000 MORAL
+}
+
+impl pallet_identity::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type MaxPasskeys = ConstU32<10>;
+    type MaxPublicKeyLength = ConstU32<256>;
+    type MaxDeviceNameLength = ConstU32<64>;
 }
 
 impl pallet_post::Config for Test {
@@ -254,5 +262,149 @@ fn content_hash_is_correct() {
 
         let post = Posts::<Test>::get(0).expect("投稿が存在するはず");
         assert_eq!(post.content_hash, expected_hash);
+    });
+}
+
+// ============================================================================
+// WebAuthn署名付き投稿のテスト
+// ============================================================================
+
+#[test]
+fn create_post_with_webauthn_identity_not_found() {
+    new_test_ext().execute_with(|| {
+        let author = 1u64;
+        let content = b"WebAuthn post content".to_vec();
+        let passkey_id = [0u8; 32];
+        let authenticator_data = vec![0u8; 37]; // 最小サイズ
+        let client_data_json = b"{}".to_vec();
+        let signature = vec![0u8; 64];
+
+        // 存在しないIdentity IDで投稿を試みる
+        assert_noop!(
+            PostModule::create_post_with_webauthn(
+                RuntimeOrigin::signed(author),
+                999, // 存在しないidentity_id
+                passkey_id,
+                content,
+                authenticator_data,
+                client_data_json,
+                signature,
+                None
+            ),
+            Error::<Test>::IdentityNotFound
+        );
+    });
+}
+
+#[test]
+fn create_post_with_webauthn_passkey_not_found() {
+    new_test_ext().execute_with(|| {
+        let author = 1u64;
+        let content = b"WebAuthn post content".to_vec();
+        let wrong_passkey_id = [0xFFu8; 32]; // 存在しないpasskey_id
+        let authenticator_data = vec![0u8; 37];
+        let client_data_json = b"{}".to_vec();
+        let signature = vec![0u8; 64];
+
+        // まずIdentityを登録
+        let public_key = vec![0u8; 77]; // COSE key format
+        let device_name = Some(b"Test Device".to_vec());
+
+        assert_ok!(IdentityModule::register_identity(
+            RuntimeOrigin::signed(author),
+            public_key,
+            device_name,
+        ));
+
+        // 存在しないpasskey_idで投稿を試みる
+        assert_noop!(
+            PostModule::create_post_with_webauthn(
+                RuntimeOrigin::signed(author),
+                0, // 登録されたidentity_id
+                wrong_passkey_id, // 違うpasskey_id
+                content,
+                authenticator_data,
+                client_data_json,
+                signature,
+                None
+            ),
+            Error::<Test>::PasskeyNotFound
+        );
+    });
+}
+
+#[test]
+fn create_post_with_webauthn_content_too_long() {
+    new_test_ext().execute_with(|| {
+        let author = 1u64;
+        let content = vec![0u8; 10001]; // 上限超過
+        let public_key = vec![0u8; 77];
+        // passkey_idは公開鍵から導出
+        let passkey_id = sp_io::hashing::blake2_256(&public_key);
+        let authenticator_data = vec![0u8; 37];
+        let client_data_json = b"{}".to_vec();
+        let signature = vec![0u8; 64];
+
+        // まずIdentityを登録
+        let device_name = Some(b"Test Device".to_vec());
+
+        assert_ok!(IdentityModule::register_identity(
+            RuntimeOrigin::signed(author),
+            public_key,
+            device_name,
+        ));
+
+        // コンテンツが長すぎるため失敗
+        assert_noop!(
+            PostModule::create_post_with_webauthn(
+                RuntimeOrigin::signed(author),
+                0,
+                passkey_id,
+                content,
+                authenticator_data,
+                client_data_json,
+                signature,
+                None
+            ),
+            Error::<Test>::ContentTooLong
+        );
+    });
+}
+
+#[test]
+fn create_post_with_webauthn_parent_not_found() {
+    new_test_ext().execute_with(|| {
+        let author = 1u64;
+        let content = b"WebAuthn reply".to_vec();
+        let public_key = vec![0u8; 77];
+        // passkey_idは公開鍵から導出
+        let passkey_id = sp_io::hashing::blake2_256(&public_key);
+        let authenticator_data = vec![0u8; 37];
+        let client_data_json = b"{}".to_vec();
+        let signature = vec![0u8; 64];
+
+        // まずIdentityを登録
+        let device_name = Some(b"Test Device".to_vec());
+
+        assert_ok!(IdentityModule::register_identity(
+            RuntimeOrigin::signed(author),
+            public_key,
+            device_name,
+        ));
+
+        // 存在しない親投稿へのリプライは失敗
+        assert_noop!(
+            PostModule::create_post_with_webauthn(
+                RuntimeOrigin::signed(author),
+                0,
+                passkey_id,
+                content,
+                authenticator_data,
+                client_data_json,
+                signature,
+                Some(999) // 存在しない親
+            ),
+            Error::<Test>::ParentPostNotFound
+        );
     });
 }

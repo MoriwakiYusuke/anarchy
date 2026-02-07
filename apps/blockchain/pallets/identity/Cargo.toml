@@ -18,6 +18,11 @@ sp-std = { workspace = true }
 sp-runtime = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 
+# WebAuthn signature verification
+p256 = { workspace = true }
+ecdsa = { workspace = true }
+sha2 = { workspace = true }
+
 [dev-dependencies]
 sp-core = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }
@@ -32,6 +37,9 @@ std = [
     "sp-std/std",
     "sp-runtime/std",
     "sp-core/std",
+    "p256/std",
+    "ecdsa/std",
+    "sha2/std",
 ]
 runtime-benchmarks = ["frame-support/runtime-benchmarks", "frame-system/runtime-benchmarks"]
 try-runtime = ["frame-support/try-runtime", "frame-system/try-runtime"]
