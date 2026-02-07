@@ -13,12 +13,6 @@
 
 pub use pallet::*;
 
-/// COSE public key parsing module
-pub mod cose;
-
-/// WebAuthn signature verification module
-pub mod webauthn;
-
 #[cfg(test)]
 mod tests;
 

@@ -45,6 +45,9 @@ Node.jsのnpmパッケージ、PythonのPyPIパッケージに相当。
 Anarchyのパレット構成:
 ├── pallet-moral  → トークン管理（残高、送金、発行）
 └── pallet-post   → 投稿管理（作成、保存、取得）
+
+※ Identity Pallet（WebAuthn検証）は設計見直しにより廃止
+   → シンプルなAccountIdのみの認証に移行
 ```
 
 ---
@@ -221,9 +224,15 @@ Polkadot SDK stable2503 は v16 を使用するため、PAPI が必須
 | Moral Pallet | ✅ 完了 |
 | Post Pallet | ✅ 完了 |
 | フロントエンドMVP | ✅ 完了 |
-| Identity Pallet | ⏳ 未着手 |
-| WebAuthn検証 | ⏳ 未着手 |
+| Identity Pallet | 🚫 廃止（設計見直し） |
+| WebAuthn検証 | 🚫 廃止（設計見直し） |
+| AccountIdのみ認証 | ✅ 完了 |
 | libp2p + Tor | ⏳ 未着手 |
+
+**設計変更について（2026-02）**:
+- WebAuthn認証とIdentity Palletを廃止し、シードフレーズベースのAccountId認証に統一
+- 理由: 外部ウォレットとの紐付けによるプライバシーリスク回避、実装の簡素化
+- WASMランタイムサイズ: 388K → 360K (7.2%削減)
 
 ### Phase 2: プライバシー・レイヤー
 
@@ -285,4 +294,4 @@ Error: Runtime entry Constant(Post.PostBaseCost) not found
 
 ---
 
-*最終更新: 2026-02-07*
+*最終更新: 2026-02-08*

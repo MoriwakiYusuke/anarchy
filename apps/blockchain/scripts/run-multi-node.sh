@@ -1,6 +1,6 @@
 #!/bin/bash
 # 複数ノードでローカルテストネットを起動するスクリプト
-# Usage: ./scripts/run-multi-node.sh [start|stop|status|logs]
+# Usage: ./scripts/run-multi-node.sh [start [N]|stop|status|logs]
 
 set -e
 
@@ -10,18 +10,17 @@ NODE_BIN="$PROJECT_DIR/target/release/anarchy-node"
 DATA_DIR="$PROJECT_DIR/data"
 LOG_DIR="$PROJECT_DIR/logs"
 
-# ノード設定
-ALICE_P2P_PORT=30333
-ALICE_RPC_PORT=9944
-ALICE_PROM_PORT=9615
+# ノード名（最大10ノード）
+NODE_NAMES=(alice bob charlie dave eve ferdie one two nine ten)
 
-BOB_P2P_PORT=30334
-BOB_RPC_PORT=9945
-BOB_PROM_PORT=9616
+# ベースポート
+BASE_P2P_PORT=30333
+BASE_RPC_PORT=9944
+BASE_PROM_PORT=9615
 
-CHARLIE_P2P_PORT=30335
-CHARLIE_RPC_PORT=9946
-CHARLIE_PROM_PORT=9617
+# デフォルトノード数
+DEFAULT_NODE_COUNT=3
+MAX_NODE_COUNT=10
 
 # カラー出力
 RED='\033[0;31m'
@@ -50,7 +49,7 @@ check_binary() {
 }
 
 create_dirs() {
-    mkdir -p "$DATA_DIR/alice" "$DATA_DIR/bob" "$DATA_DIR/charlie" "$LOG_DIR"
+    mkdir -p "$LOG_DIR"
 }
 
 get_alice_peer_id() {
@@ -71,127 +70,146 @@ get_alice_peer_id() {
     return 1
 }
 
-start_alice() {
-    log_info "Starting Alice node (Authority)..."
+# 汎用ノード起動関数
+# $1: ノード名 (alice, bob, charlie, ...)
+# $2: ノードインデックス (0, 1, 2, ...)
+# $3: Validator かどうか (true/false)
+# $4: bootnode (空文字ならbootnodeなし)
+start_node() {
+    local name="$1"
+    local index="$2"
+    local is_validator="$3"
+    local bootnode="$4"
     
-    $NODE_BIN \
-        --chain local \
-        --alice \
-        --base-path "$DATA_DIR/alice" \
-        --port $ALICE_P2P_PORT \
-        --rpc-port $ALICE_RPC_PORT \
-        --prometheus-port $ALICE_PROM_PORT \
-        --rpc-cors all \
-        --validator \
-        --node-key 0000000000000000000000000000000000000000000000000000000000000001 \
-        --unsafe-force-node-key-generation \
-        > "$LOG_DIR/alice.log" 2>&1 &
+    local p2p_port=$((BASE_P2P_PORT + index))
+    local rpc_port=$((BASE_RPC_PORT + index))
+    local prom_port=$((BASE_PROM_PORT + index))
     
-    echo $! > "$DATA_DIR/alice.pid"
-    log_info "Alice started (PID: $(cat $DATA_DIR/alice.pid))"
-    log_info "  P2P: $ALICE_P2P_PORT, RPC: $ALICE_RPC_PORT"
-}
-
-start_bob() {
-    log_info "Starting Bob node (Authority)..."
+    mkdir -p "$DATA_DIR/$name"
     
-    # Aliceのbootnode情報を取得
-    local alice_peer_id=$(get_alice_peer_id)
-    if [ -z "$alice_peer_id" ]; then
-        log_error "Could not get Alice's peer ID. Is Alice running?"
-        exit 1
+    local role="Full node"
+    local validator_flag=""
+    if [ "$is_validator" = "true" ]; then
+        role="Validator"
+        validator_flag="--validator"
     fi
     
-    local bootnode="/ip4/127.0.0.1/tcp/$ALICE_P2P_PORT/p2p/$alice_peer_id"
-    log_info "  Connecting to bootnode: $bootnode"
+    log_info "Starting $name node ($role)..."
     
-    $NODE_BIN \
-        --chain local \
-        --bob \
-        --base-path "$DATA_DIR/bob" \
-        --port $BOB_P2P_PORT \
-        --rpc-port $BOB_RPC_PORT \
-        --prometheus-port $BOB_PROM_PORT \
-        --rpc-cors all \
-        --validator \
-        --bootnodes "$bootnode" \
-        --unsafe-force-node-key-generation \
-        > "$LOG_DIR/bob.log" 2>&1 &
-    
-    echo $! > "$DATA_DIR/bob.pid"
-    log_info "Bob started (PID: $(cat $DATA_DIR/bob.pid))"
-    log_info "  P2P: $BOB_P2P_PORT, RPC: $BOB_RPC_PORT"
-}
-
-start_charlie() {
-    log_info "Starting Charlie node (Full node)..."
-    
-    local alice_peer_id=$(get_alice_peer_id)
-    if [ -z "$alice_peer_id" ]; then
-        log_error "Could not get Alice's peer ID. Is Alice running?"
-        exit 1
+    local bootnode_flag=""
+    if [ -n "$bootnode" ]; then
+        bootnode_flag="--bootnodes $bootnode"
+        log_info "  Connecting to bootnode"
     fi
     
-    local bootnode="/ip4/127.0.0.1/tcp/$ALICE_P2P_PORT/p2p/$alice_peer_id"
-    log_info "  Connecting to bootnode: $bootnode"
+    # node-keyはaliceのみ固定（peer ID取得のため）
+    local node_key_flag=""
+    if [ "$name" = "alice" ]; then
+        node_key_flag="--node-key 0000000000000000000000000000000000000000000000000000000000000001"
+    fi
     
     $NODE_BIN \
         --chain local \
-        --charlie \
-        --base-path "$DATA_DIR/charlie" \
-        --port $CHARLIE_P2P_PORT \
-        --rpc-port $CHARLIE_RPC_PORT \
-        --prometheus-port $CHARLIE_PROM_PORT \
+        --"$name" \
+        --base-path "$DATA_DIR/$name" \
+        --port $p2p_port \
+        --rpc-port $rpc_port \
+        --prometheus-port $prom_port \
         --rpc-cors all \
-        --bootnodes "$bootnode" \
+        $validator_flag \
+        $bootnode_flag \
+        $node_key_flag \
         --unsafe-force-node-key-generation \
-        > "$LOG_DIR/charlie.log" 2>&1 &
+        > "$LOG_DIR/$name.log" 2>&1 &
     
-    echo $! > "$DATA_DIR/charlie.pid"
-    log_info "Charlie started (PID: $(cat $DATA_DIR/charlie.pid))"
-    log_info "  P2P: $CHARLIE_P2P_PORT, RPC: $CHARLIE_RPC_PORT"
+    echo $! > "$DATA_DIR/$name.pid"
+    log_info "$name started (PID: $(cat $DATA_DIR/$name.pid))"
+    log_info "  P2P: $p2p_port, RPC: $rpc_port"
 }
 
 start_all() {
+    local node_count="${1:-$DEFAULT_NODE_COUNT}"
+    
+    # バリデーション
+    if [ "$node_count" -lt 1 ] || [ "$node_count" -gt $MAX_NODE_COUNT ]; then
+        log_error "Node count must be between 1 and $MAX_NODE_COUNT"
+        exit 1
+    fi
+    
     check_binary
     create_dirs
     
-    log_info "Starting local testnet with 3 nodes..."
-    log_info "  - Alice: Validator"
-    log_info "  - Bob: Validator"
-    log_info "  - Charlie: Full node"
+    # Validator数を決定（最初の2ノード、または全ノードが2未満なら全部）
+    local validator_count=2
+    if [ "$node_count" -lt 2 ]; then
+        validator_count=$node_count
+    fi
+    
+    log_info "Starting local testnet with $node_count node(s)..."
+    for ((i=0; i<node_count; i++)); do
+        local name="${NODE_NAMES[$i]}"
+        if [ $i -lt $validator_count ]; then
+            log_info "  - ${name^}: Validator"
+        else
+            log_info "  - ${name^}: Full node"
+        fi
+    done
     log_info ""
     
-    start_alice
-    sleep 3  # Aliceが起動するまで待機
-    start_bob
-    sleep 2
-    start_charlie
+    # ノードを順に起動
+    local bootnode=""
+    for ((i=0; i<node_count; i++)); do
+        local name="${NODE_NAMES[$i]}"
+        local is_validator="false"
+        if [ $i -lt $validator_count ]; then
+            is_validator="true"
+        fi
+        
+        start_node "$name" "$i" "$is_validator" "$bootnode"
+        
+        # 最初のノード（alice）起動後にbootnode取得
+        if [ $i -eq 0 ]; then
+            sleep 3
+            local alice_peer_id=$(get_alice_peer_id)
+            if [ -z "$alice_peer_id" ]; then
+                log_error "Could not get Alice's peer ID"
+                exit 1
+            fi
+            bootnode="/ip4/127.0.0.1/tcp/$BASE_P2P_PORT/p2p/$alice_peer_id"
+        else
+            sleep 2
+        fi
+    done
     
     log_info ""
-    log_info "=== Testnet Started (3 nodes) ==="
-    log_info "Alice (Validator) RPC:   ws://127.0.0.1:$ALICE_RPC_PORT"
-    log_info "Bob (Validator) RPC:     ws://127.0.0.1:$BOB_RPC_PORT"
-    log_info "Charlie (Full node) RPC: ws://127.0.0.1:$CHARLIE_RPC_PORT"
+    log_info "=== Testnet Started ($node_count nodes) ==="
+    for ((i=0; i<node_count; i++)); do
+        local name="${NODE_NAMES[$i]}"
+        local rpc_port=$((BASE_RPC_PORT + i))
+        local role="Full node"
+        if [ $i -lt $validator_count ]; then
+            role="Validator"
+        fi
+        log_info "${name^} ($role) RPC: ws://127.0.0.1:$rpc_port"
+    done
     log_info ""
-    log_info "View logs:"
-    log_info "  Alice:   tail -f $LOG_DIR/alice.log"
-    log_info "  Bob:     tail -f $LOG_DIR/bob.log"
-    log_info "  Charlie: tail -f $LOG_DIR/charlie.log"
-    log_info ""
+    log_info "View logs: $0 logs [node_name]"
     log_info "Stop with: $0 stop"
+    
+    # 起動したノード数を記録
+    echo "$node_count" > "$DATA_DIR/.node_count"
 }
 
 stop_all() {
     log_info "Stopping all nodes..."
     
-    for node in alice bob charlie; do
-        pid_file="$DATA_DIR/$node.pid"
+    for name in "${NODE_NAMES[@]}"; do
+        pid_file="$DATA_DIR/$name.pid"
         if [ -f "$pid_file" ]; then
             pid=$(cat "$pid_file")
             if kill -0 "$pid" 2>/dev/null; then
                 kill "$pid"
-                log_info "Stopped $node (PID: $pid)"
+                log_info "Stopped $name (PID: $pid)"
             fi
             rm -f "$pid_file"
         fi
@@ -200,25 +218,30 @@ stop_all() {
     # 念のため残プロセスも終了
     pkill -f "anarchy-node" 2>/dev/null || true
     
+    rm -f "$DATA_DIR/.node_count"
     log_info "All nodes stopped"
 }
 
 status() {
     log_info "Node status:"
     
-    for node in alice bob charlie; do
-        pid_file="$DATA_DIR/$node.pid"
+    local found_any=false
+    for name in "${NODE_NAMES[@]}"; do
+        pid_file="$DATA_DIR/$name.pid"
         if [ -f "$pid_file" ]; then
+            found_any=true
             pid=$(cat "$pid_file")
             if kill -0 "$pid" 2>/dev/null; then
-                echo -e "  $node: ${GREEN}Running${NC} (PID: $pid)"
+                echo -e "  $name: ${GREEN}Running${NC} (PID: $pid)"
             else
-                echo -e "  $node: ${RED}Stopped${NC} (stale PID file)"
+                echo -e "  $name: ${RED}Stopped${NC} (stale PID file)"
             fi
-        else
-            echo -e "  $node: ${YELLOW}Not started${NC}"
         fi
     done
+    
+    if [ "$found_any" = false ]; then
+        log_info "  No nodes running"
+    fi
 }
 
 show_logs() {
@@ -243,24 +266,27 @@ purge_data() {
 }
 
 usage() {
-    echo "Usage: $0 <command>"
+    echo "Usage: $0 <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  start       Start 3 nodes (Alice/Bob validators + Charlie full node)"
+    echo "  start [N]   Start N nodes (default: $DEFAULT_NODE_COUNT, max: $MAX_NODE_COUNT)"
+    echo "              First 2 nodes are validators, rest are full nodes"
     echo "  stop        Stop all nodes"
     echo "  status      Show node status"
     echo "  logs [node] View logs (default: alice)"
     echo "  purge       Delete all chain data"
     echo ""
-    echo "Node endpoints after start:"
-    echo "  Alice:   ws://127.0.0.1:$ALICE_RPC_PORT"
-    echo "  Bob:     ws://127.0.0.1:$BOB_RPC_PORT"
-    echo "  Charlie: ws://127.0.0.1:$CHARLIE_RPC_PORT"
+    echo "Examples:"
+    echo "  $0 start        # Start 3 nodes (alice/bob validators + charlie full node)"
+    echo "  $0 start 5      # Start 5 nodes"
+    echo "  $0 start 10     # Start 10 nodes (maximum)"
+    echo ""
+    echo "Available node names: ${NODE_NAMES[*]}"
 }
 
 case "${1:-}" in
     start)
-        start_all
+        start_all "${2:-}"
         ;;
     stop)
         stop_all

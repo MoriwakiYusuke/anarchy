@@ -208,3 +208,135 @@
   border-radius: 4px;
   text-align: center;
 }
+
+/* シードフレーズ関連スタイル */
+
+.modeTabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.modeTab {
+  flex: 1;
+  background: var(--bg-primary);
+  border: none;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.modeTab:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.modeTab.active {
+  background: var(--accent);
+  color: white;
+}
+
+.modeTab:hover:not(.active) {
+  background: var(--bg-secondary);
+}
+
+.seedPhraseSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.devSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.seedPhraseInput {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: monospace;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.seedPhraseInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.seedPhraseInput::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.seedPhraseError {
+  font-size: 0.75rem;
+  color: #ef4444;
+  padding: 0.5rem;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 4px;
+}
+
+.generatedPhrase {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 8px;
+}
+
+.warning {
+  font-size: 0.75rem;
+  color: #fbbf24;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.copyBtn {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.2s;
+  align-self: flex-start;
+}
+
+.copyBtn:hover {
+  border-color: var(--accent);
+}
+
+.seedPhraseButtons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.generateBtn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.generateBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
