@@ -29,7 +29,7 @@ pub type LazyBlock = sp_runtime::generic::LazyBlock<Header, UncheckedExtrinsic>;
 use frame_support::{
     construct_runtime, derive_impl, parameter_types,
     traits::{ConstBool, ConstU128, ConstU32, ConstU64, ConstU8},
-    weights::{IdentityFee, Weight},
+    weights::{ConstantMultiplier, Weight},
 };
 use frame_system::EnsureRoot;
 use pallet_grandpa::AuthorityList as GrandpaAuthorityList;
@@ -76,10 +76,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("anarchy"),
     impl_name: create_runtime_str!("anarchy"),
     authoring_version: 1,
-    spec_version: 100,
+    spec_version: 104,  // Bumped: $moral = native token, removed pallet_moral
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
-    transaction_version: 1,
+    transaction_version: 2,  // SignedExtra structure changed (no tip)
     system_version: 1,
 };
 
@@ -154,7 +154,7 @@ impl pallet_balances::Config for Runtime {
     type WeightInfo = ();
     type Balance = Balance;
     type DustRemoval = ();
-    type ExistentialDeposit = ConstU128<500>;
+    type ExistentialDeposit = ConstU128<1>;  // 最小値1（0だとアカウント作成に問題）
     type AccountStore = System;
     type ReserveIdentifier = [u8; 8];
     type RuntimeHoldReason = RuntimeHoldReason;
@@ -167,6 +167,7 @@ impl pallet_balances::Config for Runtime {
 }
 
 // Transaction Payment設定
+// 手数料は0（$moralの投稿コストでスパム対策）
 parameter_types! {
     pub FeeMultiplier: Multiplier = Multiplier::one();
 }
@@ -175,8 +176,10 @@ impl pallet_transaction_payment::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type OnChargeTransaction = FungibleAdapter<Balances, ()>;
     type OperationalFeeMultiplier = ConstU8<5>;
-    type WeightToFee = IdentityFee<Balance>;
-    type LengthToFee = IdentityFee<Balance>;
+    /// 手数料を0に設定（Weight -> 0）
+    type WeightToFee = ConstantMultiplier<Balance, ConstU128<0>>;
+    /// 手数料を0に設定（Length -> 0）
+    type LengthToFee = ConstantMultiplier<Balance, ConstU128<0>>;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
     type WeightInfo = ();
 }
@@ -191,26 +194,12 @@ impl pallet_sudo::Config for Runtime {
 // Post Pallet設定
 impl pallet_post::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type NativeToken = Balances;  // $moral = ネイティブトークン
     type MaxContentLength = ConstU32<10000>; // 約10KB
     /// 基本コスト: 10 MORAL
     type PostBaseCost = ConstU128<10_000_000_000_000>;
     /// バイト単価: 0.1 MORAL/byte
     type PostByteCost = ConstU128<100_000_000_000>;
-}
-
-// Moral Token Pallet設定
-impl pallet_moral::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type Balance = Balance;
-    type InitialBalance = ConstU128<100_000_000_000_000>; // 100 MORAL (faucet)
-}
-
-// Identity Pallet設定
-impl pallet_identity::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type MaxPasskeys = ConstU32<10>;
-    type MaxPublicKeyLength = ConstU32<256>;
-    type MaxDeviceNameLength = ConstU32<64>;
 }
 
 // Runtime構築
@@ -225,8 +214,6 @@ construct_runtime!(
         Sudo: pallet_sudo,
         // カスタムパレット
         Post: pallet_post,
-        Moral: pallet_moral,
-        Identity: pallet_identity,
     }
 );
 
@@ -258,7 +245,8 @@ pub type SignedExtra = (
     frame_system::CheckEra<Runtime>,
     frame_system::CheckNonce<Runtime>,
     frame_system::CheckWeight<Runtime>,
-    pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+    // ChargeTransactionPayment を削除 - TX手数料は完全無料
+    // スパム対策は $moral の投稿コストで実施
 );
 
 /// Runtime APIs実装

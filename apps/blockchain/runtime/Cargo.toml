@@ -46,8 +46,6 @@ pallet-sudo = { workspace = true }
 
 # Local pallets
 pallet-post = { workspace = true }
-pallet-moral = { workspace = true }
-pallet-identity = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { version = "31.1.0", optional = true }
@@ -85,8 +83,6 @@ std = [
     "pallet-transaction-payment-rpc-runtime-api/std",
     "pallet-sudo/std",
     "pallet-post/std",
-    "pallet-moral/std",
-    "pallet-identity/std",
     "substrate-wasm-builder",
 ]
 runtime-benchmarks = [
@@ -97,8 +93,6 @@ runtime-benchmarks = [
     "pallet-timestamp/runtime-benchmarks",
     "pallet-sudo/runtime-benchmarks",
     "pallet-post/runtime-benchmarks",
-    "pallet-moral/runtime-benchmarks",
-    "pallet-identity/runtime-benchmarks",
 ]
 try-runtime = [
     "frame-support/try-runtime",
@@ -111,6 +105,4 @@ try-runtime = [
     "pallet-transaction-payment/try-runtime",
     "pallet-sudo/try-runtime",
     "pallet-post/try-runtime",
-    "pallet-moral/try-runtime",
-    "pallet-identity/try-runtime",
 ]
