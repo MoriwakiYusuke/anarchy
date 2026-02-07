@@ -11,6 +11,10 @@ interface Post {
   contentHash: string
   createdAt: number
   parentId: number | null
+  /** Identity ID if post was created with WebAuthn */
+  identityId?: bigint
+  /** Whether the post was signed with WebAuthn */
+  isWebAuthnSigned: boolean
 }
 
 interface Props {
@@ -58,6 +62,8 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
         const fetchedPosts: Post[] = postEntries.map((entry: any) => {
           const postId = Number(entry.keyArgs[0])
           const post = entry.value
+          // Check if post has identity_id (indicates WebAuthn-signed post)
+          const identityId = post.identity_id !== undefined ? BigInt(post.identity_id) : undefined
           return {
             id: postId,
             author: post.author || 'unknown',
@@ -65,6 +71,8 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
             contentHash: post.content_hash?.asHex?.() || '',
             createdAt: Number(post.created_at || 0),
             parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
+            identityId,
+            isWebAuthnSigned: identityId !== undefined,
           }
         })
 
@@ -114,6 +122,11 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
           <header className={styles.postHeader}>
             <span className={styles.author}>
               {shortenAddress(post.author)}
+              {post.isWebAuthnSigned && (
+                <span className={styles.webauthnBadge} title={`パスキー署名済み (Identity #${post.identityId})`}>
+                  🔐
+                </span>
+              )}
             </span>
             <span className={styles.block}>
               Block #{post.createdAt}
@@ -126,6 +139,11 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
             <span className={styles.postId}>
               Post #{post.id}
             </span>
+            {post.isWebAuthnSigned && post.identityId !== undefined && (
+              <span className={styles.identityBadge}>
+                Identity #{post.identityId.toString()}
+              </span>
+            )}
             {post.parentId !== null && (
               <span className={styles.reply}>
                 ↩ Reply to #{post.parentId}

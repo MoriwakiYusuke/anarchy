@@ -88,3 +88,21 @@
   color: var(--accent);
   opacity: 0.8;
 }
+
+/* WebAuthn badge for signed posts */
+.webauthnBadge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 0.9em;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.identityBadge {
+  background: rgba(89, 147, 255, 0.15);
+  color: var(--accent);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
