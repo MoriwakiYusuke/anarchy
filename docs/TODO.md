@@ -14,8 +14,9 @@
 
 - [x] モノレポ構成のセットアップ
   - [x] `pnpm-workspace.yaml` 作成
-  - [x] `apps/blockchain/` - Substrate L1
-  - [x] `apps/frontend/` - Next.js PWA
+  - [x] `apps/blockchain/` - Substrate L1（バリデーター/フルノード）
+  - [x] `apps/frontend/` - Next.js PWA（ハイドラUI）
+  - [ ] `apps/storage-node/` - データ保持専用ノード **[NEW]**
   - [ ] `packages/sdk/` - 共有暗号SDK
   - [ ] `packages/wasm-engine/` - Rust→Wasm
 
@@ -29,16 +30,16 @@
 - [x] Substrate ノードテンプレート初期化 (Polkadot SDK stable2503)
 
 - [x] **Identity Pallet** 作成
-  - [x] WebAuthn公開鍵の登録ストレージ
-  - [x] マルチデバイス対応（1 Identity → N Passkeys）
-  - [x] 公開鍵の追加/削除エクストリンシック
+  - ~~[x] WebAuthn公開鍵の登録ストレージ~~ → **廃止**: AccountIdのみ認証に変更（WebAuthn実装の複雑さとブラウザ互換性問題のため）
+  - ~~[x] マルチデバイス対応（1 Identity → N Passkeys）~~ → **廃止**: シードフレーズからAccountId導出に一本化
+  - ~~[x] 公開鍵の追加/削除エクストリンシック~~ → **廃止**: 不要
 
-- [x] **Moral Token Pallet** 作成
-  - [x] トークン発行（mint）ロジック
-  - [x] トークン焼却（burn）ロジック
-  - [x] 残高管理ストレージ
-  - [x] 転送エクストリンシック
-  - [x] Genesis設定でテストアカウントにMoral配布
+- [x] **Moral Token Pallet** 作成 → **ネイティブトークン化**: pallet_balancesで$moralを管理（2026-02-08）
+  - ~~[x] トークン発行（mint）ロジック~~ → **廃止**: pallet_balancesのtransferを使用
+  - [x] トークン焼却（burn）ロジック → `fungible::Mutate::burn_from`で実装
+  - ~~[x] 残高管理ストレージ~~ → **廃止**: System.Account.data.freeで管理
+  - ~~[x] 転送エクストリンシック~~ → **廃止**: Balances.transfer_allow_deathを使用
+  - [x] Genesis設定でテストアカウントにMoral配布（10,000 MORAL/account）
 
 - [x] **Post Pallet** 作成
   - [x] 投稿データ構造定義
@@ -66,18 +67,22 @@
   - [ ] Tor強制モード / 通常モード切替
   - [ ] ブートストラップノード設定
 
-### 1.4 WebAuthn 署名検証
+### ~~1.4 WebAuthn 署名検証~~ → **廃止** (2026-02-08)
 
-- [x] **Rust署名検証ライブラリ** (`apps/blockchain/pallets/identity/src/`)
-  - [x] COSE公開鍵パーサー (`cose.rs`)
-  - [x] ES256 (P-256) 署名検証 (`webauthn.rs`)
-  - [x] authenticatorData パース (`webauthn.rs`)
-  - [x] clientDataJSON 検証 (`webauthn.rs`)
+> **廃止理由**: WebAuthn実装の複雑さ（COSE/CBOR解析、ブラウザ差異、authenticatorData検証）と、
+> シードフレーズベースのAccountId認証でも十分なUXが実現できるため、シンプルな設計を優先。
+> コードは`pallets/identity/src/`に残存するが未使用。
 
-- [x] **Substrate統合**
-  - [x] オンチェーンWebAuthn検証ロジック
-  - [x] WYSIWYS: challengeに投稿ハッシュ埋め込み
-  - [x] `create_post_with_webauthn` エクストリンシック（Post Pallet）
+- ~~[x] **Rust署名検証ライブラリ** (`apps/blockchain/pallets/identity/src/`)~~
+  - ~~[x] COSE公開鍵パーサー (`cose.rs`)~~
+  - ~~[x] ES256 (P-256) 署名検証 (`webauthn.rs`)~~
+  - ~~[x] authenticatorData パース (`webauthn.rs`)~~
+  - ~~[x] clientDataJSON 検証 (`webauthn.rs`)~~
+
+- ~~[x] **Substrate統合**~~
+  - ~~[x] オンチェーンWebAuthn検証ロジック~~
+  - ~~[x] WYSIWYS: challengeに投稿ハッシュ埋め込み~~
+  - ~~[x] `create_post_with_webauthn` エクストリンシック（Post Pallet）~~
 
 ### 1.5 フロントエンド MVP (`apps/frontend/`)
 
@@ -85,10 +90,10 @@
   - [x] TypeScript設定
   - [ ] PWA設定（next-pwa）
 
-- [ ] WebAuthn統合
-  - [ ] パスキー登録フロー
-  - [ ] パスキー認証フロー
-  - [ ] 署名リクエスト（投稿時）
+- ~~[ ] WebAuthn統合~~ → **廃止**: AccountIdのみ認証に変更
+  - ~~[ ] パスキー登録フロー~~
+  - ~~[ ] パスキー認証フロー~~
+  - ~~[ ] 署名リクエスト（投稿時）~~
 
 - [x] 基本UI
   - [x] タイムライン表示
@@ -117,25 +122,38 @@
 
 ### 2.2 分散ストレージ（データ保持報酬）
 
-- [ ] **Storage Pallet** 作成
-  - [ ] 断片データストレージ
-  - [ ] 保持証明（Proof of Spacetime）
+> **設計方針**: バリデーター（計算と合意）とストレージノード（記憶の保持）は役割を明確に分離。
+> 強力CPUはないが巨大HDD/SSDを持つユーザーも$moralを稼ぐ手段となる。
+
+- [ ] **Storage Pallet** 作成（`apps/blockchain/pallets/storage/`）
+  - [ ] 断片データメタストレージ（Share ID, サイズ, 保持者リスト）
+  - [ ] 保持証明（Proof of Spacetime）検証ロジック
   - [ ] **保持報酬ロジック**
     - [ ] 保持継続ノードへの$moral分配
     - [ ] 報酬停止による「自然な忘却」メカニズム
-    - [ ] 需要ベースの報酬調整
+    - [ ] 需要ベースの報酬調整（人気データ = 高報酬）
+  - [ ] 不正ノードのスラッシング（持っているふりの検出）
 
-- [ ] ノード側ストレージ実装
-  - [ ] ローカル断片保存
-  - [ ] 定期的な保持証明提出
-  - [ ] ガベージコレクション（報酬停止時）
+- [ ] **ストレージノード・デーモン** (`apps/storage-node/`)
+  > バリデーターとは独立した「報酬を得るための証明マシン」として機能
+  - [ ] **データレセプション**: libp2pを介した断片データ（Share）の受信と保存
+  - [ ] **ディスククォータ管理**: 指定容量内でのデータ管理と優先順位付け
+  - [ ] **Proof of Spacetime (PoST) 生成**: 「データを持ち続けている」ことを証明する計算
+  - [ ] **自動報酬請求**: 生成した証明を定期的にStorage Palletへ提出
+  - [ ] **ガベージコレクション**: 報酬停止データの自動削除
+
+- [ ] **自己修復プロトコル**
+  > ストレージノードがオフライン時、自動的に断片を再配布
+  - [ ] 健全性モニタリング（k-of-nのうちm個以下で警告）
+  - [ ] 新規ストレージノードへの自動再分散
+  - [ ] インセンティブ設計（再分散協力者に報酬）
 
 ### 2.3 PoW Faucet（アカウント初期化）
 
 - [ ] **Faucet Pallet** 作成
   - [ ] PoWチャレンジ生成（ブロックハッシュベース）
   - [ ] nonce検証（難易度調整可能）
-  - [ ] 報酬: 1ネイティブトークン + 初期$moral
+  - [ ] 報酬: 初期$moral（ネイティブトークン）の付与
   - [ ] レート制限（1アカウント1回のみ）
 
 - [ ] **フロントエンド統合**
@@ -257,16 +275,43 @@
 
 ---
 
+## 構想事項（検討中）
+
+以下は将来的に実装を検討している機能。優先度・実現可能性は未確定。
+
+### ブラウザ拡張ウォレット連携
+
+**背景**: 
+現在の実装ではフロントエンドにシードフレーズを直接入力するため、
+悪意あるフロントに秘密鍵を抜かれるリスクがある。
+WebAuthnなら秘密鍵はハードウェアから出なかったが、廃止により保護が弱まった。
+
+**解決策案**:
+- Polkadot.js Extension / Talisman / SubWallet 等と連携
+- シードフレーズはウォレット内に保存（フロントに渡さない）
+- フロントエンドは署名リクエストのみ送信、ユーザーがウォレットUIで承認
+- PAPIは `@polkadot-api/pjs-signer` で拡張ウォレットと連携可能
+
+**暫定対応**:
+- 現在のシードフレーズ入力は「開発用 / SBOM検証済みフロント専用」として運用
+- 本番環境ではウォレット拡張連携を必須とする予定
+
+**備考**: ハイドラ戦略（複数フロントエンド運営者）を維持するための前提条件
+
+---
+
 ## 技術的依存関係
 
 ```
 Phase 1.2 (Substrate) ──┬── Phase 1.3 (libp2p+Tor)
                         │
-                        └── Phase 1.4 (WebAuthn) ── Phase 1.5 (Frontend)
+                        └── Phase 1.5 (Frontend)
 
-Phase 2.1 (Wasm) ────────── Phase 2.2 (Storage)
+Phase 2.1 (Wasm) ──────── Phase 2.2 (Storage Pallet + Storage Node)
                         │
-                        └── Phase 2.3 (Stealth)
+                        └── Phase 2.3 (PoW Faucet)
+                        │
+                        └── Phase 2.4 (Stealth)
 
 Phase 3.1 (Reaction) ─┬── Phase 3.2 (ZKP)
                       │
@@ -285,15 +330,16 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | Moral Pallet | 高 | 低 | **1.5** | ✅完了 |
 | Post Pallet | 高 | 中 | **1.5** | ✅完了 |
 | フロントMVP | 高 | 低 | **2** | ✅完了 |
-| Identity Pallet | 高 | 中 | **3** | ✅完了 |
-| WebAuthn検証 | 高 | 中 | **4** | ✅完了 |
+| ~~Identity Pallet~~ | ~~高~~ | ~~中~~ | ~~**3**~~ | ⚠️廃止 |
+| ~~WebAuthn検証~~ | ~~高~~ | ~~中~~ | ~~**4**~~ | ⚠️廃止 |
 | libp2p基盤 | 高 | 低 | **5** | 未着手 |
 | Arti(Tor)統合 | 中 | 高 | 6 | 未着手 |
 | SSS実装 | 中 | 低 | 7 | 未着手 |
-| ステルスアドレス | 中 | 中 | 8 | 未着手 |
-| データ保持報酬 | 中 | 中 | 9 | 未着手 |
-| 反応マイニング | 低 | 中 | 10 | 未着手 |
-| ZKP回路 | 低 | 高 | 11 | 未着手 |
+| **Storage Pallet** | 高 | 中 | **8** | 未着手 |
+| **ストレージノード** | 高 | 高 | **9** | 未着手 |
+| ステルスアドレス | 中 | 中 | 10 | 未着手 |
+| 反応マイニング | 低 | 中 | 11 | 未着手 |
+| ZKP回路 | 低 | 高 | 12 | 未着手 |
 
 ---
 
@@ -305,11 +351,19 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 - シンプルな投稿機能
 - **追加達成**: 動的投稿コスト、Genesis設定
 
-### M2: 認証統合 ✅完了
-- [x] WebAuthn署名検証（COSE/P-256/WYSIWYS）
-- [x] Identity Pallet（Passkey登録/管理）
-- [x] Post Pallet WebAuthn統合
-- [ ] フロントエンドでのパスキー登録/認証（残作業）
+### ~~M2: 認証統合~~ → **設計変更** (2026-02-08)
+
+> **変更内容**: WebAuthn認証を廃止し、シードフレーズベースのAccountId認証に一本化。
+> **理由**: WebAuthn実装の複雑さ（ブラウザ互換性、COSE解析、no_std制約）に対し、
+> シードフレーズ方式でも「秘密鍵をユーザーに見せない」UXは実現可能。
+> polkadot.jsやNovaウォレット等の既存エコシステムとも互換性を維持。
+
+- ~~[x] WebAuthn署名検証（COSE/P-256/WYSIWYS）~~ → 廃止
+- ~~[x] Identity Pallet（Passkey登録/管理）~~ → 廃止
+- ~~[x] Post Pallet WebAuthn統合~~ → 廃止
+- ~~[ ] フロントエンドでのパスキー登録/認証~~ → 廃止
+- [x] **代替実装**: AccountIdのみ認証（シードフレーズから導出）
+- [x] **代替実装**: `polkadot-api`のsigner連携で投稿署名
 
 ### M3: P2Pネットワーク（2週間）
 - 複数ノード間の通信確立
