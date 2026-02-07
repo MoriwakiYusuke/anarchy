@@ -7,10 +7,17 @@
 //! - Identity作成: WebAuthn公開鍵でIdentityを登録
 //! - Passkey追加: 既存Identityに新しいデバイスを追加
 //! - Passkey削除: 不要なデバイスを削除（最後の1つは削除不可）
+//! - WebAuthn署名検証: WYSIWYS (What You See Is What You Sign) の実現
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;
+
+/// COSE public key parsing module
+pub mod cose;
+
+/// WebAuthn signature verification module
+pub mod webauthn;
 
 #[cfg(test)]
 mod tests;
