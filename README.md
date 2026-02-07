@@ -133,6 +133,28 @@ pnpm test:recovery      # ノードリカバリテスト
 pnpm test:scalability   # スケーラビリティテスト（10ノード）
 ```
 
+## $moral トークンのMint（開発用）
+
+開発環境でテスト用の$moralトークンをmintするスクリプトです。Aliceアカウント（Sudo権限）で実行されます。
+
+```bash
+# アドレス指定でmint
+node scripts/mint-moral.mjs <address> <amount>
+node scripts/mint-moral.mjs 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY 10000
+
+# テストアカウント名でもOK（Alice, Bob, Charlie, Dave, Eve, Ferdie）
+node scripts/mint-moral.mjs Alice 10000
+node scripts/mint-moral.mjs Bob 5000
+
+# シードフレーズから導出したアドレスにmint
+node scripts/mint-moral-seed.mjs "word1 word2 word3 ... word12" 10000
+
+# 開発用シードフレーズ（DEV_PHRASE）を使用
+node scripts/mint-moral-seed.mjs dev 10000
+```
+
+> **Note**: トランザクション手数料は0に設定されています。$moralの投稿コストでスパム対策を行います。
+
 ## アーキテクチャ
 
 ### 5層構造

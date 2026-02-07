@@ -28,15 +28,16 @@ export function useMoralBalance(
     setError(null)
 
     try {
-      // Moral パレットの残高を取得
-      if (!unsafeApi.query?.Moral?.Balances) {
-        throw new Error('Moral pallet not found')
+      // $moral = ネイティブトークン (System.Account.data.free)
+      if (!unsafeApi.query?.System?.Account) {
+        throw new Error('System pallet not found')
       }
 
-      const result = await unsafeApi.query.Moral.Balances.getValue(accountAddress)
-      setBalance(result ?? BigInt(0))
+      const result = await unsafeApi.query.System.Account.getValue(accountAddress)
+      // result.data.free が利用可能残高
+      setBalance(result?.data?.free ?? BigInt(0))
     } catch (err) {
-      console.error('Failed to fetch moral balance:', err)
+      console.error('Failed to fetch balance:', err)
       setError(err instanceof Error ? err.message : '残高取得に失敗しました')
       setBalance(null)
     } finally {

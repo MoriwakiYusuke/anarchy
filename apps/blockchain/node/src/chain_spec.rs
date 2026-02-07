@@ -37,6 +37,15 @@ pub fn authority_keys_from_seed(s: &str) -> (AuraId, GrandpaId) {
     (get_from_seed::<AuraId>(s), get_from_seed::<GrandpaId>(s))
 }
 
+/// チェーンのプロパティ（トークン情報）
+fn chain_properties() -> sc_service::Properties {
+    let mut properties = sc_service::Properties::new();
+    properties.insert("tokenSymbol".into(), "MORAL".into());
+    properties.insert("tokenDecimals".into(), 12.into());
+    properties.insert("ss58Format".into(), 42.into());
+    properties
+}
+
 /// 開発用設定
 pub fn development_config() -> Result<ChainSpec, String> {
     Ok(ChainSpec::builder(
@@ -46,6 +55,7 @@ pub fn development_config() -> Result<ChainSpec, String> {
     .with_name("Development")
     .with_id("dev")
     .with_chain_type(ChainType::Development)
+    .with_properties(chain_properties())
     .with_genesis_config_patch(testnet_genesis(
         // 初期オーソリティ
         vec![authority_keys_from_seed("Alice")],
@@ -76,6 +86,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
     .with_name("Local Testnet")
     .with_id("local_testnet")
     .with_chain_type(ChainType::Local)
+    .with_properties(chain_properties())
     .with_genesis_config_patch(testnet_genesis(
         vec![
             authority_keys_from_seed("Alice"),
@@ -104,12 +115,12 @@ fn testnet_genesis(
     endowed_accounts: Vec<AccountId>,
     _enable_println: bool,
 ) -> serde_json::Value {
-    const ENDOWMENT: Balance = 10_000_000_000_000_000_000_000; // 10,000トークン
-    const MORAL_INITIAL: u128 = 10_000_000_000_000_000; // 10,000 moral (12桁精度)
+    // $moral = ネイティブトークン (12桁精度)
+    const INITIAL_MORAL: Balance = 10_000_000_000_000_000; // 10,000 $moral
 
     serde_json::json!({
         "balances": {
-            "balances": endowed_accounts.iter().cloned().map(|k| (k, ENDOWMENT)).collect::<Vec<_>>()
+            "balances": endowed_accounts.iter().cloned().map(|k| (k, INITIAL_MORAL)).collect::<Vec<_>>()
         },
         "aura": {
             "authorities": initial_authorities.iter().map(|x| x.0.clone()).collect::<Vec<_>>()
@@ -119,9 +130,6 @@ fn testnet_genesis(
         },
         "sudo": {
             "key": Some(root_key)
-        },
-        "moral": {
-            "balances": endowed_accounts.iter().cloned().map(|k| (k, MORAL_INITIAL)).collect::<Vec<_>>()
         }
     })
 }

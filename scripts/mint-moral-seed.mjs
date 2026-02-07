@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * 開発用: シードフレーズからAccountIdを導出し、$moralトークンをmintするスクリプト
+ * 開発用: シードフレーズからAccountIdを導出し、$moralトークンを送金するスクリプト
+ * 
+ * $moralはネイティブトークンのため、Aliceの残高から送金（transfer）で付与します。
  * 
  * 使用方法:
  *   node scripts/mint-moral-seed.mjs <seed-phrase> [amount]
  *   node scripts/mint-moral-seed.mjs "word1 word2 word3 ... word12" 10000
  * 
- * ※ Aliceアカウント（Sudo権限）で実行されます
- * ※ amountを省略すると10,000 moralがmintされます
+ * ※ Aliceアカウントから送金されます
+ * ※ amountを省略すると10,000 moralが送金されます
  */
 
 import { createClient } from 'polkadot-api'
@@ -29,16 +31,16 @@ if (args.length < 1) {
 使用方法: node scripts/mint-moral-seed.mjs <seed-phrase> [amount]
 
 例:
-  # シードフレーズを指定して10,000 moralをmint（デフォルト）
+  # シードフレーズを指定して10,000 moralを送金（デフォルト）
   node scripts/mint-moral-seed.mjs "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
 
-  # シードフレーズを指定して50,000 moralをmint
+  # シードフレーズを指定して50,000 moralを送金
   node scripts/mint-moral-seed.mjs "word1 word2 ... word12" 50000
 
   # 開発用シードフレーズ（DEV_PHRASE）を使用
   node scripts/mint-moral-seed.mjs dev 10000
 
-※ Aliceアカウント（Sudo権限）で実行されます
+※ Aliceアカウントから送金されます
 `)
   process.exit(1)
 }
@@ -67,10 +69,10 @@ async function main() {
   const targetKeyPair = keyring.addFromUri(seedPhrase)
   const targetAddress = targetKeyPair.address
 
-  console.log(`\n=== Moral Token Mint (シードフレーズ指定) ===`)
+  console.log(`\n=== Moral Token Transfer (シードフレーズ指定) ===`)
   console.log(`シードフレーズ: ${seedPhrase.split(' ').slice(0, 3).join(' ')}...（一部表示）`)
   console.log(`導出されたAccountId: ${targetAddress}`)
-  console.log(`mint量: ${args[1] || DEFAULT_AMOUNT} moral`)
+  console.log(`送金量: ${args[1] || DEFAULT_AMOUNT} moral`)
   console.log(`エンドポイント: ${WS_ENDPOINT}`)
   console.log('')
 
@@ -91,30 +93,29 @@ async function main() {
     (input) => aliceKeyPair.sign(input)
   )
 
-  console.log('Aliceアカウント（Sudo）で署名中...')
+  console.log('Aliceアカウント（Sudo）で送金中...')
 
   try {
-    // Sudo権限でMoral.mintを呼び出し
-    const mintCall = api.tx.Moral.mint({
-      to: targetAddress,
-      amount: amount,
-    })
-
-    const sudoTx = api.tx.Sudo.sudo({
-      call: mintCall.decodedCall,
+    // $moralはネイティブトークンなので、Balances.transfer_allow_deathを使用
+    const tx = api.tx.Balances.transfer_allow_death({
+      dest: {
+        type: 'Id',
+        value: targetAddress,
+      },
+      value: amount,
     })
 
     console.log('トランザクション送信中...')
-    const result = await sudoTx.signAndSubmit(signer)
+    const result = await tx.signAndSubmit(signer)
 
     if (result.ok) {
-      console.log(`\n✅ Mint成功!`)
+      console.log(`\n✅ 送金成功!`)
       console.log(`   AccountId: ${targetAddress}`)
-      console.log(`   mint量: ${args[1] || DEFAULT_AMOUNT} moral`)
+      console.log(`   送金量: ${args[1] || DEFAULT_AMOUNT} moral`)
       console.log(`   ブロック: #${result.block.number}`)
       console.log(`   txHash: ${result.txHash}`)
     } else {
-      console.error(`\n❌ Mint失敗`)
+      console.error(`\n❌ 送金失敗`)
       console.error(result)
     }
   } catch (err) {

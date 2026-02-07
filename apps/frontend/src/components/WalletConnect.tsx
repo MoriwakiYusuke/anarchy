@@ -108,41 +108,17 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
     setSeedPhraseError(null)
   }
 
-  // 開発用: Sudo mintでトークンを自分にmint
+  // 開発用: DevMintは廃止（$moral = ネイティブトークンになった）
+  // 代わりに node scripts/mint-moral.mjs <address> <amount> を使用
   const handleDevMint = async () => {
     if (!unsafeApi || !account || !signer || !isAlice) return
     
     setIsMinting(true)
-    setMintStatus('mintトランザクション送信中...')
-    
-    try {
-      const amount = BigInt(10000) * BigInt(1_000_000_000_000) // 10,000 moral
-      
-      // Sudo権限でMoral.mintを呼び出し
-      const mintCall = unsafeApi.tx.Moral.mint({
-        to: account,
-        amount: amount,
-      })
-
-      const sudoTx = unsafeApi.tx.Sudo.sudo({
-        call: mintCall.decodedCall,
-      })
-
-      const result = await sudoTx.signAndSubmit(signer)
-
-      if (result.ok) {
-        setMintStatus(`✅ 10,000 moral をmintしました！`)
-        refetchBalance()
-        setTimeout(() => setMintStatus(null), 3000)
-      } else {
-        setMintStatus(`❌ Mint失敗: ${JSON.stringify(result.dispatchError)}`)
-      }
-    } catch (err) {
-      console.error('Mint failed:', err)
-      setMintStatus(`❌ エラー: ${err instanceof Error ? err.message : '不明'}`)
-    } finally {
+    setMintStatus('[$moral = ネイティブトークン] mint-moral.mjs スクリプトを使用してください')
+    setTimeout(() => {
+      setMintStatus(null)
       setIsMinting(false)
-    }
+    }, 3000)
   }
 
   const shortenAddress = (addr: string) => {

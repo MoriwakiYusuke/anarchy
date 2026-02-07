@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient, PolkadotClient, Binary } from 'polkadot-api'
 import { getWsProvider } from 'polkadot-api/ws-provider/web'
 import { getPolkadotSigner, PolkadotSigner } from 'polkadot-api/signer'
-import { sr25519CreateDerive } from '@polkadot-labs/hdkd'
-import { DEV_PHRASE, entropyToMiniSecret, mnemonicToEntropy } from '@polkadot-labs/hdkd-helpers'
+import { DEV_PHRASE } from '@polkadot-labs/hdkd-helpers'
+import { Keyring } from '@polkadot/keyring'
 
 const WS_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT || 'ws://127.0.0.1:9944'
 
@@ -14,7 +14,7 @@ export interface UseApiResult {
   unsafeApi: any
   isConnected: boolean
   error: string | null
-  createSigner: (derivePath: string) => PolkadotSigner | null
+  createSigner: (seedPhrase: string) => PolkadotSigner | null
 }
 
 export function useApi(): UseApiResult {
@@ -58,18 +58,28 @@ export function useApi(): UseApiResult {
     }
   }, [])
 
-  // Create signer from derivation path (e.g., "//Alice" or "//Bob")
-  const createSigner = useCallback((derivePath: string): PolkadotSigner | null => {
+  // Create signer from seed phrase or derivation path
+  // If seedPhrase starts with //, treat it as a derivation path from DEV_PHRASE
+  // Otherwise, use it as a mnemonic seed phrase directly
+  const createSigner = useCallback((seedPhrase: string): PolkadotSigner | null => {
     try {
-      const entropy = mnemonicToEntropy(DEV_PHRASE)
-      const miniSecret = entropyToMiniSecret(entropy)
-      const derive = sr25519CreateDerive(miniSecret)
-      const keyPair = derive(derivePath)
+      // Use @polkadot/keyring for all cases to match WalletConnect's address derivation
+      const keyring = new Keyring({ type: 'sr25519' })
+      let pair
+      
+      if (seedPhrase.startsWith('//')) {
+        // Development derivation path (e.g., //Alice, //Bob)
+        // These use DEV_PHRASE as the base
+        pair = keyring.addFromUri(`${DEV_PHRASE}${seedPhrase}`)
+      } else {
+        // Real seed phrase (12/24 words mnemonic)
+        pair = keyring.addFromUri(seedPhrase)
+      }
       
       return getPolkadotSigner(
-        keyPair.publicKey,
+        pair.publicKey,
         'Sr25519',
-        (input: Uint8Array) => keyPair.sign(input)
+        (input: Uint8Array) => pair.sign(input)
       )
     } catch (err) {
       console.error('Failed to create signer:', err)

@@ -2,7 +2,7 @@
 //!
 //! 投稿機能を提供するパレット。
 //! ユーザーは投稿を作成し、オンチェーンに永続化できる。
-//! 投稿時には $moral トークンをコストとして消費する。
+//! 投稿時には $moral トークン（ネイティブ）をコストとして消費する。
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -14,8 +14,12 @@ mod tests;
 #[frame_support::pallet]
 pub mod pallet {
     use frame_support::pallet_prelude::*;
+    use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::pallet_prelude::*;
     use sp_std::vec::Vec;
+
+    /// $moral残高型（ネイティブトークン）
+    pub type BalanceOf<T> = <<T as Config>::NativeToken as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
     /// 投稿データ構造
     #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug)]
@@ -35,21 +39,24 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_moral::Config {
+    pub trait Config: frame_system::Config {
         /// イベント型
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         
+        /// ネイティブトークン（$moral）
+        type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
+
         /// 投稿の最大長（バイト）
         #[pallet::constant]
         type MaxContentLength: Get<u32>;
 
         /// 投稿の基本コスト（バイト数に関係なく必ずかかる）
         #[pallet::constant]
-        type PostBaseCost: Get<pallet_moral::BalanceOf<Self>>;
+        type PostBaseCost: Get<BalanceOf<Self>>;
 
         /// 1バイトあたりの追加コスト
         #[pallet::constant]
-        type PostByteCost: Get<pallet_moral::BalanceOf<Self>>;
+        type PostByteCost: Get<BalanceOf<Self>>;
     }
 
     /// 次の投稿ID
@@ -136,11 +143,16 @@ pub mod pallet {
             let base_cost: u128 = T::PostBaseCost::get().try_into().unwrap_or(0);
             let byte_cost: u128 = T::PostByteCost::get().try_into().unwrap_or(0);
             let total_cost = base_cost.saturating_add(content_len.saturating_mul(byte_cost));
-            let cost = total_cost.try_into().unwrap_or(T::PostBaseCost::get());
+            let cost: BalanceOf<T> = total_cost.try_into().unwrap_or(T::PostBaseCost::get());
 
-            // $moralトークンを消費（投稿コスト）
-            pallet_moral::Pallet::<T>::do_burn(&who, cost)
-                .map_err(|_| Error::<T>::InsufficientMoralBalance)?;
+            // $moralトークンを焼却（投稿コスト）
+            T::NativeToken::burn_from(
+                &who,
+                cost,
+                frame_support::traits::tokens::Preservation::Expendable,
+                frame_support::traits::tokens::Precision::Exact,
+                frame_support::traits::tokens::Fortitude::Polite,
+            ).map_err(|_| Error::<T>::InsufficientMoralBalance)?;
 
             // コンテンツハッシュを計算
             let content_hash = sp_io::hashing::blake2_256(&content);
