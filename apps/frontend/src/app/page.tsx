@@ -1,22 +1,38 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useApi } from '@/hooks/useApi'
+import { useLocale } from '@/i18n'
 import { PostForm } from '@/components/PostForm'
 import { Timeline } from '@/components/Timeline'
 import { WalletConnect } from '@/components/WalletConnect'
+import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import styles from './page.module.css'
+import type { PolkadotSigner } from 'polkadot-api/signer'
 
 export default function Home() {
   const { client, unsafeApi, isConnected, error, createSigner } = useApi()
+  const { t } = useLocale()
   const [account, setAccount] = useState<string | null>(null)
   const [accountSeed, setAccountSeed] = useState<string | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [signer, setSigner] = useState<PolkadotSigner | null>(null)
 
-  // Create signer when accountSeed changes
-  const signer = useMemo(() => {
-    if (!accountSeed) return null
-    return createSigner(accountSeed)
+  // Create signer when accountSeed changes (async)
+  useEffect(() => {
+    if (!accountSeed) {
+      setSigner(null)
+      return
+    }
+    let cancelled = false
+    createSigner(accountSeed).then((newSigner) => {
+      if (!cancelled) {
+        setSigner(newSigner)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [accountSeed, createSigner])
 
   // 投稿成功時にデータを更新
@@ -26,19 +42,24 @@ export default function Home() {
 
   return (
     <main className={styles.main}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>
-          <span className={styles.accent}>A</span>narchy
-        </h1>
-        <p className={styles.subtitle}>支配なき秩序</p>
-        <div className={styles.status}>
-          {isConnected ? (
-            <span className={styles.connected}>● 接続済み</span>
-          ) : (
-            <span className={styles.disconnected}>○ 未接続</span>
-          )}
-        </div>
-      </header>
+      <div className={styles.headerBg}>
+        <header className={styles.header}>
+          <div className={styles.headerTop}>
+            <LanguageSwitcher variant="compact" />
+          </div>
+          <h1 className={styles.title}>
+            <span className={styles.accent}>A</span>narchy
+          </h1>
+          <p className={styles.subtitle}>{t('app.subtitle')}</p>
+          <div className={styles.status}>
+            {isConnected ? (
+              <span className={styles.connected}>● {t('app.connected')}</span>
+            ) : (
+              <span className={styles.disconnected}>○ {t('app.disconnected')}</span>
+            )}
+          </div>
+        </header>
+      </div>
 
       <div className={styles.container}>
         <aside className={styles.sidebar}>

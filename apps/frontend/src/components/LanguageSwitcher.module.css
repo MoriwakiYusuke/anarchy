@@ -1,0 +1,85 @@
+/**
+ * LanguageSwitcher Styles
+ * 
+ * Blood Glitch theme styling for language switcher component.
+ */
+
+.container {
+  display: flex;
+  gap: 0.25rem;
+}
+
+/* Variant: Full - shows native names */
+.full {
+  gap: 0.5rem;
+}
+
+/* Variant: Compact - shows language codes */
+.compact {
+  gap: 0.25rem;
+}
+
+.compact .button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.button {
+  background: transparent;
+  border: 1px solid var(--matrix-main, #333333);
+  color: var(--matrix-main, #333333);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.button:hover {
+  background: var(--matrix-main, #333333);
+  color: #000;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--matrix-head, #999999);
+  outline-offset: 2px;
+}
+
+/* Active/Current locale */
+.button.active {
+  background: var(--matrix-main, #333333);
+  color: #000;
+  font-weight: 500;
+}
+
+.button.active:hover {
+  background: var(--matrix-head, #999999);
+}
+
+/* Blood Glitch effect on hover for non-active */
+.button:not(.active):hover {
+  border-color: var(--matrix-glitch, #CC0000);
+  box-shadow: 0 0 4px var(--matrix-glitch, #CC0000);
+}
+
+/* Reduce motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+}
+
+/* Mobile: Touch-friendly sizing (min 44x44px tap targets) */
+@media (max-width: 768px) {
+  .button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+  }
+  
+  .compact .button {
+    padding: 0.375rem 0.625rem;
+    font-size: 0.875rem;
+  }
+}

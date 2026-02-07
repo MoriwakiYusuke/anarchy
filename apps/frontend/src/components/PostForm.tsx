@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Binary } from 'polkadot-api'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { usePostCost, calculatePostCost } from '@/hooks/usePostCost'
+import { useLocale } from '@/i18n'
 import styles from './PostForm.module.css'
 
 interface Props {
@@ -13,45 +14,50 @@ interface Props {
   onPostSuccess?: () => void
 }
 
-// パレットエラーの日本語マッピング
-const ERROR_MESSAGES: Record<string, string> = {
+// エラーコードから翻訳キーへのマッピング
+const ERROR_KEY_MAP: Record<string, string> = {
   // Post pallet errors
-  'ContentTooLong': 'コンテンツが長すぎます（最大10,000バイト）',
-  'TooManyPosts': '投稿数の上限に達しました',
-  'ParentPostNotFound': '返信先の投稿が見つかりません',
-  'InsufficientMoralBalance': '$moral残高が不足しています',
+  'ContentTooLong': 'error.contentTooLong',
+  'TooManyPosts': 'error.tooManyPosts',
+  'ParentPostNotFound': 'error.parentPostNotFound',
+  'InsufficientMoralBalance': 'error.insufficientMoralBalance',
   // Moral pallet errors
-  'InsufficientBalance': '$moral残高が不足しています',
-  'Overflow': '数値がオーバーフローしました',
-  'SelfTransfer': '自分自身への転送はできません',
+  'InsufficientBalance': 'error.insufficientBalance',
+  'Overflow': 'error.overflow',
+  'SelfTransfer': 'error.selfTransfer',
   // System errors
-  'ExhaustsResources': 'リソースが枯渇しました',
-  'InvalidTransaction': '無効なトランザクションです',
-  'BadOrigin': '権限がありません',
+  'ExhaustsResources': 'error.exhaustsResources',
+  'InvalidTransaction': 'error.invalidTransaction',
+  'BadOrigin': 'error.badOrigin',
 }
 
+type TranslateFunc = (key: string, params?: Record<string, string>) => string
+
 // エラーオブジェクトから読みやすいメッセージを抽出
-function parseError(error: any): string {
+function parseError(error: any, t: TranslateFunc): string {
   // PAPI のディスパッチエラー形式
   if (error?.type === 'Module') {
     const moduleName = error.value?.type || ''
     const errorName = error.value?.value?.type || ''
     const key = errorName || moduleName
-    return ERROR_MESSAGES[key] || `モジュールエラー: ${moduleName}::${errorName}`
+    if (ERROR_KEY_MAP[key]) {
+      return t(ERROR_KEY_MAP[key])
+    }
+    return t('error.moduleError', { module: moduleName, error: errorName })
   }
   
   // エラーオブジェクトを探索
   if (typeof error === 'object' && error !== null) {
     // dispatchError を持つ場合
     if (error.dispatchError) {
-      return parseError(error.dispatchError)
+      return parseError(error.dispatchError, t)
     }
     
     // type と value を持つ場合（PAPI形式）
     if (error.type && error.value) {
       const key = error.value?.type || error.type
-      if (ERROR_MESSAGES[key]) {
-        return ERROR_MESSAGES[key]
+      if (ERROR_KEY_MAP[key]) {
+        return t(ERROR_KEY_MAP[key])
       }
       return `${error.type}: ${JSON.stringify(error.value)}`
     }
@@ -64,13 +70,17 @@ function parseError(error: any): string {
   
   // 文字列の場合
   if (typeof error === 'string') {
-    return ERROR_MESSAGES[error] || error
+    if (ERROR_KEY_MAP[error]) {
+      return t(ERROR_KEY_MAP[error])
+    }
+    return error
   }
   
-  return '不明なエラーが発生しました'
+  return t('error.unknown')
 }
 
 export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props) {
+  const { t } = useLocale()
   const [content, setContent] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [status, setStatus] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null)
@@ -88,7 +98,7 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
     if (!unsafeApi || !signer || !content.trim()) return
 
     setIsSubmitting(true)
-    setStatus({ type: 'info', message: '投稿を送信中...' })
+    setStatus({ type: 'info', message: t('post.sending') })
 
     try {
       // Post palletのcreate_postを呼び出し
@@ -110,20 +120,20 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
       if (result.ok) {
         setStatus({ 
           type: 'success', 
-          message: `投稿が完了しました！ (ブロック #${result.block.number.toString()})` 
+          message: t('post.success', { block: result.block.number.toString() })
         })
         setContent('')
         onPostSuccess?.()
         setTimeout(() => setStatus(null), 3000)
       } else {
         // トランザクションが失敗した場合のエラー詳細
-        const errorMessage = parseError(result.dispatchError)
+        const errorMessage = parseError(result.dispatchError, t)
         console.error('Transaction failed:', result.dispatchError)
         setStatus({ type: 'error', message: errorMessage })
       }
     } catch (err) {
       console.error('Transaction error:', err)
-      const errorMessage = err instanceof Error ? err.message : parseError(err)
+      const errorMessage = err instanceof Error ? err.message : parseError(err, t)
       setStatus({ type: 'error', message: errorMessage })
     } finally {
       setIsSubmitting(false)
@@ -134,7 +144,7 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
     <form className={styles.form} onSubmit={handleSubmit}>
       <textarea
         className={styles.textarea}
-        placeholder="今、何を考えていますか？（匿名で投稿されます）"
+        placeholder={t('post.placeholder')}
         value={content}
         onChange={(e) => setContent(e.target.value)}
         maxLength={10000}
@@ -146,11 +156,11 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
         </span>
         <span className={styles.cost}>
           {costConfig.isLoading ? (
-            '読込中...'
+            t('common.loading')
           ) : (
             <>
-              投稿コスト: {estimatedCost.toFixed(1)} $moral
-              {!costConfig.isFromChain && <span title="チェーンから取得できないためデフォルト値を使用"> *</span>}
+              {t('post.cost', { cost: estimatedCost.toFixed(1) })}
+              {!costConfig.isFromChain && <span title={t('post.defaultCostNote')}> *</span>}
             </>
           )}
         </span>
@@ -159,7 +169,7 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
           type="submit"
           disabled={isSubmitting || !content.trim() || !unsafeApi || !signer || costConfig.isLoading}
         >
-          {isSubmitting ? '送信中...' : '投稿'}
+          {isSubmitting ? t('post.submitting') : t('post.submit')}
         </button>
       </div>
       {status && (

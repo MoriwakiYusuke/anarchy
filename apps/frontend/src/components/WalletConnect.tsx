@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { useMoralBalance, formatMoralBalance } from '@/hooks/useMoralBalance'
+import { useLocale } from '@/i18n'
 import styles from './WalletConnect.module.css'
 
 interface Props {
@@ -28,12 +29,14 @@ const ALICE_SEED = '//Alice'
 type AuthMode = 'dev' | 'seedphrase'
 
 export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, signer, accountSeed, refreshTrigger }: Props) {
+  const { t } = useLocale()
   const [selectedAccount, setSelectedAccount] = useState<string>('')
   const [authMode, setAuthMode] = useState<AuthMode>('dev')
   const [seedPhraseInput, setSeedPhraseInput] = useState<string>('')
   const [seedPhraseError, setSeedPhraseError] = useState<string | null>(null)
   const [generatedPhrase, setGeneratedPhrase] = useState<string | null>(null)
   const [showCopied, setShowCopied] = useState(false)
+  const [showAddressCopied, setShowAddressCopied] = useState(false)
   const [isMinting, setIsMinting] = useState(false)
   const [mintStatus, setMintStatus] = useState<string | null>(null)
   const { balance, isLoading: balanceLoading, refetch: refetchBalance } = useMoralBalance(unsafeApi, account, refreshTrigger)
@@ -57,7 +60,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
   // シードフレーズモード: 入力したシードフレーズで接続
   const handleConnectSeedPhrase = async () => {
     if (!seedPhraseInput.trim()) {
-      setSeedPhraseError('シードフレーズを入力してください')
+      setSeedPhraseError(t('wallet.seedErrorEmpty'))
       return
     }
 
@@ -66,7 +69,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
 
     const trimmed = seedPhraseInput.trim()
     if (!mnemonicValidate(trimmed)) {
-      setSeedPhraseError('無効なシードフレーズです。12または24単語の正しいニーモニックを入力してください。')
+      setSeedPhraseError(t('wallet.seedErrorInvalid'))
       return
     }
 
@@ -99,6 +102,14 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
     setTimeout(() => setShowCopied(false), 2000)
   }
 
+  // アドレスをクリップボードにコピー
+  const handleCopyAddress = async () => {
+    if (!account) return
+    await navigator.clipboard.writeText(account)
+    setShowAddressCopied(true)
+    setTimeout(() => setShowAddressCopied(false), 2000)
+  }
+
   const handleDisconnect = () => {
     setAccount(null)
     setAccountSeed(null)
@@ -127,27 +138,45 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
 
   return (
     <div className={styles.container}>
-      <h3 className={styles.title}>ウォレット</h3>
+      <h3 className={styles.title}>{t('wallet.title')}</h3>
 
       {account ? (
         <div className={styles.connected}>
           <div className={styles.address}>
-            <span className={styles.label}>接続中 {isAlice && <span className={styles.adminBadge}>Admin</span>}</span>
-            <code>{shortenAddress(account)}</code>
+            <span className={styles.label}>{t('wallet.connected')} {isAlice && <span className={styles.adminBadge}>Admin</span>}</span>
+            <div className={styles.addressRow}>
+              <code className={styles.fullAddress}>{account}</code>
+              <button
+                className={styles.copyBtn}
+                onClick={handleCopyAddress}
+                title={showAddressCopied ? t('wallet.copied') : t('wallet.copy')}
+              >
+                {showAddressCopied ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
           
           <div className={styles.balance}>
-            <span className={styles.balanceLabel}>$moral残高</span>
+            <span className={styles.balanceLabel}>{t('balance.label')}</span>
             <span className={styles.balanceValue}>
               {balanceLoading ? (
-                <span className={styles.loading}>読込中...</span>
+                <span className={styles.loading}>{t('common.loading')}</span>
               ) : (
                 <>
                   {formatMoralBalance(balance)}
                   <button 
                     className={styles.refreshBtn}
                     onClick={refetchBalance}
-                    title="残高を更新"
+                    title={t('wallet.refreshBalance')}
                   >
                     ↻
                   </button>
@@ -163,7 +192,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
               onClick={handleDevMint}
               disabled={isMinting}
             >
-              {isMinting ? 'Mint中...' : '🔧 10,000 moral をmint (Dev)'}
+              {isMinting ? t('wallet.minting') : t('wallet.mintDev')}
             </button>
           )}
           
@@ -177,7 +206,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
             className={styles.disconnectBtn}
             onClick={handleDisconnect}
           >
-            切断
+            {t('wallet.disconnect')}
           </button>
         </div>
       ) : (
@@ -188,20 +217,20 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
               className={`${styles.modeTab} ${authMode === 'seedphrase' ? styles.active : ''}`}
               onClick={() => setAuthMode('seedphrase')}
             >
-              シードフレーズ
+              {t('wallet.seedPhrase')}
             </button>
             <button
               className={`${styles.modeTab} ${authMode === 'dev' ? styles.active : ''}`}
               onClick={() => setAuthMode('dev')}
             >
-              開発用
+              {t('wallet.dev')}
             </button>
           </div>
 
           {authMode === 'seedphrase' ? (
             <div className={styles.seedPhraseSection}>
               <p className={styles.hint}>
-                シードフレーズ（12または24単語）を入力するか、新規生成してください
+                {t('wallet.seedHint')}
               </p>
               
               <textarea
@@ -224,13 +253,13 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
               {generatedPhrase && (
                 <div className={styles.generatedPhrase}>
                   <p className={styles.warning}>
-                    ⚠️ このシードフレーズを安全な場所に保存してください。紛失すると資産にアクセスできなくなります。
+                    {t('wallet.seedWarning')}
                   </p>
                   <button 
                     className={styles.copyBtn}
                     onClick={handleCopySeedPhrase}
                   >
-                    {showCopied ? '✅ コピーしました' : '📋 コピー'}
+                    {showCopied ? t('wallet.copied') : t('wallet.copy')}
                   </button>
                 </div>
               )}
@@ -240,28 +269,28 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
                   className={styles.generateBtn}
                   onClick={handleGenerateSeedPhrase}
                 >
-                  新規生成
+                  {t('wallet.generate')}
                 </button>
                 <button 
                   className={styles.connectBtn}
                   onClick={handleConnectSeedPhrase}
                   disabled={!seedPhraseInput.trim()}
                 >
-                  接続
+                  {t('wallet.connect')}
                 </button>
               </div>
             </div>
           ) : (
             <div className={styles.devSection}>
               <p className={styles.hint}>
-                開発用テストアカウント
+                {t('wallet.devTestAccount')}
               </p>
               <select 
                 className={styles.select}
                 value={selectedAccount}
                 onChange={(e) => setSelectedAccount(e.target.value)}
               >
-                <option value="">選択してください</option>
+                <option value="">{t('wallet.selectAccount')}</option>
                 {TEST_ACCOUNTS.map((acc) => (
                   <option key={acc.seed} value={acc.seed}>
                     {acc.name}
@@ -273,7 +302,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
                 onClick={handleConnectDev}
                 disabled={!selectedAccount}
               >
-                接続
+                {t('wallet.connect')}
               </button>
             </div>
           )}
@@ -282,7 +311,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
 
       <div className={styles.info}>
         <p className={styles.note}>
-          ※ シードフレーズはブラウザのメモリ内のみに保持され、ページを閉じると消去されます
+          {t('wallet.seedNote')}
         </p>
       </div>
     </div>
