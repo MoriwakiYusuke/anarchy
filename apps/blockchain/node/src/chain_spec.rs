@@ -55,9 +55,19 @@ pub fn authority_keys_from_seed(s: &str) -> (AuraId, GrandpaId) {
 /// チェーンのプロパティ（トークン情報）
 fn chain_properties() -> sc_service::Properties {
     let mut properties = sc_service::Properties::new();
+    // トークン設定
     properties.insert("tokenSymbol".into(), "MORAL".into());
     properties.insert("tokenDecimals".into(), 12.into());
     properties.insert("ss58Format".into(), 42.into());
+    
+    // ネットワーク情報
+    properties.insert("displayName".into(), "Anarchy Network".into());
+    properties.insert("isTestnet".into(), true.into());
+    
+    // 外部リンク（TODO: 本番URLが決まったら更新）
+    // properties.insert("faucetUrl".into(), "http://anarchy-faucet.onion".into());
+    // properties.insert("website".into(), "http://anarchy-social.onion".into());
+    
     properties
 }
 
