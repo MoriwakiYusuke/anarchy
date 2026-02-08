@@ -27,20 +27,43 @@ export function useApi(): UseApiResult {
   useEffect(() => {
     let mounted = true
     let clientInstance: PolkadotClient | null = null
+    let healthCheckInterval: NodeJS.Timeout | null = null
 
     const connect = async () => {
       try {
         // Create PAPI client
         const provider = getWsProvider(WS_ENDPOINT)
         clientInstance = createClient(provider)
+        const api = clientInstance.getUnsafeApi()
 
         if (mounted) {
-          const api = clientInstance.getUnsafeApi()
           setClient(clientInstance)
           setUnsafeApi(api)
-          setIsConnected(true)
-          setError(null)
         }
+
+        // Verify actual connection by calling RPC
+        const checkConnection = async () => {
+          if (!mounted) return
+          try {
+            // Use System.Number query to verify connection
+            await api.query.System.Number.getValue()
+            if (mounted) {
+              setIsConnected(true)
+              setError(null)
+            }
+          } catch {
+            if (mounted) {
+              setIsConnected(false)
+            }
+          }
+        }
+
+        // Initial check
+        await checkConnection()
+
+        // Periodic health check (every 5 seconds)
+        healthCheckInterval = setInterval(checkConnection, 5000)
+
       } catch (err) {
         if (mounted) {
           setError(err instanceof Error ? err.message : 'API接続に失敗しました')
@@ -53,6 +76,9 @@ export function useApi(): UseApiResult {
 
     return () => {
       mounted = false
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval)
+      }
       if (clientInstance) {
         clientInstance.destroy()
       }
