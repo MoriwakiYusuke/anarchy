@@ -43,6 +43,7 @@
   "error.selfTransfer": "Cannot transfer to yourself",
   "error.exhaustsResources": "Resources exhausted",
   "error.invalidTransaction": "Invalid transaction",
+  "error.payment": "Insufficient balance to pay transaction fees",
   "error.badOrigin": "Permission denied",
   "error.moduleError": "Module error: {module}::{error}",
   "error.unknown": "An unknown error occurred",

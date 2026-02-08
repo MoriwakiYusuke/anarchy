@@ -29,12 +29,25 @@ const ERROR_KEY_MAP: Record<string, string> = {
   'ExhaustsResources': 'error.exhaustsResources',
   'InvalidTransaction': 'error.invalidTransaction',
   'BadOrigin': 'error.badOrigin',
+  // Invalid transaction errors (Substrate system level)
+  'Payment': 'error.payment',
+  'Invalid': 'error.invalidTransaction',
 }
 
-type TranslateFunc = (key: string, params?: Record<string, string>) => string
+// parseError用の柔軟な型（動的エラーキー対応）
+type TranslateFunc = (key: string, params?: Record<string, string | number>) => string
 
 // エラーオブジェクトから読みやすいメッセージを抽出
 function parseError(error: any, t: TranslateFunc): string {
+  // Invalid Transaction エラー形式 { type: "Invalid", value: { type: "Payment" } }
+  if (error?.type === 'Invalid' && error?.value?.type) {
+    const key = error.value.type
+    if (ERROR_KEY_MAP[key]) {
+      return t(ERROR_KEY_MAP[key])
+    }
+    return t('error.invalidTransaction')
+  }
+
   // PAPI のディスパッチエラー形式
   if (error?.type === 'Module') {
     const moduleName = error.value?.type || ''
@@ -127,13 +140,28 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
         setTimeout(() => setStatus(null), 3000)
       } else {
         // トランザクションが失敗した場合のエラー詳細
-        const errorMessage = parseError(result.dispatchError, t)
+        const errorMessage = parseError(result.dispatchError, t as TranslateFunc)
         console.error('Transaction failed:', result.dispatchError)
         setStatus({ type: 'error', message: errorMessage })
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Transaction error:', err)
-      const errorMessage = err instanceof Error ? err.message : parseError(err, t)
+      // エラーオブジェクトの構造を確認してparseErrorを使う
+      let errorMessage: string
+      if (err?.type) {
+        // PAPI形式のエラーオブジェクト { type: "Invalid", value: { type: "Payment" } }
+        errorMessage = parseError(err, t as TranslateFunc)
+      } else if (err instanceof Error) {
+        // Errorオブジェクトの場合、messageがJSON形式かもしれない
+        try {
+          const parsed = JSON.parse(err.message)
+          errorMessage = parseError(parsed, t as TranslateFunc)
+        } catch {
+          errorMessage = err.message
+        }
+      } else {
+        errorMessage = parseError(err, t as TranslateFunc)
+      }
       setStatus({ type: 'error', message: errorMessage })
     } finally {
       setIsSubmitting(false)

@@ -43,6 +43,7 @@
   "error.selfTransfer": "不能转账给自己",
   "error.exhaustsResources": "资源耗尽",
   "error.invalidTransaction": "无效交易",
+  "error.payment": "余额不足以支付交易费用",
   "error.badOrigin": "权限不足",
   "error.moduleError": "模块错误: {module}::{error}",
   "error.unknown": "发生未知错误",

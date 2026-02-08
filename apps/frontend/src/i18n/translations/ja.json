@@ -43,6 +43,7 @@
   "error.selfTransfer": "自分自身への転送はできません",
   "error.exhaustsResources": "リソースが枯渇しました",
   "error.invalidTransaction": "無効なトランザクションです",
+  "error.payment": "トランザクション手数料を支払う残高が不足しています",
   "error.badOrigin": "権限がありません",
   "error.moduleError": "モジュールエラー: {module}::{error}",
   "error.unknown": "不明なエラーが発生しました",

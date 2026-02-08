@@ -51,12 +51,31 @@ export type TranslationKey =
   | 'wallet.connected'
   | 'wallet.enterSeed'
   | 'wallet.seedPlaceholder'
+  | 'wallet.title'
+  | 'wallet.selectAccount'
+  | 'wallet.refreshBalance'
+  | 'wallet.copy'
+  | 'wallet.copied'
+  | 'wallet.seedErrorEmpty'
+  | 'wallet.seedErrorInvalid'
+  | 'wallet.generate'
+  | 'wallet.minting'
+  | 'wallet.seedPhrase'
+  | 'wallet.dev'
+  | 'wallet.devTestAccount'
+  | 'wallet.seedHint'
+  | 'wallet.seedNote'
+  | 'wallet.seedWarning'
+  | 'wallet.mintDev'
   // Post
   | 'post.placeholder'
   | 'post.submit'
   | 'post.submitting'
   | 'post.cost'
   | 'post.empty'
+  | 'post.sending'
+  | 'post.success'
+  | 'post.defaultCostNote'
   // Timeline
   | 'timeline.empty'
   | 'timeline.loading'
@@ -71,7 +90,25 @@ export type TranslationKey =
   | 'balance.insufficient'
   // Language Switcher
   | 'language.select'
-  | 'language.current';
+  | 'language.current'
+  // App
+  | 'app.subtitle'
+  | 'app.connected'
+  | 'app.disconnected'
+  // Error messages
+  | 'error.contentTooLong'
+  | 'error.tooManyPosts'
+  | 'error.parentPostNotFound'
+  | 'error.insufficientMoralBalance'
+  | 'error.insufficientBalance'
+  | 'error.overflow'
+  | 'error.selfTransfer'
+  | 'error.exhaustsResources'
+  | 'error.invalidTransaction'
+  | 'error.payment'
+  | 'error.badOrigin'
+  | 'error.moduleError'
+  | 'error.unknown';
 
 /**
  * Translation map - maps translation keys to translated strings
