@@ -135,16 +135,31 @@ pnpm test:scalability   # スケーラビリティテスト（10ノード）
 
 ## $moral トークンのMint（開発用）
 
-開発環境でテスト用の$moralトークンをmintするスクリプトです。Aliceアカウント（Sudo権限）で実行されます。
+開発環境でテスト用の$moralトークンをmintするスクリプトです。
+
+### 方法1: Sudo mint（推奨）
+
+Sudo権限で直接残高を設定します。Aliceに残高がなくても実行可能です。
 
 ```bash
-# アドレス指定でmint
-node scripts/mint-moral.mjs <address> <amount>
-node scripts/mint-moral.mjs 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY 10000
+# テストアカウント名でmint（Alice, Bob, Charlie, Dave, Eve, Ferdie）
+node scripts/sudo-mint.mjs Alice 1000000
+node scripts/sudo-mint.mjs Bob 500000
 
-# テストアカウント名でもOK（Alice, Bob, Charlie, Dave, Eve, Ferdie）
-node scripts/mint-moral.mjs Alice 10000
+# アドレス指定でmint
+node scripts/sudo-mint.mjs 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY 10000
+```
+
+### 方法2: 転送（Aliceに残高がある場合）
+
+Aliceから他のアカウントに転送します。
+
+```bash
+# テストアカウント名でmint
 node scripts/mint-moral.mjs Bob 5000
+
+# アドレス指定でmint
+node scripts/mint-moral.mjs 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY 10000
 
 # シードフレーズから導出したアドレスにmint
 node scripts/mint-moral-seed.mjs "word1 word2 word3 ... word12" 10000

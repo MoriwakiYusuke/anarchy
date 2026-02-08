@@ -24,8 +24,6 @@
   "wallet.seedErrorEmpty": "シードフレーズを入力してください",
   "wallet.seedErrorInvalid": "無効なシードフレーズです。12または24単語の正しいニーモニックを入力してください。",
   "wallet.refreshBalance": "残高を更新",
-  "wallet.minting": "Mint中...",
-  "wallet.mintDev": "🔧 10,000 moral をmint (Dev)",
   "post.placeholder": "今なにしてる？",
   "post.submit": "投稿",
   "post.submitting": "投稿中...",

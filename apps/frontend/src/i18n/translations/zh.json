@@ -24,8 +24,6 @@
   "wallet.seedErrorEmpty": "请输入助记词",
   "wallet.seedErrorInvalid": "无效的助记词。请输入正确的12或24个单词的助记词。",
   "wallet.refreshBalance": "刷新余额",
-  "wallet.minting": "铸造中...",
-  "wallet.mintDev": "🔧 铸造 10,000 moral (开发)",
   "post.placeholder": "有什么新鲜事？",
   "post.submit": "发布",
   "post.submitting": "发布中...",

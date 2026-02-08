@@ -24,8 +24,6 @@
   "wallet.seedErrorEmpty": "Please enter a seed phrase",
   "wallet.seedErrorInvalid": "Invalid seed phrase. Please enter a valid 12 or 24 word mnemonic.",
   "wallet.refreshBalance": "Refresh balance",
-  "wallet.minting": "Minting...",
-  "wallet.mintDev": "🔧 Mint 10,000 moral (Dev)",
   "post.placeholder": "What's happening?",
   "post.submit": "Post",
   "post.submitting": "Posting...",

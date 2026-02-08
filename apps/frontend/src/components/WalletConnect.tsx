@@ -37,8 +37,6 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
   const [generatedPhrase, setGeneratedPhrase] = useState<string | null>(null)
   const [showCopied, setShowCopied] = useState(false)
   const [showAddressCopied, setShowAddressCopied] = useState(false)
-  const [isMinting, setIsMinting] = useState(false)
-  const [mintStatus, setMintStatus] = useState<string | null>(null)
   const { balance, isLoading: balanceLoading, refetch: refetchBalance } = useMoralBalance(unsafeApi, account, refreshTrigger)
 
   const isAlice = accountSeed === ALICE_SEED
@@ -119,19 +117,6 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
     setSeedPhraseError(null)
   }
 
-  // 開発用: DevMintは廃止（$moral = ネイティブトークンになった）
-  // 代わりに node scripts/mint-moral.mjs <address> <amount> を使用
-  const handleDevMint = async () => {
-    if (!unsafeApi || !account || !signer || !isAlice) return
-    
-    setIsMinting(true)
-    setMintStatus('[$moral = ネイティブトークン] mint-moral.mjs スクリプトを使用してください')
-    setTimeout(() => {
-      setMintStatus(null)
-      setIsMinting(false)
-    }, 3000)
-  }
-
   const shortenAddress = (addr: string) => {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`
   }
@@ -184,23 +169,6 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
               )}
             </span>
           </div>
-
-          {/* 開発用: AliceのみSudo mint可能 */}
-          {isAlice && (
-            <button 
-              className={styles.devMintBtn}
-              onClick={handleDevMint}
-              disabled={isMinting}
-            >
-              {isMinting ? t('wallet.minting') : t('wallet.mintDev')}
-            </button>
-          )}
-          
-          {mintStatus && (
-            <div className={styles.mintStatus}>
-              {mintStatus}
-            </div>
-          )}
           
           <button 
             className={styles.disconnectBtn}

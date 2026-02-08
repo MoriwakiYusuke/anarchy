@@ -213,37 +213,6 @@
   margin-left: 0.5rem;
 }
 
-.devMintBtn {
-  background: #f59e0b;
-  color: #000;
-  border: none;
-  border-radius: 8px;
-  padding: 0.75rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s, transform 0.2s;
-}
-
-.devMintBtn:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
-
-.devMintBtn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.mintStatus {
-  font-size: 0.75rem;
-  padding: 0.5rem;
-  background: var(--bg-primary);
-  border-radius: 4px;
-  text-align: center;
-}
-
 /* シードフレーズ関連スタイル */
 
 .modeTabs {
