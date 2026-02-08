@@ -94,6 +94,32 @@ cd apps/blockchain
 | Dave | Full Node | ws://127.0.0.1:9947 | 30336 | 4ノード以上 |
 | Eve〜Ten | Full Node | ... | ... | 5〜10ノード |
 
+### 1c. Tor匿名モード
+
+ノード間通信をTorネットワーク経由で匿名化できます。
+
+```bash
+cd apps/blockchain
+
+# Tor/torsocksインストール
+./scripts/tor-setup.sh install
+
+# 匿名モードでノード起動（Onion Service設定済みの場合）
+./scripts/anarchy-tor.sh ./target/release/anarchy-node \
+  --tor-mode=forced \
+  --public-addr=/onion3/YOUR_ONION_ADDRESS:30333
+```
+
+| モード | 説明 |
+|--------|------|
+| `off` | 通常接続（開発用） |
+| `outbound-only` | 送信のみTor（受信IP露出） |
+| `forced` | 完全匿名（**本番推奨**） |
+
+> ⚠️ mainnetでは `--tor-mode=forced` が自動強制されます
+
+📖 詳細: [apps/blockchain/docs/tor-deployment.md](apps/blockchain/docs/tor-deployment.md)
+
 ### 2. フロントエンドの起動
 
 ```bash
