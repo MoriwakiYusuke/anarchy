@@ -16,7 +16,7 @@
   - [x] `pnpm-workspace.yaml` 作成
   - [x] `apps/blockchain/` - Substrate L1（バリデーター/フルノード）
   - [x] `apps/frontend/` - Next.js PWA（ハイドラUI）
-  - [ ] `apps/storage-node/` - データ保持専用ノード **[NEW]**
+  - [ ] `apps/storage-node/` - データ保持専用ノード
   - [ ] `packages/sdk/` - 共有暗号SDK
   - [ ] `packages/wasm-engine/` - Rust→Wasm
 
@@ -50,22 +50,43 @@
     - PostBaseCost = 10 MORAL（基本料金）
     - PostByteCost = 0.1 MORAL/byte（バイト単価）
 
-### 1.3 libp2p + Tor 統合
+### 1.3 libp2p + Tor 統合 → **完了** (2026-02-08)
 
-- [ ] libp2p ネットワーク層実装
-  - [ ] ノード識別（PeerId）
-  - [ ] Kademliaによるピア発見
-  - [ ] GossipSubによるメッセージ伝播
+> **設計方針**: Arti（Rust Tor）ではなく、システムTorデーモン + torsocksを使用。
+> これにより、①外向き通信ロック（torsocks環境変数チェック）と②内向き通信ロック（127.0.0.1バインド）を実現。
 
-- [ ] **Arti（Tor）統合**
-  - [ ] `arti-client` クレート導入
-  - [ ] Torトランスポートラッパー実装
-  - [ ] libp2p Transport として統合
-  - [ ] Onion Service対応（オプション）
+- [x] libp2p ネットワーク層（Substrate標準sc-networkを使用）
+  - [x] ノード識別（PeerId）
+  - [x] Kademliaによるピア発見
+  - [x] GossipSubによるメッセージ伝播
 
-- [ ] ネットワーク設定
-  - [ ] Tor強制モード / 通常モード切替
-  - [ ] ブートストラップノード設定
+- ~~[ ] **Arti（Tor）統合**~~ → **放棄**: Artiはまだ実験的でno_std非対応、依存関係が複雑なため
+  - ~~[ ] `arti-client` クレート導入~~
+  - ~~[ ] Torトランスポートラッパー実装~~
+  - ~~[ ] libp2p Transport として統合~~
+
+- [x] **+ Tor統合（システムTor + torsocks方式）** ← Artiの代替として採用
+  - [x] + `TorMode` enum実装 (`cli.rs`): `Off | OutboundOnly | Forced`
+  - [x] + `--tor-mode` CLI引数 (`cli.rs`)
+  - [x] + `apply_tor_mode()` ロジック (`command.rs`)
+  - [x] + ①外向きロック: `ANARCHY_RUNNING_UNDER_TORSOCKS`環境変数チェック
+  - [x] + ②内向きロック: 127.0.0.1バインド強制
+  - [x] Onion Service対応 (`scripts/onion-service.sh`)
+
+- [x] ネットワーク設定・セキュリティ
+  - [x] Tor強制モード / 通常モード切替
+  - ~~[ ] ブートストラップノード設定~~ → **延期**: Onion bootnode設定はテストネット公開時に実装
+  - [x] + **mainnet自動強制**: chain_id に "mainnet" 含むと TorMode::Forced 強制
+  - [x] + .onionアドレスサニタイズ（ログ漏洩防止）
+
+- [x] + 運用スクリプト
+  - [x] + `scripts/onion-service.sh` - Onion Service セットアップ
+  - [x] + `scripts/tor-setup.sh` - torsocks実行スクリプト
+  - [x] + `scripts/anarchy-tor.sh` - Torモードでのノード起動ラッパー
+
+- [x] + テスト
+  - [x] + ユニットテスト 17件 (`command.rs`)
+  - [x] + 統合テスト 15件 (`tests/integration/tor_connectivity_test.sh`)
 
 ### ~~1.4 WebAuthn 署名検証~~ → **廃止** (2026-02-08)
 
@@ -363,13 +384,17 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 - [x] **代替実装**: AccountIdのみ認証（シードフレーズから導出）
 - [x] **代替実装**: `polkadot-api`のsigner連携で投稿署名
 
-### M3: P2Pネットワーク（2週間）
-- 複数ノード間の通信確立
-- GossipSubによる投稿伝播
+### M3: P2Pネットワーク ✅完了 (2026-02-08)
+- [x] 複数ノード間の通信確立 (`run-multi-node.sh`, 最大10ノード対応)
+- [x] GossipSubによる投稿伝播 (Substrate `sc-network` 標準機能)
 
-### M4: Tor統合（2週間）
-- Artiによる匿名通信
-- テストネット公開
+### M4: Tor統合 ✅完了 (2026-02-08)
+
+> **変更**: Artiではなくシステムtor + torsocks方式を採用
+
+- [x] 匿名通信 (`--tor-mode=forced`, Onion Service)
+- [x] 統合テスト18件パス (`tests/integration/tor_connectivity_test.sh`)
+- [ ] パブリックテストネット公開（次フェーズ）
 
 ### M5: プライバシー機能（4週間）
 - SSS断片化

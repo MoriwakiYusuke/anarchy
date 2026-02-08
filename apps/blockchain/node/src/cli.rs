@@ -1,7 +1,29 @@
 //! CLI定義
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use sc_cli::RunCmd;
+
+/// Tor usage mode for anonymous network participation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum TorMode {
+    /// No Tor - direct TCP connections (development only)
+    #[default]
+    Off,
+    /// Outbound through Tor, inbound direct (WARNING: inbound IP exposed)
+    OutboundOnly,
+    /// Full anonymity - Tor required for both directions
+    Forced,
+}
+
+impl std::fmt::Display for TorMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TorMode::Off => write!(f, "off"),
+            TorMode::OutboundOnly => write!(f, "outbound-only"),
+            TorMode::Forced => write!(f, "forced"),
+        }
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(name = "anarchy-node")]
@@ -12,6 +34,14 @@ pub struct Cli {
 
     #[command(flatten)]
     pub run: RunCmd,
+
+    /// Tor mode for network anonymity
+    /// 
+    /// - off: No Tor (development only)
+    /// - outbound-only: Outbound via Tor, inbound exposed (WARNING)
+    /// - forced: Full anonymity via Tor
+    #[arg(long, value_enum, default_value_t = TorMode::Off)]
+    pub tor_mode: TorMode,
 }
 
 #[derive(Debug, clap::Subcommand)]

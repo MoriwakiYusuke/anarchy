@@ -1,6 +1,21 @@
 //! Chain Specification
 //!
 //! 開発用およびテストネット用のチェーン仕様を定義
+//!
+//! ## Tor/Onion Bootstrap Nodes
+//!
+//! Onion multiaddress format for bootNodes:
+//! ```
+//! /onion3/<56-char-base32>:<port>/p2p/<peer-id>
+//! ```
+//!
+//! Example:
+//! ```
+//! "/onion3/vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd:30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
+//! ```
+//!
+//! Production networks should include both TCP and Onion bootnodes for
+//! maximum reachability and privacy options.
 
 use anarchy_runtime::{
     opaque::SessionKeys, AccountId, AuraConfig, Balance, BalancesConfig, GrandpaConfig,
@@ -79,6 +94,24 @@ pub fn development_config() -> Result<ChainSpec, String> {
 
 /// ローカルテストネット設定
 pub fn local_testnet_config() -> Result<ChainSpec, String> {
+    // Boot nodes for network discovery
+    // For production, add both TCP and Onion addresses
+    // 
+    // Onion bootnode format:
+    //   /onion3/<56-char-base32>:<port>/p2p/<peer-id>
+    // 
+    // Example entries (uncomment and replace with real addresses):
+    // let boot_nodes = vec![
+    //     // TCP bootnode (clear net)
+    //     "/ip4/1.2.3.4/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
+    //         .parse()
+    //         .expect("valid multiaddr"),
+    //     // Onion bootnode (Tor hidden service)
+    //     "/onion3/vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd:30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
+    //         .parse()
+    //         .expect("valid multiaddr"),
+    // ];
+    
     Ok(ChainSpec::builder(
         WASM_BINARY.ok_or_else(|| "Local wasm not available".to_string())?,
         None,
@@ -87,6 +120,8 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
     .with_id("local_testnet")
     .with_chain_type(ChainType::Local)
     .with_properties(chain_properties())
+    // For production networks, uncomment:
+    // .with_boot_nodes(boot_nodes)
     .with_genesis_config_patch(testnet_genesis(
         vec![
             authority_keys_from_seed("Alice"),
