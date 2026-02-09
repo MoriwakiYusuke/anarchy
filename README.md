@@ -146,6 +146,17 @@ cp config.example.toml config.toml
 | chain_url | ws://127.0.0.1:9944 | チェーンRPCエンドポイント |
 | listen_addr | /ip4/0.0.0.0/tcp/4001 | libp2pリッスンアドレス |
 | declare_rate_limit | 10 | declare_holding/分 |
+| rpc_port | 3030 | HTTP JSON-RPCポート |
+
+Storage Nodeは起動時にブロックチェーンノードに自動登録するため、両方を起動するだけで連携します：
+
+```bash
+# ターミナル1: ブロックチェーンノード
+cd apps/blockchain && ./target/release/anarchy-node --dev
+
+# ターミナル2: Storage Node
+cd apps/storage-node && ./target/release/anarchy-storage-node --config config.toml
+```
 
 📖 詳細: [apps/storage-node/README.md](apps/storage-node/README.md)
 

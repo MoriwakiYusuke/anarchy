@@ -65,7 +65,11 @@ impl FragmentStore {
         })
     }
 
-    /// Store a fragment with hash verification
+    /// Store a fragment
+    /// 
+    /// Note: fragment_id is computed from hash(merkle_root || index) by the caller,
+    /// not from the data content. Data integrity is verified via Merkle proof
+    /// on the blockchain node before reaching the storage node.
     pub fn store(&self, fragment_id: FragmentId, data: &[u8]) -> Result<()> {
         // ============================================================
         // Security Validation (T074)
@@ -78,13 +82,6 @@ impl FragmentStore {
                 data.len(),
                 MAX_FRAGMENT_SIZE
             );
-        }
-
-        // Verify hash matches
-        let computed_hash = Self::hash(data);
-        if computed_hash != fragment_id {
-            bail!("Fragment hash mismatch: expected {:?}, got {:?}", 
-                hex::encode(fragment_id), hex::encode(computed_hash));
         }
 
         // Check capacity
@@ -140,15 +137,8 @@ impl FragmentStore {
         file.read_to_end(&mut data)
             .context("Failed to read fragment data")?;
 
-        // Verify hash on read
-        let computed_hash = Self::hash(&data);
-        if computed_hash != *fragment_id {
-            warn!(
-                fragment_id = %hex::encode(fragment_id),
-                "Fragment hash mismatch on read, data may be corrupted"
-            );
-            // Still return data, but warn
-        }
+        // Note: fragment_id is location-based (hash(merkle_root || index)),
+        // not content-based, so we don't verify hash on read.
 
         Ok(Some(data))
     }

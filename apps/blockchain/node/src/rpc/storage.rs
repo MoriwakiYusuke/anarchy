@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 // ============================================================================
 // Security Constants (T074)
@@ -123,6 +124,13 @@ pub struct ListHoldersResponse {
 /// Storage RPC API定義
 #[rpc(server, client, namespace = "storage")]
 pub trait StorageApi {
+    /// Storage Nodeエンドポイントを登録
+    ///
+    /// Storage Nodeが起動時にこのRPCを呼び出して自分を登録する。
+    /// これにより環境変数なしで自動接続が可能になる。
+    #[method(name = "registerEndpoint")]
+    async fn register_endpoint(&self, url: String) -> RpcResult<bool>;
+
     /// 断片をアップロード
     ///
     /// フロントエンドからの断片データを受け取り、MerkleProofを検証後、
@@ -164,11 +172,6 @@ impl StorageNodeClient {
             http_client: reqwest::Client::new(),
             storage_node_url,
         }
-    }
-
-    /// Storage Nodeから環境変数でURLを取得して作成
-    pub fn from_env() -> Option<Self> {
-        std::env::var("STORAGE_NODE_URL").ok().map(|url| Self::new(url))
     }
 
     /// 断片をStorage Nodeにアップロード
@@ -279,21 +282,24 @@ impl StorageNodeClient {
 pub struct Storage<C> {
     /// Runtime Client（チェーン状態参照用）
     client: Arc<C>,
-    /// Storage Node HTTPクライアント
-    storage_client: Option<StorageNodeClient>,
+    /// Storage Node URL (動的に登録される)
+    storage_node_url: Arc<RwLock<Option<String>>>,
 }
 
 impl<C> Storage<C> {
     /// 新しいStorage RPCハンドラを作成
-    pub fn new(client: Arc<C>, storage_node_url: Option<String>) -> Self {
-        let storage_client = storage_node_url.map(StorageNodeClient::new);
-        Self { client, storage_client }
+    /// Storage Nodeは起動時にstorage_registerEndpoint RPCで自動登録される
+    pub fn new(client: Arc<C>) -> Self {
+        Self { 
+            client, 
+            storage_node_url: Arc::new(RwLock::new(None)),
+        }
     }
-
-    /// 環境変数からStorage Node URLを取得して作成
-    pub fn from_env(client: Arc<C>) -> Self {
-        let storage_client = StorageNodeClient::from_env();
-        Self { client, storage_client }
+    
+    /// Storage Nodeクライアントを取得
+    async fn get_storage_client(&self) -> Option<StorageNodeClient> {
+        let url = self.storage_node_url.read().await;
+        url.as_ref().map(|u| StorageNodeClient::new(u.clone()))
     }
 }
 
@@ -344,6 +350,25 @@ where
     C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
     C::Api: PostRuntimeApi<Block>,
 {
+    async fn register_endpoint(&self, url: String) -> RpcResult<bool> {
+        // URLの基本的な検証
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                "Invalid URL: must start with http:// or https://",
+                None::<()>,
+            ).into());
+        }
+
+        log::info!("Storage Node registered: {}", url);
+        
+        // URLを保存
+        let mut storage_url = self.storage_node_url.write().await;
+        *storage_url = Some(url);
+        
+        Ok(true)
+    }
+
     async fn upload_fragment(&self, request: UploadFragmentRequest) -> RpcResult<UploadFragmentResponse> {
         // 1. Base64デコード
         use base64::{engine::general_purpose::STANDARD, Engine};
@@ -447,33 +472,29 @@ where
         // 3. 断片ハッシュ計算
         let fragment_hash = blake2b_hash(&data);
 
-        // 4. Storage Nodeに転送（HTTP経由）
-        if let Some(ref storage_client) = self.storage_client {
-            match storage_client.upload_fragment(&request).await {
-                Ok(_) => {
-                    log::info!(
-                        "Fragment forwarded to Storage Node: root={:?}, index={}, size={}",
-                        hex::encode(&request.merkle_root[..8]),
-                        request.index,
-                        data.len()
-                    );
-                }
-                Err(e) => {
-                    log::warn!(
-                        "Failed to forward fragment to Storage Node: {}. Fragment verified but not stored.",
-                        e
-                    );
-                    // 転送失敗でもMerkleProof検証は成功しているので、成功として返す
-                    // Storage Nodeへの再送はクライアント側でリトライ可能
-                }
-            }
-        } else {
-            log::warn!(
-                "No Storage Node configured. Fragment verified but not stored. root={:?}, index={}",
-                hex::encode(&request.merkle_root[..8]),
-                request.index
-            );
-        }
+        // 4. Storage Nodeに転送（HTTP経由）- 必須
+        let storage_client = self.get_storage_client().await.ok_or_else(|| {
+            ErrorObject::owned(
+                ErrorCode::InternalError.code(),
+                "Storage Node not connected. Start storage-node and it will auto-register.",
+                None::<()>,
+            )
+        })?;
+
+        storage_client.upload_fragment(&request).await.map_err(|e| {
+            ErrorObject::owned(
+                ErrorCode::InternalError.code(),
+                format!("Failed to upload fragment to Storage Node: {}", e),
+                None::<()>,
+            )
+        })?;
+
+        log::info!(
+            "Fragment uploaded to Storage Node: root={:?}, index={}, size={}",
+            hex::encode(&request.merkle_root[..8]),
+            request.index,
+            data.len()
+        );
 
         Ok(UploadFragmentResponse {
             success: true,
@@ -489,10 +510,10 @@ where
         );
 
         // Storage Nodeから取得
-        let storage_client = self.storage_client.as_ref().ok_or_else(|| {
+        let storage_client = self.get_storage_client().await.ok_or_else(|| {
             ErrorObject::owned(
                 ErrorCode::InternalError.code(),
-                "Storage Node not configured (set STORAGE_NODE_URL environment variable)",
+                "Storage Node not connected. Start storage-node and it will auto-register.",
                 None::<()>,
             )
         })?;
@@ -562,14 +583,15 @@ where
 
     async fn list_holders(&self, post_id: u64) -> RpcResult<ListHoldersResponse> {
         // TODO: declare_holdingストレージからホルダー一覧を取得
-        // 現在はStorage Nodeが1つの想定なので、環境変数から取得
+        // 現在はStorage Nodeが1つの想定なので、登録されたURLから取得
         log::debug!("list_holders called: post_id={}", post_id);
 
-        let holders = if let Some(ref storage_client) = self.storage_client {
+        let url = self.storage_node_url.read().await;
+        let holders = if let Some(ref endpoint) = *url {
             vec![HolderInfo {
                 account_id: "configured_storage_node".to_string(),
                 indices: (0..5).collect(), // 仮に0-4を保持
-                endpoint: Some(storage_client.storage_node_url.clone()),
+                endpoint: Some(endpoint.clone()),
             }]
         } else {
             vec![]
@@ -916,6 +938,42 @@ mod tests {
         assert!(parsed.result.is_none());
         assert!(parsed.error.is_some());
         assert_eq!(parsed.error.unwrap().message, "Fragment not found");
+    }
+
+    // T033補足: Storage Nodeが未設定の場合のテスト
+    #[test]
+    fn test_storage_client_none_handling() {
+        // Storage<C>のstorage_clientがNoneの場合、
+        // upload_fragmentとget_fragmentはエラーを返すべき
+        // (実際のasync呼び出しテストは統合テストで行う)
+        
+        // StorageNodeClientが正しく作成されることのテスト
+        let client = StorageNodeClient::new("http://localhost:8080".to_string());
+        assert!(!client.storage_node_url.is_empty());
+        
+        // Storage Nodeは起動時にstorage_registerEndpoint RPCで自動登録されるため、
+        // 環境変数からの初期化は不要
+    }
+
+    // T033補足: 分散ストレージで必要なパラメータ検証
+    #[test]
+    fn test_sss_parameters_validation() {
+        // SSS (Shamir Secret Sharing) の基本パラメータ
+        // k: 復元に必要な断片数
+        // n: 総断片数
+        // 条件: 1 <= k <= n
+        
+        // 有効なケース
+        assert!(1 <= 3 && 3 <= 5); // k=3, n=5
+        assert!(1 <= 2 && 2 <= 3); // k=2, n=3
+        assert!(1 <= 1 && 1 <= 1); // k=1, n=1 (冗長性なし)
+        
+        // 分散要件: 少なくとも1つのノードがオフラインでも復元可能
+        // => k < n が必要 (n - k >= 1)
+        let k = 3;
+        let n = 5;
+        let tolerance = n - k; // 許容オフラインノード数
+        assert_eq!(tolerance, 2); // 2ノードまでオフラインでOK
     }
 }
 

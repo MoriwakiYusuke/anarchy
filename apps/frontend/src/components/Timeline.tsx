@@ -56,7 +56,20 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
             const contentEntries = await unsafeApi.query.Post.Contents.getEntries()
             for (const entry of contentEntries) {
               const postId = Number(entry.keyArgs[0])
-              const bytes = entry.value?.asBytes?.() || entry.value
+              // PAPI v1.x: valueは直接Uint8ArrayまたはBoundedVec
+              // asBytes()メソッドがある場合はそれを使い、なければ直接使用
+              let bytes: Uint8Array | number[] | undefined
+              const value = entry.value
+              if (typeof value?.asBytes === 'function') {
+                bytes = value.asBytes()
+              } else if (value instanceof Uint8Array) {
+                bytes = value
+              } else if (Array.isArray(value)) {
+                bytes = value
+              } else if (value && typeof value === 'object') {
+                // BoundedVecの場合、内部配列を取得
+                bytes = value.value || value
+              }
               if (bytes) {
                 try {
                   const text = new TextDecoder().decode(new Uint8Array(bytes))

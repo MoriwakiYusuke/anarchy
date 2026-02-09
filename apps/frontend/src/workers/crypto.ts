@@ -8,6 +8,17 @@
 // Worker内でのWasmモジュール
 let wasmModule: typeof import("anarchy-wasm-engine") | null = null;
 
+// MerkleResultキャッシュ（Proof生成用）
+// key: merkle_root (hex), value: MerkleResult
+const merkleCache = new Map<string, import("anarchy-wasm-engine").MerkleResult>();
+
+/**
+ * Uint8Arrayをhex文字列に変換
+ */
+function toHex(arr: Uint8Array): string {
+  return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 /**
  * Wasmモジュールを初期化
  */
@@ -16,9 +27,11 @@ async function initWasm(): Promise<void> {
 
   try {
     // Dynamic import (wasm-packでビルドされたモジュール)
-    wasmModule = await import("anarchy-wasm-engine");
-    // Wasmの初期化(panic hookの設定など)
-    wasmModule.init();
+    const module = await import("anarchy-wasm-engine");
+    // default exportを呼び出してWasmバイナリをロード
+    // これにより内部でwasm.__wbindgen_start()が呼ばれ、Rust側のinit()も実行される
+    await module.default();
+    wasmModule = module;
     console.log("[CryptoWorker] Wasm module initialized");
   } catch (error) {
     console.error("[CryptoWorker] Failed to initialize Wasm:", error);
@@ -31,7 +44,7 @@ async function initWasm(): Promise<void> {
  */
 interface WorkerRequest {
   id: string;
-  type: "sss_split" | "sss_recover" | "merkle_build" | "merkle_verify" | "blake2b_hash";
+  type: "sss_split" | "sss_recover" | "merkle_build" | "merkle_generate_proof" | "merkle_verify" | "blake2b_hash";
   payload: unknown;
 }
 
@@ -64,6 +77,14 @@ interface SssRecoverPayload {
  */
 interface MerkleBuildPayload {
   fragments: Uint8Array[];
+}
+
+/**
+ * MerkleProof生成リクエスト
+ */
+interface MerkleGenerateProofPayload {
+  merkleRootHex: string;
+  index: number;
 }
 
 /**
@@ -117,12 +138,25 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       case "merkle_build": {
         const { fragments } = payload as MerkleBuildPayload;
         const merkleResult = wasmModule.merkle_build(fragments);
+        const root = new Uint8Array(merkleResult.root);
+        const rootHex = toHex(root);
+        // キャッシュに保存（後でProof生成に使用）
+        merkleCache.set(rootHex, merkleResult);
         result = {
-          root: new Uint8Array(merkleResult.root),
+          root,
+          rootHex,
           leafCount: merkleResult.leaf_count,
-          // Proofを生成するメソッドを保持（複数回呼ぶ可能性があるため）
-          _internal: merkleResult,
         };
+        break;
+      }
+
+      case "merkle_generate_proof": {
+        const { merkleRootHex, index } = payload as MerkleGenerateProofPayload;
+        const cachedResult = merkleCache.get(merkleRootHex);
+        if (!cachedResult) {
+          throw new Error(`MerkleResult not found for root: ${merkleRootHex}`);
+        }
+        result = new Uint8Array(cachedResult.generate_proof(index));
         break;
       }
 

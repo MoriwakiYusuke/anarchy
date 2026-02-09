@@ -13,6 +13,7 @@ pub struct ConfigOverrides {
     pub data_dir: Option<String>,
     pub chain_url: Option<String>,
     pub listen_addr: Option<String>,
+    pub rpc_port: Option<u16>,
 }
 
 /// Storage node configuration
@@ -37,6 +38,10 @@ pub struct Config {
     /// Rate limit for declare_holding (per minute)
     #[serde(default = "default_declare_rate_limit")]
     pub declare_rate_limit: u32,
+
+    /// HTTP RPC port for blockchain node communication
+    #[serde(default = "default_rpc_port")]
+    pub rpc_port: u16,
 }
 
 fn default_data_dir() -> String {
@@ -59,6 +64,10 @@ fn default_declare_rate_limit() -> u32 {
     10 // max 10 per minute (FR-108)
 }
 
+fn default_rpc_port() -> u16 {
+    3030 // HTTP JSON-RPC port
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -67,6 +76,7 @@ impl Default for Config {
             chain_url: default_chain_url(),
             listen_addr: default_listen_addr(),
             declare_rate_limit: default_declare_rate_limit(),
+            rpc_port: default_rpc_port(),
         }
     }
 }
@@ -95,6 +105,9 @@ impl Config {
         if let Some(listen_addr) = overrides.listen_addr {
             config.listen_addr = listen_addr;
         }
+        if let Some(rpc_port) = overrides.rpc_port {
+            config.rpc_port = rpc_port;
+        }
 
         Ok(config)
     }
@@ -111,6 +124,7 @@ mod tests {
         assert_eq!(config.capacity, 10 * 1024 * 1024 * 1024);
         assert_eq!(config.chain_url, "ws://127.0.0.1:9944");
         assert_eq!(config.declare_rate_limit, 10);
+        assert_eq!(config.rpc_port, 3030);
     }
 
     #[test]
@@ -121,11 +135,13 @@ mod tests {
             chain_url = "ws://localhost:9944"
             listen_addr = "/ip4/127.0.0.1/tcp/5001"
             declare_rate_limit = 5
+            rpc_port = 4040
         "#;
 
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.data_dir, "/custom/data");
         assert_eq!(config.capacity, 5 * 1024 * 1024 * 1024);
         assert_eq!(config.declare_rate_limit, 5);
+        assert_eq!(config.rpc_port, 4040);
     }
 }

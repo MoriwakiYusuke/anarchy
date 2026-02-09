@@ -3,10 +3,11 @@
 //! A distributed storage node for the Anarchy network.
 //! Stores fragments and communicates via libp2p.
 
-use anarchy_storage_node::{config, identity, storage, network, chain, metrics};
+use anarchy_storage_node::{config, identity, storage, network, chain, rpc};
 
 use clap::Parser;
-use tracing::{info, error};
+use std::sync::Arc;
+use tracing::{info, warn, error};
 use tokio::select;
 
 /// Storage node CLI arguments
@@ -29,6 +30,10 @@ pub struct Args {
     /// Listen address (overrides config)
     #[arg(long)]
     pub listen: Option<String>,
+
+    /// HTTP RPC port (overrides config)
+    #[arg(long)]
+    pub rpc_port: Option<u16>,
 }
 
 #[tokio::main]
@@ -50,6 +55,7 @@ async fn main() -> anyhow::Result<()> {
         data_dir: args.data_dir.clone(),
         chain_url: args.chain_url.clone(),
         listen_addr: args.listen.clone(),
+        rpc_port: args.rpc_port,
     };
     let config = config::Config::load(&args.config, overrides)?;
     info!("Configuration loaded from {}", args.config);
@@ -59,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
     info!(peer_id = %identity.peer_id(), "Node identity loaded");
 
     // Initialize storage
-    let store = storage::FragmentStore::new(&config.data_dir, config.capacity)?;
+    let store = Arc::new(storage::FragmentStore::new(&config.data_dir, config.capacity)?);
     info!(
         capacity_bytes = config.capacity,
         "Fragment storage initialized"
@@ -73,6 +79,29 @@ async fn main() -> anyhow::Result<()> {
     let mut network = network::Network::new(identity.keypair().clone(), &config.listen_addr)?;
     network.listen(&config.listen_addr)?;
     info!("Network listening on {}", config.listen_addr);
+
+    // Start HTTP RPC server
+    let rpc_addr = format!("0.0.0.0:{}", config.rpc_port);
+    let rpc_router = rpc::create_rpc_router(Arc::clone(&store));
+    let rpc_listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
+    info!(addr = %rpc_addr, "HTTP RPC server started");
+    
+    // Spawn HTTP server
+    let http_server = tokio::spawn(async move {
+        axum::serve(rpc_listener, rpc_router)
+            .await
+            .expect("HTTP server error");
+    });
+
+    // Register with blockchain node (auto-connection)
+    let our_rpc_url = format!("http://127.0.0.1:{}", config.rpc_port);
+    match chain_client.register_with_blockchain(&our_rpc_url).await {
+        Ok(()) => info!("Registered with blockchain node"),
+        Err(e) => {
+            warn!(error = %e, "Failed to register with blockchain node (will retry on reconnect)");
+            // Continue anyway - blockchain node might not be running yet
+        }
+    }
 
     // Setup shutdown signal
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -92,9 +121,10 @@ async fn main() -> anyhow::Result<()> {
         select! {
             _ = &mut shutdown_rx => {
                 info!("Shutting down...");
+                http_server.abort();
                 break;
             }
-            event = network.handle_event(&store) => {
+            event = network.handle_event(store.as_ref()) => {
                 match event {
                     Ok(Some(network::NetworkEvent::Listening(addr))) => {
                         info!(addr = %addr, "Now listening on");

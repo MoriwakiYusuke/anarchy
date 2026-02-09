@@ -213,6 +213,72 @@ impl ChainClient {
     pub async fn rate_limit_remaining(&self) -> u32 {
         self.rate_limiter.remaining().await
     }
+
+    /// Register this Storage Node with the blockchain node
+    /// 
+    /// Calls the `storage_registerEndpoint` RPC to register our HTTP endpoint.
+    /// This allows the blockchain node to forward fragment requests to us.
+    pub async fn register_with_blockchain(&self, our_rpc_url: &str) -> Result<()> {
+        // Convert ws:// to http:// for JSON-RPC
+        let http_endpoint = self.endpoint
+            .replace("ws://", "http://")
+            .replace("wss://", "https://");
+        
+        info!(
+            blockchain = %http_endpoint,
+            storage_node = %our_rpc_url,
+            "Registering Storage Node with blockchain"
+        );
+        
+        #[derive(serde::Serialize)]
+        struct RpcRequest<'a> {
+            jsonrpc: &'static str,
+            id: u32,
+            method: &'static str,
+            params: [&'a str; 1],
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcResponse {
+            result: Option<bool>,
+            error: Option<RpcError>,
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcError {
+            message: String,
+        }
+        
+        let client = reqwest::Client::new();
+        let request = RpcRequest {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "storage_registerEndpoint",
+            params: [our_rpc_url],
+        };
+        
+        let response = client
+            .post(&http_endpoint)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to connect to blockchain node: {}", e))?;
+        
+        let rpc_response: RpcResponse = response
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+        
+        if let Some(error) = rpc_response.error {
+            bail!("Blockchain node rejected registration: {}", error.message);
+        }
+        
+        if rpc_response.result == Some(true) {
+            info!("Successfully registered with blockchain node");
+        }
+        
+        Ok(())
+    }
 }
 
 /// Fragment metadata from chain (matches pallet types)

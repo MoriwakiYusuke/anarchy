@@ -101,7 +101,8 @@
 }
 
 /* Loading state for V2 content */
-.text .loading {
+.text .loading,
+.contentLoading {
   color: var(--text-secondary);
   font-style: italic;
 }

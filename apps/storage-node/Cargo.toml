@@ -58,6 +58,14 @@ anyhow = "1.0"
 # CLI
 clap = { version = "4.4", features = ["derive"] }
 
+# HTTP JSON-RPC server
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# HTTP client for blockchain node registration
+reqwest = { version = "0.12", features = ["json"] }
+
 # subxt for chain interaction
 # Note: Add subxt after initial scaffold works
 # subxt = "0.37"

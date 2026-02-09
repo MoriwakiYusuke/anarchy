@@ -85,6 +85,11 @@ export function useStorage(): UseStorageResult {
    * Web Worker初期化
    */
   useEffect(() => {
+    // SSR/SSG環境ではWorkerを作成しない
+    if (typeof window === 'undefined') {
+      return
+    }
+
     // Web Workerを作成
     const worker = new Worker(new URL('../workers/crypto.ts', import.meta.url), { type: 'module' })
     workerRef.current = worker
@@ -196,10 +201,11 @@ export function useStorage(): UseStorageResult {
 
       // 2. MerkleTree構築 (Wasm Worker)
       setProgress(20)
-      const merkleResult = await sendToWorker<{ root: Uint8Array; leafCount: number }>('merkle_build', {
+      const merkleResult = await sendToWorker<{ root: Uint8Array; rootHex: string; leafCount: number }>('merkle_build', {
         fragments: shares,
       })
       const merkleRoot = merkleResult.root
+      const merkleRootHex = merkleResult.rootHex
 
       // 3. 各断片のMerkleProofを生成してアップロード
       const fragmentHashes: Uint8Array[] = []
@@ -207,13 +213,15 @@ export function useStorage(): UseStorageResult {
 
       // 並列アップロード（全n個）
       const uploadPromises = shares.map(async (share, index) => {
-        // MerkleProof生成 - TODO: merkle_build結果からproof生成できるAPIが必要
-        // 暫定: blake2b_hashでリーフハッシュだけ計算
-        const fragmentHash = await sendToWorker<Uint8Array>('blake2b_hash', { data: share })
+        // MerkleProof生成
+        const proof = await sendToWorker<Uint8Array>('merkle_generate_proof', {
+          merkleRootHex,
+          index,
+        })
 
         // Base64エンコード
         const dataB64 = btoa(String.fromCharCode.apply(null, Array.from(share)))
-        const proofB64 = '' // TODO: 実際のMerkleProof
+        const proofB64 = btoa(String.fromCharCode.apply(null, Array.from(proof)))
 
         // RPC呼び出し（リトライ付き）
         const result = await rpcCallWithRetry<{ success: boolean; fragment_hash: number[] }>(

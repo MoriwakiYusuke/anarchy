@@ -8,4 +8,5 @@ pub mod config;
 pub mod identity;
 pub mod metrics;
 pub mod network;
+pub mod rpc;
 pub mod storage;

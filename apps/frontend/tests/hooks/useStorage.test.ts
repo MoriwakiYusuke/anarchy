@@ -12,6 +12,8 @@ class MockWorker {
   onmessage: ((event: MessageEvent) => void) | null = null
   onerror: ((event: ErrorEvent) => void) | null = null
   private messageHandlers: Map<string, (payload: unknown) => unknown> = new Map()
+  // MerkleResult キャッシュ（merkle_generate_proof用）
+  private merkleCache: Map<string, { root: Uint8Array; leafCount: number }> = new Map()
 
   constructor() {
     // Worker初期化完了を模擬
@@ -41,7 +43,22 @@ class MockWorker {
       for (let i = 0; i < Math.min(fragments.length, 32); i++) {
         root[i] = fragments[i]?.[0] ?? 0
       }
-      return { root, leafCount: fragments.length }
+      // rootHexを生成してキャッシュ
+      const rootHex = Array.from(root).map(b => b.toString(16).padStart(2, '0')).join('')
+      this.merkleCache.set(rootHex, { root, leafCount: fragments.length })
+      return { root, rootHex, leafCount: fragments.length }
+    })
+
+    this.messageHandlers.set('merkle_generate_proof', (payload: unknown) => {
+      const { merkleRootHex, index } = payload as { merkleRootHex: string; index: number }
+      const cached = this.merkleCache.get(merkleRootHex)
+      if (!cached) {
+        throw new Error(`MerkleResult not found for root: ${merkleRootHex}`)
+      }
+      // ダミーProof生成（64バイト = 2つのハッシュ）
+      const proof = new Uint8Array(64)
+      proof[0] = index
+      return proof
     })
 
     this.messageHandlers.set('blake2b_hash', (payload: unknown) => {

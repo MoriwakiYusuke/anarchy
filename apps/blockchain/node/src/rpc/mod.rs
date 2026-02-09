@@ -19,8 +19,6 @@ pub struct FullDeps<C, P> {
     pub client: Arc<C>,
     /// トランザクションプール
     pub pool: Arc<P>,
-    /// Storage Node URL (環境変数STORAGE_NODE_URLから取得)
-    pub storage_node_url: Option<String>,
 }
 
 /// フルRPC拡張をインスタンス化
@@ -41,14 +39,14 @@ where
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
     let mut module = RpcModule::new(());
-    let FullDeps { client, pool, storage_node_url } = deps;
+    let FullDeps { client, pool } = deps;
 
     module.merge(System::new(client.clone(), pool).into_rpc())?;
     module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
 
     // Storage RPC (T034: StorageApi登録)
-    // Storage Node URLは環境変数または引数から取得
-    module.merge(Storage::new(client, storage_node_url).into_rpc())?;
+    // Storage Nodeは起動時に自動登録される (storage_registerEndpoint RPC)
+    module.merge(Storage::new(client).into_rpc())?;
 
     Ok(module)
 }

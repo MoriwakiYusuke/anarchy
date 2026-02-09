@@ -72,7 +72,7 @@ export function PostItem({
   // Determine what to display
   let displayContent: React.ReactNode
   if (isLoading) {
-    displayContent = <span className={styles.loading}>コンテンツを復元中...</span>
+    displayContent = <span className={styles.contentLoading}>コンテンツを復元中...</span>
   } else if (error) {
     displayContent = <span className={styles.error}>復元エラー: {error}</span>
   } else if (content) {
@@ -80,7 +80,7 @@ export function PostItem({
   } else if (!inlineContent && !contentRef) {
     displayContent = '(コンテンツなし)'
   } else {
-    displayContent = <span className={styles.loading}>読み込み中...</span>
+    displayContent = <span className={styles.contentLoading}>読み込み中...</span>
   }
 
   return (
@@ -92,11 +92,6 @@ export function PostItem({
         <span className={styles.block}>
           Block #{createdAt}
         </span>
-        {contentRef && (
-          <span className={styles.v2Badge} title={`k=${contentRef.k}, n=${contentRef.n}`}>
-            V2
-          </span>
-        )}
       </header>
       <div className={styles.content}>
         <p className={styles.text}>{displayContent}</p>

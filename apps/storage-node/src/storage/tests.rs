@@ -32,16 +32,23 @@ fn test_store_and_retrieve() {
 }
 
 #[test]
-fn test_hash_verification() {
+fn test_location_based_id() {
+    // Storage now uses location-based IDs (hash(merkle_root || index))
+    // instead of content-based IDs (hash(data)).
+    // This test verifies that any ID can be used to store and retrieve data.
     let temp = TempDir::new().unwrap();
     let store = FragmentStore::new(temp.path().to_str().unwrap(), 1024 * 1024).unwrap();
 
     let data = b"test data".to_vec();
-    let wrong_id = [0u8; 32]; // Wrong hash
+    let arbitrary_id = [42u8; 32]; // Not hash of data
 
-    // Should fail with hash mismatch
-    let result = store.store(wrong_id, &data);
-    assert!(result.is_err());
+    // Should succeed - no hash verification
+    let result = store.store(arbitrary_id, &data);
+    assert!(result.is_ok());
+    
+    // Should retrieve the same data
+    let retrieved = store.retrieve(&arbitrary_id).unwrap().unwrap();
+    assert_eq!(retrieved, data);
 }
 
 #[test]

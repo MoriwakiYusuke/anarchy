@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
+import { Binary } from 'polkadot-api'
 import { usePostCost, calculatePostCost } from '@/hooks/usePostCost'
 import { useStorage } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n'
@@ -136,7 +137,7 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
       }
       
       const tx = unsafeApi.tx.Post.create_post({
-        merkle_root: Array.from(uploadResult.merkleRoot),
+        merkle_root: Binary.fromBytes(uploadResult.merkleRoot),
         k: SSS_K,
         n: SSS_N,
         total_size: BigInt(uploadResult.totalSize),
@@ -231,7 +232,8 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
           {status.message}
         </div>
       )}
-      {uploadError && (
+      {/* uploadErrorはstatusがエラーでない場合のみ表示（2重表示防止） */}
+      {uploadError && status?.type !== 'error' && (
         <div className={`${styles.status} ${styles.error}`}>
           {uploadError}
         </div>
