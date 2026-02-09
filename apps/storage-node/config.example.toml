@@ -1,0 +1,22 @@
+# Anarchy Storage Node Configuration
+# Copy this file to config.toml and adjust as needed
+
+# Directory for storing node data (identity, fragments)
+# Default: "./data"
+data_dir = "./data"
+
+# Maximum storage capacity in bytes
+# Default: 10GB (10737418240)
+capacity = 10737418240
+
+# Chain RPC endpoint URL
+# Default: "ws://127.0.0.1:9944"
+chain_url = "ws://127.0.0.1:9944"
+
+# libp2p listen address (multiaddr format)
+# Default: "/ip4/0.0.0.0/tcp/4001"
+listen_addr = "/ip4/0.0.0.0/tcp/4001"
+
+# Rate limit for declare_holding calls per minute (FR-108)
+# Default: 10
+declare_rate_limit = 10

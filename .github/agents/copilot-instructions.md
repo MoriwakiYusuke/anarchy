@@ -11,6 +11,7 @@ Auto-generated from all feature plans. Last updated: 2026-02-07
 - Rust 1.82 (Polkadot SDK stable2503), TypeScript 5.x (Next.js 15) + frame-support, frame-system, pallet-balances, PAPI, blakejs (007-pow-faucet)
 - Substrate on-chain storage (RocksDB) (007-pow-faucet)
 - Substrate Storage (StorageMap, StorageValue) (007-pow-faucet)
+- Rust 1.75+ (Polkadot SDK stable2503), TypeScript 5.x (Frontend) (008-distributed-storage)
 
 - Rust 1.75+ (Polkadot SDK stable2503) + frame-support, frame-system, sp-runtime, sp-core (001-identity-pallet)
 
@@ -30,9 +31,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust 1.75+ (Polkadot SDK stable2503): Follow standard conventions
 
 ## Recent Changes
+- 008-distributed-storage: Added Rust 1.75+ (Polkadot SDK stable2503), TypeScript 5.x (Frontend)
 - 007-pow-faucet: Added Rust 1.82 (Polkadot SDK stable2503), TypeScript 5.x (Next.js 15) + frame-support, frame-system, pallet-balances, PAPI, blakejs
 - 007-pow-faucet: Added Rust 1.82 (Polkadot SDK stable2503), TypeScript 5.x (Next.js 15) + frame-support, frame-system, pallet-balances, PAPI, blakejs
-- 006-libp2p-tor: Added Rust 1.83+ (stable2503), Bash (セットアップスクリプト) + sc-network (Substrate libp2p実装), Tor 0.4.x (外部デーモン)
 
 
 <!-- MANUAL ADDITIONS START -->

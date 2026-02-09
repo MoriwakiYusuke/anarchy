@@ -1,9 +1,13 @@
 # ストレージ戦略: 地図と宝の分離
 
-> **ステータス**: 構想 (オフチェーン部分は未実装)  
+> **ステータス**: Phase 1 MVP 完了 (2026-02-10)  
 > **関連ドキュメント**: [architecture.md](architecture.md), [memo.md](memo.md), [TODO.md](TODO.md)
 >
-> **実装済み**: Faucetパレットのオンチェーンストレージ (`FaucetClaims`, `TotalClaims`) - 2026-02-09
+> **実装済み**:
+> - Phase 1 Storage MVP (`pallet-storage` + `storage-node`) - 2026-02-10
+> - Faucetパレットのオンチェーンストレージ (`FaucetClaims`, `TotalClaims`) - 2026-02-09
+>
+> **詳細仕様**: [specs/008-distributed-storage/](../specs/008-distributed-storage/)
 
 ---
 
@@ -189,8 +193,28 @@ fn prove_storage(
 
 ## 6. 実装フェーズ
 
-### Phase 1: Storage Pallet（チェーン側）
+### Phase 1: Storage Pallet（チェーン側） → **完了** (2026-02-10)
 
+実装場所: `apps/blockchain/pallets/storage/src/lib.rs`
+
+```rust
+// 実際の実装
+#[pallet::storage]
+pub type Fragments<T: Config> = StorageMap<_, Blake2_128Concat, FragmentId, FragmentMetadata<T>>;
+pub type StorageNodes<T: Config> = StorageMap<_, Blake2_128Concat, PeerIdOf<T>, StorageNodeInfo<T>>;
+pub type FragmentHolders<T: Config> = StorageMap<_, Blake2_128Concat, FragmentId, BoundedVec<PeerIdOf<T>, T::MaxHoldersPerFragment>>;
+pub type NodeHoldings<T: Config> = StorageMap<_, Blake2_128Concat, PeerIdOf<T>, BoundedVec<FragmentId, T::MaxFragmentsPerNode>>;
+```
+
+**Extrinsics 実装済み:**
+- `register_fragment(fragment_id, size)` - 断片メタデータ登録
+- `register_node(peer_id, capacity)` - ストレージノード登録
+- `update_node(capacity)` - ノード情報更新
+- `unregister_node()` - ノード登録解除
+- `declare_holding(fragment_id)` - 保持表明
+- `revoke_holding(fragment_id)` - 保持取消
+
+**参考（旧設計）:**
 ```rust
 // pallets/storage/src/lib.rs
 #[pallet::storage]
@@ -209,34 +233,45 @@ pub struct FragmentMetadata<T: Config> {
 }
 ```
 
-**タスク:**
-- [ ] Storage Pallet 作成
-- [ ] FragmentMetadata 構造体
-- [ ] register_fragment エクストリンシック
-- [ ] prove_storage エクストリンシック
-- [ ] slash_missing_proof ロジック
+**タスク:** (Phase 1完了分)
+- [x] Storage Pallet 作成
+- [x] FragmentMetadata 構造体
+- [x] register_fragment エクストリンシック
+- [x] declare_holding / revoke_holding エクストリンシック
+- [ ] prove_storage エクストリンシック → Phase 2
+- [ ] slash_missing_proof ロジック → Phase 3
 
-### Phase 2: Storage Node Daemon
+### Phase 2: Storage Node Daemon → **Phase 1 MVP 完了** (2026-02-10)
+
+実装場所: `apps/storage-node/`
 
 ```
-storage-node-daemon/
+apps/storage-node/
 ├── src/
-│   ├── main.rs
-│   ├── storage/       # 断片の保存・取得
-│   ├── proof/         # Proof of Spacetime 生成
-│   ├── network/       # libp2p + Tor 通信
-│   └── rpc/           # クライアント向け API
+│   ├── main.rs          # CLI & イベントループ
+│   ├── config/          # TOML設定パーサー
+│   ├── identity.rs      # PeerID管理
+│   ├── storage/         # 断片の保存・取得 (ファイルシステムベース)
+│   ├── network/         # libp2p request-response
+│   ├── chain/           # チェーン連携 (スタブ)
+│   └── metrics.rs       # メトリクス
+├── tests/
+│   ├── integration.rs   # graceful shutdown テスト
+│   └── e2e/             # E2Eテストスケルトン
 └── Cargo.toml
 ```
 
-**タスク:**
-- [ ] daemon 骨格
-- [ ] 断片ストレージ（RocksDB）
-- [ ] Proof of Spacetime 実装
-- [ ] libp2p 統合
-- [ ] Tor Hidden Service 対応
+**タスク:** (Phase 1完了分)
+- [x] daemon 骨格
+- [x] 断片ストレージ（ファイルシステム + Blake2ハッシュ検証）
+- [x] libp2p 統合 (request-response)
+- [x] 設定ファイル (TOML)
+- [x] graceful shutdown
+- [ ] Proof of Spacetime 実装 → Phase 2
+- [ ] subxt チェーン接続 → Phase 2
+- [ ] Tor Hidden Service 対応 → Phase 2
 
-### Phase 3: Client Wasm Engine
+### Phase 3: Client Wasm Engine (未実装)
 
 ```typescript
 // frontend/src/lib/storage-engine.ts
@@ -316,17 +351,18 @@ TODO.md から抜粋：
 
 特に **Proof of Spacetime (PoST)** と **自己修復プロトコル** は、Filecoin や Arweave といった巨大プロジェクトが数年かけて磨き上げた領域。Substrate で一から組むのはかなりエキサイティングな挑戦になる。
 
-### 10.1 Storage Pallet & Node（難易度: 鬼）
+### 10.1 Storage Pallet & Node（難易度: 鬼） → **Phase 1 MVP 完了**
 
 Anarchy プロトコルの「体」になる部分。
 
-| 機能 | 実現可能性 | 懸念点・アドバイス |
-|------|------------|-------------------|
-| **PoST 検証** | 可能 | オンチェーンでの検証は計算コストが高いため、**Off-chain Workers (OCW)** を使って検証の重い部分を逃がす設計が必須 |
-| **自然な忘却** | **最高** | 哲学的に面白い。報酬（$moral）が切れたらデータが消えるのは、「価値のない情報は消え、誰かが愛でる情報だけが残る」というアナーキーな記憶の形 |
-| **libp2p 受信** | 可能 | Tor 経由での大容量データ転送はノードの負荷が高い。ストレージ専用の `libp2p` 接続制限を設けないと、バリデーターの合意形成を邪魔するリスクあり |
+| 機能 | 実現可能性 | 状態 |
+|------|------------|------|
+| **断片登録・保持表明** | ✅ 実装済み | 2026-02-10 完了 |
+| **libp2p 受信** | ✅ 実装済み | request-response プロトコル |
+| **PoST 検証** | 未実装 | Phase 2 で Off-chain Workers (OCW) 使用予定 |
+| **自然な忘却** | 未実装 | Phase 2 で報酬システムと連動 |
 
-### 10.2 PoW Faucet（難易度: 低〜中）
+### 10.2 PoW Faucet（難易度: 低〜中） → **完了** (2026-02-09)
 
 今すぐにでも実装できる **「クイックウィン」** な機能。
 
@@ -349,17 +385,22 @@ k-of-n（消失訂正符号）を使った再配布は、理論は完璧だが�
 一気に全部作ろうとするとコードの海に溺れるため、以下の順序で進めることを推奨：
 
 ```
-Phase 0: PoW Faucet
+Phase 0: PoW Faucet ← ✅ 完了 (2026-02-09)
     │
     │ アカウントを作れるようにする
     ▼
-Phase 1: Simple Storage
+Phase 1: Simple Storage ← ✅ 完了 (2026-02-10)
     │
     │ 報酬なしで、まずはデータを断片化して置いておけるだけの仕組み
+    │ - pallet-storage: 断片・ノード・保持表明の管理
+    │ - storage-node: libp2p P2P + ローカルストレージ
     ▼
-Phase 2: Moral Incentive
+Phase 2: Moral Incentive ← 次のステップ
     │
     │ PoST と $moral の分配を組み込む
+    │ - subxt チェーン接続
+    │ - Proof of Spacetime 生成・検証
+    │ - 報酬分配ロジック
     ▼
 Phase 3: Self-Healing
     │

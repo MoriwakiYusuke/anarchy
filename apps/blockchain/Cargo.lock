@@ -163,6 +163,7 @@ dependencies = [
  "pallet-faucet",
  "pallet-grandpa",
  "pallet-post",
+ "pallet-storage",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",
@@ -5387,6 +5388,21 @@ dependencies = [
  "sp-staking",
  "sp-state-machine",
  "sp-trie",
+]
+
+[[package]]
+name = "pallet-storage"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]

@@ -213,6 +213,19 @@ impl pallet_faucet::Config for Runtime {
     type ChallengeValidity = ConstU32<100>;
 }
 
+// Storage Pallet設定
+impl pallet_storage::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    /// 断片最大サイズ: 1MB
+    type MaxFragmentSize = ConstU32<1_048_576>;
+    /// PeerID最大長: 64バイト
+    type MaxPeerIdLen = ConstU32<64>;
+    /// 断片あたり最大保持者数: 100
+    type MaxHoldersPerFragment = ConstU32<100>;
+    /// ノードあたり最大断片数: 10,000
+    type MaxFragmentsPerNode = ConstU32<10_000>;
+}
+
 // Runtime構築
 construct_runtime!(
     pub struct Runtime {
@@ -226,6 +239,7 @@ construct_runtime!(
         // カスタムパレット
         Post: pallet_post,
         Faucet: pallet_faucet,
+        Storage: pallet_storage,
     }
 );
 
