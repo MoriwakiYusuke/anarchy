@@ -6,7 +6,14 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use anyhow::{Context, Result};
-use crate::Args;
+
+/// CLI override options for configuration
+#[derive(Debug, Default)]
+pub struct ConfigOverrides {
+    pub data_dir: Option<String>,
+    pub chain_url: Option<String>,
+    pub listen_addr: Option<String>,
+}
 
 /// Storage node configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,11 +73,11 @@ impl Default for Config {
 
 impl Config {
     /// Load configuration from file with CLI overrides
-    pub fn load(args: &Args) -> Result<Self> {
-        let config_path = Path::new(&args.config);
+    pub fn load(config_path: &str, overrides: ConfigOverrides) -> Result<Self> {
+        let path = Path::new(config_path);
 
-        let mut config = if config_path.exists() {
-            let content = fs::read_to_string(config_path)
+        let mut config = if path.exists() {
+            let content = fs::read_to_string(path)
                 .context("Failed to read config file")?;
             toml::from_str(&content)
                 .context("Failed to parse config file")?
@@ -79,14 +86,14 @@ impl Config {
         };
 
         // Apply CLI overrides
-        if let Some(ref data_dir) = args.data_dir {
-            config.data_dir = data_dir.clone();
+        if let Some(data_dir) = overrides.data_dir {
+            config.data_dir = data_dir;
         }
-        if let Some(ref chain_url) = args.chain_url {
-            config.chain_url = chain_url.clone();
+        if let Some(chain_url) = overrides.chain_url {
+            config.chain_url = chain_url;
         }
-        if let Some(ref listen) = args.listen {
-            config.listen_addr = listen.clone();
+        if let Some(listen_addr) = overrides.listen_addr {
+            config.listen_addr = listen_addr;
         }
 
         Ok(config)

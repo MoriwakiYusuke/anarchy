@@ -231,6 +231,8 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),
                 pool: pool.clone(),
+                // Storage Node URL (環境変数から取得)
+                storage_node_url: std::env::var("STORAGE_NODE_URL").ok(),
             };
             crate::rpc::create_full(deps).map_err(Into::into)
         })

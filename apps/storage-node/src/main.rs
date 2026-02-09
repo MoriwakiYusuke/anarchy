@@ -3,12 +3,7 @@
 //! A distributed storage node for the Anarchy network.
 //! Stores fragments and communicates via libp2p.
 
-mod config;
-mod identity;
-pub mod storage;
-pub mod network;
-pub mod chain;
-pub mod metrics;
+use anarchy_storage_node::{config, identity, storage, network, chain, metrics};
 
 use clap::Parser;
 use tracing::{info, error};
@@ -51,7 +46,12 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // Load configuration
-    let config = config::Config::load(&args)?;
+    let overrides = config::ConfigOverrides {
+        data_dir: args.data_dir.clone(),
+        chain_url: args.chain_url.clone(),
+        listen_addr: args.listen.clone(),
+    };
+    let config = config::Config::load(&args.config, overrides)?;
     info!("Configuration loaded from {}", args.config);
 
     // Initialize identity (PeerID)

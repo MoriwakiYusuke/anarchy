@@ -3,7 +3,15 @@
 import { useState, useEffect } from 'react'
 import { PolkadotClient } from 'polkadot-api'
 import { useLocale } from '@/i18n'
+import { PostItem } from './PostItem'
 import styles from './Timeline.module.css'
+
+interface ContentRef {
+  root: number[]
+  k: number
+  n: number
+  total_size: number
+}
 
 interface Post {
   id: number
@@ -12,6 +20,7 @@ interface Post {
   contentHash: string
   createdAt: number
   parentId: number | null
+  contentRef?: ContentRef
 }
 
 interface Props {
@@ -40,33 +49,63 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
         // getEntriesを使用して全投稿メタデータを取得
         const postEntries = await unsafeApi.query.Post.Posts.getEntries()
         
-        // コンテンツ本文も取得
-        const contentEntries = await unsafeApi.query.Post.Contents.getEntries()
+        // V1: コンテンツ本文を取得（旧形式）
         const contentMap = new Map<number, string>()
-        for (const entry of contentEntries) {
-          const postId = Number(entry.keyArgs[0])
-          // BoundedVec<u8, MaxContentLength> をテキストに変換
-          const bytes = entry.value?.asBytes?.() || entry.value
-          if (bytes) {
-            try {
-              const text = new TextDecoder().decode(new Uint8Array(bytes))
-              contentMap.set(postId, text)
-            } catch {
-              contentMap.set(postId, '(デコードエラー)')
+        try {
+          if (unsafeApi.query.Post.Contents) {
+            const contentEntries = await unsafeApi.query.Post.Contents.getEntries()
+            for (const entry of contentEntries) {
+              const postId = Number(entry.keyArgs[0])
+              const bytes = entry.value?.asBytes?.() || entry.value
+              if (bytes) {
+                try {
+                  const text = new TextDecoder().decode(new Uint8Array(bytes))
+                  contentMap.set(postId, text)
+                } catch {
+                  contentMap.set(postId, '(デコードエラー)')
+                }
+              }
             }
           }
+        } catch (err) {
+          console.log('Contents storage not available (V1):', err)
+        }
+
+        // V2: ContentRefs を取得（分散ストレージ参照）
+        const contentRefMap = new Map<number, ContentRef>()
+        try {
+          if (unsafeApi.query.Post.ContentRefs) {
+            const refEntries = await unsafeApi.query.Post.ContentRefs.getEntries()
+            for (const entry of refEntries) {
+              const postId = Number(entry.keyArgs[0])
+              const ref = entry.value
+              if (ref) {
+                contentRefMap.set(postId, {
+                  root: Array.from(ref.root || []),
+                  k: Number(ref.k || 3),
+                  n: Number(ref.n || 5),
+                  total_size: Number(ref.total_size || 0),
+                })
+              }
+            }
+          }
+        } catch (err) {
+          console.log('ContentRefs storage not available (V2):', err)
         }
         
         const fetchedPosts: Post[] = postEntries.map((entry: any) => {
           const postId = Number(entry.keyArgs[0])
           const post = entry.value
+          const contentRef = contentRefMap.get(postId)
           return {
             id: postId,
             author: post.author || 'unknown',
-            content: contentMap.get(postId) || '(コンテンツなし)',
+            // V2投稿はcontentRefがあるのでcontentは空でOK
+            content: contentMap.get(postId) || '',
             contentHash: post.content_hash?.asHex?.() || '',
             createdAt: Number(post.created_at || 0),
             parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
+            contentRef,
           }
         })
 
@@ -111,30 +150,19 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
   return (
     <div className={styles.timeline}>
       {posts.map((post) => (
-        <article key={post.id} className={styles.post}>
-          <header className={styles.postHeader}>
-            <span className={styles.author}>
-              {shortenAddress(post.author)}
-            </span>
-            <span className={styles.block}>
-              Block #{post.createdAt}
-            </span>
-          </header>
-          <div className={styles.content}>
-            <p className={styles.text}>{post.content}</p>
-          </div>
-          <footer className={styles.postFooter}>
-            <span className={styles.postId}>
-              Post #{post.id}
-            </span>
-            {post.parentId !== null && (
-              <span className={styles.reply}>
-                ↩ Reply to #{post.parentId}
-              </span>
-            )}
-          </footer>
-        </article>
+        <PostItem
+          key={post.id}
+          postId={post.id}
+          author={post.author}
+          contentHash={post.contentHash}
+          createdAt={post.createdAt}
+          parentId={post.parentId}
+          inlineContent={post.content || undefined}
+          contentRef={post.contentRef}
+          shortenAddress={shortenAddress}
+        />
       ))}
     </div>
   )
 }
+

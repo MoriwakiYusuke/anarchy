@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { Binary } from 'polkadot-api'
+import { useState, useRef, useEffect } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { usePostCost, calculatePostCost } from '@/hooks/usePostCost'
+import { useStorage } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n'
 import styles from './PostForm.module.css'
 
@@ -97,6 +97,9 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
   const [content, setContent] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [status, setStatus] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null)
+  
+  // V2: Storage Hook (現在は常に使用)
+  const { uploadContent, progress: uploadProgress, error: uploadError, isProcessing, isReady: storageReady } = useStorage()
 
   // ブロックチェーンからコスト設定を動的に取得
   const costConfig = usePostCost(unsafeApi)
@@ -106,23 +109,37 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
   const byteCount = contentBytes.length
   const estimatedCost = calculatePostCost(byteCount, costConfig)
 
+  // SSS固定パラメータ
+  const SSS_K = 3  // 復元に必要な断片数
+  const SSS_N = 5  // 総断片数
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!unsafeApi || !signer || !content.trim()) return
+    if (!unsafeApi || !signer || !content.trim() || !storageReady) return
 
     setIsSubmitting(true)
-    setStatus({ type: 'info', message: t('post.sending') })
+    setStatus({ type: 'info', message: t('post.uploading') })
 
     try {
-      // Post palletのcreate_postを呼び出し
-      const contentBytes = Binary.fromText(content)
+      // SSS分割 → Storage Node アップロード → create_post
+      const contentBytes = new TextEncoder().encode(content)
       
-      if (!unsafeApi.tx.Post) {
-        throw new Error('Post pallet not found in chain')
+      // 1. SSS分割してアップロード
+      setStatus({ type: 'info', message: t('post.splitting') })
+      const uploadResult = await uploadContent(new Uint8Array(contentBytes))
+      
+      // 2. create_postを呼び出し（MerkleRootをチェーンに記録）
+      setStatus({ type: 'info', message: t('post.recording') })
+      
+      if (!unsafeApi.tx.Post?.create_post) {
+        throw new Error('create_post not found in Post pallet')
       }
       
       const tx = unsafeApi.tx.Post.create_post({
-        content: contentBytes,
+        merkle_root: Array.from(uploadResult.merkleRoot),
+        k: SSS_K,
+        n: SSS_N,
+        total_size: BigInt(uploadResult.totalSize),
         parent_id: undefined
       })
 
@@ -133,13 +150,12 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
       if (result.ok) {
         setStatus({ 
           type: 'success', 
-          message: t('post.success', { block: result.block.number.toString() })
+          message: t('post.successV2', { block: result.block.number.toString() })
         })
         setContent('')
         onPostSuccess?.()
         setTimeout(() => setStatus(null), 3000)
       } else {
-        // トランザクションが失敗した場合のエラー詳細
         const errorMessage = parseError(result.dispatchError, t as TranslateFunc)
         console.error('Transaction failed:', result.dispatchError)
         setStatus({ type: 'error', message: errorMessage })
@@ -195,14 +211,29 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
         <button 
           className={styles.submitBtn}
           type="submit"
-          disabled={isSubmitting || !content.trim() || !unsafeApi || !signer || costConfig.isLoading}
+          disabled={isSubmitting || !content.trim() || !unsafeApi || !signer || costConfig.isLoading || !storageReady}
         >
           {isSubmitting ? t('post.submitting') : t('post.submit')}
         </button>
       </div>
+      {/* プログレスバー */}
+      {isProcessing && (
+        <div className={styles.progressContainer}>
+          <div 
+            className={styles.progressBar} 
+            style={{ width: `${uploadProgress}%` }}
+          />
+          <span className={styles.progressText}>{uploadProgress}%</span>
+        </div>
+      )}
       {status && (
         <div className={`${styles.status} ${styles[status.type]}`}>
           {status.message}
+        </div>
+      )}
+      {uploadError && (
+        <div className={`${styles.status} ${styles.error}`}>
+          {uploadError}
         </div>
       )}
     </form>

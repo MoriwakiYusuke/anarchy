@@ -7,6 +7,10 @@ license = "MIT"
 authors = ["Anarchy Team"]
 repository = "https://github.com/anarchy-project/anarchy"
 
+[lib]
+name = "anarchy_storage_node"
+path = "src/lib.rs"
+
 [[bin]]
 name = "anarchy-storage-node"
 path = "src/main.rs"

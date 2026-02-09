@@ -51,6 +51,9 @@ importers:
       '@polkadot/util-crypto':
         specifier: ^14.0.0
         version: 14.0.1(@polkadot/util@14.0.1)
+      anarchy-wasm-engine:
+        specifier: file:../../packages/wasm-engine/pkg
+        version: file:packages/wasm-engine/pkg
       blakejs:
         specifier: ^1.2.1
         version: 1.2.1
@@ -1401,6 +1404,9 @@ packages:
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
+
+  anarchy-wasm-engine@file:packages/wasm-engine/pkg:
+    resolution: {directory: packages/wasm-engine/pkg, type: directory}
 
   ansi-escapes@4.3.2:
     resolution: {integrity: sha512-gKXj5ALrKWQLsYG9jlTRmR/xKluxHV+Z9QEwNIgCfM1/uwPMCuzVVnh5mwTd+OuBZcwSIMbqssNWRm1lE51QaQ==}
@@ -4524,6 +4530,8 @@ snapshots:
   acorn@8.15.0: {}
 
   agent-base@7.1.4: {}
+
+  anarchy-wasm-engine@file:packages/wasm-engine/pkg: {}
 
   ansi-escapes@4.3.2:
     dependencies:

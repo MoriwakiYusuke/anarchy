@@ -1,9 +1,19 @@
 //! Integration tests for storage node
 //!
 //! Tests full node lifecycle including startup and shutdown.
+//! 
+//! - T056: libp2p fragment receive
+//! - T057: Full flow (receive → store → declare)
 
 use std::time::Duration;
 use tokio::time::timeout;
+
+// Include T056 and T057 tests from integration/ directory
+#[path = "integration/libp2p_receive.rs"]
+mod libp2p_receive;
+
+#[path = "integration/full_flow.rs"]
+mod full_flow;
 
 /// Test: Node can be created and shutdown gracefully (T-106)
 /// 

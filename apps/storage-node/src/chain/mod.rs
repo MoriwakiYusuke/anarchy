@@ -3,6 +3,10 @@
 //! Handles communication with the Anarchy blockchain via RPC.
 //! Uses subxt for type-safe chain interaction.
 
+#[cfg(test)]
+mod tests;
+
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use anyhow::{Result, bail};
@@ -67,6 +71,8 @@ pub struct ChainClient {
     rate_limiter: RateLimiter,
     /// Connection status
     connected: bool,
+    /// Track holdings: hash → (post_id, index)
+    holding_map: Mutex<HashMap<FragmentId, (u64, u32)>>,
 }
 
 impl ChainClient {
@@ -81,6 +87,7 @@ impl ChainClient {
             endpoint: endpoint.to_string(),
             rate_limiter: RateLimiter::new(declare_rate_limit),
             connected: false, // Would be true after successful connection
+            holding_map: Mutex::new(HashMap::new()),
         })
     }
 
@@ -115,6 +122,56 @@ impl ChainClient {
         // Stub: Log and return success
         info!(fragment_id = %hex::encode(fragment_id), "Would declare holding (stub)");
         Ok(())
+    }
+
+    /// Declare holding for a post fragment (T060)
+    /// 
+    /// This tracks the post_id + index for the given fragment hash,
+    /// then submits the declare_holding extrinsic.
+    pub async fn declare_holding_for_post(
+        &self,
+        post_id: u64,
+        index: u32,
+        fragment_hash: FragmentId,
+    ) -> Result<()> {
+        // Check rate limit (FR-108)
+        if !self.rate_limiter.try_acquire().await {
+            bail!("Rate limit exceeded for declare_holding");
+        }
+        
+        // Track the mapping: hash → (post_id, index)
+        {
+            let mut map = self.holding_map.lock().await;
+            map.insert(fragment_hash, (post_id, index));
+        }
+        
+        debug!(
+            post_id = post_id,
+            index = index,
+            hash = %hex::encode(fragment_hash),
+            "Declaring holding for post fragment"
+        );
+        
+        // Note: Full implementation would submit extrinsic:
+        // let tx = anarchy::tx().storage().declare_holding(fragment_hash);
+        // let progress = self.api.tx().sign_and_submit_then_watch_default(&tx, &self.signer).await?;
+        // progress.wait_for_finalized_success().await?;
+        
+        // Stub: Log and return success
+        info!(
+            post_id = post_id,
+            index = index,
+            hash = %hex::encode(fragment_hash),
+            "Would declare holding for post fragment (stub)"
+        );
+        Ok(())
+    }
+
+    /// Get holding info for a fragment hash
+    /// Returns (post_id, index) if tracked
+    pub async fn get_holding_info(&self, fragment_hash: &FragmentId) -> Option<(u64, u32)> {
+        let map = self.holding_map.lock().await;
+        map.get(fragment_hash).copied()
     }
 
     /// Revoke holding of a fragment
@@ -165,53 +222,4 @@ pub struct FragmentMetadata {
     pub content_type: String,
     pub created_at: u64,
     pub owner: Vec<u8>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_rate_limiter_allows_within_limit() {
-        let limiter = RateLimiter::new(5);
-        
-        for _ in 0..5 {
-            assert!(limiter.try_acquire().await);
-        }
-        
-        // 6th call should fail
-        assert!(!limiter.try_acquire().await);
-    }
-
-    #[tokio::test]
-    async fn test_rate_limiter_remaining() {
-        let limiter = RateLimiter::new(10);
-        
-        assert_eq!(limiter.remaining().await, 10);
-        
-        limiter.try_acquire().await;
-        limiter.try_acquire().await;
-        
-        assert_eq!(limiter.remaining().await, 8);
-    }
-
-    #[tokio::test]
-    async fn test_chain_client_creation() {
-        let client = ChainClient::new("ws://127.0.0.1:9944", 10).await.unwrap();
-        assert_eq!(client.endpoint, "ws://127.0.0.1:9944");
-    }
-
-    #[tokio::test]
-    async fn test_declare_holding_rate_limited() {
-        let client = ChainClient::new("ws://127.0.0.1:9944", 2).await.unwrap();
-        let fragment_id = [1u8; 32];
-        
-        // First two should succeed
-        client.declare_holding(fragment_id).await.unwrap();
-        client.declare_holding(fragment_id).await.unwrap();
-        
-        // Third should fail
-        let result = client.declare_holding(fragment_id).await;
-        assert!(result.is_err());
-    }
 }

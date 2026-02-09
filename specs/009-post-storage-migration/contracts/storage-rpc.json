@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Anarchy Storage RPC",
+  "description": "Custom RPC methods for distributed storage operations",
+  "version": "1.0.0",
+  "methods": {
+    "storage_uploadFragment": {
+      "description": "Upload a fragment to distributed storage. Blockchain Node validates MerkleProof and forwards to Storage Node.",
+      "params": [
+        {
+          "name": "postId",
+          "description": "Post ID (hex encoded u64)",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "index",
+          "description": "Fragment index (0 to n-1)",
+          "type": "integer",
+          "minimum": 0,
+          "required": true
+        },
+        {
+          "name": "data",
+          "description": "Fragment data (hex encoded bytes)",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "proof",
+          "description": "MerkleProof for this fragment (hex encoded)",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "merkleRoot",
+          "description": "MerkleRoot of the entire post (hex encoded [u8; 32])",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "leafCount",
+          "description": "Total number of fragments (n)",
+          "type": "integer",
+          "minimum": 1,
+          "required": true
+        }
+      ],
+      "result": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Whether the upload succeeded"
+          },
+          "storageNodeId": {
+            "type": "string",
+            "description": "PeerId of the Storage Node that accepted the fragment"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if failed"
+          }
+        },
+        "required": ["success"]
+      },
+      "errors": [
+        {
+          "code": -32001,
+          "message": "Invalid MerkleProof",
+          "description": "The provided MerkleProof does not verify against the MerkleRoot"
+        },
+        {
+          "code": -32002,
+          "message": "Storage Node unavailable",
+          "description": "No Storage Node is currently available to accept the fragment"
+        },
+        {
+          "code": -32003,
+          "message": "Fragment too large",
+          "description": "Fragment exceeds maximum allowed size"
+        }
+      ]
+    },
+    "storage_getFragment": {
+      "description": "Retrieve a fragment from distributed storage.",
+      "params": [
+        {
+          "name": "postId",
+          "description": "Post ID (hex encoded u64)",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "index",
+          "description": "Fragment index (0 to n-1)",
+          "type": "integer",
+          "minimum": 0,
+          "required": true
+        }
+      ],
+      "result": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "string",
+            "description": "Fragment data (hex encoded bytes), null if not found"
+          },
+          "storageNodeId": {
+            "type": "string",
+            "description": "PeerId of the Storage Node that provided the fragment"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if failed"
+          }
+        }
+      },
+      "errors": [
+        {
+          "code": -32004,
+          "message": "Fragment not found",
+          "description": "No Storage Node holds this fragment"
+        },
+        {
+          "code": -32002,
+          "message": "Storage Node unavailable",
+          "description": "Storage Nodes holding this fragment are offline"
+        }
+      ]
+    },
+    "storage_listHolders": {
+      "description": "List Storage Nodes that hold a specific fragment.",
+      "params": [
+        {
+          "name": "postId",
+          "description": "Post ID (hex encoded u64)",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "index",
+          "description": "Fragment index (0 to n-1)",
+          "type": "integer",
+          "minimum": 0,
+          "required": true
+        }
+      ],
+      "result": {
+        "type": "object",
+        "properties": {
+          "holders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of PeerIds of Storage Nodes holding this fragment"
+          },
+          "totalHolders": {
+            "type": "integer",
+            "description": "Total number of holders"
+          }
+        },
+        "required": ["holders", "totalHolders"]
+      },
+      "errors": [
+        {
+          "code": -32005,
+          "message": "Post not found",
+          "description": "The specified post does not exist on chain"
+        }
+      ]
+    },
+    "storage_getPostInfo": {
+      "description": "Get storage information for a post (k, n, size, availability).",
+      "params": [
+        {
+          "name": "postId",
+          "description": "Post ID (hex encoded u64)",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "result": {
+        "type": "object",
+        "properties": {
+          "merkleRoot": {
+            "type": "string",
+            "description": "MerkleRoot (hex encoded [u8; 32])"
+          },
+          "k": {
+            "type": "integer",
+            "description": "Minimum fragments needed for recovery"
+          },
+          "n": {
+            "type": "integer",
+            "description": "Total number of fragments"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Original content size in bytes"
+          },
+          "availableFragments": {
+            "type": "integer",
+            "description": "Number of fragments currently available"
+          },
+          "isRecoverable": {
+            "type": "boolean",
+            "description": "Whether the content can be recovered (availableFragments >= k)"
+          }
+        },
+        "required": ["merkleRoot", "k", "n", "size", "availableFragments", "isRecoverable"]
+      },
+      "errors": [
+        {
+          "code": -32005,
+          "message": "Post not found",
+          "description": "The specified post does not exist on chain"
+        }
+      ]
+    }
+  }
+}

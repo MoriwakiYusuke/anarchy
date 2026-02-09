@@ -72,7 +72,11 @@ export type TranslationKey =
   | 'post.cost'
   | 'post.empty'
   | 'post.sending'
+  | 'post.uploading'
+  | 'post.splitting'
+  | 'post.recording'
   | 'post.success'
+  | 'post.successV2'
   | 'post.defaultCostNote'
   // Timeline
   | 'timeline.empty'
