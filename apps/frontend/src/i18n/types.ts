@@ -93,6 +93,13 @@ export type TranslationKey =
   | 'app.subtitle'
   | 'app.connected'
   | 'app.disconnected'
+  // Faucet
+  | 'faucet.button'
+  | 'faucet.mining'
+  | 'faucet.submitting'
+  | 'faucet.success'
+  | 'faucet.error'
+  | 'faucet.cancel'
   // Error messages
   | 'error.contentTooLong'
   | 'error.tooManyPosts'
@@ -106,7 +113,12 @@ export type TranslationKey =
   | 'error.payment'
   | 'error.badOrigin'
   | 'error.moduleError'
-  | 'error.unknown';
+  | 'error.unknown'
+  | 'error.alreadyClaimed'
+  | 'error.challengeExpired'
+  | 'error.invalidProof'
+  | 'error.blockNotFound'
+  | 'error.faucetNetworkError';
 
 /**
  * Translation map - maps translation keys to translated strings

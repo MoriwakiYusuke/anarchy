@@ -4,12 +4,14 @@ import { useState } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { useMoralBalance, formatMoralBalance } from '@/hooks/useMoralBalance'
 import { useLocale } from '@/i18n'
+import { FaucetButton } from './FaucetButton'
 import styles from './WalletConnect.module.css'
 
 interface Props {
   account: string | null
   setAccount: (account: string | null) => void
   setAccountSeed: (seed: string | null) => void
+  client: any
   unsafeApi: any
   signer: PolkadotSigner | null
   accountSeed: string | null
@@ -28,7 +30,7 @@ const ALICE_SEED = '//Alice'
 
 type AuthMode = 'dev' | 'seedphrase'
 
-export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, signer, accountSeed, refreshTrigger }: Props) {
+export function WalletConnect({ account, setAccount, setAccountSeed, client, unsafeApi, signer, accountSeed, refreshTrigger }: Props) {
   const { t } = useLocale()
   const [selectedAccount, setSelectedAccount] = useState<string>('')
   const [authMode, setAuthMode] = useState<AuthMode>('dev')
@@ -169,6 +171,14 @@ export function WalletConnect({ account, setAccount, setAccountSeed, unsafeApi, 
               )}
             </span>
           </div>
+          
+          <FaucetButton
+            client={client}
+            unsafeApi={unsafeApi}
+            account={account}
+            signer={signer}
+            onSuccess={refetchBalance}
+          />
           
           <button 
             className={styles.disconnectBtn}

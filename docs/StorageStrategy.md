@@ -1,7 +1,9 @@
 # ストレージ戦略: 地図と宝の分離
 
-> **ステータス**: 構想 (未実装)  
+> **ステータス**: 構想 (オフチェーン部分は未実装)  
 > **関連ドキュメント**: [architecture.md](architecture.md), [memo.md](memo.md), [TODO.md](TODO.md)
+>
+> **実装済み**: Faucetパレットのオンチェーンストレージ (`FaucetClaims`, `TotalClaims`) - 2026-02-09
 
 ---
 

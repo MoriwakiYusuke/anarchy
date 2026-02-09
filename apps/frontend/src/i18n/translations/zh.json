@@ -55,5 +55,16 @@
   "balance.label": "余额",
   "balance.insufficient": "余额不足",
   "language.select": "选择语言",
-  "language.current": "当前：中文"
+  "language.current": "当前：中文",
+  "faucet.button": "水龙头",
+  "faucet.mining": "计算中...",
+  "faucet.submitting": "提交中...",
+  "faucet.success": "已收到100 MORAL！",
+  "faucet.error": "错误",
+  "faucet.cancel": "取消",
+  "error.alreadyClaimed": "您已经使用过水龙头了",
+  "error.challengeExpired": "挑战已过期。请重试",
+  "error.invalidProof": "无效证明。请重试",
+  "error.blockNotFound": "找不到区块",
+  "error.faucetNetworkError": "网络错误。请重试"
 }

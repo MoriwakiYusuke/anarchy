@@ -202,6 +202,22 @@ impl pallet_post::Config for Runtime {
     type PostByteCost = ConstU128<100_000_000_000>;
 }
 
+// Faucet Pallet設定
+impl pallet_faucet::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type NativeToken = Balances;  // $moral = ネイティブトークン
+    /// 初期難易度: 18ビット（約3秒）
+    type BaseDifficulty = ConstU8<18>;
+    /// スケーリングファクター: 1000アカウントごとに+1ビット
+    type DifficultyScalingFactor = ConstU64<1000>;
+    /// 難易度上限: 28ビット（約3分）
+    type MaxDifficulty = ConstU8<28>;
+    /// 報酬量: 100 MORAL
+    type RewardAmount = ConstU128<100_000_000_000_000>;
+    /// チャレンジ有効期限: 100ブロック (BlockNumber = u32)
+    type ChallengeValidity = ConstU32<100>;
+}
+
 // Runtime構築
 construct_runtime!(
     pub struct Runtime {
@@ -214,6 +230,7 @@ construct_runtime!(
         Sudo: pallet_sudo,
         // カスタムパレット
         Post: pallet_post,
+        Faucet: pallet_faucet,
     }
 );
 
