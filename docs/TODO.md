@@ -16,7 +16,7 @@
   - [x] `pnpm-workspace.yaml` 作成
   - [x] `apps/blockchain/` - Substrate L1（バリデーター/フルノード）
   - [x] `apps/frontend/` - Next.js PWA（ハイドラUI）
-  - [ ] `apps/storage-node/` - データ保持専用ノード
+  - [x] `apps/storage-node/` - データ保持専用ノード → **完了** (2026-02-10)
   - [ ] `packages/sdk/` - 共有暗号SDK
   - [ ] `packages/wasm-engine/` - Rust→Wasm
 
@@ -109,7 +109,7 @@
 
 - [x] Next.js プロジェクト初期化
   - [x] TypeScript設定
-  - [ ] PWA設定（next-pwa）
+  - ~~[ ] PWA設定（next-pwa）~~ → **延期**: Light Client対応後に検討
 
 - ~~[ ] WebAuthn統合~~ → **廃止**: AccountIdのみ認証に変更
   - ~~[ ] パスキー登録フロー~~
@@ -146,8 +146,46 @@
 > **設計方針**: バリデーター（計算と合意）とストレージノード（記憶の保持）は役割を明確に分離。
 > 強力CPUはないが巨大HDD/SSDを持つユーザーも$moralを稼ぐ手段となる。
 
-- [ ] **Storage Pallet** 作成（`apps/blockchain/pallets/storage/`）
-  - [ ] 断片データメタストレージ（Share ID, サイズ, 保持者リスト）
+#### Phase 1: Storage MVP → **完了** (2026-02-10)
+
+- [x] **Storage Pallet MVP** 作成（`apps/blockchain/pallets/storage/`）
+  - [x] 断片メタデータストレージ（FragmentId, サイズ, 作成者）
+  - [x] ストレージノード登録（PeerID, 容量）
+  - [x] 保持表明（declare_holding）/ 取消（revoke_holding）
+  - [x] ランタイム統合完了
+  - [x] ベンチマーキング骨格
+
+- [x] **ストレージノード・デーモン MVP** (`apps/storage-node/`)
+  - [x] **libp2p P2P通信**: request-response プロトコル
+  - [x] **ローカル断片ストレージ**: ファイルシステムベース + Blake2ハッシュ検証
+  - [x] **ディスククォータ管理**: 設定可能な容量制限
+  - [x] **設定ファイル (TOML)**: peer_id_path, data_dir, capacity, chain_url
+  - [x] **graceful shutdown**: SIGINT/SIGTERM対応
+  - [x] **メトリクス**: fragment_count, capacity_used_bytes など
+  - [x] 25テストパス (22 unit + 3 integration)
+
+#### Phase 1.5: Post Storage Migration (未実装)
+
+> **目的**: 投稿コンテンツをチェーンから分散ストレージへ移行し、ストレージコスト削減 & 大容量対応
+
+- [ ] **Post Pallet改修**
+  - [ ] `Contents<T>` StorageMap廃止 → `ContentHash<T>` (FragmentId参照のみ)
+  - [ ] 投稿作成時にコンテンツハッシュのみ保存
+  - [ ] 投稿コスト計算の変更（バイト単価 → 固定 + ストレージ報酬の一部）
+  - [ ] マイグレーション: 既存投稿データの移行戦略
+
+- [ ] **フロントエンド改修**
+  - [ ] 投稿作成: コンテンツ → Storage Node → FragmentId取得 → Post Pallet
+  - [ ] 投稿表示: FragmentId → Storage Node P2P取得 → 表示
+  - [ ] キャッシュ戦略（頻繁アクセスコンテンツのローカルキャッシュ）
+
+- [ ] **Storage Node拡張**
+  - [ ] **subxtチェーン接続**: fragment_exists, declare_holding実装
+  - [ ] HTTP API: フロントエンドからの断片アップロード/取得エンドポイント
+
+#### Phase 2: Proof & Rewards (未実装)
+
+- [ ] **Storage Pallet拡張**
   - [ ] 保持証明（Proof of Spacetime）検証ロジック
   - [ ] **保持報酬ロジック**
     - [ ] 保持継続ノードへの$moral分配
@@ -155,13 +193,13 @@
     - [ ] 需要ベースの報酬調整（人気データ = 高報酬）
   - [ ] 不正ノードのスラッシング（持っているふりの検出）
 
-- [ ] **ストレージノード・デーモン** (`apps/storage-node/`)
-  > バリデーターとは独立した「報酬を得るための証明マシン」として機能
-  - [ ] **データレセプション**: libp2pを介した断片データ（Share）の受信と保存
-  - [ ] **ディスククォータ管理**: 指定容量内でのデータ管理と優先順位付け
-  - [ ] **Proof of Spacetime (PoST) 生成**: 「データを持ち続けている」ことを証明する計算
+- [ ] **ストレージノード拡張**
+  - [ ] **subxtチェーン接続**: declare_holding自動送信
+  - [ ] **Proof of Spacetime (PoST) 生成**: 「データを持ち続けている」ことを証明
   - [ ] **自動報酬請求**: 生成した証明を定期的にStorage Palletへ提出
   - [ ] **ガベージコレクション**: 報酬停止データの自動削除
+
+#### Phase 3: Slashing & Repair (未実装)
 
 - [ ] **自己修復プロトコル**
   > ストレージノードがオフライン時、自動的に断片を再配布
@@ -300,100 +338,35 @@
 
 ## 構想事項（検討中）
 
-以下は将来的に実装を検討している機能。優先度・実現可能性は未確定。
+> **別ドキュメントに移動**: [CONCEPTS.md](CONCEPTS.md) を参照
+>
+> - 経済設計（トークノミクス）
+> - コンセンサス方式の検討（PoA → PoW）
+> - ブラウザ拡張ウォレット連携
+> - オンチェーンガバナンス
+> - 残高保護機能（Keep Alive強制）
 
-### 経済設計（トークノミクス）
+---
 
-**背景**:
-現在のAnarchyはバリデーター報酬が存在しない。開発段階では問題ないが、
-本番環境ではバリデーターにインセンティブがないとネットワークが維持できない。
+## 分散ストレージ実装順序 (2026-02-09決定)
 
-**現状**:
-- TX手数料: 完全無料（`WeightToFee=0`, `LengthToFee=0`）
-- 投稿コスト: $moral burn（バリデーターには行かない）
-- バリデーター報酬: なし
-- Faucet報酬: 100 MORAL（新規mint）
+> **設計方針**: SSSを待たずにストレージ基盤を先に構築。Phase 1は「繋がるだけ」のMVP。
 
-**選択肢**:
+| 順番 | 項目 | 内容 | 仕様書 |
+|-----|------|------|--------|
+| **1** | 008-distributed-storage **Phase 1** | Storage Registry & P2P | [spec.md](../specs/008-distributed-storage/spec.md) |
+| **2** | SSS (Phase 2.1) | クライアント側暗号化・断片化 | - |
+| **3** | 008-distributed-storage **Phase 2** | Simple Proof & Rewards | - |
+| **4** | 008-distributed-storage **Phase 3** | Slashing & Repair | - |
 
-| 案 | TX手数料 | 投稿コスト | バリデーター報酬 | 備考 |
-|----|----------|------------|------------------|------|
-| **A: 現状維持 + ブロック報酬** | 0 | burn | ブロック生成時にmint | シンプル、インフレ |
-| **D: Ethereum方式** | Base→burn, Tip→バリデーター | burn | Base Fee + Tip | バランス良、複雑 |
+### Phase 1 スコープ（まず繋がるだけ）
 
-**案A詳細（シンプル）**:
-```
-TX手数料:       0（無料）
-投稿コスト:     burn（デフレ圧力）
-ブロック報酬:   X MORAL/block を新規mint → バリデーターへ
-Faucet:         unsigned tx のまま（影響なし）
-```
-
-**案D詳細（Ethereum EIP-1559方式）**:
-```
-Base Fee:       動的計算 → burn（デフレ圧力）
-Priority Fee:   ユーザー任意 → バリデーターへ（インセンティブ）
-投稿コスト:     burn（追加のデフレ圧力）
-Faucet:         unsigned tx のまま（影響なし）
-```
-
-**検討事項**:
-- インフレ率とデフレ圧力のバランス
-- バリデーター数の想定（PoA? NPoS?）
-- pallet_staking 導入の是非
-- Treasury の必要性
-
-**暫定方針**:
-- 開発〜テストネット: 現状維持（報酬なし）
-- メインネット: 案A or 案D を選択して実装
-
-### ブラウザ拡張ウォレット連携
-
-**背景**: 
-現在の実装ではフロントエンドにシードフレーズを直接入力するため、
-悪意あるフロントに秘密鍵を抜かれるリスクがある。
-WebAuthnなら秘密鍵はハードウェアから出なかったが、廃止により保護が弱まった。
-
-**解決策案**:
-- Polkadot.js Extension / Talisman / SubWallet 等と連携
-- シードフレーズはウォレット内に保存（フロントに渡さない）
-- フロントエンドは署名リクエストのみ送信、ユーザーがウォレットUIで承認
-- PAPIは `@polkadot-api/pjs-signer` で拡張ウォレットと連携可能
-
-**暫定対応**:
-- 現在のシードフレーズ入力は「開発用 / SBOM検証済みフロント専用」として運用
-- 本番環境ではウォレット拡張連携を必須とする予定
-
-**備考**: ハイドラ戦略（複数フロントエンド運営者）を維持するための前提条件
-
-### オンチェーンガバナンス
-
-**背景**:
-現在のランタイムアップグレードは `pallet_sudo` 経由でSudoキー保有者（開発時はAlice）のみが実行可能。
-「支配なき秩序」を掲げるAnarchyとしては、本番環境での中央集権的な管理は矛盾する。
-
-**現状**:
-- `pallet_sudo` のみ（単一管理者）
-- `System.set_code(new_wasm)` でランタイム書き換え
-
-**選択肢**:
-| 方式 | 説明 | 複雑度 |
-|------|------|--------|
-| Sudo維持 | 単一管理者（開発用） | 低 |
-| Multisig | 複数署名で承認 | 中 |
-| Democracy | トークン投票で決定 | 高 |
-| OpenGov | Track別の投票システム | 最高 |
-
-**検討事項**:
-- $moral保有量ベースの投票権は、経済的攻撃（買い占め）のリスク
-- Conviction voting（ロック期間に応じた投票力増加）の導入
-- 技術的提案とコミュニティ提案の分離
-- 緊急時の対応（セキュリティパッチ等）
-
-**暫定方針**:
-- 開発〜テストネット: Sudo維持
-- メインネット初期: Multisig（信頼できるコア開発者数名）
-- メインネット安定後: Democracy/OpenGovへ移行
+- ✅ Storage Pallet: `register_fragment`, `register_node`, `declare_holding`
+- ✅ Storage Daemon: libp2p断片送受信、ディスク保存
+- ❌ ~~PoST~~ → Phase 2
+- ❌ ~~報酬~~ → Phase 2
+- ❌ ~~スラッシング~~ → Phase 3
+- ❌ ~~自己修復~~ → Phase 3
 
 ---
 

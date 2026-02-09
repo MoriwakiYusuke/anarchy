@@ -5,6 +5,7 @@ members = [
     "runtime",
     "pallets/post",
     "pallets/faucet",
+    "pallets/storage",
 ]
 
 [workspace.lints.rust]
@@ -21,6 +22,7 @@ repository = "https://github.com/anarchy-project/anarchy"
 frame-support = { version = "45.1.0", default-features = false }
 frame-system = { version = "45.0.0", default-features = false }
 frame-executive = { version = "45.0.0", default-features = false }
+frame-benchmarking = { version = "45.0.0", default-features = false }
 sp-core = { version = "39.0.0", default-features = false }
 sp-std = { version = "14.0.0", default-features = false }
 sp-runtime = { version = "45.0.0", default-features = false }
@@ -87,6 +89,7 @@ log = "0.4"
 # Local pallets
 pallet-post = { path = "pallets/post", default-features = false }
 pallet-faucet = { path = "pallets/faucet", default-features = false }
+pallet-storage = { path = "pallets/storage", default-features = false }
 anarchy-runtime = { path = "runtime" }
 
 [profile.release]
