@@ -8,8 +8,6 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
-use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
-use scale_info::TypeInfo;
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
@@ -31,7 +29,6 @@ use frame_support::{
     traits::{ConstBool, ConstU128, ConstU32, ConstU64, ConstU8},
     weights::{ConstantMultiplier, Weight},
 };
-use frame_system::EnsureRoot;
 use pallet_grandpa::AuthorityList as GrandpaAuthorityList;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 
@@ -193,7 +190,6 @@ impl pallet_sudo::Config for Runtime {
 
 // Post Pallet設定
 impl pallet_post::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
     type NativeToken = Balances;  // $moral = ネイティブトークン
     type MaxContentLength = ConstU32<10000>; // 約10KB
     /// 基本コスト: 10 MORAL
@@ -204,7 +200,6 @@ impl pallet_post::Config for Runtime {
 
 // Faucet Pallet設定
 impl pallet_faucet::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
     type NativeToken = Balances;  // $moral = ネイティブトークン
     /// 初期難易度: 18ビット（約3秒）
     type BaseDifficulty = ConstU8<18>;
@@ -266,7 +261,7 @@ pub type SignedExtra = (
     // スパム対策は $moral の投稿コストで実施
 );
 
-/// Runtime APIs実装
+// Runtime APIs実装
 impl_runtime_apis! {
     impl sp_api::Core<Block> for Runtime {
         fn version() -> RuntimeVersion {

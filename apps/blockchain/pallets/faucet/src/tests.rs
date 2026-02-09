@@ -83,7 +83,6 @@ impl pallet_balances::Config for Test {
 // RewardAmount = 100_000_000_000_000 (100 MORAL)
 // ChallengeValidity = 100 blocks
 impl pallet_faucet::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
     type NativeToken = Balances;
     type BaseDifficulty = ConstU8<8>;
     type DifficultyScalingFactor = ConstU64<10>;

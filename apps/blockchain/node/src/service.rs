@@ -133,8 +133,6 @@ pub fn new_partial(
     })
 }
 
-type FullTransactionPool = Arc<FullPool>;
-
 /// フルノードを構築
 pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {

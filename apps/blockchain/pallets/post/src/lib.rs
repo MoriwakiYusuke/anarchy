@@ -39,9 +39,8 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
-        /// イベント型
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+    pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
+        // RuntimeEvent is now inferred from frame_system::Config bound
         
         /// ネイティブトークン（$moral）
         type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
@@ -119,7 +118,7 @@ pub mod pallet {
         /// # Cost
         /// * 基本コスト + (バイト数 × バイト単価) の $moral トークンを消費
         #[pallet::call_index(0)]
-        #[pallet::weight(10_000)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(3, 4))]
         pub fn create_post(
             origin: OriginFor<T>,
             content: Vec<u8>,

@@ -5,7 +5,6 @@ use crate::{
     cli::{Cli, Subcommand, TorMode},
     service,
 };
-use anarchy_runtime::Block;
 use clap::Parser;
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;

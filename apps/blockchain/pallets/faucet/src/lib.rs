@@ -23,7 +23,6 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_io::hashing::blake2_256;
     use sp_runtime::Saturating;
-    use sp_runtime::traits::Zero;
     use sp_runtime::transaction_validity::{
         InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
     };
@@ -46,9 +45,8 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
-        /// The overarching event type.
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+    pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
+        // RuntimeEvent is inferred from frame_system::Config bound
 
         /// Native token ($moral) for minting rewards
         type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
@@ -126,7 +124,7 @@ pub mod pallet {
         /// * `InvalidProof` - Nonce does not satisfy difficulty requirement
         /// * `BlockNotFound` - Block number does not exist
         #[pallet::call_index(0)]
-        #[pallet::weight(10_000)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
         pub fn claim(
             origin: OriginFor<T>,
             account: T::AccountId,

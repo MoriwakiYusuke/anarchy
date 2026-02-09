@@ -3,8 +3,7 @@
 use crate::{self as pallet_post, Error, Event, Posts, NextPostId, UserPosts, Contents};
 use frame_support::{
     assert_noop, assert_ok,
-    parameter_types,
-    traits::{ConstU32, ConstU64, ConstU128},
+    traits::{ConstU32, ConstU64, ConstU128, fungible::Mutate},
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -18,14 +17,10 @@ type Block = frame_system::mocking::MockBlock<Test>;
 frame_support::construct_runtime!(
     pub enum Test {
         System: frame_system,
-        MoralModule: pallet_moral,
+        Balances: pallet_balances,
         PostModule: pallet_post,
     }
 );
-
-parameter_types! {
-    pub const BlockHashCount: u64 = 250;
-}
 
 impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
@@ -44,7 +39,7 @@ impl frame_system::Config for Test {
     type BlockHashCount = ConstU64<250>;
     type Version = ();
     type PalletInfo = PalletInfo;
-    type AccountData = ();
+    type AccountData = pallet_balances::AccountData<u128>;
     type OnNewAccount = ();
     type OnKilledAccount = ();
     type SystemWeightInfo = ();
@@ -60,14 +55,25 @@ impl frame_system::Config for Test {
     type ExtensionsWeightInfo = ();
 }
 
-impl pallet_moral::Config for Test {
+impl pallet_balances::Config for Test {
     type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = ();
+    type RuntimeFreezeReason = ();
+    type WeightInfo = ();
     type Balance = u128;
-    type InitialBalance = ConstU128<100_000>; // テスト用: 100000 MORAL
+    type DustRemoval = ();
+    type ExistentialDeposit = ConstU128<1>;
+    type AccountStore = System;
+    type ReserveIdentifier = [u8; 8];
+    type FreezeIdentifier = ();
+    type MaxLocks = ConstU32<50>;
+    type MaxReserves = ConstU32<50>;
+    type MaxFreezes = ConstU32<0>;
+    type DoneSlashHandler = ();
 }
 
 impl pallet_post::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
+    type NativeToken = Balances;
     type MaxContentLength = ConstU32<10000>;
     type PostBaseCost = ConstU128<100>; // テスト用: 基本100
     type PostByteCost = ConstU128<10>;  // テスト用: 1バイトあたり10
@@ -81,10 +87,10 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     let mut ext = sp_io::TestExternalities::new(t);
     ext.execute_with(|| {
         System::set_block_number(1);
-        // テストユーザーに初期Moralを付与
-        pallet_moral::Pallet::<Test>::do_mint(&1u64, 100_000).unwrap();
-        pallet_moral::Pallet::<Test>::do_mint(&2u64, 100_000).unwrap();
-        pallet_moral::Pallet::<Test>::do_mint(&3u64, 100_000).unwrap();
+        // テストユーザーに初期Moralを付与（pallet_balancesのfungible Mutate trait経由）
+        <Balances as Mutate<_>>::mint_into(&1u64, 100_000).unwrap();
+        <Balances as Mutate<_>>::mint_into(&2u64, 100_000).unwrap();
+        <Balances as Mutate<_>>::mint_into(&3u64, 100_000).unwrap();
     });
     ext
 }
@@ -94,7 +100,7 @@ fn create_post_works() {
     new_test_ext().execute_with(|| {
         let author = 1u64;
         let content = b"Hello, Anarchy!".to_vec();
-        let initial_balance = pallet_moral::Balances::<Test>::get(author);
+        let initial_balance = Balances::free_balance(author);
 
         // 投稿作成
         assert_ok!(PostModule::create_post(
@@ -122,7 +128,7 @@ fn create_post_works() {
 
         // Moralトークンが消費されている
         // cost = base(100) + len(15) * byte_cost(10) = 250
-        let new_balance = pallet_moral::Balances::<Test>::get(author);
+        let new_balance = Balances::free_balance(author);
         let expected_cost = 100 + (content.len() as u128) * 10;
         assert_eq!(new_balance, initial_balance - expected_cost);
 
@@ -234,7 +240,7 @@ fn multiple_posts_by_same_user() {
 
         // 3回分のMoralが消費されている
         // "Post number X" は13バイト → cost = 100 + 13 * 10 = 230 各
-        let balance = pallet_moral::Balances::<Test>::get(author);
+        let balance = Balances::free_balance(author);
         let single_cost: u128 = 100 + 13 * 10; // = 230
         assert_eq!(balance, 100_000 - 3 * single_cost);
     });
