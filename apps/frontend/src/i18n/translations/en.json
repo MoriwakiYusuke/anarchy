@@ -55,5 +55,16 @@
   "balance.label": "Balance",
   "balance.insufficient": "Insufficient balance",
   "language.select": "Select Language",
-  "language.current": "Current: English"
+  "language.current": "Current: English",
+  "faucet.button": "Faucet",
+  "faucet.mining": "Mining...",
+  "faucet.submitting": "Submitting...",
+  "faucet.success": "Received 100 MORAL!",
+  "faucet.error": "Error",
+  "faucet.cancel": "Cancel",
+  "error.alreadyClaimed": "You have already used the Faucet",
+  "error.challengeExpired": "Challenge expired. Please try again",
+  "error.invalidProof": "Invalid proof. Please try again",
+  "error.blockNotFound": "Block not found",
+  "error.faucetNetworkError": "Network error. Please try again"
 }

@@ -67,6 +67,7 @@ export default function Home() {
             account={account} 
             setAccount={setAccount}
             setAccountSeed={setAccountSeed}
+            client={client}
             unsafeApi={unsafeApi}
             signer={signer}
             accountSeed={accountSeed}

@@ -55,5 +55,16 @@
   "balance.label": "残高",
   "balance.insufficient": "残高不足",
   "language.select": "言語を選択",
-  "language.current": "現在：日本語"
+  "language.current": "現在：日本語",
+  "faucet.button": "Faucet",
+  "faucet.mining": "計算中...",
+  "faucet.submitting": "送信中...",
+  "faucet.success": "100 MORALを受け取りました！",
+  "faucet.error": "エラー",
+  "faucet.cancel": "キャンセル",
+  "error.alreadyClaimed": "既にFaucetを利用済みです",
+  "error.challengeExpired": "チャレンジの有効期限が切れました。再試行してください",
+  "error.invalidProof": "PoW計算結果が無効です。再試行してください",
+  "error.blockNotFound": "指定されたブロックが見つかりません",
+  "error.faucetNetworkError": "ネットワークエラーが発生しました。再試行してください"
 }

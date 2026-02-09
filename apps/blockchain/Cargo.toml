@@ -4,6 +4,7 @@ members = [
     "node",
     "runtime",
     "pallets/post",
+    "pallets/faucet",
 ]
 
 [workspace.lints.rust]
@@ -85,6 +86,7 @@ log = "0.4"
 
 # Local pallets
 pallet-post = { path = "pallets/post", default-features = false }
+pallet-faucet = { path = "pallets/faucet", default-features = false }
 anarchy-runtime = { path = "runtime" }
 
 [profile.release]

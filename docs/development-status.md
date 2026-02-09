@@ -44,7 +44,8 @@ Node.jsのnpmパッケージ、PythonのPyPIパッケージに相当。
 ```
 Anarchyのパレット構成:
 ├── pallet-moral  → トークン管理（残高、送金、発行）
-└── pallet-post   → 投稿管理（作成、保存、取得）
+├── pallet-post   → 投稿管理（作成、保存、取得）
+└── pallet-faucet → PoW Faucet（匿名トークン配布）
 
 ※ Identity Pallet（WebAuthn検証）は設計見直しにより廃止
    → シンプルなAccountIdのみの認証に移行
@@ -85,7 +86,8 @@ anarchy/
 | 💰 $moral トークン | 残高管理、送金、発行、焼却 | pallet-moral |
 | 📝 投稿機能 | 匿名投稿、オンチェーン保存 | pallet-post |
 | 💸 投稿コスト | バイト数に応じた動的課金 | `10 + 0.1×bytes` MORAL |
-| 🖥️ フロントエンド | タイムライン、投稿フォーム、残高表示 | Next.js + PAPI |
+| � PoW Faucet | ブラウザPoWで100 MORAL配布（1回/アカウント） | pallet-faucet + Web Worker |
+| 🖥️ フロントエンド | タイムライン、投稿フォーム、残高表示、Faucet | Next.js + PAPI |
 
 ### アーキテクチャ図
 
@@ -104,12 +106,12 @@ anarchy/
 │                      (Substrate)                            │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │                    ランタイム                        │   │
-│  │  ┌──────────────┐  ┌──────────────┐                │   │
-│  │  │ pallet-moral │  │ pallet-post  │                │   │
-│  │  │  - Balances  │  │  - Posts     │                │   │
-│  │  │  - transfer  │  │  - Contents  │                │   │
-│  │  │  - mint/burn │  │  - create    │                │   │
-│  │  └──────────────┘  └──────────────┘                │   │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐│   │
+│  │  │ pallet-moral │  │ pallet-post  │  │pallet-faucet ││   │
+│  │  │  - Balances  │  │  - Posts     │  │  - claim     ││   │
+│  │  │  - transfer  │  │  - Contents  │  │  - PoW check ││   │
+│  │  │  - mint/burn │  │  - create    │  │  - one-time  ││   │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘│   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
@@ -227,6 +229,7 @@ Polkadot SDK stable2503 は v16 を使用するため、PAPI が必須
 | Identity Pallet | 🚫 廃止（設計見直し） |
 | WebAuthn検証 | 🚫 廃止（設計見直し） |
 | AccountIdのみ認証 | ✅ 完了 |
+| PoW Faucet | ✅ 完了 (spec:007) |
 | libp2p + Tor | ⏳ 未着手 |
 
 **設計変更について（2026-02）**:
@@ -294,4 +297,4 @@ Error: Runtime entry Constant(Post.PostBaseCost) not found
 
 ---
 
-*最終更新: 2026-02-08*
+*最終更新: 2026-02-09*
