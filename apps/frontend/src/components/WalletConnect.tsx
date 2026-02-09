@@ -155,20 +155,16 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
           <div className={styles.balance}>
             <span className={styles.balanceLabel}>{t('balance.label')}</span>
             <span className={styles.balanceValue}>
-              {balanceLoading ? (
-                <span className={styles.loading}>{t('common.loading')}</span>
-              ) : (
-                <>
-                  {formatMoralBalance(balance)}
-                  <button 
-                    className={styles.refreshBtn}
-                    onClick={refetchBalance}
-                    title={t('wallet.refreshBalance')}
-                  >
-                    ↻
-                  </button>
-                </>
-              )}
+              {formatMoralBalance(balance)}
+              <button 
+                className={styles.refreshBtn}
+                onClick={refetchBalance}
+                title={t('wallet.refreshBalance')}
+                disabled={balanceLoading}
+                style={{ opacity: balanceLoading ? 0.5 : 1 }}
+              >
+                ↻
+              </button>
             </span>
           </div>
           
