@@ -26,7 +26,7 @@ pub type LazyBlock = sp_runtime::generic::LazyBlock<Header, UncheckedExtrinsic>;
 
 use frame_support::{
     construct_runtime, derive_impl, parameter_types,
-    traits::{ConstBool, ConstU128, ConstU32, ConstU64, ConstU8},
+    traits::{ConstBool, ConstU128, ConstU16, ConstU32, ConstU64, ConstU8},
     weights::{ConstantMultiplier, Weight},
 };
 use pallet_grandpa::AuthorityList as GrandpaAuthorityList;
@@ -115,6 +115,7 @@ impl frame_system::Config for Runtime {
     type Lookup = sp_runtime::traits::AccountIdLookup<AccountId, ()>;
     type MaxConsumers = ConstU32<16>;
     type AccountData = pallet_balances::AccountData<Balance>;
+    type SS58Prefix = ConstU16<42>; // Substrate generic (5で始まるアドレス)
 }
 
 // Aura設定
