@@ -226,11 +226,14 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
     let rpc_extensions_builder = {
         let client = client.clone();
         let pool = transaction_pool.clone();
+        // Storage Node URLを全接続で共有 (重要: closureの外で作成)
+        let storage_node_url = crate::rpc::create_shared_storage_url();
 
         Box::new(move |_| {
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),
                 pool: pool.clone(),
+                storage_node_url: storage_node_url.clone(),
             };
             crate::rpc::create_full(deps).map_err(Into::into)
         })

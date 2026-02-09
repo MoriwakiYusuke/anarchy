@@ -275,14 +275,19 @@ export function useStorage(): UseStorageResult {
       const shares: Uint8Array[] = []
       const progressPerFragment = 70 / k
 
+      console.log(`[useStorage] Recovering content: merkleRoot=${Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join('')}, k=${k}, n=${n}`)
+
       for (let index = 0; index < k; index++) {
         try {
+          const params = {
+            merkle_root: Array.from(merkleRoot),
+            index,
+          }
+          console.log(`[useStorage] Requesting fragment ${index}:`, JSON.stringify(params))
+          
           const result = await rpcCallWithRetry<{ data: string; hash: number[] }>(
             'storage_getFragment',
-            [{
-              merkle_root: Array.from(merkleRoot),
-              index,
-            }]
+            [params]
           )
 
           // Base64デコード

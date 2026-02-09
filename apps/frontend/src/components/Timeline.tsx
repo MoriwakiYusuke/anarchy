@@ -93,12 +93,28 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
               const postId = Number(entry.keyArgs[0])
               const ref = entry.value
               if (ref) {
-                contentRefMap.set(postId, {
-                  root: Array.from(ref.root || []),
-                  k: Number(ref.k || 3),
-                  n: Number(ref.n || 5),
-                  total_size: Number(ref.total_size || 0),
-                })
+                // Binary型からバイト配列を取得
+                let rootBytes: number[] = []
+                const root = ref.root
+                if (typeof root?.asBytes === 'function') {
+                  rootBytes = Array.from(root.asBytes())
+                } else if (root instanceof Uint8Array) {
+                  rootBytes = Array.from(root)
+                } else if (Array.isArray(root)) {
+                  rootBytes = root
+                }
+                
+                // 32バイトの配列のみ有効
+                if (rootBytes.length === 32) {
+                  contentRefMap.set(postId, {
+                    root: rootBytes,
+                    k: Number(ref.k || 3),
+                    n: Number(ref.n || 5),
+                    total_size: Number(ref.total_size || 0),
+                  })
+                } else {
+                  console.warn(`[Timeline] Invalid root length for post ${postId}: ${rootBytes.length}`)
+                }
               }
             }
           }

@@ -54,7 +54,24 @@ export function PostItem({
         setIsLoading(true)
         setError(null)
         try {
-          const merkleRoot = new Uint8Array(contentRef.root)
+          // Handle PAPI Binary type - may have asBytes() method
+          const rootData = contentRef.root as unknown
+          let merkleRoot: Uint8Array
+          if (rootData && typeof rootData === 'object' && 'asBytes' in rootData && typeof (rootData as { asBytes: () => Uint8Array }).asBytes === 'function') {
+            merkleRoot = (rootData as { asBytes: () => Uint8Array }).asBytes()
+          } else if (Array.isArray(rootData)) {
+            merkleRoot = new Uint8Array(rootData)
+          } else {
+            merkleRoot = new Uint8Array(contentRef.root)
+          }
+          
+          if (merkleRoot.length !== 32) {
+            console.warn(`[PostItem] Invalid merkle root length: ${merkleRoot.length} (expected 32)`)
+            throw new Error(`Invalid merkle root length: ${merkleRoot.length}`)
+          }
+          
+          console.log(`[PostItem] Recovering content for post ${postId}, merkle_root:`, Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join(''))
+          
           const result = await recoverContent(merkleRoot, contentRef.k, contentRef.n)
           const text = new TextDecoder().decode(result.data)
           setContent(text)

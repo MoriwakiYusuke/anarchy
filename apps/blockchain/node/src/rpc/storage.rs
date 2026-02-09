@@ -289,10 +289,11 @@ pub struct Storage<C> {
 impl<C> Storage<C> {
     /// 新しいStorage RPCハンドラを作成
     /// Storage Nodeは起動時にstorage_registerEndpoint RPCで自動登録される
-    pub fn new(client: Arc<C>) -> Self {
+    /// URLは全接続で共有される
+    pub fn new(client: Arc<C>, storage_node_url: Arc<RwLock<Option<String>>>) -> Self {
         Self { 
             client, 
-            storage_node_url: Arc::new(RwLock::new(None)),
+            storage_node_url,
         }
     }
     

@@ -1,6 +1,7 @@
 //! RPC拡張
 
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use anarchy_runtime::{opaque::Block, AccountId, Balance, Nonce};
 use jsonrpsee::RpcModule;
@@ -13,12 +14,22 @@ pub mod storage;
 
 pub use storage::{StorageApiServer, Storage};
 
+/// Storage Node URLの共有状態
+pub type SharedStorageUrl = Arc<RwLock<Option<String>>>;
+
+/// 共有Storage URLを作成
+pub fn create_shared_storage_url() -> SharedStorageUrl {
+    Arc::new(RwLock::new(None))
+}
+
 /// フルRPC拡張のための依存関係
 pub struct FullDeps<C, P> {
     /// クライアント
     pub client: Arc<C>,
     /// トランザクションプール
     pub pool: Arc<P>,
+    /// Storage Node URL (全接続で共有)
+    pub storage_node_url: SharedStorageUrl,
 }
 
 /// フルRPC拡張をインスタンス化
@@ -39,14 +50,15 @@ where
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
     let mut module = RpcModule::new(());
-    let FullDeps { client, pool } = deps;
+    let FullDeps { client, pool, storage_node_url } = deps;
 
     module.merge(System::new(client.clone(), pool).into_rpc())?;
     module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
 
     // Storage RPC (T034: StorageApi登録)
     // Storage Nodeは起動時に自動登録される (storage_registerEndpoint RPC)
-    module.merge(Storage::new(client).into_rpc())?;
+    // URLは全接続で共有される
+    module.merge(Storage::new(client, storage_node_url).into_rpc())?;
 
     Ok(module)
 }

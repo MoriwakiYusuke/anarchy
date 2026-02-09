@@ -7,7 +7,7 @@ use anarchy_storage_node::{config, identity, storage, network, chain, rpc};
 
 use clap::Parser;
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{info, warn, error, debug};
 use tokio::select;
 
 /// Storage node CLI arguments
@@ -72,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Initialize chain client (for declare_holding)
-    let chain_client = chain::ChainClient::new(&config.chain_url, config.declare_rate_limit).await?;
+    let chain_client = Arc::new(chain::ChainClient::new(&config.chain_url, config.declare_rate_limit).await?);
     info!(endpoint = %config.chain_url, "Chain client initialized");
 
     // Initialize network
@@ -98,10 +98,17 @@ async fn main() -> anyhow::Result<()> {
     match chain_client.register_with_blockchain(&our_rpc_url).await {
         Ok(()) => info!("Registered with blockchain node"),
         Err(e) => {
-            warn!(error = %e, "Failed to register with blockchain node (will retry on reconnect)");
+            warn!(error = %e, "Failed to register with blockchain node (will retry periodically)");
             // Continue anyway - blockchain node might not be running yet
         }
     }
+
+    // Setup periodic re-registration (heartbeat)
+    // This ensures reconnection if blockchain node restarts
+    let heartbeat_chain_client = chain_client.clone();
+    let heartbeat_url = our_rpc_url.clone();
+    let mut heartbeat_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     // Setup shutdown signal
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -123,6 +130,13 @@ async fn main() -> anyhow::Result<()> {
                 info!("Shutting down...");
                 http_server.abort();
                 break;
+            }
+            _ = heartbeat_interval.tick() => {
+                // Periodic re-registration to handle blockchain node restarts
+                match heartbeat_chain_client.register_with_blockchain(&heartbeat_url).await {
+                    Ok(()) => debug!("Heartbeat: re-registered with blockchain node"),
+                    Err(e) => debug!(error = %e, "Heartbeat: blockchain node not available"),
+                }
             }
             event = network.handle_event(store.as_ref()) => {
                 match event {
