@@ -151,7 +151,7 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
       if (result.ok) {
         setStatus({ 
           type: 'success', 
-          message: t('post.successV2', { block: result.block.number.toString() })
+          message: t('post.success', { block: result.block.number.toString() })
         })
         setContent('')
         onPostSuccess?.()

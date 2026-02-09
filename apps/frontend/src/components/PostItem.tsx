@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useStorage } from '@/hooks/useStorage'
+import { useLocale } from '@/i18n/context'
 import styles from './Timeline.module.css'
 
 interface ContentRef {
@@ -36,6 +37,7 @@ export function PostItem({
   contentRef,
   shortenAddress,
 }: Props) {
+  const { t } = useLocale()
   const { recoverContent, isReady } = useStorage()
   const [content, setContent] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -89,9 +91,9 @@ export function PostItem({
   // Determine what to display
   let displayContent: React.ReactNode
   if (isLoading) {
-    displayContent = <span className={styles.contentLoading}>コンテンツを復元中...</span>
+    displayContent = <span className={styles.contentLoading}>{t('content.loading')}</span>
   } else if (error) {
-    displayContent = <span className={styles.error}>復元エラー: {error}</span>
+    displayContent = <span className={styles.error}>{t('content.error', { error })}</span>
   } else if (content) {
     displayContent = content
   } else if (!inlineContent && !contentRef) {

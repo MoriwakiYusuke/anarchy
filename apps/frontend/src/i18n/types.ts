@@ -76,8 +76,10 @@ export type TranslationKey =
   | 'post.splitting'
   | 'post.recording'
   | 'post.success'
-  | 'post.successV2'
   | 'post.defaultCostNote'
+  // Content
+  | 'content.loading'
+  | 'content.error'
   // Timeline
   | 'timeline.empty'
   | 'timeline.loading'
