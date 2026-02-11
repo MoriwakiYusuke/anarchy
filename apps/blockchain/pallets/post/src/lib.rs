@@ -158,6 +158,12 @@ pub mod pallet {
         InsufficientMoralBalance,
         /// k/nパラメータが無効（k > 0 && k <= n が必須）
         InvalidKNParameters,
+        /// 同一MerkleRootの投稿が既に存在する
+        DuplicateMerkleRoot,
+        /// コスト計算でオーバーフローが発生
+        CostCalculationOverflow,
+        /// 投稿IDがオーバーフロー
+        PostIdOverflow,
     }
 
     #[pallet::call]
@@ -177,7 +183,7 @@ pub mod pallet {
         /// # Cost
         /// * 50% base + 30% size + 20% storage deposit
         #[pallet::call_index(0)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(3, 4))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 5))]
         pub fn create_post(
             origin: OriginFor<T>,
             merkle_root: [u8; 32],
@@ -188,25 +194,43 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            // k/n検証: k > 0 && k <= n
-            ensure!(k > 0 && k <= n, Error::<T>::InvalidKNParameters);
+            // k/n検証: k > 0 && k <= n && n <= 255
+            ensure!(k > 0 && k <= n && n <= 255, Error::<T>::InvalidKNParameters);
+
+            // total_size上限チェック
+            ensure!(
+                total_size <= T::MaxContentLength::get() as u64,
+                Error::<T>::ContentTooLong
+            );
+
+            // MerkleRoot重複チェック
+            ensure!(
+                !MerkleRootToPostId::<T>::contains_key(merkle_root),
+                Error::<T>::DuplicateMerkleRoot
+            );
 
             // 親投稿の存在チェック
             if let Some(pid) = parent_id {
                 ensure!(Posts::<T>::contains_key(pid), Error::<T>::ParentPostNotFound);
             }
 
-            // コスト計算: 50% base + 30% size + 20% deposit
-            // 基本コスト (50%)
-            let base_cost: u128 = T::PostBaseCost::get().try_into().unwrap_or(0);
-            // サイズコスト (30%): size * byte_cost
-            let byte_cost: u128 = T::PostByteCost::get().try_into().unwrap_or(0);
-            let size_cost = (total_size as u128).saturating_mul(byte_cost);
-            // ストレージデポジット (20%): 1/5 of (base + size)
-            let deposit = base_cost.saturating_add(size_cost) / 5;
+            // ユーザーの投稿数上限を先にチェック（トークン焼却前）
+            let current_posts = UserPosts::<T>::get(&who);
+            ensure!(!current_posts.is_full(), Error::<T>::TooManyPosts);
 
+            // コスト計算: 50% base + 30% size + 20% deposit
+            let base_cost: u128 = T::PostBaseCost::get()
+                .try_into()
+                .map_err(|_| Error::<T>::CostCalculationOverflow)?;
+            let byte_cost: u128 = T::PostByteCost::get()
+                .try_into()
+                .map_err(|_| Error::<T>::CostCalculationOverflow)?;
+            let size_cost = (total_size as u128).saturating_mul(byte_cost);
+            let deposit = base_cost.saturating_add(size_cost) / 5;
             let total_cost = base_cost.saturating_add(size_cost).saturating_add(deposit);
-            let cost: BalanceOf<T> = total_cost.try_into().unwrap_or(T::PostBaseCost::get());
+            let cost: BalanceOf<T> = total_cost
+                .try_into()
+                .map_err(|_| Error::<T>::CostCalculationOverflow)?;
 
             // $moralトークンを焼却
             T::NativeToken::burn_from(
@@ -217,9 +241,10 @@ pub mod pallet {
                 frame_support::traits::tokens::Fortitude::Polite,
             ).map_err(|_| Error::<T>::InsufficientMoralBalance)?;
 
-            // 投稿IDを取得・インクリメント
+            // 投稿IDを取得・インクリメント（オーバーフロー防止）
             let post_id = NextPostId::<T>::get();
-            NextPostId::<T>::put(post_id.saturating_add(1));
+            let next_id = post_id.checked_add(1).ok_or(Error::<T>::PostIdOverflow)?;
+            NextPostId::<T>::put(next_id);
 
             // 投稿メタデータを保存（content_hash = merkle_root）
             let post = Post {

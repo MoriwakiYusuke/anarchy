@@ -43,6 +43,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Crypto & Encoding
 hex = "0.4"
 blake2 = "0.10"
+base64 = "0.22"
 
 # File system
 walkdir = "2"

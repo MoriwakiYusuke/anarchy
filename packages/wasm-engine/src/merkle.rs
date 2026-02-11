@@ -74,6 +74,15 @@ pub fn merkle_verify_internal(
     leaf_index: usize,
     total_leaves: usize,
 ) -> Result<bool, String> {
+    if total_leaves == 0 {
+        return Err("total_leaves must be > 0".to_string());
+    }
+    if leaf_index >= total_leaves {
+        return Err(format!(
+            "leaf_index {} out of bounds (total_leaves: {})", leaf_index, total_leaves
+        ));
+    }
+
     let proof = MerkleProof::<Blake2bHasher>::from_bytes(proof_bytes)
         .map_err(|e| format!("Invalid proof format: {:?}", e))?;
 
@@ -165,6 +174,14 @@ pub fn merkle_verify(
 ) -> Result<bool, JsError> {
     if root.len() != 32 {
         return Err(JsError::new("Invalid root length: expected 32 bytes"));
+    }
+    if total_leaves == 0 {
+        return Err(JsError::new("total_leaves must be > 0"));
+    }
+    if leaf_index >= total_leaves {
+        return Err(JsError::new(&format!(
+            "leaf_index {} out of bounds (total_leaves: {})", leaf_index, total_leaves
+        )));
     }
 
     let root_array: [u8; 32] = root

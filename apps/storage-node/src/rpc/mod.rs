@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     routing::post,
     Json, Router,
 };
@@ -99,6 +99,7 @@ pub fn create_rpc_router(store: Arc<FragmentStore>) -> Router {
         .route("/", post(handle_rpc))
         .with_state(state)
         .layer(cors)
+        .layer(DefaultBodyLimit::max(512 * 1024)) // 512KB limit
 }
 
 /// Handle JSON-RPC requests
@@ -145,7 +146,7 @@ async fn handle_store_fragment(
         })?;
 
     // Decode base64 data
-    let data = base64::decode(&params.data)
+    let data = b64_decode(&params.data)
         .map_err(|e| RpcError {
             code: -32602,
             message: format!("Invalid base64 data: {}", e),
@@ -185,7 +186,10 @@ async fn handle_store_fragment(
                 fragment_hash: hash,
             };
 
-            Ok(serde_json::to_value(result).unwrap())
+            serde_json::to_value(result).map_err(|e| RpcError {
+                code: -32603,
+                message: format!("Internal serialization error: {}", e),
+            })
         }
         Err(e) => {
             error!(error = %e, "Failed to store fragment");
@@ -229,11 +233,14 @@ async fn handle_get_fragment(
             let hash: [u8; 32] = hasher.finalize().into();
 
             let result = GetFragmentResult {
-                data: base64::encode(&data),
+                data: b64_encode(&data),
                 hash,
             };
 
-            Ok(serde_json::to_value(result).unwrap())
+            serde_json::to_value(result).map_err(|e| RpcError {
+                code: -32603,
+                message: format!("Internal serialization error: {}", e),
+            })
         }
         Ok(None) => {
             warn!(
@@ -266,73 +273,20 @@ fn create_fragment_id(merkle_root: &[u8; 32], index: u32) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-// Note: base64 crate is used via serde_json compatibility
-// but we need to add it explicitly
-mod base64 {
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 
-    pub fn decode(input: &str) -> Result<Vec<u8>, String> {
-        // Use data URL or hex fallback for compatibility
-        if input.starts_with("0x") {
-            hex::decode(&input[2..]).map_err(|e| e.to_string())
-        } else {
-            // Try standard base64
-            data_encoding_decode(input)
-        }
+/// Decode base64 or hex (0x-prefixed) string to bytes
+fn b64_decode(input: &str) -> Result<Vec<u8>, String> {
+    if input.starts_with("0x") {
+        hex::decode(&input[2..]).map_err(|e| e.to_string())
+    } else {
+        BASE64_STANDARD.decode(input).map_err(|e| e.to_string())
     }
+}
 
-    fn data_encoding_decode(input: &str) -> Result<Vec<u8>, String> {
-        // Simple base64 decoder
-        let table = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut result = Vec::new();
-        let input = input.trim_end_matches('=');
-        let bytes: Vec<u8> = input.bytes().collect();
-
-        for chunk in bytes.chunks(4) {
-            let mut buf = [0u8; 4];
-            for (i, &b) in chunk.iter().enumerate() {
-                buf[i] = table.iter().position(|&c| c == b)
-                    .ok_or_else(|| format!("Invalid base64 char: {}", b as char))? as u8;
-            }
-
-            result.push((buf[0] << 2) | (buf[1] >> 4));
-            if chunk.len() > 2 {
-                result.push((buf[1] << 4) | (buf[2] >> 2));
-            }
-            if chunk.len() > 3 {
-                result.push((buf[2] << 6) | buf[3]);
-            }
-        }
-
-        Ok(result)
-    }
-
-    pub fn encode(input: &[u8]) -> String {
-        const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut result = String::new();
-
-        for chunk in input.chunks(3) {
-            let b0 = chunk[0] as usize;
-            let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
-            let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
-
-            result.push(TABLE[b0 >> 2] as char);
-            result.push(TABLE[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
-            
-            if chunk.len() > 1 {
-                result.push(TABLE[((b1 & 0x0f) << 2) | (b2 >> 6)] as char);
-            } else {
-                result.push('=');
-            }
-            
-            if chunk.len() > 2 {
-                result.push(TABLE[b2 & 0x3f] as char);
-            } else {
-                result.push('=');
-            }
-        }
-
-        result
-    }
+/// Encode bytes to base64 string
+fn b64_encode(input: &[u8]) -> String {
+    BASE64_STANDARD.encode(input)
 }
 
 #[cfg(test)]
@@ -357,8 +311,8 @@ mod tests {
     #[test]
     fn test_base64_roundtrip() {
         let original = b"Hello, World!";
-        let encoded = base64::encode(original);
-        let decoded = base64::decode(&encoded).unwrap();
+        let encoded = b64_encode(original);
+        let decoded = b64_decode(&encoded).unwrap();
         assert_eq!(original.as_slice(), decoded.as_slice());
     }
 
@@ -366,7 +320,7 @@ mod tests {
     fn test_base64_hex_fallback() {
         let original = vec![0xde, 0xad, 0xbe, 0xef];
         let hex_encoded = "0xdeadbeef";
-        let decoded = base64::decode(hex_encoded).unwrap();
+        let decoded = b64_decode(hex_encoded).unwrap();
         assert_eq!(original, decoded);
     }
 }

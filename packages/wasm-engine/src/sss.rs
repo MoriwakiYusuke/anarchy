@@ -35,9 +35,18 @@ impl SplitResult {
 }
 
 /// 内部実装: データをk-of-nで分割（テスト可能）
+/// Maximum allowed value for n (total fragments)
+const MAX_N: u8 = 20;
+
 pub fn sss_split_internal(data: &[u8], k: u8, n: u8) -> Result<Vec<Vec<u8>>, String> {
     if k == 0 || n == 0 || k > n {
         return Err("Invalid k/n parameters: k must be > 0 and <= n".to_string());
+    }
+    if n > MAX_N {
+        return Err(format!("n must be <= {} for practical use", MAX_N));
+    }
+    if data.is_empty() {
+        return Err("Cannot split empty data".to_string());
     }
 
     let sharks = Sharks(k);
@@ -143,11 +152,17 @@ mod tests {
     #[test]
     fn test_invalid_parameters() {
         let data = b"Test";
-        
+
         // k = 0
         assert!(sss_split_internal(data, 0, 5).is_err());
-        
+
         // k > n
         assert!(sss_split_internal(data, 6, 5).is_err());
+
+        // n > MAX_N
+        assert!(sss_split_internal(data, 3, 21).is_err());
+
+        // empty data
+        assert!(sss_split_internal(b"", 2, 3).is_err());
     }
 }
