@@ -18,7 +18,7 @@
   - [x] `apps/frontend/` - Next.js PWA（ハイドラUI）
   - [x] `apps/storage-node/` - データ保持専用ノード → **完了** (2026-02-10)
   - [ ] `packages/sdk/` - 共有暗号SDK
-  - [ ] `packages/wasm-engine/` - Rust→Wasm
+  - ~~[ ] `packages/wasm-engine/` - Rust→Wasm~~ → **変更**: フロントエンド内で完結（sharks crate直接使用）
 
 - [ ] CI/CD パイプライン
   - [ ] Rust テスト・ビルド
@@ -127,19 +127,21 @@
 
 ## Phase 2: プライバシー・レイヤー
 
-### 2.1 Wasm暗号エンジン (`packages/wasm-engine/`)
+### 2.1 Wasm暗号エンジン
 
-- [ ] **シャミアの秘密分散 (SSS)**
-  - [ ] 分割（split）関数
-  - [ ] 復元（reconstruct）関数
-  - [ ] しきい値設定（k-of-n）
-  - [ ] Wasmエクスポート
+> **設計変更** (2026-02-10): `packages/wasm-engine/` は作成せず、フロントエンド内で完結。
+> SSS/Merkle TreeはWeb Workerで実行し、ブラウザ側で暗号化を完結。
 
-- [ ] **ステルスアドレス生成**
-  - [ ] X25519鍵交換
-  - [ ] ワンタイムアドレス導出
-  - [ ] スキャン鍵/閲覧鍵ペア生成
-  - [ ] Wasmエクスポート
+- [x] **シャミアの秘密分散 (SSS)** → **完了** (`apps/frontend/src/lib/`) (2026-02-10)
+  - [x] + 分割（split）関数: `sharks` crate → Wasm → Web Worker
+  - [x] + 復元（reconstruct）関数: 同上
+  - [x] + しきい値設定: k=3, n=5 (システム固定値)
+  - ~~[ ] Wasmエクスポート~~ → **変更**: フロントエンド内Wasm、package化せず
+
+- [x] + **Merkle Tree** (`apps/frontend/src/lib/`) (2026-02-10)
+  - [x] + ツリー構築（断片からルートハッシュ計算）
+  - [x] + 断片ID導出: `hash(merkle_root || index)`
+  - [x] + Web Worker で非同期実行
 
 ### 2.2 分散ストレージ（データ保持報酬）
 
@@ -164,24 +166,35 @@
   - [x] **メトリクス**: fragment_count, capacity_used_bytes など
   - [x] 25テストパス (22 unit + 3 integration)
 
-#### Phase 1.5: Post Storage Migration (未実装)
+#### Phase 1.5: Post Storage Migration → **完了** (2026-02-10)
 
 > **目的**: 投稿コンテンツをチェーンから分散ストレージへ移行し、ストレージコスト削減 & 大容量対応
 
-- [ ] **Post Pallet改修**
-  - [ ] `Contents<T>` StorageMap廃止 → `ContentHash<T>` (FragmentId参照のみ)
-  - [ ] 投稿作成時にコンテンツハッシュのみ保存
-  - [ ] 投稿コスト計算の変更（バイト単価 → 固定 + ストレージ報酬の一部）
-  - [ ] マイグレーション: 既存投稿データの移行戦略
+- [x] **Post Pallet改修** (`apps/blockchain/pallets/post/`)
+  - ~~[ ] `Contents<T>` StorageMap廃止~~ → **変更**: V1(inline)/V2(distributed)両対応で後方互換性維持
+  - [x] + `ContentV2` 構造体: `merkle_root` + `fragment_count` のみ保存
+  - [x] + `create_post_v2` エクストリンシック（分散ストレージ用）
+  - ~~[ ] 投稿コスト計算の変更~~ → **延期**: 現状はV1と同じバイト単価
+  - [x] + V1/V2両対応（既存投稿との後方互換性）
 
-- [ ] **フロントエンド改修**
-  - [ ] 投稿作成: コンテンツ → Storage Node → FragmentId取得 → Post Pallet
-  - [ ] 投稿表示: FragmentId → Storage Node P2P取得 → 表示
-  - [ ] キャッシュ戦略（頻繁アクセスコンテンツのローカルキャッシュ）
+- [x] **フロントエンド改修** (`apps/frontend/`)
+  - [x] + 投稿作成: SSS分割 → Merkle Tree構築 → Storage Nodeへアップロード → `create_post_v2`
+  - [x] + 投稿表示: `merkle_root` → `fragment_id`計算 → Storage Node取得 → SSS復元 → 表示
+  - [x] + `useStorage` hook: SSS/Merkle Tree操作のカプセル化
+  - [x] + PAPI Binary型対応（`asBytes()`メソッド検出）
+  - [x] + i18n完全対応（ja/en/zh）
+  - ~~[ ] キャッシュ戦略~~ → **延期**: まずは動作優先
 
-- [ ] **Storage Node拡張**
-  - [ ] **subxtチェーン接続**: fragment_exists, declare_holding実装
-  - [ ] HTTP API: フロントエンドからの断片アップロード/取得エンドポイント
+- [x] **Storage Node拡張** (`apps/storage-node/`)
+  - ~~[ ] **subxtチェーン接続**~~ → **変更**: JSON-RPC経由でブロックチェーンノードに登録
+  - [x] + HTTP JSON-RPC API: `upload_fragment`, `get_fragment`
+  - [x] + 自動登録: 起動時にブロックチェーンノードへ`storage_registerEndpoint`
+  - [x] + 30秒heartbeat: ブロックチェーン再起動時の自動再登録
+  - [x] + 共有URL状態: `Arc<RwLock<Option<String>>>` で全RPC接続で共有
+
+- [ ] **未実装（将来対応）**
+  - [ ] マルチノード対応: 複数ストレージノードへの断片分散
+  - [ ] ノード選択ロジック: ラウンドロビン/最寄りノード選択
 
 #### Phase 2: Proof & Rewards (未実装)
 
@@ -227,11 +240,36 @@
   - ~~[ ] アルゴリズム: SHA256 or Blake2b（ASIC耐性不要）~~ → [x] アルゴリズム: Blake2b-256（Substrate標準、SHA256は不採用）
   - ~~[ ] 匿名性: KYC不要、IPログなし~~ → [x] 匿名性: KYC不要、署名不要（unsigned tx）← IPログはノード実装依存のため技術保証できる「署名不要」に変更
 
+### 2.5 smoldot Light Client統合
+
+> **設計方針**: Tor統合を断念したため、smoldotによるLight Client接続でRPC依存を排除し検閲耐性を確保。
+> ブラウザ内でブロックを自分で検証するTrustlessな構成を実現。
+
+- [ ] **smoldot導入** (`apps/frontend/`)
+  - [ ] `polkadot-api/smoldot` パッケージ追加
+  - [ ] `getWsProvider` → `getSmProvider` への切り替え
+  - [ ] Web Worker でのsmoldot実行
+
+- [ ] **チェーンスペック生成・配布**
+  - [ ] ジェネシス情報を含むchain spec生成
+  - [ ] ブートノードリスト設定
+  - [ ] フロントエンドへのchain spec同梱
+
+- [ ] **接続フォールバック戦略**
+  - [ ] Light Client優先 → WsProvider フォールバック
+  - [ ] 接続状態インジケーターUI
+
 ---
 
 ## Phase 3: 自律エコシステム
 
 ### 3.1 ステルスアドレス統合
+
+- [ ] **クライアント側暗号実装** (`apps/frontend/`)
+  - [ ] X25519鍵交換
+  - [ ] ワンタイムアドレス導出
+  - [ ] スキャン鍵/閲覧鍵ペア生成
+  - [ ] Wasm実装 + Web Worker
 
 - [ ] **Stealth Pallet** 作成
   - [ ] ステルスアドレス宛トランザクション
@@ -266,19 +304,7 @@
   - [ ] 難易度自動調整アルゴリズム
   - [ ] インフレ/デフレ抑制メカニズム
 
-### 3.3 ZKP匿名人間証明 (`packages/circuits/`)
-
-- [ ] **Circom/Noir回路設計**
-  - [ ] 「ユニークな人間である」証明
-  - [ ] Nullifier生成（二重証明防止）
-  - [ ] 属性非開示での検証
-
-- [ ] オンチェーン検証
-  - [ ] Groth16/PLONK検証パレット
-  - [ ] 証明データ格納
-  - [ ] Nullifier重複チェック
-
-### 3.4 DM機能（Stealth Messaging）
+### 3.3 DM機能（Stealth Messaging）
 
 - [ ] E2EE実装
   - [ ] ChaCha20-Poly1305暗号化
@@ -298,18 +324,9 @@
 
 ## Phase 4: 本番デプロイ
 
-### 4.1 Light Client 対応
+### ~~4.1 Light Client 対応~~ → **Phase 2.5へ移動** (2026-02-11)
 
-- [ ] **smoldot 統合**
-  - [ ] `polkadot-api/smoldot` 導入
-  - [ ] チェーンスペック生成・配布
-  - [ ] Web Worker でのsmoldot実行
-  - [ ] ブートノード設定
-
-- [ ] **接続フォールバック戦略**
-  - [ ] Light Client優先 → 公開RPC フォールバック
-  - [ ] 複数RPC自動切替
-  - [ ] 接続状態インジケーター
+> Tor統合断念に伴い、smoldot導入を前倒し。詳細は Phase 2.5 を参照。
 
 ### 4.2 ハイドラ（フロントエンド業者）支援
 
@@ -334,6 +351,24 @@
   - [ ] Genesis設定最終化
   - [ ] バリデーター招集
 
+### 4.4 Mainnet設計・経済パラメータ
+
+- [ ] **経済合理性に基づく定数制定**
+  - [ ] PostBaseCost / PostByteCost の最適値検証
+  - [ ] Faucet報酬額・難易度の調整
+  - [ ] ストレージ報酬レート設計
+  - [ ] インフレ/デフレ率シミュレーション
+
+- [ ] **トークノミクス最終設計**
+  - [ ] 初期供給量・分配比率
+  - [ ] バリデーター報酬設計
+  - [ ] ストレージノード報酬設計
+  - [ ] 反応マイニング報酬曲線
+
+- [ ] **ガバナンスパラメータ**
+  - [ ] 投票期間・クォーラム閾値
+  - [ ] パラメータ変更プロセス
+
 ---
 
 ## 構想事項（検討中）
@@ -345,6 +380,7 @@
 > - ブラウザ拡張ウォレット連携
 > - オンチェーンガバナンス
 > - 残高保護機能（Keep Alive強制）
+> - ZKP匿名人間証明（Circom/Noir回路、Groth16/PLONK検証）
 
 ---
 
@@ -352,17 +388,20 @@
 
 > **設計方針**: SSSを待たずにストレージ基盤を先に構築。Phase 1は「繋がるだけ」のMVP。
 
-| 順番 | 項目 | 内容 | 仕様書 |
-|-----|------|------|--------|
-| **1** | 008-distributed-storage **Phase 1** | Storage Registry & P2P | [spec.md](../specs/008-distributed-storage/spec.md) |
-| **2** | SSS (Phase 2.1) | クライアント側暗号化・断片化 | - |
-| **3** | 008-distributed-storage **Phase 2** | Simple Proof & Rewards | - |
-| **4** | 008-distributed-storage **Phase 3** | Slashing & Repair | - |
+| 順番 | 項目 | 内容 | 仕様書 | 状態 |
+|-----|------|------|--------|------|
+| **1** | 008-distributed-storage **Phase 1** | Storage Registry & P2P | [spec.md](../specs/008-distributed-storage/spec.md) | ✅完了 |
+| **2** | SSS (Phase 2.1) | クライアント側暗号化・断片化 | - | ✅完了 |
+| **3** | + **Post Storage Migration** | 投稿コンテンツの分散ストレージ移行 | - | ✅完了 |
+| **4** | 008-distributed-storage **Phase 2** | Simple Proof & Rewards | - | 未着手 |
+| **5** | 008-distributed-storage **Phase 3** | Slashing & Repair | - | 未着手 |
 
-### Phase 1 スコープ（まず繋がるだけ）
+### Phase 1 スコープ（まず繋がるだけ） → ✅完了 (2026-02-10)
 
 - ✅ Storage Pallet: `register_fragment`, `register_node`, `declare_holding`
 - ✅ Storage Daemon: libp2p断片送受信、ディスク保存
+- ✅ + HTTP JSON-RPC API: フロントエンド連携
+- ✅ + 自動登録 + heartbeat: ブロックチェーンノードへの登録
 - ❌ ~~PoST~~ → Phase 2
 - ❌ ~~報酬~~ → Phase 2
 - ❌ ~~スラッシング~~ → Phase 3
@@ -373,17 +412,15 @@
 ## 技術的依存関係
 
 ```
-Phase 1.2 (Substrate) ──┬── Phase 1.3 (libp2p+Tor)
-                        │
-                        └── Phase 1.5 (Frontend)
+Phase 1.2 (Substrate) ✅ ──┬── Phase 1.3 (libp2p+Tor) ✅
+                           │
+                           └── Phase 1.5 (Frontend) ✅
 
-Phase 2.1 (Wasm) ──────── Phase 2.2 (Storage Pallet + Storage Node)
-                        │
-                        └── Phase 2.3 (PoW Faucet)
+Phase 2.1 (SSS/Wasm) ✅ ──── Phase 2.2 (Storage) ✅ ─── + Phase 1.5 (Post Storage) ✅
+                          │
+                          └── Phase 2.3 (PoW Faucet) ✅
 
-Phase 3.1 (Stealth) ─── Phase 3.2 (Reaction) ─┬── Phase 3.3 (ZKP)
-                                              │
-                                              └── Phase 3.4 (DM)
+Phase 3.1 (Stealth) ─── Phase 3.2 (Reaction) ─── Phase 3.3 (DM)
 
 Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 ```
@@ -402,12 +439,13 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | ~~WebAuthn検証~~ | ~~高~~ | ~~中~~ | ~~**4**~~ | ⚠️廃止 |
 | libp2p基盤 | 高 | 低 | **5** | ✅完了 |
 | ~~Arti(Tor)統合~~ | ~~中~~ | ~~高~~ | ~~6~~ | ✅完了（torsocks方式） |
-| SSS実装 | 中 | 低 | 7 | 未着手 |
-| **Storage Pallet** | 高 | 中 | **8** | 未着手 |
-| **ストレージノード** | 高 | 高 | **9** | 未着手 |
-| ステルスアドレス | 中 | 中 | 10 | 未着手 |
-| 反応マイニング | 低 | 中 | 11 | 未着手 |
-| ZKP回路 | 低 | 高 | 12 | 未着手 |
+| SSS実装 | 中 | 低 | 7 | ✅完了 |
+| **Storage Pallet** | 高 | 中 | **8** | ✅完了 |
+| **ストレージノード** | 高 | 高 | **9** | ✅完了 |
+| + **Post Storage統合** | 高 | 中 | **10** | ✅完了 |
+| ステルスアドレス | 中 | 中 | 11 | 未着手 |
+| 反応マイニング | 低 | 中 | 12 | 未着手 |
+| ~~ZKP回路~~ | ~~低~~ | ~~高~~ | ~~13~~ | →構想移動 |
 
 ---
 
@@ -445,5 +483,18 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 - [x] 統合テスト18件パス (`tests/integration/tor_connectivity_test.sh`)
 
 ### M5: プライバシー機能（4週間）
-- SSS断片化
+- ~~SSS断片化~~ → ✅完了 (2026-02-10)
 - ステルスアドレス
+
+### M6: 分散ストレージ ✅完了 (2026-02-10)
+
+> **実装内容**: 投稿コンテンツの分散ストレージ移行。オンチェーンはmerkle_rootのみ保存。
+
+- [x] Storage Pallet MVP
+- [x] Storage Node MVP + HTTP JSON-RPC API
+- [x] SSS分割/復元 (sharks crate, Wasm, Web Worker)
+- [x] Merkle Tree構築/検証
+- [x] Post Pallet V2対応 (ContentV2: merkle_root + fragment_count)
+- [x] フロントエンド統合 (useStorage hook, PAPI Binary対応)
+- [x] 自動登録 + 30秒heartbeat
+- [ ] マルチノード対応（複数ストレージノードへの断片分散）
