@@ -365,7 +365,7 @@ fn test_create_post_params() {
         let merkle_root = [0xABu8; 32];
         let k = 3u32;
         let n = 5u32;
-        let total_size = 1024u64 * 100; // 100KB
+        let total_size = 1024u64; // 1KB (MaxContentLength=10000以内)
 
         // 投稿作成
         assert_ok!(PostModule::create_post(
