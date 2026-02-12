@@ -9,6 +9,9 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tracing::info;
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 /// Node identity containing keypair and PeerID
 pub struct NodeIdentity {
     keypair: Keypair,
@@ -41,10 +44,25 @@ impl NodeIdentity {
             
             let ed25519_kp = ed25519::Keypair::generate();
             let bytes = ed25519_kp.to_bytes();
-            
-            // Save keypair
-            fs::write(&keypair_path, &bytes)
-                .context("Failed to save keypair")?;
+
+            // Save keypair with restricted permissions (owner-only read/write)
+            #[cfg(unix)]
+            {
+                use std::io::Write;
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&keypair_path)
+                    .context("Failed to create keypair file")?;
+                file.write_all(&bytes)
+                    .context("Failed to save keypair")?;
+            }
+            #[cfg(not(unix))]
+            {
+                fs::write(&keypair_path, &bytes)
+                    .context("Failed to save keypair")?;
+            }
             
             Keypair::from(ed25519_kp)
         };

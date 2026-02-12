@@ -1,10 +1,15 @@
 # ストレージ戦略: 地図と宝の分離
 
-> **ステータス**: Phase 1 MVP 完了 (2026-02-10)  
+> **ステータス**: Phase 1.5 Post Storage Migration 完了 (2026-02-10)  
 > **関連ドキュメント**: [architecture.md](architecture.md), [memo.md](memo.md), [TODO.md](TODO.md)
 >
 > **実装済み**:
 > - Phase 1 Storage MVP (`pallet-storage` + `storage-node`) - 2026-02-10
+> - + Phase 1.5 Post Storage Migration - 2026-02-10
+>   - Post Pallet V2対応 (`create_post_v2`, `ContentV2`)
+>   - SSS/Merkle Tree (フロントエンドWasm + Web Worker)
+>   - Storage Node HTTP JSON-RPC API + 自動登録 + heartbeat
+>   - フロントエンド統合 (`useStorage` hook)
 > - Faucetパレットのオンチェーンストレージ (`FaucetClaims`, `TotalClaims`) - 2026-02-09
 >
 > **詳細仕様**: [specs/008-distributed-storage/](../specs/008-distributed-storage/)
@@ -15,24 +20,28 @@
 
 ### 1.1 オンチェーンストレージの限界
 
-現在の `pallet-post` は投稿本文を直接オンチェーンに保存している：
+~~現在の `pallet-post` は投稿本文を直接オンチェーンに保存している~~ → **解決済み** (V2対応)
 
 ```rust
-#[pallet::storage]
-pub type Posts<T: Config> = StorageMap<_, Blake2_128Concat, PostId, Post<T>>;
-
+// V1: オンチェーンに本文保存（後方互換性のため維持）
 pub struct Post<T: Config> {
     pub author: T::AccountId,
     pub content: BoundedVec<u8, T::MaxContentLength>,  // ← 本文がここに
     pub created_at: BlockNumberFor<T>,
 }
+
+// V2: オンチェーンはmerkle_rootのみ（実装済み）
+pub struct ContentV2 {
+    pub merkle_root: [u8; 32],   // ← 断片のMerkleルートのみ
+    pub fragment_count: u8,
+}
 ```
 
-**問題点:**
-- ストレージ容量に上限がない（スパム攻撃に脆弱）
-- バリデーターが全投稿本文を保持（プライバシーリスク）
-- 「忘れられる権利」を実装不可能（ブロックチェーンは不変）
-- 法的要求に対してバリデーターが本文を提出可能
+**~~問題点~~** → V2で解決:
+- ~~ストレージ容量に上限がない~~ → V2: merkle_root (32バイト) + fragment_count (1バイト) のみ
+- ~~バリデーターが全投稿本文を保持~~ → V2: 本文はストレージノードに分散
+- ~~「忘れられる権利」を実装不可能~~ → Phase 2で経済的忘却実装予定
+- ~~法的要求に対してバリデーターが本文を提出可能~~ → V2: 提出不能
 
 ---
 
@@ -134,26 +143,32 @@ fn prove_storage(
 
 ## 4. データフロー
 
-### 4.1 投稿作成
+### 4.1 投稿作成 → **実装済み** (2026-02-10)
 
 ```
 1. ユーザーが投稿を作成
-2. クライアント (Wasm) が暗号化
-3. クライアントが SSS で断片化
-4. 各断片をストレージノードに送信
-5. メタデータをチェーンに登録 (Storage Pallet)
+2. フロントエンド (Web Worker + Wasm) が SSS で断片化
+   - sharks crate を Wasm にコンパイル
+   - k=3, n=5 で分割（システム固定値）
+3. Merkle Tree 構築
+   - 断片から merkle_root を計算
+   - fragment_id = hash(merkle_root || index)
+4. ブロックチェーンノードの RPC 経由でストレージノードへ断片アップロード
+   - storage_uploadFragment RPC
+5. メタデータをチェーンに登録 (Post Pallet V2)
+   - create_post_v2(merkle_root, fragment_count)
 6. $moral を支払い
 ```
 
-### 4.2 投稿閲覧
+### 4.2 投稿閲覧 → **実装済み** (2026-02-10)
 
 ```
-1. チェーンからメタデータを取得
-2. 断片ロケーションを確認
+1. チェーンからメタデータを取得 (merkle_root, fragment_count)
+2. fragment_id を計算: hash(merkle_root || index) for i in 0..n
 3. k 個以上の断片をストレージノードから取得
-4. SSS で復元
-5. クライアントで復号
-6. 表示
+   - storage_getFragment RPC
+4. SSS で復元 (Web Worker + Wasm)
+5. 表示
 ```
 
 ### 4.3 投稿削除（経済的忘却）
@@ -241,7 +256,7 @@ pub struct FragmentMetadata<T: Config> {
 - [ ] prove_storage エクストリンシック → Phase 2
 - [ ] slash_missing_proof ロジック → Phase 3
 
-### Phase 2: Storage Node Daemon → **Phase 1 MVP 完了** (2026-02-10)
+### Phase 2: Storage Node Daemon → **Phase 1.5 完了** (2026-02-10)
 
 実装場所: `apps/storage-node/`
 
@@ -253,7 +268,9 @@ apps/storage-node/
 │   ├── identity.rs      # PeerID管理
 │   ├── storage/         # 断片の保存・取得 (ファイルシステムベース)
 │   ├── network/         # libp2p request-response
-│   ├── chain/           # チェーン連携 (スタブ)
+│   ├── rpc/             # + HTTP JSON-RPCサーバー
+│   │   ├── server.rs    # + JSON-RPCエンドポイント
+│   │   └── client.rs    # + ブロックチェーンノードへのRPCクライアント
 │   └── metrics.rs       # メトリクス
 ├── tests/
 │   ├── integration.rs   # graceful shutdown テスト
@@ -261,14 +278,18 @@ apps/storage-node/
 └── Cargo.toml
 ```
 
-**タスク:** (Phase 1完了分)
+**タスク:** (Phase 1.5完了分)
 - [x] daemon 骨格
 - [x] 断片ストレージ（ファイルシステム + Blake2ハッシュ検証）
 - [x] libp2p 統合 (request-response)
 - [x] 設定ファイル (TOML)
 - [x] graceful shutdown
+- [x] + HTTP JSON-RPC API (`upload_fragment`, `get_fragment`)
+- [x] + 自動登録: 起動時にブロックチェーンノードへ `storage_registerEndpoint`
+- [x] + 30秒heartbeat: ブロックチェーン再起動時の自動再登録
+- [x] + 共有URL状態: `Arc<RwLock<Option<String>>>` で全RPC接続で共有
 - [ ] Proof of Spacetime 実装 → Phase 2
-- [ ] subxt チェーン接続 → Phase 2
+- ~~[ ] subxt チェーン接続~~ → **変更**: JSON-RPC経由で実装済み
 - [ ] Tor Hidden Service 対応 → Phase 2
 
 ### Phase 3: Client Wasm Engine (未実装)
@@ -313,26 +334,58 @@ pub threshold: u8,
 
 ## 7. 技術スタック
 
-| レイヤー | 技術 | 役割 |
-|---------|------|------|
-| **Chain** | Substrate / Storage Pallet | メタデータ管理、報酬計算 |
-| **Storage** | RocksDB / Custom Daemon | 断片保存、Proof 生成 |
-| **Crypto** | ChaCha20-Poly1305, SSS | 暗号化、断片化 |
-| **Network** | libp2p + Tor | 匿名通信 |
-| **Client** | Wasm (Rust → wasm-bindgen) | ローカル暗号処理 |
+| レイヤー | 技術 | 役割 | 状態 |
+|---------|------|------|------|
+| **Chain** | Substrate / Post Pallet V2 | メタデータ管理 (merkle_root) | ✅完了 |
+| **Chain** | Substrate / Storage Pallet | ノード登録、保持表明 | ✅完了 |
+| **Storage** | Custom Daemon + HTTP JSON-RPC | 断片保存・取得 | ✅完了 |
+| **Crypto** | SSS (sharks crate) | 断片化 | ✅完了 |
+| **Crypto** | Merkle Tree (blake2b) | 断片ID導出 | ✅完了 |
+| **Crypto** | ChaCha20-Poly1305 | 暗号化 | 延期 |
+| **Network** | libp2p + JSON-RPC | P2P通信 | ✅完了 |
+| **Client** | Wasm (Web Worker) | ローカル暗号処理 | ✅完了 |
+| **Client** | Next.js + PAPI | フロントエンド | ✅完了 |
 
 ---
 
 ## 8. 関連する未実装機能
 
-TODO.md から抜粋：
+TODO.md から抜粋（ステルスアドレス・DM関連）：
 
 - [ ] X25519 鍵交換
 - [ ] スキャン鍵/閲覧鍵ペア生成
-- [ ] ChaCha20-Poly1305 暗号化
+- [ ] ChaCha20-Poly1305 暗号化 ← **延期**: 現在は平文でSSS分割
 - [ ] 鍵導出（HKDF）
 - [ ] エフェメラル公開鍵の格納
-- [ ] 復号・表示 UI
+- ~~[ ] 復号・表示 UI~~ → ✅完了: PostItem.tsx + useStorage hook
+
+### 8.1 将来の最適化案: 圧縮 → SSS
+
+**現状の問題**:
+- SSS (k=3, n=5) は元データの約1.67倍のストレージを消費
+- テキスト投稿は圧縮しやすいが、現状は非圧縮でそのまま分割
+
+**解決策**: SSS前に圧縮を挟む
+
+```
+元データ → gzip/zstd圧縮 → SSS分割 → 断片
+断片 → SSS復元 → gzip/zstd展開 → 元データ
+```
+
+**期待効果**:
+- テキストなら30-70%圧縮可能 → 実効ストレージ効率が大幅改善
+- 例: 1KB投稿 → 圧縮後300B → SSS後500B (元の0.5倍)
+
+**実装方針**:
+- ブラウザ標準の `CompressionStream` (gzip/deflate) を使用
+- または `fflate` ライブラリ (zstd未サポート、gzip/deflateのみ)
+- Wasm側で `flate2` crate を使う選択肢もあり
+
+**セキュリティ考慮**:
+- 圧縮後のサイズから元データの特性が推測される可能性あり
+- パディングで固定サイズに揃える対策も検討
+
+**優先度**: 低（機能より効率の問題）
 
 ---
 
@@ -351,7 +404,7 @@ TODO.md から抜粋：
 
 特に **Proof of Spacetime (PoST)** と **自己修復プロトコル** は、Filecoin や Arweave といった巨大プロジェクトが数年かけて磨き上げた領域。Substrate で一から組むのはかなりエキサイティングな挑戦になる。
 
-### 10.1 Storage Pallet & Node（難易度: 鬼） → **Phase 1 MVP 完了**
+### 10.1 Storage Pallet & Node（難易度: 鬼） → **Phase 1.5 完了**
 
 Anarchy プロトコルの「体」になる部分。
 
@@ -359,8 +412,15 @@ Anarchy プロトコルの「体」になる部分。
 |------|------------|------|
 | **断片登録・保持表明** | ✅ 実装済み | 2026-02-10 完了 |
 | **libp2p 受信** | ✅ 実装済み | request-response プロトコル |
+| **+ SSS断片化** | ✅ 実装済み | sharks crate + Wasm + Web Worker |
+| **+ Merkle Tree** | ✅ 実装済み | fragment_id = hash(merkle_root \|\| index) |
+| **+ HTTP JSON-RPC API** | ✅ 実装済み | upload_fragment, get_fragment |
+| **+ 自動登録 + heartbeat** | ✅ 実装済み | 30秒間隔で再登録 |
+| **+ Post Pallet V2** | ✅ 実装済み | create_post_v2(merkle_root, fragment_count) |
+| **+ フロントエンド統合** | ✅ 実装済み | useStorage hook, PAPI Binary対応 |
 | **PoST 検証** | 未実装 | Phase 2 で Off-chain Workers (OCW) 使用予定 |
 | **自然な忘却** | 未実装 | Phase 2 で報酬システムと連動 |
+| **マルチノード分散** | 未実装 | 複数ストレージノードへの断片分散 |
 
 ### 10.2 PoW Faucet（難易度: 低〜中） → **完了** (2026-02-09)
 
@@ -395,12 +455,20 @@ Phase 1: Simple Storage ← ✅ 完了 (2026-02-10)
     │ - pallet-storage: 断片・ノード・保持表明の管理
     │ - storage-node: libp2p P2P + ローカルストレージ
     ▼
+Phase 1.5: Post Storage Migration ← ✅ 完了 (2026-02-10)
+    │
+    │ 投稿コンテンツをチェーン外へ移行
+    │ - SSS/Merkle Tree (Wasm + Web Worker)
+    │ - Post Pallet V2 (merkle_rootのみオンチェーン)
+    │ - Storage Node HTTP JSON-RPC + 自動登録 + heartbeat
+    │ - フロントエンド統合 (useStorage hook)
+    ▼
 Phase 2: Moral Incentive ← 次のステップ
     │
     │ PoST と $moral の分配を組み込む
-    │ - subxt チェーン接続
     │ - Proof of Spacetime 生成・検証
     │ - 報酬分配ロジック
+    │ - マルチノード分散（複数ストレージノードへの断片分散）
     ▼
 Phase 3: Self-Healing
     │
@@ -417,9 +485,13 @@ Phase 3: Self-Healing
 
 ## 12. 次のアクション候補
 
-1. **PoW Faucet の Pallet 定義（Rust）** - 手堅くフロントエンドとの統合も面白い
+~~1. **PoW Faucet の Pallet 定義（Rust）**~~ → ✅完了 (2026-02-09)
+
+**Phase 2 (次のステップ):**
+1. **マルチノード対応** - 複数ストレージノードへの断片分散（ラウンドロビン/最寄りノード選択）
 2. **「自然な忘却」のためのデータ寿命（Rent）計算式** - 経済モデルの設計
 3. **Off-chain Workers (OCW) での PoST 検証設計** - 重い処理をオフチェーンに逃がす
+4. **ChaCha20-Poly1305 暗号化** - 現在は平文、暗号化レイヤー追加
 
 ---
 

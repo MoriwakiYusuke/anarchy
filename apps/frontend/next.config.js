@@ -3,6 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   // Transpile polkadot packages to handle WASM and SSR issues
   transpilePackages: [
+    'anarchy-wasm-engine',
     '@polkadot/api',
     '@polkadot/api-augment',
     '@polkadot/api-base',

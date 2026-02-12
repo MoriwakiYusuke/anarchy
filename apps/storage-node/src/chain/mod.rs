@@ -3,6 +3,10 @@
 //! Handles communication with the Anarchy blockchain via RPC.
 //! Uses subxt for type-safe chain interaction.
 
+#[cfg(test)]
+mod tests;
+
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use anyhow::{Result, bail};
@@ -67,6 +71,8 @@ pub struct ChainClient {
     rate_limiter: RateLimiter,
     /// Connection status
     connected: bool,
+    /// Track holdings: hash → (post_id, index)
+    holding_map: Mutex<HashMap<FragmentId, (u64, u32)>>,
 }
 
 impl ChainClient {
@@ -81,6 +87,7 @@ impl ChainClient {
             endpoint: endpoint.to_string(),
             rate_limiter: RateLimiter::new(declare_rate_limit),
             connected: false, // Would be true after successful connection
+            holding_map: Mutex::new(HashMap::new()),
         })
     }
 
@@ -115,6 +122,56 @@ impl ChainClient {
         // Stub: Log and return success
         info!(fragment_id = %hex::encode(fragment_id), "Would declare holding (stub)");
         Ok(())
+    }
+
+    /// Declare holding for a post fragment (T060)
+    /// 
+    /// This tracks the post_id + index for the given fragment hash,
+    /// then submits the declare_holding extrinsic.
+    pub async fn declare_holding_for_post(
+        &self,
+        post_id: u64,
+        index: u32,
+        fragment_hash: FragmentId,
+    ) -> Result<()> {
+        // Check rate limit (FR-108)
+        if !self.rate_limiter.try_acquire().await {
+            bail!("Rate limit exceeded for declare_holding");
+        }
+        
+        // Track the mapping: hash → (post_id, index)
+        {
+            let mut map = self.holding_map.lock().await;
+            map.insert(fragment_hash, (post_id, index));
+        }
+        
+        debug!(
+            post_id = post_id,
+            index = index,
+            hash = %hex::encode(fragment_hash),
+            "Declaring holding for post fragment"
+        );
+        
+        // Note: Full implementation would submit extrinsic:
+        // let tx = anarchy::tx().storage().declare_holding(fragment_hash);
+        // let progress = self.api.tx().sign_and_submit_then_watch_default(&tx, &self.signer).await?;
+        // progress.wait_for_finalized_success().await?;
+        
+        // Stub: Log and return success
+        info!(
+            post_id = post_id,
+            index = index,
+            hash = %hex::encode(fragment_hash),
+            "Would declare holding for post fragment (stub)"
+        );
+        Ok(())
+    }
+
+    /// Get holding info for a fragment hash
+    /// Returns (post_id, index) if tracked
+    pub async fn get_holding_info(&self, fragment_hash: &FragmentId) -> Option<(u64, u32)> {
+        let map = self.holding_map.lock().await;
+        map.get(fragment_hash).copied()
     }
 
     /// Revoke holding of a fragment
@@ -156,6 +213,72 @@ impl ChainClient {
     pub async fn rate_limit_remaining(&self) -> u32 {
         self.rate_limiter.remaining().await
     }
+
+    /// Register this Storage Node with the blockchain node
+    /// 
+    /// Calls the `storage_registerEndpoint` RPC to register our HTTP endpoint.
+    /// This allows the blockchain node to forward fragment requests to us.
+    pub async fn register_with_blockchain(&self, our_rpc_url: &str) -> Result<()> {
+        // Convert ws:// to http:// for JSON-RPC
+        let http_endpoint = self.endpoint
+            .replace("ws://", "http://")
+            .replace("wss://", "https://");
+        
+        info!(
+            blockchain = %http_endpoint,
+            storage_node = %our_rpc_url,
+            "Registering Storage Node with blockchain"
+        );
+        
+        #[derive(serde::Serialize)]
+        struct RpcRequest<'a> {
+            jsonrpc: &'static str,
+            id: u32,
+            method: &'static str,
+            params: [&'a str; 1],
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcResponse {
+            result: Option<bool>,
+            error: Option<RpcError>,
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcError {
+            message: String,
+        }
+        
+        let client = reqwest::Client::new();
+        let request = RpcRequest {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "storage_registerEndpoint",
+            params: [our_rpc_url],
+        };
+        
+        let response = client
+            .post(&http_endpoint)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to connect to blockchain node: {}", e))?;
+        
+        let rpc_response: RpcResponse = response
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+        
+        if let Some(error) = rpc_response.error {
+            bail!("Blockchain node rejected registration: {}", error.message);
+        }
+        
+        if rpc_response.result == Some(true) {
+            info!("Successfully registered with blockchain node");
+        }
+        
+        Ok(())
+    }
 }
 
 /// Fragment metadata from chain (matches pallet types)
@@ -165,53 +288,4 @@ pub struct FragmentMetadata {
     pub content_type: String,
     pub created_at: u64,
     pub owner: Vec<u8>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_rate_limiter_allows_within_limit() {
-        let limiter = RateLimiter::new(5);
-        
-        for _ in 0..5 {
-            assert!(limiter.try_acquire().await);
-        }
-        
-        // 6th call should fail
-        assert!(!limiter.try_acquire().await);
-    }
-
-    #[tokio::test]
-    async fn test_rate_limiter_remaining() {
-        let limiter = RateLimiter::new(10);
-        
-        assert_eq!(limiter.remaining().await, 10);
-        
-        limiter.try_acquire().await;
-        limiter.try_acquire().await;
-        
-        assert_eq!(limiter.remaining().await, 8);
-    }
-
-    #[tokio::test]
-    async fn test_chain_client_creation() {
-        let client = ChainClient::new("ws://127.0.0.1:9944", 10).await.unwrap();
-        assert_eq!(client.endpoint, "ws://127.0.0.1:9944");
-    }
-
-    #[tokio::test]
-    async fn test_declare_holding_rate_limited() {
-        let client = ChainClient::new("ws://127.0.0.1:9944", 2).await.unwrap();
-        let fragment_id = [1u8; 32];
-        
-        // First two should succeed
-        client.declare_holding(fragment_id).await.unwrap();
-        client.declare_holding(fragment_id).await.unwrap();
-        
-        // Third should fail
-        let result = client.declare_holding(fragment_id).await;
-        assert!(result.is_err());
-    }
 }

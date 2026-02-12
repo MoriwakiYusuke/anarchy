@@ -9,6 +9,10 @@ out/
 target/
 *.tsbuildinfo
 
+# Wasm build outputs
+pkg/
+*.wasm
+
 # Environment
 .env
 .env.local

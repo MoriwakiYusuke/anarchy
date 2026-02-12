@@ -20,3 +20,8 @@ listen_addr = "/ip4/0.0.0.0/tcp/4001"
 # Rate limit for declare_holding calls per minute (FR-108)
 # Default: 10
 declare_rate_limit = 10
+
+# HTTP JSON-RPC port for blockchain node communication
+# Default: 3030
+# Set STORAGE_NODE_URL=http://localhost:3030 on blockchain node
+rpc_port = 3030

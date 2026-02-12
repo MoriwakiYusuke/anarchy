@@ -11,12 +11,41 @@ pub use pallet::*;
 #[cfg(test)]
 mod tests;
 
+use parity_scale_codec::{Decode, Encode};
+use scale_info::TypeInfo;
+
+/// V2コンテンツ参照（オフチェーン分散ストレージへの参照）
+/// Runtime API用に再エクスポート
+#[derive(Clone, Debug, Encode, Decode, TypeInfo, PartialEq, Eq)]
+pub struct PostContentInfo {
+    /// MerkleRoot (32バイト)
+    pub root: [u8; 32],
+    /// 復元に必要な最小断片数
+    pub k: u32,
+    /// 総断片数
+    pub n: u32,
+    /// 元データサイズ（バイト）
+    pub size: u64,
+}
+
+sp_api::decl_runtime_apis! {
+    /// Post Pallet Runtime API
+    ///
+    /// RPCからチェーン上のコンテンツ参照を取得するためのAPI
+    pub trait PostApi {
+        /// MerkleRootからコンテンツ参照を取得
+        fn get_content_by_merkle_root(merkle_root: [u8; 32]) -> Option<PostContentInfo>;
+
+        /// PostIDからコンテンツ参照を取得
+        fn get_content_by_post_id(post_id: u64) -> Option<PostContentInfo>;
+    }
+}
+
 #[frame_support::pallet]
 pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
 
     /// $moral残高型（ネイティブトークン）
     pub type BalanceOf<T> = <<T as Config>::NativeToken as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -33,6 +62,22 @@ pub mod pallet {
         pub created_at: BlockNumberFor<T>,
         /// 親投稿ID（リプライの場合）
         pub parent_id: Option<u64>,
+    }
+
+    /// 分散ストレージ参照情報（V2: SSS+Merkle形式）
+    ///
+    /// 投稿コンテンツはオフチェーンStorage Nodeに断片化して保存され、
+    /// オンチェーンにはこの参照情報のみを記録する。
+    #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, PartialEq)]
+    pub struct PostContent {
+        /// MerkleRoot（断片ハッシュのマークルツリールート）
+        pub root: [u8; 32],
+        /// 復元に必要な最小断片数（しきい値）
+        pub k: u32,
+        /// 総断片数
+        pub n: u32,
+        /// 元データサイズ（バイト）
+        pub size: u64,
     }
 
     #[pallet::pallet]
@@ -68,10 +113,16 @@ pub mod pallet {
     #[pallet::getter(fn posts)]
     pub type Posts<T: Config> = StorageMap<_, Blake2_128Concat, u64, Post<T>>;
 
-    /// コンテンツ本文ストレージ（post_id → content bytes）
+    /// コンテンツ参照ストレージ（V2: オフチェーン分散ストレージへの参照）
+    /// post_id → PostContent (MerkleRoot + k/n/size)
     #[pallet::storage]
-    #[pallet::getter(fn contents)]
-    pub type Contents<T: Config> = StorageMap<_, Blake2_128Concat, u64, BoundedVec<u8, T::MaxContentLength>>;
+    #[pallet::getter(fn content_refs)]
+    pub type ContentRefs<T: Config> = StorageMap<_, Blake2_128Concat, u64, PostContent>;
+
+    /// MerkleRoot → PostID 逆引きマップ（RPC用）
+    #[pallet::storage]
+    #[pallet::getter(fn merkle_root_to_post_id)]
+    pub type MerkleRootToPostId<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 32], u64>;
 
     /// ユーザーごとの投稿ID一覧
     #[pallet::storage]
@@ -105,31 +156,57 @@ pub mod pallet {
         ParentPostNotFound,
         /// $moral残高不足
         InsufficientMoralBalance,
+        /// k/nパラメータが無効（k > 0 && k <= n が必須）
+        InvalidKNParameters,
+        /// 同一MerkleRootの投稿が既に存在する
+        DuplicateMerkleRoot,
+        /// コスト計算でオーバーフローが発生
+        CostCalculationOverflow,
+        /// 投稿IDがオーバーフロー
+        PostIdOverflow,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// 新しい投稿を作成する
+        /// 分散ストレージ形式で投稿を作成
+        ///
+        /// フロントエンドでSSS分割・MerkleTree構築後、このextrinsicを呼び出す。
+        /// 断片データは別途Storage RPCでアップロード済みであること。
         ///
         /// # Arguments
-        /// * `content` - 投稿内容（オンチェーンに保存）
+        /// * `merkle_root` - 断片ハッシュのMerkleRoot（投稿の一意識別子）
+        /// * `k` - 復元に必要な最小断片数（SSS threshold）
+        /// * `n` - 総断片数
+        /// * `total_size` - 元データサイズ（バイト）
         /// * `parent_id` - 親投稿ID（リプライの場合）
         ///
         /// # Cost
-        /// * 基本コスト + (バイト数 × バイト単価) の $moral トークンを消費
+        /// * 50% base + 30% size + 20% storage deposit
         #[pallet::call_index(0)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(3, 4))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 5))]
         pub fn create_post(
             origin: OriginFor<T>,
-            content: Vec<u8>,
+            merkle_root: [u8; 32],
+            k: u32,
+            n: u32,
+            total_size: u64,
             parent_id: Option<u64>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            // コンテンツ長チェック
+            // k/n検証: k > 0 && k <= n && n <= 255
+            ensure!(k > 0 && k <= n && n <= 255, Error::<T>::InvalidKNParameters);
+
+            // total_size上限チェック
             ensure!(
-                content.len() <= T::MaxContentLength::get() as usize,
+                total_size <= T::MaxContentLength::get() as u64,
                 Error::<T>::ContentTooLong
+            );
+
+            // MerkleRoot重複チェック
+            ensure!(
+                !MerkleRootToPostId::<T>::contains_key(merkle_root),
+                Error::<T>::DuplicateMerkleRoot
             );
 
             // 親投稿の存在チェック
@@ -137,14 +214,25 @@ pub mod pallet {
                 ensure!(Posts::<T>::contains_key(pid), Error::<T>::ParentPostNotFound);
             }
 
-            // バイト数に基づくコスト計算: 基本コスト + (バイト数 × バイト単価)
-            let content_len = content.len() as u128;
-            let base_cost: u128 = T::PostBaseCost::get().try_into().unwrap_or(0);
-            let byte_cost: u128 = T::PostByteCost::get().try_into().unwrap_or(0);
-            let total_cost = base_cost.saturating_add(content_len.saturating_mul(byte_cost));
-            let cost: BalanceOf<T> = total_cost.try_into().unwrap_or(T::PostBaseCost::get());
+            // ユーザーの投稿数上限を先にチェック（トークン焼却前）
+            let current_posts = UserPosts::<T>::get(&who);
+            ensure!(!current_posts.is_full(), Error::<T>::TooManyPosts);
 
-            // $moralトークンを焼却（投稿コスト）
+            // コスト計算: 50% base + 30% size + 20% deposit
+            let base_cost: u128 = T::PostBaseCost::get()
+                .try_into()
+                .map_err(|_| Error::<T>::CostCalculationOverflow)?;
+            let byte_cost: u128 = T::PostByteCost::get()
+                .try_into()
+                .map_err(|_| Error::<T>::CostCalculationOverflow)?;
+            let size_cost = (total_size as u128).saturating_mul(byte_cost);
+            let deposit = base_cost.saturating_add(size_cost) / 5;
+            let total_cost = base_cost.saturating_add(size_cost).saturating_add(deposit);
+            let cost: BalanceOf<T> = total_cost
+                .try_into()
+                .map_err(|_| Error::<T>::CostCalculationOverflow)?;
+
+            // $moralトークンを焼却
             T::NativeToken::burn_from(
                 &who,
                 cost,
@@ -153,27 +241,31 @@ pub mod pallet {
                 frame_support::traits::tokens::Fortitude::Polite,
             ).map_err(|_| Error::<T>::InsufficientMoralBalance)?;
 
-            // コンテンツハッシュを計算
-            let content_hash = sp_io::hashing::blake2_256(&content);
-
-            // 投稿IDを取得・インクリメント
+            // 投稿IDを取得・インクリメント（オーバーフロー防止）
             let post_id = NextPostId::<T>::get();
-            NextPostId::<T>::put(post_id.saturating_add(1));
+            let next_id = post_id.checked_add(1).ok_or(Error::<T>::PostIdOverflow)?;
+            NextPostId::<T>::put(next_id);
 
-            // 投稿メタデータを保存
+            // 投稿メタデータを保存（content_hash = merkle_root）
             let post = Post {
                 author: who.clone(),
-                content_hash,
+                content_hash: merkle_root,
                 created_at: frame_system::Pallet::<T>::block_number(),
                 parent_id,
             };
             Posts::<T>::insert(post_id, post);
 
-            // コンテンツ本文を保存
-            let bounded_content: BoundedVec<u8, T::MaxContentLength> = content
-                .try_into()
-                .map_err(|_| Error::<T>::ContentTooLong)?;
-            Contents::<T>::insert(post_id, bounded_content);
+            // コンテンツ参照を保存
+            let content_ref = PostContent {
+                root: merkle_root,
+                k,
+                n,
+                size: total_size,
+            };
+            ContentRefs::<T>::insert(post_id, content_ref);
+
+            // MerkleRoot → PostID 逆引きマップを保存（RPC用）
+            MerkleRootToPostId::<T>::insert(merkle_root, post_id);
 
             // ユーザーの投稿一覧に追加
             UserPosts::<T>::try_mutate(&who, |posts| {
@@ -184,7 +276,7 @@ pub mod pallet {
             Self::deposit_event(Event::PostCreated {
                 post_id,
                 author: who,
-                content_hash,
+                content_hash: merkle_root,
             });
 
             Ok(())

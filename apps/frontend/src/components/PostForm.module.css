@@ -94,3 +94,41 @@
   color: #ef4444;
   background: rgba(239, 68, 68, 0.1);
 }
+
+/* V2 Storage Mode Styles */
+.v2Badge {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.progressContainer {
+  margin-top: 0.75rem;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  height: 24px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.progressBar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #8b5cf6);
+  transition: width 0.3s ease;
+}
+
+.progressText {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}

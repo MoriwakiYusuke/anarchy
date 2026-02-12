@@ -432,4 +432,27 @@ impl_runtime_apis! {
             vec![]
         }
     }
+
+    impl pallet_post::PostApi<Block> for Runtime {
+        fn get_content_by_merkle_root(merkle_root: [u8; 32]) -> Option<pallet_post::PostContentInfo> {
+            let post_id = pallet_post::MerkleRootToPostId::<Runtime>::get(merkle_root)?;
+            let content = pallet_post::ContentRefs::<Runtime>::get(post_id)?;
+            Some(pallet_post::PostContentInfo {
+                root: content.root,
+                k: content.k,
+                n: content.n,
+                size: content.size,
+            })
+        }
+
+        fn get_content_by_post_id(post_id: u64) -> Option<pallet_post::PostContentInfo> {
+            let content = pallet_post::ContentRefs::<Runtime>::get(post_id)?;
+            Some(pallet_post::PostContentInfo {
+                root: content.root,
+                k: content.k,
+                n: content.n,
+                size: content.size,
+            })
+        }
+    }
 }

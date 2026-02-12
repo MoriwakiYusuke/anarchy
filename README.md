@@ -11,11 +11,14 @@ anarchy/
 │   │   ├── node/       # ノード実行ファイル
 │   │   ├── runtime/    # ランタイム
 │   │   └── pallets/    # カスタムパレット
-│   │       ├── post/   # 投稿機能
-│   │       └── moral/  # $moralトークン
+│   │       ├── post/   # 投稿機能 (create_post_v2: MerkleRoot記録)
+│   │       └── faucet/ # Faucetパレット
+│   ├── storage-node/   # 分散ストレージノード (libp2p)
 │   └── frontend/       # Next.js フロントエンド
+├── packages/
+│   └── wasm-engine/    # Wasm暗号エンジン (SSS + MerkleTree)
 ├── docs/               # ドキュメント
-└── packages/           # 共有パッケージ（今後追加）
+└── specs/              # 機能仕様書
 ```
 
 ## 必要環境
@@ -120,7 +123,58 @@ cd apps/blockchain
 
 📖 詳細: [apps/blockchain/docs/tor-deployment.md](apps/blockchain/docs/tor-deployment.md)
 
-### 2. フロントエンドの起動
+### 2. Storage Nodeの起動（分散ストレージ）
+
+```bash
+cd apps/storage-node
+
+# ビルド
+cargo build --release
+
+# 設定ファイルの準備
+cp config.example.toml config.toml
+# 必要に応じてconfig.tomlを編集
+
+# 起動
+./target/release/anarchy-storage-node --config config.toml
+```
+
+| 設定項目 | デフォルト | 説明 |
+|----------|-----------|------|
+| data_dir | ./data | データ保存ディレクトリ |
+| capacity | 10GB | 最大ストレージ容量 |
+| chain_url | ws://127.0.0.1:9944 | チェーンRPCエンドポイント |
+| listen_addr | /ip4/0.0.0.0/tcp/4001 | libp2pリッスンアドレス |
+| declare_rate_limit | 10 | declare_holding/分 |
+| rpc_port | 3030 | HTTP JSON-RPCポート |
+
+Storage Nodeは起動時にブロックチェーンノードに自動登録するため、両方を起動するだけで連携します：
+
+```bash
+# ターミナル1: ブロックチェーンノード
+cd apps/blockchain && ./target/release/anarchy-node --dev
+
+# ターミナル2: Storage Node
+cd apps/storage-node && ./target/release/anarchy-storage-node --config config.toml
+```
+
+📖 詳細: [apps/storage-node/README.md](apps/storage-node/README.md)
+
+### 3. Wasm暗号エンジンのビルド（フロントエンド用）
+
+```bash
+cd packages/wasm-engine
+
+# wasm-packのインストール（初回のみ）
+cargo install wasm-pack
+
+# Wasmビルド
+wasm-pack build --target web --out-dir pkg
+```
+
+生成物は `packages/wasm-engine/pkg/` に配置されます。
+
+### 4. フロントエンドの起動
 
 ```bash
 # 依存関係のインストール

@@ -72,8 +72,14 @@ export type TranslationKey =
   | 'post.cost'
   | 'post.empty'
   | 'post.sending'
+  | 'post.uploading'
+  | 'post.splitting'
+  | 'post.recording'
   | 'post.success'
   | 'post.defaultCostNote'
+  // Content
+  | 'content.loading'
+  | 'content.error'
   // Timeline
   | 'timeline.empty'
   | 'timeline.loading'

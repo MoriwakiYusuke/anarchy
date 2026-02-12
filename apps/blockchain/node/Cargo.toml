@@ -13,6 +13,14 @@ serde_json = { workspace = true }
 jsonrpsee = { workspace = true }
 log = { workspace = true }
 
+# Storage RPC dependencies
+blake2 = "0.10"
+rs_merkle = "1.5"
+async-trait = "0.1"
+base64 = "0.22"
+hex = "0.4"
+serde = { workspace = true }
+
 # Substrate Client
 sc-cli = { workspace = true }
 sc-executor = { workspace = true }
@@ -46,8 +54,13 @@ sp-api = { workspace = true, features = ["std"] }
 substrate-frame-rpc-system = { workspace = true }
 pallet-transaction-payment-rpc = { workspace = true }
 
+# HTTP client for Storage Node communication
+reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
 # Local
 anarchy-runtime = { workspace = true, features = ["std"] }
+pallet-post = { workspace = true, features = ["std"] }
 
 [build-dependencies]
 substrate-build-script-utils = "11.0.0"
