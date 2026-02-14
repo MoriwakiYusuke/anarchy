@@ -125,6 +125,7 @@ dependencies = [
  "log",
  "pallet-post",
  "pallet-transaction-payment-rpc",
+ "rand 0.8.5",
  "reqwest",
  "rs_merkle",
  "sc-basic-authorship",

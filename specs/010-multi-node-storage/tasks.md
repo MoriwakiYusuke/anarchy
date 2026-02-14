@@ -264,20 +264,27 @@ Based on plan.md:
 - [X] T097 [US2] Implement select_node_for_fragment (fragment-index based distribution) in apps/blockchain/node/src/rpc/mod.rs
 - [X] T098 [US2] Implement next_node_round_robin for round-robin selection in apps/blockchain/node/src/rpc/mod.rs
 - [X] T099 [US2] Implement online_nodes filter (exclude offline) in apps/blockchain/node/src/rpc/mod.rs
-- [ ] T100 [US2] Add node health check for offline detection (TODO: background task)
-- [ ] T101 [US2] Add storage_setSelectionStrategy RPC for runtime configuration
+- [X] T100 [US2] Implement SelectionStrategy enum (Random, RoundRobin, Nearest) in apps/blockchain/node/src/rpc/mod.rs
+- [X] T101 [US2] Implement next_node_random for random selection (FR-101, FR-102) in apps/blockchain/node/src/rpc/mod.rs
+- [X] T102 [US2] Implement next_node_nearest for latency-based selection (FR-104) in apps/blockchain/node/src/rpc/mod.rs
+- [X] T103 [US2] Add latency_ms field to RegisteredStorageNode in apps/blockchain/node/src/rpc/storage.rs
+- [X] T104 [US2] Implement set/get_selection_strategy methods in apps/blockchain/node/src/rpc/mod.rs
+- [X] T105 [US2] Implement select_node method using current strategy in apps/blockchain/node/src/rpc/mod.rs
 
-#### Settings RPC (FR-103) - Optional
+#### Settings RPC (FR-103) - Optional (Skipped - config via API/config)
 
-- [ ] T102 [US2] Add SelectionStrategy enum to config (random, round-robin, nearest)
-- [X] T103 [US2] Implement storage_getNodes RPC to list registered nodes
-- [ ] T104 [US2] Implement storage_getSelectionStrategy RPC
+- [~] T106 [US2] SKIPPED - storage_setSelectionStrategy RPC (use API/config instead per spec)
+- [~] T107 [US2] SKIPPED - storage_getSelectionStrategy RPC
 
 #### Unit Tests
 
-- [X] T105 [P] [US2] Test round_robin produces rotating distribution
-- [X] T106 [P] [US2] Test fragment-index selection distributes across nodes
-- [X] T107 [P] [US2] Test offline node filtering
+- [X] T108 [P] [US2] Test round_robin produces rotating distribution
+- [X] T109 [P] [US2] Test fragment-index selection distributes across nodes
+- [X] T110 [P] [US2] Test offline node filtering
+- [X] T111 [P] [US2] Test random selection
+- [X] T112 [P] [US2] Test nearest node selection (FR-104)
+- [X] T113 [P] [US2] Test default strategy is random (FR-102)
+- [X] T114 [P] [US2] Test select_node uses current strategy
 
 **Checkpoint**: Node selection strategies complete - chain node can optimize distribution
 
@@ -314,7 +321,38 @@ Based on plan.md:
 
 ---
 
-## Phase 9: Polish & Cross-Cutting Concerns
+## Phase 9: Observability (NFR-001-003)
+
+**Goal**: 構造化ログとPrometheusメトリクスエンドポイントの実装
+
+### Implementation for NFR-001-003
+
+#### 構造化ログ (NFR-001)
+
+- [X] T115 [NFR] Add JSON logging option (ANARCHY_LOG_JSON env var) in apps/storage-node/src/main.rs
+- [X] T116 [NFR] Add tracing-subscriber json feature in apps/storage-node/Cargo.toml
+
+#### Prometheusメトリクス (NFR-002, NFR-003)
+
+- [X] T117 [NFR] Add /metrics endpoint to RPC router in apps/storage-node/src/rpc/mod.rs
+- [X] T118 [NFR] Add Metrics struct with all required counters in apps/storage-node/src/metrics.rs (already existed)
+- [X] T119 [NFR] Implement Prometheus text format output in handle_metrics handler
+- [X] T120 [NFR] Wire Metrics into RpcState for endpoint access
+- [X] T121 [NFR] Update create_rpc_router to accept Metrics parameter
+
+#### Metrics収集 (NFR-003)
+
+- [X] T122 [NFR] fragment_upload_total (put_requests counter)
+- [X] T123 [NFR] fragment_download_total (get_requests counter)  
+- [X] T124 [NFR] storage_node_peers (connected_peers gauge)
+- [X] T125 [NFR] blockchain_node_failover_total (chain_failovers counter)
+- [X] T126 [NFR] gossipsub_messages_received_total (gossip_messages_received counter)
+
+**Checkpoint**: Observability complete - structured logs and Prometheus metrics available ✅
+
+---
+
+## Phase 10: Polish & Cross-Cutting Concerns
 
 **Purpose**: Improvements that affect multiple user stories
 

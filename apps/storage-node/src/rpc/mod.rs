@@ -10,14 +10,16 @@ use axum::{
     extract::{DefaultBodyLimit, State},
     http::StatusCode,
     middleware,
-    routing::post,
+    routing::{get, post},
     Json, Router,
+    response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn, error};
 
 use crate::storage::FragmentStore;
+use crate::metrics::Metrics;
 use auth::{AuthState, auth_middleware, method_requires_auth, require_auth};
 
 /// Maximum fragment size: 256KB
@@ -90,14 +92,16 @@ pub struct GetFragmentResult {
 pub struct RpcState {
     pub store: Arc<FragmentStore>,
     pub auth: AuthState,
+    pub metrics: Metrics,
 }
 
-/// Create the HTTP RPC router
-pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool) -> Router {
+/// Create the HTTP RPC router (NFR-002: /metrics endpoint)
+pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics: Metrics) -> Router {
     let auth_state = AuthState::new(auth_enabled);
     let state = RpcState { 
         store,
         auth: auth_state.clone(),
+        metrics,
     };
     
     let cors = CorsLayer::new()
@@ -107,6 +111,7 @@ pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool) -> Route
 
     Router::new()
         .route("/", post(handle_rpc))
+        .route("/metrics", get(handle_metrics)) // NFR-002: Prometheus metrics endpoint
         .layer(middleware::from_fn_with_state(auth_state, auth_middleware))
         .with_state(state)
         .layer(cors)
@@ -304,6 +309,81 @@ fn b64_decode(input: &str) -> Result<Vec<u8>, String> {
 /// Encode bytes to base64 string
 fn b64_encode(input: &[u8]) -> String {
     BASE64_STANDARD.encode(input)
+}
+
+/// Handle Prometheus metrics endpoint (NFR-002)
+///
+/// Returns metrics in Prometheus text format:
+/// - fragment_upload_total
+/// - fragment_download_total
+/// - storage_node_peers
+/// - blockchain_node_failover_total
+/// - gossipsub_messages_received_total
+/// - peer_reputation_score (gauge, average)
+async fn handle_metrics(
+    State(state): State<RpcState>,
+) -> impl IntoResponse {
+    let m = &state.metrics;
+    
+    // NFR-003: Collect required metrics
+    let output = format!(
+        r#"# HELP fragment_upload_total Total number of fragment uploads
+# TYPE fragment_upload_total counter
+fragment_upload_total {}
+
+# HELP fragment_download_total Total number of fragment downloads
+# TYPE fragment_download_total counter
+fragment_download_total {}
+
+# HELP storage_node_peers Number of connected storage node peers
+# TYPE storage_node_peers gauge
+storage_node_peers {}
+
+# HELP blockchain_node_failover_total Total number of blockchain node failovers
+# TYPE blockchain_node_failover_total counter
+blockchain_node_failover_total {}
+
+# HELP gossipsub_messages_received_total Total number of Gossipsub messages received
+# TYPE gossipsub_messages_received_total counter
+gossipsub_messages_received_total {}
+
+# HELP storage_fragments_total Total number of stored fragments
+# TYPE storage_fragments_total gauge
+storage_fragments_total {}
+
+# HELP storage_capacity_used_bytes Storage capacity used in bytes
+# TYPE storage_capacity_used_bytes gauge
+storage_capacity_used_bytes {}
+
+# HELP storage_capacity_total_bytes Total storage capacity in bytes
+# TYPE storage_capacity_total_bytes gauge
+storage_capacity_total_bytes {}
+
+# HELP storage_auth_failures_total Total number of authentication failures
+# TYPE storage_auth_failures_total counter
+storage_auth_failures_total {}
+
+# HELP storage_chain_latency_ms Current blockchain connection latency in milliseconds
+# TYPE storage_chain_latency_ms gauge
+storage_chain_latency_ms {}
+"#,
+        m.put_requests(),
+        m.get_requests(),
+        m.connected_peers(),
+        m.chain_failovers(),
+        m.gossip_messages_received(),
+        m.fragment_count(),
+        m.capacity_used_bytes(),
+        m.capacity_total_bytes(),
+        m.auth_failures(),
+        m.chain_latency_ms(),
+    );
+    
+    (
+        StatusCode::OK,
+        [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
+        output,
+    )
 }
 
 #[cfg(test)]

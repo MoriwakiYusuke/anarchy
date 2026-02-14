@@ -42,7 +42,7 @@ toml = "0.8"
 
 # Logging & Metrics
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Crypto & Encoding
 hex = "0.4"

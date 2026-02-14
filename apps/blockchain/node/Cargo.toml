@@ -58,6 +58,9 @@ pallet-transaction-payment-rpc = { workspace = true }
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 
+# Random selection (FR-101)
+rand = "0.8"
+
 # Local
 anarchy-runtime = { workspace = true, features = ["std"] }
 pallet-post = { workspace = true, features = ["std"] }

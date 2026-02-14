@@ -176,6 +176,8 @@ pub struct RegisteredStorageNode {
     pub is_online: bool,
     /// 最後のヘルスチェック時刻
     pub last_health_check: u64,
+    /// レイテンシ（ミリ秒）- 最寄りノード選択用 (FR-104)
+    pub latency_ms: Option<u64>,
 }
 
 impl RegisteredStorageNode {
@@ -191,6 +193,7 @@ impl RegisteredStorageNode {
             registered_at: now,
             is_online: true,
             last_health_check: now,
+            latency_ms: None,
         }
     }
 }
@@ -1378,5 +1381,121 @@ mod tests {
         let available = registry.online_node_count();
         assert_eq!(available, 5);
         assert!(available >= SSS_N);
+    }
+    
+    // FR-101: Test multiple selection strategies
+    #[test]
+    fn test_selection_strategies() {
+        use crate::rpc::{StorageNodeRegistry, SelectionStrategy};
+        
+        let mut registry = StorageNodeRegistry::new();
+        
+        // デフォルトはランダム (FR-102)
+        assert_eq!(registry.get_selection_strategy(), SelectionStrategy::Random);
+        
+        // ラウンドロビンに変更
+        registry.set_selection_strategy(SelectionStrategy::RoundRobin);
+        assert_eq!(registry.get_selection_strategy(), SelectionStrategy::RoundRobin);
+        
+        // 最寄りノードに変更
+        registry.set_selection_strategy(SelectionStrategy::Nearest);
+        assert_eq!(registry.get_selection_strategy(), SelectionStrategy::Nearest);
+    }
+    
+    // FR-101: Test random selection
+    #[test]
+    fn test_random_selection() {
+        use crate::rpc::StorageNodeRegistry;
+        
+        let mut registry = StorageNodeRegistry::new();
+        
+        // 空のレジストリからは選択できない
+        assert!(registry.next_node_random().is_none());
+        
+        // ノード登録
+        for i in 0..3 {
+            registry.register(RegisteredStorageNode::new(format!("http://node{}:3030", i)));
+        }
+        
+        // ランダム選択が成功することを確認（複数回テスト）
+        for _ in 0..10 {
+            let node = registry.next_node_random();
+            assert!(node.is_some());
+        }
+    }
+    
+    // FR-104: Test nearest node selection
+    #[test]
+    fn test_nearest_node_selection() {
+        use crate::rpc::StorageNodeRegistry;
+        
+        let mut registry = StorageNodeRegistry::new();
+        
+        // 3ノード登録（異なるレイテンシ）
+        let mut node1 = RegisteredStorageNode::new("http://node1:3030".to_string());
+        node1.latency_ms = Some(100);
+        
+        let mut node2 = RegisteredStorageNode::new("http://node2:3030".to_string());
+        node2.latency_ms = Some(50); // 最小
+        
+        let mut node3 = RegisteredStorageNode::new("http://node3:3030".to_string());
+        node3.latency_ms = Some(200);
+        
+        registry.register(node1);
+        registry.register(node2);
+        registry.register(node3);
+        
+        // 最寄りノードは最小レイテンシのノード2
+        let nearest = registry.next_node_nearest().unwrap();
+        assert_eq!(nearest.endpoint, "http://node2:3030");
+        assert_eq!(nearest.latency_ms, Some(50));
+    }
+    
+    // FR-104: Test nearest selection with no latency data
+    #[test]
+    fn test_nearest_selection_no_latency() {
+        use crate::rpc::StorageNodeRegistry;
+        
+        let mut registry = StorageNodeRegistry::new();
+        
+        // レイテンシなしのノード
+        registry.register(RegisteredStorageNode::new("http://node1:3030".to_string()));
+        registry.register(RegisteredStorageNode::new("http://node2:3030".to_string()));
+        
+        // latency_ms = None の場合 u64::MAX として扱われ、最初のNoneが選択される
+        let nearest = registry.next_node_nearest();
+        assert!(nearest.is_some());
+    }
+    
+    // FR-102: Test default strategy is random
+    #[test]
+    fn test_default_strategy_is_random() {
+        use crate::rpc::{StorageNodeRegistry, SelectionStrategy};
+        
+        let registry = StorageNodeRegistry::new();
+        assert_eq!(registry.selection_strategy, SelectionStrategy::Random);
+    }
+    
+    // Test select_node uses current strategy
+    #[test]
+    fn test_select_node_uses_strategy() {
+        use crate::rpc::{StorageNodeRegistry, SelectionStrategy};
+        
+        let mut registry = StorageNodeRegistry::new();
+        
+        // ノード登録
+        for i in 0..3 {
+            registry.register(RegisteredStorageNode::new(format!("http://node{}:3030", i)));
+        }
+        
+        // ラウンドロビンに設定
+        registry.set_selection_strategy(SelectionStrategy::RoundRobin);
+        
+        // select_node がラウンドロビンを使用
+        let node1 = registry.select_node().unwrap();
+        let node2 = registry.select_node().unwrap();
+        
+        // ラウンドロビンなので異なるノードが選択される
+        assert_ne!(node1.endpoint, node2.endpoint);
     }
 }

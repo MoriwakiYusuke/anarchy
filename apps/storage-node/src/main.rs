@@ -3,7 +3,7 @@
 //! A distributed storage node for the Anarchy network.
 //! Stores fragments and communicates via libp2p.
 
-use anarchy_storage_node::{config, identity, storage, network, chain, rpc};
+use anarchy_storage_node::{config, identity, storage, network, chain, rpc, metrics::Metrics};
 
 use clap::Parser;
 use std::sync::Arc;
@@ -38,14 +38,27 @@ pub struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("anarchy_storage_node=info".parse().unwrap())
-                .add_directive("libp2p=warn".parse().unwrap()),
-        )
-        .init();
+    // Initialize logging (NFR-001: structured JSON logs when ANARCHY_LOG_JSON=1)
+    let use_json = std::env::var("ANARCHY_LOG_JSON")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+        
+    let env_filter = tracing_subscriber::EnvFilter::from_default_env()
+        .add_directive("anarchy_storage_node=info".parse().unwrap())
+        .add_directive("libp2p=warn".parse().unwrap());
+    
+    if use_json {
+        // NFR-001: JSON structured logging
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(env_filter)
+            .init();
+    } else {
+        // Human-readable format for development
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .init();
+    }
 
     // Parse CLI arguments
     let args = Args::parse();
@@ -72,6 +85,11 @@ async fn main() -> anyhow::Result<()> {
         "Fragment storage initialized"
     );
 
+    // Initialize metrics (NFR-001, NFR-002, NFR-003)
+    let metrics = Metrics::new();
+    metrics.set_capacity_total(config.capacity);
+    info!("Metrics initialized");
+
     // Initialize chain client (for declare_holding)
     let chain_client = Arc::new(chain::ChainClient::new(&config.chain_url, config.declare_rate_limit).await?);
     info!(endpoint = %config.chain_url, "Chain client initialized");
@@ -83,9 +101,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Start HTTP RPC server
     let rpc_addr = format!("0.0.0.0:{}", config.rpc_port);
-    let rpc_router = rpc::create_rpc_router(Arc::clone(&store), config.auth_enabled);
+    let rpc_router = rpc::create_rpc_router(Arc::clone(&store), config.auth_enabled, metrics.clone());
     let rpc_listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
-    info!(addr = %rpc_addr, auth = config.auth_enabled, "HTTP RPC server started");
+    info!(addr = %rpc_addr, auth = config.auth_enabled, "HTTP RPC server started (NFR-002: /metrics endpoint enabled)");
     
     // Spawn HTTP server
     let http_server = tokio::spawn(async move {
