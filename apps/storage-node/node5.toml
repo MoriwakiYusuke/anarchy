@@ -1,9 +1,0 @@
-# Auto-generated config for Storage Node 5
-data_dir = "/home/moriwaki-y/self/anarchy/apps/storage-node/data/node5"
-capacity = 10737418240
-chain_url = "ws://127.0.0.1:9944"
-listen_addr = "/ip4/0.0.0.0/tcp/4005"
-declare_rate_limit = 10
-rpc_port = 3034
-auto_register = true
-chain_http_endpoint = "http://127.0.0.1:9944"
