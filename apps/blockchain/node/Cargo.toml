@@ -20,6 +20,7 @@ async-trait = "0.1"
 base64 = "0.22"
 hex = "0.4"
 serde = { workspace = true }
+parity-scale-codec = { workspace = true }
 
 # Substrate Client
 sc-cli = { workspace = true }
@@ -64,6 +65,7 @@ rand = "0.8"
 # Local
 anarchy-runtime = { workspace = true, features = ["std"] }
 pallet-post = { workspace = true, features = ["std"] }
+pallet-storage = { workspace = true, features = ["std"] }
 
 [build-dependencies]
 substrate-build-script-utils = "11.0.0"

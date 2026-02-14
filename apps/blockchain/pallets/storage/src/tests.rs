@@ -76,6 +76,7 @@ impl pallet_storage::Config for Test {
     type MinNodeCapacity = ConstU64<1>;              // Relaxed for basic tests
     type PowObservationPeriod = ConstU32<10>;
     type BasePowDifficulty = ConstU8<0>;             // No PoW for basic tests
+    type MaxHttpUrlLen = ConstU32<256>;
 }
 
 /// Build test externalities
@@ -103,6 +104,12 @@ fn test_peer_id(n: u8) -> BoundedVec<u8, ConstU32<64>> {
     let mut id = vec![0u8; 38]; // Minimum valid PeerID length
     id[0] = n;
     BoundedVec::try_from(id).unwrap()
+}
+
+/// Helper: Create a test HTTP URL
+fn test_http_url(port: u16) -> BoundedVec<u8, ConstU32<256>> {
+    let url = format!("http://127.0.0.1:{}", port);
+    BoundedVec::try_from(url.into_bytes()).unwrap()
 }
 
 // ============ User Story 1: 断片メタデータの登録 ============
@@ -209,6 +216,7 @@ fn t003_register_node_succeeds() {
             peer_id.clone(),
             capacity,
             0, // pow_nonce (difficulty=0)
+            test_http_url(3030),
         ));
 
         // Verify storage
@@ -248,11 +256,12 @@ fn t004_duplicate_peer_id_fails() {
             peer_id.clone(),
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Second registration with same PeerID fails
         assert_noop!(
-            Storage::register_node(RuntimeOrigin::signed(operator2), peer_id, capacity, 0),
+            Storage::register_node(RuntimeOrigin::signed(operator2), peer_id, capacity, 0, test_http_url(3031)),
             Error::<Test>::NodeAlreadyRegistered
         );
     });
@@ -273,11 +282,12 @@ fn operator_already_has_node_fails() {
             peer_id1,
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Second registration with different PeerID fails
         assert_noop!(
-            Storage::register_node(RuntimeOrigin::signed(operator), peer_id2, capacity, 0),
+            Storage::register_node(RuntimeOrigin::signed(operator), peer_id2, capacity, 0, test_http_url(3031)),
             Error::<Test>::OperatorAlreadyHasNode
         );
     });
@@ -298,6 +308,7 @@ fn t005_update_node_succeeds() {
             peer_id.clone(),
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Update capacity
@@ -335,6 +346,7 @@ fn t006_unregister_node_succeeds() {
             peer_id.clone(),
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Unregister
@@ -370,6 +382,7 @@ fn unregister_with_holdings_fails() {
             peer_id.clone(),
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_fragment(
             RuntimeOrigin::signed(operator),
@@ -406,6 +419,7 @@ fn t007_declare_holding_succeeds() {
             peer_id.clone(),
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_fragment(
             RuntimeOrigin::signed(operator),
@@ -455,6 +469,7 @@ fn t008_revoke_holding_succeeds() {
             peer_id.clone(),
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_fragment(
             RuntimeOrigin::signed(operator),
@@ -507,12 +522,14 @@ fn t009_get_fragment_holders() {
             peer_id1.clone(),
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator2),
             peer_id2.clone(),
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Register fragment
@@ -555,6 +572,7 @@ fn declare_holding_idempotent() {
             peer_id.clone(),
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_fragment(
             RuntimeOrigin::signed(operator),
@@ -617,6 +635,7 @@ fn declare_holding_nonexistent_fragment_fails() {
             peer_id,
             capacity,
             0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Declare holding for non-existent fragment should fail
@@ -645,6 +664,7 @@ fn t037_registration_rate_limit() {
                 peer_id,
                 10_000_000_000u64, // 10GB
                 0, // pow_nonce
+            test_http_url(3030),
             ));
         }
 
@@ -656,6 +676,7 @@ fn t037_registration_rate_limit() {
                 peer_id6,
                 10_000_000_000u64,
                 0,
+                test_http_url(3036),
             ),
             Error::<Test>::TooManyRegistrationsThisBlock
         );
@@ -676,6 +697,7 @@ fn t038_declaration_rate_limit() {
             peer_id.clone(),
             capacity,
             0,
+            test_http_url(3030),
         ));
 
         // Register and declare 10 fragments (should all succeed)

@@ -4,6 +4,7 @@
 
 use anarchy_runtime::{self, opaque::Block, RuntimeApi};
 use futures::FutureExt;
+use log::info;
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
 use sc_consensus_grandpa::SharedVoterState;
@@ -168,10 +169,19 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         sc_consensus_grandpa::grandpa_peers_set_config::<Block, sc_network::NetworkWorker<Block, <Block as BlockT>::Hash>>(
             grandpa_protocol_name.clone(),
             metrics.clone(),
-            peer_store_handle,
+            peer_store_handle.clone(),
         );
 
     net_config.add_notification_protocol(grandpa_protocol_config);
+
+    // ストレージノードGossipプロトコル設定
+    let (storage_gossip_config, storage_notification_service) =
+        crate::gossip::storage_nodes_peers_set_config::<Block, sc_network::NetworkWorker<Block, <Block as BlockT>::Hash>>(
+            metrics.clone(),
+            peer_store_handle,
+        );
+
+    net_config.add_notification_protocol(storage_gossip_config);
 
     let warp_sync = Arc::new(
         sc_consensus_grandpa::warp_proof::NetworkProvider::new(
@@ -230,11 +240,24 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         // マルチノード対応：複数ノードを登録し、断片を分散配置
         let storage_nodes = crate::rpc::create_shared_storage_nodes();
 
+        // ストレージノードGossipサービスをスポーン
+        let (gossip_service, gossip_handle) = crate::gossip::StorageNodeGossip::new_with_handle(
+            storage_nodes.clone(),
+            storage_notification_service,
+        );
+        task_manager.spawn_handle().spawn(
+            "storage-nodes-gossip",
+            "storage-gossip",
+            gossip_service.run(),
+        );
+        info!("Storage node gossip service spawned");
+
         Box::new(move |_| {
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),
                 pool: pool.clone(),
                 storage_nodes: storage_nodes.clone(),
+                gossip_handle: gossip_handle.clone(),
             };
             crate::rpc::create_full(deps).map_err(Into::into)
         })

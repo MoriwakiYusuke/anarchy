@@ -239,6 +239,8 @@ impl pallet_storage::Config for Runtime {
     type PowObservationPeriod = ConstU32<10>;
     /// 基本PoW難易度: 12ビット
     type BasePowDifficulty = ConstU8<12>;
+    /// HTTP URL最大長: 256バイト
+    type MaxHttpUrlLen = ConstU32<256>;
 }
 
 // Runtime構築
@@ -467,6 +469,26 @@ impl_runtime_apis! {
                 n: content.n,
                 size: content.size,
             })
+        }
+    }
+
+    impl pallet_storage::StorageApi<Block> for Runtime {
+        fn get_all_storage_nodes() -> Vec<pallet_storage::StorageNodeInfoRpc> {
+            use sp_runtime::SaturatedConversion;
+            pallet_storage::StorageNodes::<Runtime>::iter()
+                .map(|(peer_id, info)| {
+                    // Convert AccountId to [u8; 32]
+                    let operator_bytes: [u8; 32] = info.operator.into();
+                    pallet_storage::StorageNodeInfoRpc {
+                        operator: operator_bytes,
+                        capacity: info.capacity,
+                        registered_at: info.registered_at.saturated_into::<u32>(),
+                        pow_nonce: info.pow_nonce,
+                        http_url: info.http_url.into_inner(),
+                        peer_id: peer_id.into_inner(),
+                    }
+                })
+                .collect()
         }
     }
 }

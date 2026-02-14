@@ -24,6 +24,7 @@ use jsonrpsee::{
     types::error::{ErrorCode, ErrorObject},
 };
 use pallet_post::PostApi as PostRuntimeApi;
+use pallet_storage::StorageApi as StorageRuntimeApi;
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
@@ -392,40 +393,103 @@ pub struct Storage<C> {
     client: Arc<C>,
     /// Storage Nodeレジストリ (マルチノード対応)
     storage_nodes: SharedStorageNodes,
+    /// Gossipハンドル (ノード登録のブロードキャスト用)
+    gossip_handle: crate::gossip::StorageNodeGossipHandle,
 }
 
-impl<C> Storage<C> {
+impl<C> Storage<C>
+where
+    C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+    C::Api: StorageRuntimeApi<Block>,
+{
     /// 新しいStorage RPCハンドラを作成
     /// Storage Nodeは起動時にstorage_registerEndpoint RPCで自動登録される
     /// 複数ノードが登録可能で、断片は分散配置される
-    pub fn new(client: Arc<C>, storage_nodes: SharedStorageNodes) -> Self {
+    pub fn new(client: Arc<C>, storage_nodes: SharedStorageNodes, gossip_handle: crate::gossip::StorageNodeGossipHandle) -> Self {
         Self { 
             client, 
             storage_nodes,
+            gossip_handle,
+        }
+    }
+    
+    /// オンチェーン登録されたストレージノードのHTTP URLリストを取得
+    fn get_on_chain_storage_nodes(&self) -> Vec<String> {
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        match api.get_all_storage_nodes(best_hash) {
+            Ok(nodes) => nodes
+                .into_iter()
+                .filter_map(|n| String::from_utf8(n.http_url).ok())
+                .collect(),
+            Err(e) => {
+                log::warn!("Failed to fetch on-chain storage nodes: {:?}", e);
+                Vec::new()
+            }
         }
     }
     
     /// 指定インデックスの断片用にStorage Nodeクライアントを取得
     /// 断片インデックスに基づいて異なるノードを選択（分散配置）
+    /// インメモリレジストリを優先し、不足時はオンチェーンノードをフォールバック
     async fn get_storage_client_for_fragment(&self, fragment_index: usize) -> Option<StorageNodeClient> {
-        let registry = self.storage_nodes.read().await;
-        registry.select_node_for_fragment(fragment_index)
-            .map(|node| StorageNodeClient::new(node.endpoint.clone()))
+        // まずインメモリレジストリから取得を試みる
+        {
+            let registry = self.storage_nodes.read().await;
+            if let Some(node) = registry.select_node_for_fragment(fragment_index) {
+                return Some(StorageNodeClient::new(node.endpoint.clone()));
+            }
+        }
+        
+        // インメモリに十分なノードがない場合、オンチェーンからフォールバック
+        let on_chain_urls = self.get_on_chain_storage_nodes();
+        if on_chain_urls.is_empty() {
+            return None;
+        }
+        
+        // オンチェーンノードからインデックスベースで選択
+        let node_index = fragment_index % on_chain_urls.len();
+        Some(StorageNodeClient::new(on_chain_urls[node_index].clone()))
     }
     
     /// 最初の利用可能なStorage Nodeクライアントを取得（後方互換）
     async fn get_storage_client(&self) -> Option<StorageNodeClient> {
-        let registry = self.storage_nodes.read().await;
-        registry.online_nodes().first()
-            .map(|node| StorageNodeClient::new(node.endpoint.clone()))
+        // まずインメモリレジストリから
+        {
+            let registry = self.storage_nodes.read().await;
+            if let Some(node) = registry.online_nodes().first() {
+                return Some(StorageNodeClient::new(node.endpoint.clone()));
+            }
+        }
+        
+        // オンチェーンからフォールバック
+        let on_chain_urls = self.get_on_chain_storage_nodes();
+        on_chain_urls.first().map(|url| StorageNodeClient::new(url.clone()))
     }
     
     /// 全てのオンラインノードへのクライアントを取得（取得時のフォールバック用）
+    /// インメモリノードとオンチェーンノードの両方を含む
     async fn get_all_storage_clients(&self) -> Vec<StorageNodeClient> {
-        let registry = self.storage_nodes.read().await;
-        registry.online_nodes()
-            .iter()
-            .map(|node| StorageNodeClient::new(node.endpoint.clone()))
+        let mut endpoints: Vec<String> = Vec::new();
+        
+        // インメモリレジストリから
+        {
+            let registry = self.storage_nodes.read().await;
+            for node in registry.online_nodes() {
+                endpoints.push(node.endpoint.clone());
+            }
+        }
+        
+        // オンチェーンからも追加（重複除去）
+        for url in self.get_on_chain_storage_nodes() {
+            if !endpoints.contains(&url) {
+                endpoints.push(url);
+            }
+        }
+        
+        endpoints.into_iter()
+            .map(StorageNodeClient::new)
             .collect()
     }
 }
@@ -475,7 +539,7 @@ fn blake2b_hash(data: &[u8]) -> [u8; 32] {
 impl<C> StorageApiServer for Storage<C>
 where
     C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
-    C::Api: PostRuntimeApi<Block>,
+    C::Api: PostRuntimeApi<Block> + StorageRuntimeApi<Block>,
 {
     async fn register_endpoint(&self, url: String) -> RpcResult<bool> {
         // URLの基本的な検証
@@ -490,9 +554,15 @@ where
         // マルチノード対応：ノードをレジストリに追加
         let mut registry = self.storage_nodes.write().await;
         let node = RegisteredStorageNode::new(url.clone());
+        let registered_at = node.registered_at;
+        let latency_ms = node.latency_ms;
         
         if registry.register(node) {
             log::info!("Storage Node registered: {} (total: {} nodes)", url, registry.nodes.len());
+            
+            // Gossipで他チェーンノードにブロードキャスト
+            self.gossip_handle.broadcast_registration(url.clone(), registered_at, latency_ms);
+            
             Ok(true)
         } else {
             log::info!("Storage Node already registered: {}", url);
@@ -774,9 +844,10 @@ where
     async fn get_nodes(&self) -> RpcResult<GetNodesResponse> {
         log::debug!("get_nodes called");
 
+        // インメモリレジストリからノードを取得
         let registry = self.storage_nodes.read().await;
         
-        let nodes: Vec<NodeInfo> = registry.nodes
+        let mut nodes: Vec<NodeInfo> = registry.nodes
             .iter()
             .map(|node| NodeInfo {
                 endpoint: node.endpoint.clone(),
@@ -785,10 +856,40 @@ where
             })
             .collect();
         
+        let in_memory_count = nodes.len();
+        
+        // オンチェーンからもストレージノードを取得（Runtime API経由）
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        if let Ok(on_chain_nodes) = api.get_all_storage_nodes(best_hash) {
+            for node_info in on_chain_nodes {
+                // http_url をエンドポイントURLとして使用
+                if let Ok(endpoint) = String::from_utf8(node_info.http_url) {
+                    // 重複チェック（インメモリに既にある場合はスキップ）
+                    if !nodes.iter().any(|n| n.endpoint == endpoint) {
+                        nodes.push(NodeInfo {
+                            endpoint,
+                            is_online: true, // オンチェーン登録されているノードはオンラインと仮定
+                            registered_at: node_info.registered_at as u64,
+                        });
+                    }
+                }
+            }
+        }
+        
+        // オンラインノード数は、インメモリレジストリからのみカウント
+        // （オンチェーンノードは実際にヘルスチェックしていないため）
         let online_count = registry.online_nodes().len();
-        let total_count = registry.nodes.len();
+        let total_count = nodes.len();
 
-        log::info!("get_nodes: {} total, {} online", total_count, online_count);
+        log::info!(
+            "get_nodes: {} total ({} in-memory, {} on-chain unique), {} online", 
+            total_count, 
+            in_memory_count,
+            total_count - in_memory_count,
+            online_count
+        );
 
         Ok(GetNodesResponse {
             nodes,

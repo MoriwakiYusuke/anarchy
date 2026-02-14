@@ -16,6 +16,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
+
 pub use pallet::*;
 
 #[cfg(test)]
@@ -32,6 +34,37 @@ pub mod rate_limit;
 
 /// Fragment ID type (Blake2-256 hash)
 pub type FragmentId = [u8; 32];
+
+use alloc::vec::Vec;
+use parity_scale_codec::{Decode, Encode};
+use scale_info::TypeInfo;
+
+/// Storage node info for Runtime API (simplified, without generic types)
+#[derive(Clone, Encode, Decode, TypeInfo, Debug, PartialEq, Eq)]
+pub struct StorageNodeInfoRpc {
+    /// Node operator account (32 bytes)
+    pub operator: [u8; 32],
+    /// Available capacity in bytes
+    pub capacity: u64,
+    /// Block number when registered
+    pub registered_at: u32,
+    /// PoW nonce used for registration
+    pub pow_nonce: u64,
+    /// HTTP endpoint URL for fragment storage
+    pub http_url: Vec<u8>,
+    /// Peer ID (libp2p)
+    pub peer_id: Vec<u8>,
+}
+
+sp_api::decl_runtime_apis! {
+    /// Storage Pallet Runtime API
+    ///
+    /// Provides access to on-chain storage node information for chain node RPC
+    pub trait StorageApi {
+        /// Get all registered storage nodes with their HTTP URLs
+        fn get_all_storage_nodes() -> Vec<StorageNodeInfoRpc>;
+    }
+}
 
 use frame_support::dispatch::DispatchResult;
 use frame_system::pallet_prelude::BlockNumberFor;
@@ -89,6 +122,8 @@ pub mod pallet {
         pub registered_at: BlockNumberFor<T>,
         /// PoW nonce used for registration (FR-409)
         pub pow_nonce: u64,
+        /// HTTP endpoint URL for fragment storage (e.g., "http://127.0.0.1:3030")
+        pub http_url: BoundedVec<u8, T::MaxHttpUrlLen>,
     }
 
     #[pallet::pallet]
@@ -153,6 +188,10 @@ pub mod pallet {
         /// Base PoW difficulty (leading zero bits, default: 12)
         #[pallet::constant]
         type BasePowDifficulty: Get<u8>;
+
+        /// Maximum HTTP URL length in bytes (default: 256)
+        #[pallet::constant]
+        type MaxHttpUrlLen: Get<u32>;
     }
 
     // ============ Storage ============
@@ -316,6 +355,8 @@ pub mod pallet {
         PeerIdTooShort,
         /// PeerID too long (> MaxPeerIdLen bytes)
         PeerIdTooLong,
+        /// HTTP URL is empty or invalid
+        InvalidHttpUrl,
     }
 
     // ============ Extrinsics ============
@@ -368,6 +409,7 @@ pub mod pallet {
             peer_id: BoundedVec<u8, T::MaxPeerIdLen>,
             capacity: u64,
             pow_nonce: u64,
+            http_url: BoundedVec<u8, T::MaxHttpUrlLen>,
         ) -> DispatchResult {
             let operator = ensure_signed(origin)?;
             let current_block = frame_system::Pallet::<T>::block_number();
@@ -402,12 +444,16 @@ pub mod pallet {
                 Error::<T>::OperatorAlreadyHasNode
             );
 
+            // Validate HTTP URL (must not be empty)
+            ensure!(!http_url.is_empty(), Error::<T>::InvalidHttpUrl);
+
             // Create node info
             let node_info = StorageNodeInfo {
                 operator: operator.clone(),
                 capacity,
                 registered_at: current_block,
                 pow_nonce,
+                http_url: http_url.clone(),
             };
 
             // Store

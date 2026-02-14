@@ -63,6 +63,7 @@ impl pallet_storage::Config for Test {
     type MinNodeCapacity = ConstU64<1>;              // Relaxed for basic tests
     type PowObservationPeriod = ConstU32<10>;
     type BasePowDifficulty = ConstU8<0>;             // No PoW for basic tests
+    type MaxHttpUrlLen = ConstU32<256>;
 }
 
 /// Build test externalities

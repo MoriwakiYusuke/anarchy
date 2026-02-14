@@ -53,6 +53,30 @@ chain_http_endpoint = "http://127.0.0.1:9944"
 bootstrap_peers = []
 
 # ============================================================
+# On-Chain Registration (Global Discovery)
+# ============================================================
+# 
+# To enable global discovery across all chain nodes, operators should
+# register their storage node on-chain using the `register_node` extrinsic.
+# This stores the HTTP URL in blockchain state, allowing any chain node
+# to discover and route fragments to this storage node.
+#
+# Registration requires:
+# 1. operator_account: Account with sufficient balance for tx fees
+# 2. peer_id: libp2p PeerID (from data_dir/identity/peer_id.txt)
+# 3. capacity: Storage capacity in bytes
+# 4. pow_nonce: Proof-of-work nonce (difficulty-based)
+# 5. http_url: This node's HTTP endpoint (e.g., "http://your-ip:3030")
+#
+# Example using polkadot-js:
+# ```javascript
+# api.tx.storage.registerNode(peerId, capacity, powNonce, httpUrl)
+# ```
+#
+# Without on-chain registration, the storage node is only visible to
+# the chain node it registers with via storage_registerEndpoint RPC.
+
+# ============================================================
 # Authentication (010-multi-node-storage)
 # ============================================================
 
