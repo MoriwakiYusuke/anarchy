@@ -34,15 +34,6 @@ rpc_port = 3030
 # Used for logging and debugging in distributed environments
 # node_id = "storage-node-1"
 
-# Auto-register with blockchain node on startup
-# When true, node registers itself via storage_registerEndpoint RPC
-# Default: true
-auto_register = true
-
-# Blockchain node HTTP endpoint for registration
-# Default: "http://127.0.0.1:9944"
-chain_http_endpoint = "http://127.0.0.1:9944"
-
 # P2P bootstrap nodes for fragment replication (multiaddr format)
 # Empty list for standalone node, add peers for distributed setup
 # Example:

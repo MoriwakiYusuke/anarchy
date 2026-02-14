@@ -62,8 +62,6 @@ chain_url = "ws://127.0.0.1:9944"
 listen_addr = "/ip4/0.0.0.0/tcp/$libp2p_port"
 declare_rate_limit = 10
 rpc_port = $rpc_port
-auto_register = true
-chain_http_endpoint = "http://127.0.0.1:9944"
 EOF
         
         # ノード起動
