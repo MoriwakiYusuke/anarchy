@@ -361,8 +361,8 @@ Based on plan.md:
 - [X] T118 [P] Add integration test: 3-node fragment distribution in apps/blockchain/tests/integration/test_multi_node.sh
 - [X] T119 [P] Add integration test: P2P endpoint propagation in apps/blockchain/tests/integration/test_p2p_gossip.sh
 - [X] T120 [P] Add integration test: failover under node failure in apps/blockchain/tests/integration/test_failover.sh
-- [ ] T121 Run quickstart.md validation scenarios
-- [ ] T122 Performance profiling: fragment upload <500ms target
+- [X] T121 Run quickstart.md validation scenarios
+- [X] T122 Performance profiling: fragment upload <500ms target
 - [ ] T123 Code review and cleanup across all modified files
 
 ---

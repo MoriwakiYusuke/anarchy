@@ -192,10 +192,57 @@
   - [x] + 30秒heartbeat: ブロックチェーン再起動時の自動再登録
   - [x] + 共有URL状態: `Arc<RwLock<Option<String>>>` で全RPC接続で共有
 
-- [ ] **未実装（将来対応）**
-  - [ ] マルチノード対応: 複数ストレージノードへの断片分散
-  - [ ] ノード選択ロジック: ラウンドロビン/最寄りノード選択
-  - [ ] セキュリティ: ストレージノードアクセス認証
+#### Phase 2: Multi-Node Storage → **完了** (2026-02-14)
+
+> **実装内容**: 010-multi-node-storage仕様に基づくマルチノード対応、セキュリティ強化、P2P通信
+
+- [x] + **マルチノード対応** (断片の複数ノード分散配置)
+  - [x] + SharedStorageNodes: 複数ストレージノード管理
+  - [x] + fragment-indexベース分散: 各断片を異なるノードに配置
+  - [x] + フェイルオーバー取得: 取得失敗時に他ノードへフォールバック
+
+- [x] + **ノード選択戦略** (SelectionStrategy enum)
+  - [x] + ランダム選択 (デフォルト): 負荷分散
+  - [x] + ラウンドロビン選択: 均等分散
+  - [x] + 最寄りノード選択: レイテンシベース最適化
+  - [x] + オフラインノードフィルタリング
+
+- [x] + **ストレージノードP2P通信** (libp2p Gossipsub)
+  - [x] + トピック: `/anarchy/endpoints/1.0.0`
+  - [x] + Ed25519署名付きメッセージ
+  - [x] + ブロックチェーンエンドポイント共有
+  - [x] + レピュテーションシステム (スコア: +1有効/-20無効)
+  - [x] + TTLベースエンドポイントキャッシュ + GC
+
+- [x] + **アクティブ-スタンバイフェイルオーバー**
+  - [x] + 2秒間隔liveness check
+  - [x] + 3回連続失敗でフェイルオーバー発動
+  - [x] + Hot Standby事前接続
+
+- [x] + **ストレージノードアクセス認証** (署名検証)
+  - [x] + SignedRequest: account_id, timestamp, nonce, signature
+  - [x] + Sr25519署名検証
+  - [x] + 5分タイムスタンプ有効期限
+  - [x] + ナンスキャッシュ (リプレイ攻撃防止)
+  - [x] + upload_fragmentに認証必須、get_fragmentは公開維持
+
+- [x] + **Storage Palletセキュリティ強化**
+  - [x] + Blake2b PoW検証 (動的難易度: 12 + recent_registrations/5)
+  - [x] + レート制限: 5登録/ブロック、10宣言/ブロック/ノード
+  - [x] + PeerID検証 (38-64 bytes)
+  - [x] + 最小容量検証 (1GB)
+  - [x] + Post-Storage Pallet密結合 (do_register_fragment)
+
+- [x] + **チェーン間Storage Node情報共有** (Gossipプロトコル)
+  - [x] + トピック: `/anarchy/storage-nodes/1`
+  - [x] + オンチェーンhttp_url保存 + Runtime API
+  - [x] + リアルタイム共有 (新ノード登録時に即座に伝播)
+
+- [x] + **Observability** (NFR完了)
+  - [x] + JSON構造化ログ (ANARCHY_LOG_JSON環境変数)
+  - [x] + Prometheusメトリクス (/metrics エンドポイント)
+  - [x] + fragment_upload_total, fragment_download_total
+  - [x] + storage_node_peers, blockchain_node_failover_total
 
 #### Phase 2: Proof & Rewards (未実装)
 
@@ -394,8 +441,9 @@
 | **1** | 008-distributed-storage **Phase 1** | Storage Registry & P2P | [spec.md](../specs/008-distributed-storage/spec.md) | ✅完了 |
 | **2** | SSS (Phase 2.1) | クライアント側暗号化・断片化 | - | ✅完了 |
 | **3** | + **Post Storage Migration** | 投稿コンテンツの分散ストレージ移行 | - | ✅完了 |
-| **4** | 008-distributed-storage **Phase 2** | Simple Proof & Rewards | - | 未着手 |
-| **5** | 008-distributed-storage **Phase 3** | Slashing & Repair | - | 未着手 |
+| **4** | + **010-multi-node-storage** | マルチノード対応 & セキュリティ強化 | [spec.md](../specs/010-multi-node-storage/spec.md) | ✅完了 (2026-02-14) |
+| **5** | 008-distributed-storage **Phase 2** | Simple Proof & Rewards | - | 未着手 |
+| **6** | 008-distributed-storage **Phase 3** | Slashing & Repair | - | 未着手 |
 
 ### Phase 1 スコープ（まず繋がるだけ） → ✅完了 (2026-02-10)
 
@@ -408,6 +456,17 @@
 - ❌ ~~スラッシング~~ → Phase 3
 - ❌ ~~自己修復~~ → Phase 3
 
+### + Phase 2 スコープ（010-multi-node-storage） → ✅完了 (2026-02-14)
+
+- ✅ + マルチノード対応: SharedStorageNodes、fragment-index分散
+- ✅ + ノード選択戦略: Random/RoundRobin/Nearest
+- ✅ + Storage Node P2P: Gossipsub (`/anarchy/endpoints/1.0.0`)
+- ✅ + アクセス認証: Sr25519署名検証、nonce replay防止
+- ✅ + Storage Palletセキュリティ: PoW + レート制限
+- ✅ + Post-Storage密結合: do_register_fragment
+- ✅ + チェーン間Gossip: `/anarchy/storage-nodes/1`
+- ✅ + Observability: 構造化ログ、Prometheusメトリクス
+
 ---
 
 ## 技術的依存関係
@@ -417,9 +476,11 @@ Phase 1.2 (Substrate) ✅ ──┬── Phase 1.3 (libp2p+Tor) ✅
                            │
                            └── Phase 1.5 (Frontend) ✅
 
-Phase 2.1 (SSS/Wasm) ✅ ──── Phase 2.2 (Storage) ✅ ─── + Phase 1.5 (Post Storage) ✅
-                          │
-                          └── Phase 2.3 (PoW Faucet) ✅
+Phase 2.1 (SSS/Wasm) ✅ ──── Phase 2.2 (Storage) ✅ ─┬─ + Phase 1.5 (Post Storage) ✅
+                          │                          │
+                          └── Phase 2.3 (PoW Faucet) ✅ 
+                                                     │
+                                                     └─ + 010-multi-node-storage ✅ (2026-02-14)
 
 Phase 3.1 (Stealth) ─── Phase 3.2 (Reaction) ─── Phase 3.3 (DM)
 
@@ -444,8 +505,9 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | **Storage Pallet** | 高 | 中 | **8** | ✅完了 |
 | **ストレージノード** | 高 | 高 | **9** | ✅完了 |
 | + **Post Storage統合** | 高 | 中 | **10** | ✅完了 |
-| ステルスアドレス | 中 | 中 | 11 | 未着手 |
-| 反応マイニング | 低 | 中 | 12 | 未着手 |
+| + **マルチノード対応** | 高 | 高 | **11** | ✅完了 (2026-02-14) |
+| ステルスアドレス | 中 | 中 | 12 | 未着手 |
+| 反応マイニング | 低 | 中 | 13 | 未着手 |
 | ~~ZKP回路~~ | ~~低~~ | ~~高~~ | ~~13~~ | →構想移動 |
 
 ---
@@ -498,4 +560,43 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 - [x] Post Pallet V2対応 (ContentV2: merkle_root + fragment_count)
 - [x] フロントエンド統合 (useStorage hook, PAPI Binary対応)
 - [x] 自動登録 + 30秒heartbeat
-- [ ] マルチノード対応（複数ストレージノードへの断片分散）
+
+### + M7: マルチノード対応 ✅完了 (2026-02-14)
+
+> **実装内容**: 010-multi-node-storage仕様に基づくマルチノード分散、セキュリティ強化、P2P通信
+
+- [x] + **断片マルチノード分散配置**
+  - [x] + SharedStorageNodes: 複数ノード管理
+  - [x] + fragment-index分散: 各断片を異なるノードに配置
+  - [x] + フォールバック取得: 失敗時に他ノードへフォールバック
+
+- [x] + **ノード選択戦略** (SelectionStrategy)
+  - [x] + Random (デフォルト): 負荷分散
+  - [x] + RoundRobin: 均等分散
+  - [x] + Nearest: レイテンシベース最適化
+
+- [x] + **ストレージノード間P2P通信** (libp2p Gossipsub)
+  - [x] + トピック: `/anarchy/endpoints/1.0.0`
+  - [x] + Ed25519署名付きメッセージ
+  - [x] + レピュテーションシステム
+  - [x] + Active-Standbyフェイルオーバー
+
+- [x] + **アクセス認証**
+  - [x] + Sr25519署名検証
+  - [x] + タイムスタンプ有効期限 (5分)
+  - [x] + ナンスによるリプレイ攻撃防止
+
+- [x] + **Storage Palletセキュリティ強化**
+  - [x] + Blake2b PoW検証 (動的難易度)
+  - [x] + レート制限: 5登録/ブロック、10宣言/ブロック/ノード
+  - [x] + Post-Storage密結合 (do_register_fragment)
+
+- [x] + **チェーン間Storage Node情報共有**
+  - [x] + Gossipプロトコル: `/anarchy/storage-nodes/1`
+  - [x] + オンチェーンhttp_url保存
+  - [x] + Runtime API: `get_all_storage_nodes()`
+
+- [x] + **Observability**
+  - [x] + JSON構造化ログ
+  - [x] + Prometheusメトリクス (/metrics)
+

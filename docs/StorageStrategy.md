@@ -1,6 +1,6 @@
 # ストレージ戦略: 地図と宝の分離
 
-> **ステータス**: Phase 1.5 Post Storage Migration 完了 (2026-02-10)  
+> **ステータス**: Phase 2 Multi-Node Storage 完了 (2026-02-14)  
 > **関連ドキュメント**: [architecture.md](architecture.md), [memo.md](memo.md), [TODO.md](TODO.md)
 >
 > **実装済み**:
@@ -10,9 +10,19 @@
 >   - SSS/Merkle Tree (フロントエンドWasm + Web Worker)
 >   - Storage Node HTTP JSON-RPC API + 自動登録 + heartbeat
 >   - フロントエンド統合 (`useStorage` hook)
+> - + Phase 2 Multi-Node Storage - 2026-02-14
+>   - マルチノード断片分散配置 (SharedStorageNodes)
+>   - ノード選択戦略 (Random/RoundRobin/Nearest)
+>   - Storage Node間P2P通信 (Gossipsub)
+>   - アクセス認証 (Sr25519署名検証)
+>   - Storage Palletセキュリティ (PoW + レート制限)
+>   - チェーン間Storage Node情報共有 (Gossip)
+>   - Observability (構造化ログ + Prometheusメトリクス)
 > - Faucetパレットのオンチェーンストレージ (`FaucetClaims`, `TotalClaims`) - 2026-02-09
 >
-> **詳細仕様**: [specs/008-distributed-storage/](../specs/008-distributed-storage/)
+> **詳細仕様**: 
+> - [specs/008-distributed-storage/](../specs/008-distributed-storage/)
+> - [specs/010-multi-node-storage/](../specs/010-multi-node-storage/)
 
 ---
 
@@ -337,12 +347,20 @@ pub threshold: u8,
 | レイヤー | 技術 | 役割 | 状態 |
 |---------|------|------|------|
 | **Chain** | Substrate / Post Pallet V2 | メタデータ管理 (merkle_root) | ✅完了 |
-| **Chain** | Substrate / Storage Pallet | ノード登録、保持表明 | ✅完了 |
+| **Chain** | Substrate / Storage Pallet | ノード登録、保持表明 + PoW + レート制限 | ✅完了 |
 | **Storage** | Custom Daemon + HTTP JSON-RPC | 断片保存・取得 | ✅完了 |
+| **Storage** | + マルチノード分散 | SharedStorageNodes, fragment-index分散 | ✅完了 |
+| **Storage** | + ノード選択戦略 | Random/RoundRobin/Nearest | ✅完了 |
+| **Storage** | + アクセス認証 | Sr25519署名検証, nonce replay防止 | ✅完了 |
 | **Crypto** | SSS (sharks crate) | 断片化 | ✅完了 |
 | **Crypto** | Merkle Tree (blake2b) | 断片ID導出 | ✅完了 |
 | **Crypto** | ChaCha20-Poly1305 | 暗号化 | 延期 |
 | **Network** | libp2p + JSON-RPC | P2P通信 | ✅完了 |
+| **Network** | + Gossipsub (`/anarchy/endpoints/1.0.0`) | Storage Node間エンドポイント共有 | ✅完了 |
+| **Network** | + Chain Gossip (`/anarchy/storage-nodes/1`) | チェーン間Storage Node情報共有 | ✅完了 |
+| **Network** | + Active-Standby Failover | ブロックチェーンノードフェイルオーバー | ✅完了 |
+| **Observability** | + 構造化ログ | JSONフォーマット (ANARCHY_LOG_JSON) | ✅完了 |
+| **Observability** | + Prometheusメトリクス | /metrics エンドポイント | ✅完了 |
 | **Client** | Wasm (Web Worker) | ローカル暗号処理 | ✅完了 |
 | **Client** | Next.js + PAPI | フロントエンド | ✅完了 |
 
@@ -418,9 +436,14 @@ Anarchy プロトコルの「体」になる部分。
 | **+ 自動登録 + heartbeat** | ✅ 実装済み | 30秒間隔で再登録 |
 | **+ Post Pallet V2** | ✅ 実装済み | create_post_v2(merkle_root, fragment_count) |
 | **+ フロントエンド統合** | ✅ 実装済み | useStorage hook, PAPI Binary対応 |
-| **PoST 検証** | 未実装 | Phase 2 で Off-chain Workers (OCW) 使用予定 |
-| **自然な忘却** | 未実装 | Phase 2 で報酬システムと連動 |
-| **マルチノード分散** | 未実装 | 複数ストレージノードへの断片分散 |
+| **+ マルチノード分散** | ✅ 実装済み (2026-02-14) | SharedStorageNodes, fragment-index分散 |
+| **+ ノード選択戦略** | ✅ 実装済み | Random/RoundRobin/Nearest |
+| **+ アクセス認証** | ✅ 実装済み | Sr25519署名検証 + nonce replay防止 |
+| **+ Storage Palletセキュリティ** | ✅ 実装済み | PoW検証 + レート制限 |
+| **+ P2P Gossipsub** | ✅ 実装済み | エンドポイント共有 + フェイルオーバー |
+| **+ Observability** | ✅ 実装済み | Prometheusメトリクス + 構造化ログ |
+| **PoST 検証** | 未実装 | Phase 3 で Off-chain Workers (OCW) 使用予定 |
+| **自然な忘却** | 未実装 | Phase 3 で報酬システムと連動 |
 
 ### 10.2 PoW Faucet（難易度: 低〜中） → **完了** (2026-02-09)
 
@@ -463,14 +486,24 @@ Phase 1.5: Post Storage Migration ← ✅ 完了 (2026-02-10)
     │ - Storage Node HTTP JSON-RPC + 自動登録 + heartbeat
     │ - フロントエンド統合 (useStorage hook)
     ▼
-Phase 2: Moral Incentive ← 次のステップ
++ Phase 2: Multi-Node Storage ← ✅ 完了 (2026-02-14)
+    │
+    │ マルチノード対応 & セキュリティ強化
+    │ - 断片マルチノード分散配置 (SharedStorageNodes)
+    │ - ノード選択戦略 (Random/RoundRobin/Nearest)
+    │ - Storage Node間P2P通信 (Gossipsub)
+    │ - アクセス認証 (Sr25519署名検証)
+    │ - Storage Palletセキュリティ (PoW + レート制限)
+    │ - チェーン間Storage Node情報共有 (Gossip)
+    │ - Observability (構造化ログ + Prometheus)
+    ▼
+Phase 3: Moral Incentive ← 次のステップ
     │
     │ PoST と $moral の分配を組み込む
     │ - Proof of Spacetime 生成・検証
     │ - 報酬分配ロジック
-    │ - マルチノード分散（複数ストレージノードへの断片分散）
     ▼
-Phase 3: Self-Healing
+Phase 4: Self-Healing
     │
     │ 自己修復プロトコル
     ▼
@@ -487,10 +520,13 @@ Phase 3: Self-Healing
 
 ~~1. **PoW Faucet の Pallet 定義（Rust）**~~ → ✅完了 (2026-02-09)
 
-**Phase 2 (次のステップ):**
-1. **マルチノード対応** - 複数ストレージノードへの断片分散（ラウンドロビン/最寄りノード選択）
-2. **「自然な忘却」のためのデータ寿命（Rent）計算式** - 経済モデルの設計
-3. **Off-chain Workers (OCW) での PoST 検証設計** - 重い処理をオフチェーンに逃がす
+~~**Phase 2 (010-multi-node-storage):**~~ → ✅完了 (2026-02-14)
+~~1. **マルチノード対応** - 複数ストレージノードへの断片分散（ラウンドロビン/最寄りノード選択）~~ → ✅完了
+
+**Phase 3 (次のステップ):**
+1. **「自然な忘却」のためのデータ寿命（Rent）計算式** - 経済モデルの設計
+2. **Off-chain Workers (OCW) での PoST 検証設計** - 重い処理をオフチェーンに逃がす
+3. **報酬分配ロジック** - ストレージノードへの$moral分配
 4. **ChaCha20-Poly1305 暗号化** - 現在は平文、暗号化レイヤー追加
 
 ---
