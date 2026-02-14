@@ -356,8 +356,8 @@ fn test_count_leading_zeros() {
 
     let mut hash_9_zeros: [u8; 32] = [0xFF; 32];
     hash_9_zeros[0] = 0x00;
-    hash_8_zeros[1] = 0x7F; // 0111 1111 -> 1 leading zero
-    assert_eq!(count_leading_zeros(&hash_9_zeros), 8); // Fixed: first byte=0, second=0xFF -> 8
+    hash_9_zeros[1] = 0x7F; // 0111 1111 -> 1 leading zero
+    assert_eq!(count_leading_zeros(&hash_9_zeros), 9); // First byte=0 (8 zeros), second=0x7F (1 zero)
 
     let mut hash_16_zeros: [u8; 32] = [0xFF; 32];
     hash_16_zeros[0] = 0x00;
