@@ -94,6 +94,10 @@ async fn main() -> anyhow::Result<()> {
     // Using dev chain_id [0; 32] - in production this should be fetched from genesis
     let endpoint_cache = Arc::new(network::endpoint_cache::EndpointCache::new([0u8; 32]));
     info!("Endpoint cache initialized for peer discovery");
+    
+    // Initialize storage node cache for storage node address sharing (FR-515, FR-516)
+    let storage_node_cache = Arc::new(network::storage_node_cache::StorageNodeCache::new());
+    info!("Storage node cache initialized for address sharing");
 
     // Initialize failover manager (FR-510, FR-511)
     let failover_manager = Arc::new(chain::failover::FailoverManager::new());
@@ -112,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
     let mut network = network::Network::new(identity.keypair().clone(), &config.listen_addr)?;
     network.listen(&config.listen_addr)?;
     network.subscribe_endpoints()?;
+    network.subscribe_storage_nodes()?;  // FR-520: Subscribe to storage node topic
     info!("Network listening on {}", config.listen_addr);
 
     // Start HTTP RPC server
@@ -143,6 +148,11 @@ async fn main() -> anyhow::Result<()> {
     let heartbeat_url = our_rpc_url.clone();
     let mut heartbeat_interval = tokio::time::interval(std::time::Duration::from_secs(30));
     heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    
+    // Setup periodic storage node broadcast interval (FR-519, FR-515)
+    // Broadcasts known storage nodes to peers every 60 seconds
+    let mut storage_node_broadcast_interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    storage_node_broadcast_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     // Setup shutdown signal
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -170,6 +180,16 @@ async fn main() -> anyhow::Result<()> {
                 match heartbeat_chain_client.register_with_blockchain(&heartbeat_url).await {
                     Ok(()) => debug!("Heartbeat: re-registered with blockchain node"),
                     Err(e) => debug!(error = %e, "Heartbeat: blockchain node not available"),
+                }
+            }
+            _ = storage_node_broadcast_interval.tick() => {
+                // FR-519: Periodic broadcast of known storage nodes via Gossipsub
+                let nodes = storage_node_cache.get_healthy_by_latency().await;
+                if !nodes.is_empty() {
+                    match network.broadcast_storage_nodes(nodes.clone()) {
+                        Ok(()) => debug!(count = nodes.len(), "Broadcast storage node update"),
+                        Err(e) => debug!(error = %e, "Failed to broadcast storage nodes"),
+                    }
                 }
             }
             event = network.handle_event(store.as_ref()) => {
@@ -205,6 +225,21 @@ async fn main() -> anyhow::Result<()> {
                         for ep in endpoints {
                             if cache.insert(ep.clone()).await {
                                 debug!(url = %ep.url, "Added endpoint to cache");
+                            }
+                        }
+                    }
+                    Ok(Some(network::NetworkEvent::StorageNodeUpdate { from, nodes })) => {
+                        // FR-515, FR-519: Received storage node addresses via gossipsub
+                        info!(
+                            peer = %from,
+                            node_count = nodes.len(),
+                            "Received storage node update via gossipsub"
+                        );
+                        // Update local storage node cache
+                        let cache = storage_node_cache.clone();
+                        for node in nodes {
+                            if cache.insert(node.clone()).await {
+                                debug!(url = %node.url, "Added storage node to cache");
                             }
                         }
                     }

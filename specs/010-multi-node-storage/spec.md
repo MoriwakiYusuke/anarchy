@@ -229,6 +229,15 @@ Storage Palletの既存extrinsicに対するDoS攻撃を防止し、Post Pallet�
   - スコア50以下のノードからの情報は無視
 - **FR-514**: System MUST Gossipsubメッセージサイズを最大4KBに制限する
 
+#### ストレージノード間ストレージノードアドレス共有
+
+- **FR-515**: System MUST ストレージノード間で他のストレージノードのアドレス（HTTP RPCエンドポイント）をGossipsubで共有する
+- **FR-516**: System MUST 共有されるストレージノードアドレスにTTLを設定する（デフォルト: 5分）
+- **FR-517**: System MUST ストレージノードアドレス共有メッセージに送信者のEd25519署名を必須とする
+- **FR-518**: System MUST 共有前にストレージノードへの接続検証（healthエンドポイント呼び出し）を行う
+- **FR-519**: System MUST チェーンノードから取得したストレージノード一覧（storage_getNodes）をGossipsubで他のストレージノードに伝播する
+- **FR-520**: System MUST ストレージノードアドレス用の専用Gossipsubトピック（`/anarchy/storage-nodes/1.0.0`）を使用する
+
 ### Non-Functional Requirements
 
 #### オブザーバビリティ
@@ -249,6 +258,7 @@ Storage Palletの既存extrinsicに対するDoS攻撃を防止し、Post Pallet�
 - **SignedRequest（署名付きリクエスト）**: AccountId、タイムスタンプ、ノンス、ペイロードハッシュ、署名を含むリクエスト構造。
 - **NodeHealthStatus（ノード健全性）**: ノードのオンライン/オフライン状態、最終応答時間、遅延を管理。
 - **BlockchainEndpoint（ブロックチェーンエンドポイント）**: RPC URL、最終検証時刻、レイテンシ、TTLを含む。ストレージノード間でGossipsub経由で共有。
+- **StorageNodeEndpoint（ストレージノードエンドポイント）**: HTTP RPC URL、最終検証時刻、レイテンシ、TTLを含む。ストレージノード間でGossipsub経由で共有（`/anarchy/storage-nodes/1.0.0`トピック）。
 - **PeerReputation（ピア評価）**: ノードID、スコア（初期100）、最終更新時刻。無効情報送信で-20、有効情報で+1。
 
 ## Success Criteria *(mandatory)*
@@ -276,6 +286,8 @@ Storage Palletの既存extrinsicに対するDoS攻撃を防止し、Post Pallet�
 - **SC-018**: 署名なしのノード情報が100%破棄される
 - **SC-019**: Reputation Score 50以下のノードからの情報が100%無視される
 - **SC-020**: 常時3ノード以上の近隣Peeringが維持される
+- **SC-021**: ストレージノードAが発見したストレージノード情報が、30秒以内に他のストレージノードに伝播される
+- **SC-022**: チェーンノードから取得したストレージノード一覧が、Gossipsub経由で他のストレージノードに共有される
 
 ## Clarifications
 

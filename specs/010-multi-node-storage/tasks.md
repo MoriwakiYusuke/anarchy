@@ -198,6 +198,24 @@ Based on plan.md:
 - [X] T077 [US6] Integrate Gossipsub into network module in apps/storage-node/src/network/mod.rs
 - [X] T078 [US6] Wire endpoint cache to chain client in apps/storage-node/src/lib.rs
 
+#### Storage Node Endpoint Sharing (FR-515〜FR-520)
+
+- [X] T128 [US6] Add StorageNodeEndpoint struct in apps/storage-node/src/network/storage_node_cache.rs
+- [X] T129 [US6] Add StorageNodeMessage struct in apps/storage-node/src/network/gossip.rs
+- [X] T130 [US6] Implement StorageNodeCache with TTL (default 300s) in apps/storage-node/src/network/storage_node_cache.rs
+- [X] T131 [US6] Subscribe to `/anarchy/storage-nodes/1.0.0` topic in apps/storage-node/src/network/gossip.rs
+- [X] T132 [US6] Implement health check validation before sharing (FR-518) in apps/storage-node/src/network/storage_node_cache.rs
+- [X] T133 [US6] Implement storage_getNodes result propagation via Gossipsub (FR-519) in apps/storage-node/src/main.rs
+- [X] T134 [US6] Ed25519 signature for StorageNodeMessage (FR-517) in apps/storage-node/src/network/gossip.rs
+- [X] T135 [US6] Wire StorageNodeCache into main.rs in apps/storage-node/src/main.rs
+
+#### Storage Node Endpoint Sharing Tests
+
+- [X] T136 [P] [US6] Test StorageNodeMessage serialization/deserialization in apps/storage-node/src/network/gossip.rs
+- [X] T137 [P] [US6] Test StorageNodeCache TTL expiration in apps/storage-node/src/network/storage_node_cache.rs
+- [X] T138 [P] [US6] Test invalid signature rejection for StorageNodeMessage in apps/storage-node/src/network/gossip.rs
+- [X] T139 [P] [US6] Test health check validation logic in apps/storage-node/src/network/gossip.rs
+
 #### Unit Tests
 
 - [X] T079 [P] [US6] Test Gossipsub message serialization/deserialization in apps/storage-node/src/network/gossip.rs

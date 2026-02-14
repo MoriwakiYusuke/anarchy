@@ -168,6 +168,62 @@ impl EndpointMessage {
 }
 ```
 
+### StorageNodeEndpoint
+
+ストレージノード情報（Gossipsubで共有、FR-515〜520）
+
+```rust
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StorageNodeEndpoint {
+    /// HTTP RPC URL (max 256 bytes)
+    pub url: String,
+    
+    /// Last successful health check timestamp
+    pub last_verified: u64,
+    
+    /// Average latency in milliseconds
+    pub latency_ms: u32,
+    
+    /// Time-to-live in seconds (default: 300)
+    pub ttl_secs: u32,
+}
+```
+
+### StorageNodeMessage
+
+ストレージノードアドレス共有用Gossipsubメッセージ
+
+```rust
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StorageNodeMessage {
+    /// List of known storage node endpoints (max 20)
+    pub nodes: Vec<StorageNodeEndpoint>,
+    
+    /// Sender's PeerID
+    pub sender_peer_id: PeerId,
+    
+    /// Sender's public key (protobuf-encoded, hex string)
+    pub sender_public_key: String,
+    
+    /// Message timestamp
+    pub timestamp: u64,
+    
+    /// Ed25519 signature of (sender_peer_id || timestamp || hash(nodes))
+    pub signature: String,
+}
+
+impl StorageNodeMessage {
+    /// Maximum serialized size (4KB)
+    pub const MAX_SIZE: usize = 4096;
+    
+    /// Maximum nodes per message
+    pub const MAX_NODES: usize = 20;
+    
+    /// Gossipsub topic
+    pub const TOPIC: &'static str = "/anarchy/storage-nodes/1.0.0";
+}
+```
+
 ### PeerReputation
 
 ピア評価情報

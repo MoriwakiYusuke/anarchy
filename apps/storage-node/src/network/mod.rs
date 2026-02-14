@@ -5,6 +5,7 @@
 pub mod endpoint_cache;
 pub mod gossip;
 pub mod reputation;
+pub mod storage_node_cache;
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -23,7 +24,12 @@ use anyhow::{Context, Result};
 
 use crate::storage::{FragmentId, FragmentStore};
 use endpoint_cache::BlockchainEndpoint;
-use gossip::{build_gossipsub_config, EndpointMessage, ENDPOINT_TOPIC, validate_message, MessageValidation};
+use storage_node_cache::StorageNodeEndpoint;
+use gossip::{
+    build_gossipsub_config, EndpointMessage, StorageNodeMessage,
+    ENDPOINT_TOPIC, STORAGE_NODE_TOPIC,
+    validate_message, validate_storage_node_message, MessageValidation,
+};
 
 /// Protocol name for fragment exchange
 pub const FRAGMENT_PROTOCOL: &str = "/anarchy/fragment/1.0.0";
@@ -191,6 +197,8 @@ pub struct Network {
     connected_peers: HashSet<PeerId>,
     keypair: Keypair,
     endpoint_topic: IdentTopic,
+    /// Storage node endpoint sharing topic (FR-520)
+    storage_node_topic: IdentTopic,
 }
 
 impl Network {
@@ -240,11 +248,14 @@ impl Network {
             .context("Failed to create behaviour")?
             .build();
 
+        let storage_node_topic = IdentTopic::new(STORAGE_NODE_TOPIC);
+        
         Ok(Self {
             swarm,
             connected_peers: HashSet::new(),
             keypair,
             endpoint_topic,
+            storage_node_topic,
         })
     }
     
@@ -271,6 +282,32 @@ impl Network {
             .map_err(|e| anyhow::anyhow!("Failed to publish: {:?}", e))?;
         
         debug!("Broadcast endpoint update");
+        Ok(())
+    }
+    
+    /// Subscribe to the storage node sharing topic (FR-520)
+    pub fn subscribe_storage_nodes(&mut self) -> Result<()> {
+        self.swarm.behaviour_mut().gossipsub
+            .subscribe(&self.storage_node_topic)
+            .context("Failed to subscribe to storage node topic")?;
+        info!(topic = STORAGE_NODE_TOPIC, "Subscribed to storage node topic");
+        Ok(())
+    }
+    
+    /// Broadcast known storage node endpoints to the network (FR-515, FR-519)
+    pub fn broadcast_storage_nodes(&mut self, nodes: Vec<StorageNodeEndpoint>) -> Result<()> {
+        let peer_id = PeerId::from(self.keypair.public());
+        let message = StorageNodeMessage::new(nodes, peer_id, &self.keypair)
+            .context("Failed to create storage node message")?;
+        
+        let data = message.to_bytes()
+            .context("Failed to serialize storage node message")?;
+        
+        self.swarm.behaviour_mut().gossipsub
+            .publish(self.storage_node_topic.clone(), data)
+            .map_err(|e| anyhow::anyhow!("Failed to publish storage nodes: {:?}", e))?;
+        
+        debug!(nodes = message.nodes.len(), "Broadcast storage node update");
         Ok(())
     }
 
@@ -355,28 +392,59 @@ impl Network {
                 message,
                 ..
             })) => {
-                // Validate and process endpoint sharing messages
-                match validate_message(&message.data) {
-                    MessageValidation::Valid => {
-                        if let Ok(endpoint_msg) = EndpointMessage::from_bytes(&message.data) {
-                            debug!(
+                let topic_str = message.topic.as_str();
+                
+                // Handle blockchain endpoint messages
+                if topic_str == ENDPOINT_TOPIC {
+                    match validate_message(&message.data) {
+                        MessageValidation::Valid => {
+                            if let Ok(endpoint_msg) = EndpointMessage::from_bytes(&message.data) {
+                                debug!(
+                                    peer = %propagation_source,
+                                    endpoints = endpoint_msg.endpoints.len(),
+                                    "Received endpoint update"
+                                );
+                                return Ok(Some(NetworkEvent::EndpointUpdate {
+                                    from: propagation_source,
+                                    endpoints: endpoint_msg.endpoints,
+                                }));
+                            }
+                        }
+                        validation => {
+                            warn!(
                                 peer = %propagation_source,
-                                endpoints = endpoint_msg.endpoints.len(),
-                                "Received endpoint update"
+                                validation = ?validation,
+                                "Rejected invalid endpoint message"
                             );
-                            return Ok(Some(NetworkEvent::EndpointUpdate {
-                                from: propagation_source,
-                                endpoints: endpoint_msg.endpoints,
-                            }));
                         }
                     }
-                    validation => {
-                        warn!(
-                            peer = %propagation_source,
-                            validation = ?validation,
-                            "Rejected invalid gossipsub message"
-                        );
+                }
+                // Handle storage node messages (FR-515, FR-519)
+                else if topic_str == STORAGE_NODE_TOPIC {
+                    match validate_storage_node_message(&message.data) {
+                        MessageValidation::Valid => {
+                            if let Ok(node_msg) = StorageNodeMessage::from_bytes(&message.data) {
+                                debug!(
+                                    peer = %propagation_source,
+                                    nodes = node_msg.nodes.len(),
+                                    "Received storage node update"
+                                );
+                                return Ok(Some(NetworkEvent::StorageNodeUpdate {
+                                    from: propagation_source,
+                                    nodes: node_msg.nodes,
+                                }));
+                            }
+                        }
+                        validation => {
+                            warn!(
+                                peer = %propagation_source,
+                                validation = ?validation,
+                                "Rejected invalid storage node message"
+                            );
+                        }
                     }
+                } else {
+                    debug!(topic = topic_str, "Received message on unknown topic");
                 }
                 Ok(None)
             }
@@ -441,6 +509,11 @@ pub enum NetworkEvent {
     EndpointUpdate {
         from: PeerId,
         endpoints: Vec<BlockchainEndpoint>,
+    },
+    /// Storage node update received via Gossipsub (FR-515, FR-519)
+    StorageNodeUpdate {
+        from: PeerId,
+        nodes: Vec<StorageNodeEndpoint>,
     },
 }
 
