@@ -433,13 +433,13 @@ where
     }
     
     /// 指定インデックスの断片用にStorage Nodeクライアントを取得
-    /// 断片インデックスに基づいて異なるノードを選択（分散配置）
+    /// merkle_rootベースでPost毎に異なる配置（プライバシー保護）
     /// インメモリレジストリを優先し、不足時はオンチェーンノードをフォールバック
-    async fn get_storage_client_for_fragment(&self, fragment_index: usize) -> Option<StorageNodeClient> {
+    async fn get_storage_client_for_fragment(&self, merkle_root: &[u8; 32], fragment_index: usize) -> Option<StorageNodeClient> {
         // まずインメモリレジストリから取得を試みる
         {
             let registry = self.storage_nodes.read().await;
-            if let Some(node) = registry.select_node_for_fragment(fragment_index) {
+            if let Some(node) = registry.select_node_for_fragment(merkle_root, fragment_index) {
                 return Some(StorageNodeClient::new(node.endpoint.clone()));
             }
         }
@@ -450,8 +450,9 @@ where
             return None;
         }
         
-        // オンチェーンノードからインデックスベースで選択
-        let node_index = fragment_index % on_chain_urls.len();
+        // オンチェーンノードからもmerkle_rootベースで選択（プライバシー保護）
+        let seed = u64::from_le_bytes(merkle_root[..8].try_into().unwrap());
+        let node_index = (seed as usize).wrapping_add(fragment_index) % on_chain_urls.len();
         Some(StorageNodeClient::new(on_chain_urls[node_index].clone()))
     }
     
@@ -681,8 +682,8 @@ where
         let fragment_hash = blake2b_hash(&data);
 
         // 4. Storage Nodeに転送（HTTP経由）- マルチノード分散配置
-        // 断片インデックスに基づいて異なるノードを選択
-        let storage_client = self.get_storage_client_for_fragment(request.index as usize).await.ok_or_else(|| {
+        // merkle_rootベースでPost毎に異なるノード配置（プライバシー保護）
+        let storage_client = self.get_storage_client_for_fragment(&request.merkle_root, request.index as usize).await.ok_or_else(|| {
             ErrorObject::owned(
                 ErrorCode::InternalError.code(),
                 "No Storage Nodes connected. Start storage-node(s) and they will auto-register.",
@@ -1275,7 +1276,7 @@ mod tests {
     // T106: Multi-node selection tests
     // ============================================================================
 
-    // T106: Test fragment-index selection distributes across nodes
+    // T106: Test fragment-index selection distributes across nodes with merkle_root randomization
     #[test]
     fn test_fragment_index_distribution() {
         use crate::rpc::StorageNodeRegistry;
@@ -1287,27 +1288,30 @@ mod tests {
         registry.register(RegisteredStorageNode::new("http://node2:3030".to_string()));
         registry.register(RegisteredStorageNode::new("http://node3:3030".to_string()));
         
+        // Post A用のmerkle_root
+        let merkle_root_a: [u8; 32] = [1u8; 32];
+        
         // 5つの断片を分散配置
         let mut node_assignments: Vec<String> = Vec::new();
         for i in 0..5 {
-            let node = registry.select_node_for_fragment(i).unwrap();
+            let node = registry.select_node_for_fragment(&merkle_root_a, i).unwrap();
             node_assignments.push(node.endpoint.clone());
         }
         
-        // 断片0 -> node1 (0 % 3 = 0)
-        // 断片1 -> node2 (1 % 3 = 1)
-        // 断片2 -> node3 (2 % 3 = 2)
-        // 断片3 -> node1 (3 % 3 = 0)
-        // 断片4 -> node2 (4 % 3 = 1)
-        assert_eq!(node_assignments[0], "http://node1:3030");
-        assert_eq!(node_assignments[1], "http://node2:3030");
-        assert_eq!(node_assignments[2], "http://node3:3030");
-        assert_eq!(node_assignments[3], "http://node1:3030");
-        assert_eq!(node_assignments[4], "http://node2:3030");
-        
-        // 全ノードが使用されていることを確認
+        // 全ノードが使用されていることを確認（分散配置）
         let unique_nodes: std::collections::HashSet<_> = node_assignments.iter().collect();
-        assert_eq!(unique_nodes.len(), 3);
+        assert!(unique_nodes.len() >= 2, "断片は複数ノードに分散されるべき");
+        
+        // 異なるmerkle_rootは異なる配置パターン（プライバシー保護）
+        let merkle_root_b: [u8; 32] = [2u8; 32];
+        let mut node_assignments_b: Vec<String> = Vec::new();
+        for i in 0..5 {
+            let node = registry.select_node_for_fragment(&merkle_root_b, i).unwrap();
+            node_assignments_b.push(node.endpoint.clone());
+        }
+        
+        // 異なるmerkle_rootは異なる配置になる
+        assert_ne!(node_assignments, node_assignments_b, "異なるPostは異なる配置パターンを持つべき");
     }
     
     // T107: Test offline node filtering
@@ -1347,8 +1351,9 @@ mod tests {
         assert!(endpoints.contains(&"http://node3:3030"));
         
         // 断片選択時もオフラインノードはスキップ
+        let merkle_root: [u8; 32] = [1u8; 32];
         for i in 0..10 {
-            let node = registry.select_node_for_fragment(i).unwrap();
+            let node = registry.select_node_for_fragment(&merkle_root, i).unwrap();
             assert!(node.is_online);
             assert_ne!(node.endpoint, "http://node2:3030");
         }

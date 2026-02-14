@@ -109,10 +109,15 @@ pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics:
         .allow_methods(Any)
         .allow_headers(Any);
 
-    Router::new()
+    // Apply auth middleware only to JSON-RPC route, not to /metrics
+    // This prevents 400/403 errors when clients send X-Anarchy-Auth header on non-JSON-RPC paths
+    let jsonrpc_route = Router::new()
         .route("/", post(handle_rpc))
+        .layer(middleware::from_fn_with_state(auth_state, auth_middleware));
+
+    Router::new()
+        .merge(jsonrpc_route)
         .route("/metrics", get(handle_metrics)) // NFR-002: Prometheus metrics endpoint
-        .layer(middleware::from_fn_with_state(auth_state, auth_middleware))
         .with_state(state)
         .layer(cors)
         .layer(DefaultBodyLimit::max(512 * 1024)) // 512KB limit
@@ -389,6 +394,7 @@ storage_chain_latency_ms {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
     use tempfile::tempdir;
 
     #[test]

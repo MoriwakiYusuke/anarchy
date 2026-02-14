@@ -250,7 +250,7 @@ mod tests {
         let cache = EndpointCache::new([0u8; 32]);
         
         // Create an endpoint that's already expired
-        let mut expired_endpoint = BlockchainEndpoint {
+        let expired_endpoint = BlockchainEndpoint {
             url: "ws://expired:9944".to_string(),
             chain_id: [0u8; 32],
             last_verified: 0, // Unix epoch = very old

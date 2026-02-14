@@ -20,7 +20,8 @@ pub type SharedStorageNodes = Arc<RwLock<StorageNodeRegistry>>;
 
 /// Storage Nodeレジストリ
 /// 
-/// プライバシー保護のため、ノード選択は常にランダム
+/// - ノードリスト取得時はランダム順（プライバシー保護）
+/// - 断片配置はmerkle_rootベースでPost毎にランダム化（分散と追跡防止）
 #[derive(Debug, Default)]
 pub struct StorageNodeRegistry {
     /// 登録されたノード一覧
@@ -65,13 +66,21 @@ impl StorageNodeRegistry {
         online
     }
     
-    /// 断片インデックスに基づいてノードを選択（分散配置）
-    pub fn select_node_for_fragment(&self, fragment_index: usize) -> Option<&RegisteredStorageNode> {
+    /// 断片配置をPost単位でランダム化（プライバシー保護）
+    /// 
+    /// merkle_rootをシードに使用することで:
+    /// - 同一Postの断片は異なるノードに分散
+    /// - 異なるPostは異なる配置パターン
+    /// - merkle_rootがわからない限りパターン予測困難
+    pub fn select_node_for_fragment(&self, merkle_root: &[u8; 32], fragment_index: usize) -> Option<&RegisteredStorageNode> {
         let online = self.online_nodes();
         if online.is_empty() {
             return None;
         }
-        let node_index = fragment_index % online.len();
+        // merkle_rootから64bitシードを取得
+        let seed = u64::from_le_bytes(merkle_root[..8].try_into().unwrap());
+        // シードと断片インデックスを組み合わせてノード選択
+        let node_index = (seed as usize).wrapping_add(fragment_index) % online.len();
         Some(online[node_index])
     }
 }

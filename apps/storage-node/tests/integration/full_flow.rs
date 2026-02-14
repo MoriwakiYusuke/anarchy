@@ -111,7 +111,7 @@ async fn test_full_flow_rate_limiting() -> Result<()> {
     
     let store = anarchy_storage_node::storage::FragmentStore::new(data_dir, 10 * 1024 * 1024)?;
     // Rate limit of 3 per minute
-    let chain_client = create_test_chain_client(3).await;;
+    let chain_client = create_test_chain_client(3).await;
     
     let post_id: u64 = 99;
     
