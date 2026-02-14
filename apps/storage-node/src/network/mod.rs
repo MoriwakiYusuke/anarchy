@@ -2,6 +2,10 @@
 //!
 //! Implements the fragment exchange protocol using libp2p request-response.
 
+pub mod endpoint_cache;
+pub mod gossip;
+pub mod reputation;
+
 use std::collections::HashSet;
 use std::time::Duration;
 use libp2p::{

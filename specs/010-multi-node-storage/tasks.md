@@ -26,13 +26,13 @@ Based on plan.md:
 
 **Purpose**: Project initialization and module scaffolding
 
-- [ ] T001 Create pow.rs module scaffold in apps/blockchain/pallets/storage/src/pow.rs
-- [ ] T002 [P] Create rate_limit.rs module scaffold in apps/blockchain/pallets/storage/src/rate_limit.rs
-- [ ] T003 [P] Create gossip.rs module scaffold in apps/storage-node/src/network/gossip.rs
-- [ ] T004 [P] Create endpoint_cache.rs module scaffold in apps/storage-node/src/network/endpoint_cache.rs
-- [ ] T005 [P] Create reputation.rs module scaffold in apps/storage-node/src/network/reputation.rs
-- [ ] T006 [P] Create auth.rs module scaffold in apps/storage-node/src/rpc/auth.rs
-- [ ] T007 [P] Create failover.rs module scaffold in apps/storage-node/src/chain/failover.rs
+- [X] T001 Create pow.rs module scaffold in apps/blockchain/pallets/storage/src/pow.rs
+- [X] T002 [P] Create rate_limit.rs module scaffold in apps/blockchain/pallets/storage/src/rate_limit.rs
+- [X] T003 [P] Create gossip.rs module scaffold in apps/storage-node/src/network/gossip.rs
+- [X] T004 [P] Create endpoint_cache.rs module scaffold in apps/storage-node/src/network/endpoint_cache.rs
+- [X] T005 [P] Create reputation.rs module scaffold in apps/storage-node/src/network/reputation.rs
+- [X] T006 [P] Create auth.rs module scaffold in apps/storage-node/src/rpc/auth.rs
+- [X] T007 [P] Create failover.rs module scaffold in apps/storage-node/src/chain/failover.rs
 
 ---
 
@@ -42,16 +42,16 @@ Based on plan.md:
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T008 Add new Config constants (MinPeerIdLen, MaxRegistrationsPerBlock, etc.) in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T009 [P] Add new storage maps (RegistrationCountPerBlock, DeclareHoldingCountPerBlock) in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T010 [P] Add new error variants (InvalidPow, TooManyRegistrationsThisBlock, etc.) in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T011 [P] Add BlockchainEndpoint struct in apps/storage-node/src/network/endpoint_cache.rs
-- [ ] T012 [P] Add EndpointMessage struct in apps/storage-node/src/network/gossip.rs
-- [ ] T013 [P] Add PeerReputation struct in apps/storage-node/src/network/reputation.rs
-- [ ] T014 [P] Add new Prometheus metrics definitions in apps/storage-node/src/metrics.rs
-- [ ] T015 Configure runtime with new pallet constants in apps/blockchain/runtime/src/lib.rs
+- [X] T008 Add new Config constants (MinPeerIdLen, MaxRegistrationsPerBlock, etc.) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T009 [P] Add new storage maps (RegistrationCountPerBlock, DeclareHoldingCountPerBlock) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T010 [P] Add new error variants (InvalidPow, TooManyRegistrationsThisBlock, etc.) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T011 [P] Add BlockchainEndpoint struct in apps/storage-node/src/network/endpoint_cache.rs
+- [X] T012 [P] Add EndpointMessage struct in apps/storage-node/src/network/gossip.rs
+- [X] T013 [P] Add PeerReputation struct in apps/storage-node/src/network/reputation.rs
+- [X] T014 [P] Add new Prometheus metrics definitions in apps/storage-node/src/metrics.rs
+- [X] T015 Configure runtime with new pallet constants in apps/blockchain/runtime/src/lib.rs
 
-**Checkpoint**: Foundation ready - user story implementation can now begin
+**Checkpoint**: Foundation ready - user story implementation can now begin ✅
 
 ---
 
@@ -65,52 +65,52 @@ Based on plan.md:
 
 #### PoW検証 (FR-409)
 
-- [ ] T016 [US5] Implement Blake2b PoW verification function in apps/blockchain/pallets/storage/src/pow.rs
-- [ ] T017 [US5] Implement dynamic difficulty calculation (12 + recent_registrations/5) in apps/blockchain/pallets/storage/src/pow.rs
-- [ ] T018 [US5] Add PoW nonce field to StorageNodeInfo struct in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T016 [US5] Implement Blake2b PoW verification function in apps/blockchain/pallets/storage/src/pow.rs
+- [X] T017 [US5] Implement dynamic difficulty calculation (12 + recent_registrations/5) in apps/blockchain/pallets/storage/src/pow.rs
+- [X] T018 [US5] Add PoW nonce field to StorageNodeInfo struct in apps/blockchain/pallets/storage/src/lib.rs
 
 #### レート制限 (FR-406, FR-410)
 
-- [ ] T019 [US5] Implement per-block registration counter (max 5/block) in apps/blockchain/pallets/storage/src/rate_limit.rs
-- [ ] T020 [US5] Implement per-block per-node declaration counter (max 10/block/node) in apps/blockchain/pallets/storage/src/rate_limit.rs
-- [ ] T021 [US5] Add on_finalize hook to clear per-block counters in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T019 [US5] Implement per-block registration counter (max 5/block) in apps/blockchain/pallets/storage/src/rate_limit.rs
+- [X] T020 [US5] Implement per-block per-node declaration counter (max 10/block/node) in apps/blockchain/pallets/storage/src/rate_limit.rs
+- [X] T021 [US5] Add on_finalize hook to clear per-block counters in apps/blockchain/pallets/storage/src/lib.rs
 
 #### 入力検証強化 (FR-405, FR-411)
 
-- [ ] T022 [US5] Add PeerID length validation (38-64 bytes) in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T023 [US5] Add minimum capacity validation (1GB) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T022 [US5] Add PeerID length validation (38-64 bytes) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T023 [US5] Add minimum capacity validation (1GB) in apps/blockchain/pallets/storage/src/lib.rs
 
 #### register_node改修
 
-- [ ] T024 [US5] Modify register_node extrinsic to call PoW verification in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T025 [US5] Modify register_node to check per-block registration limit in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T026 [US5] Update Weight calculation for register_node (conservative value) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T024 [US5] Modify register_node extrinsic to call PoW verification in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T025 [US5] Modify register_node to check per-block registration limit in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T026 [US5] Update Weight calculation for register_node (conservative value) in apps/blockchain/pallets/storage/src/lib.rs
 
 #### declare_holding改修
 
-- [ ] T027 [US5] Modify declare_holding to check per-block per-node rate limit in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T028 [US5] Update Weight calculation for declare_holding in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T027 [US5] Modify declare_holding to check per-block per-node rate limit in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T028 [US5] Update Weight calculation for declare_holding in apps/blockchain/pallets/storage/src/lib.rs
 
 #### Post Pallet連携 (FR-401, FR-402)
 
-- [ ] T029 [US5] Convert register_fragment from extrinsic to internal function (do_register_fragment) in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T030 [US5] Create StorageInterface trait for tight coupling in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T031 [US5] Implement StorageInterface trait for Storage Pallet in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T032 [US5] Modify Post Pallet Config to require StorageInterface in apps/blockchain/pallets/post/src/lib.rs
-- [ ] T033 [US5] Call do_register_fragment from create_post_v2 in apps/blockchain/pallets/post/src/lib.rs
-- [ ] T034 [US5] Update runtime configuration for pallet coupling in apps/blockchain/runtime/src/lib.rs
+- [X] T029 [US5] Convert register_fragment from extrinsic to internal function (do_register_fragment) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T030 [US5] Create StorageInterface trait for tight coupling in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T031 [US5] Implement StorageInterface trait for Storage Pallet in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T032 [US5] Modify Post Pallet Config to require StorageInterface in apps/blockchain/pallets/post/src/lib.rs
+- [X] T033 [US5] Call do_register_fragment from create_post_v2 in apps/blockchain/pallets/post/src/lib.rs
+- [X] T034 [US5] Update runtime configuration for pallet coupling in apps/blockchain/runtime/src/lib.rs
 
 #### Unit Tests
 
-- [ ] T035 [P] [US5] Test PoW verification with valid/invalid nonces in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T036 [P] [US5] Test dynamic difficulty calculation in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T037 [P] [US5] Test registration rate limit (6th registration rejected) in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T038 [P] [US5] Test declaration rate limit (11th declaration rejected) in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T039 [P] [US5] Test PeerID validation (too short, too long, valid) in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T040 [P] [US5] Test minimum capacity validation in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T041 [P] [US5] Test Post-Storage coupling (create_post_v2 calls do_register_fragment) in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T035 [P] [US5] Test PoW verification with valid/invalid nonces in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T036 [P] [US5] Test dynamic difficulty calculation in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T037 [P] [US5] Test registration rate limit (6th registration rejected) in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T038 [P] [US5] Test declaration rate limit (11th declaration rejected) in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T039 [P] [US5] Test PeerID validation (too short, too long, valid) in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T040 [P] [US5] Test minimum capacity validation in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T041 [P] [US5] Test Post-Storage coupling (create_post_v2 calls do_register_fragment) in apps/blockchain/pallets/storage/src/tests.rs
 
-**Checkpoint**: Storage Pallet fully secured - DoS protection active, Post coupling complete
+**Checkpoint**: Storage Pallet fully secured - DoS protection active, Post coupling complete ✅
 
 ---
 

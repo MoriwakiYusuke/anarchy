@@ -5477,6 +5477,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "pallet-balances",
+ "pallet-storage",
  "parity-scale-codec",
  "scale-info",
  "sha2 0.10.9",

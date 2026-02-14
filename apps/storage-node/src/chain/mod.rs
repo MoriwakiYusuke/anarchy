@@ -3,6 +3,8 @@
 //! Handles communication with the Anarchy blockchain via RPC.
 //! Uses subxt for type-safe chain interaction.
 
+pub mod failover;
+
 #[cfg(test)]
 mod tests;
 

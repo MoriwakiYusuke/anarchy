@@ -192,6 +192,7 @@ impl pallet_sudo::Config for Runtime {
 // Post Pallet設定
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
+    type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
     type MaxContentLength = ConstU32<10000>; // 約10KB
     /// 基本コスト: 10 MORAL
     type PostBaseCost = ConstU128<10_000_000_000_000>;
@@ -225,6 +226,19 @@ impl pallet_storage::Config for Runtime {
     type MaxHoldersPerFragment = ConstU32<100>;
     /// ノードあたり最大断片数: 10,000
     type MaxFragmentsPerNode = ConstU32<10_000>;
+    // === New security constants (FR-405-411) ===
+    /// PeerID最小長: 38バイト
+    type MinPeerIdLen = ConstU32<38>;
+    /// ブロックあたり最大ノード登録数: 5
+    type MaxRegistrationsPerBlock = ConstU32<5>;
+    /// ブロック・ノードあたり最大宣言数: 10
+    type MaxDeclarationsPerBlockPerNode = ConstU32<10>;
+    /// ノード最小容量: 1GB
+    type MinNodeCapacity = ConstU64<1_073_741_824>;
+    /// PoW観測期間: 10ブロック
+    type PowObservationPeriod = ConstU32<10>;
+    /// 基本PoW難易度: 12ビット
+    type BasePowDifficulty = ConstU8<12>;
 }
 
 // Runtime構築
@@ -237,10 +251,10 @@ construct_runtime!(
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
-        // カスタムパレット
+        // カスタムパレット (Storage must be before Post for tight coupling)
+        Storage: pallet_storage,
         Post: pallet_post,
         Faucet: pallet_faucet,
-        Storage: pallet_storage,
     }
 );
 

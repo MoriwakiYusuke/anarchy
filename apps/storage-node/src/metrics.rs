@@ -27,6 +27,29 @@ struct MetricsInner {
     connected_peers: AtomicU64,
     /// Number of declare_holding calls made
     declare_holding_calls: AtomicU64,
+    
+    // === New metrics for feature 010-multi-node-storage ===
+    
+    /// Number of Gossipsub messages received
+    gossip_messages_received: AtomicU64,
+    /// Number of Gossipsub messages sent
+    gossip_messages_sent: AtomicU64,
+    /// Number of invalid Gossipsub messages dropped
+    gossip_messages_invalid: AtomicU64,
+    /// Number of endpoints in cache
+    endpoints_cached: AtomicU64,
+    /// Number of endpoint verifications performed
+    endpoint_verifications: AtomicU64,
+    /// Number of endpoint verification failures
+    endpoint_verification_failures: AtomicU64,
+    /// Number of peers with low reputation (ignored)
+    peers_ignored: AtomicU64,
+    /// Number of authentication failures
+    auth_failures: AtomicU64,
+    /// Number of chain failovers performed
+    chain_failovers: AtomicU64,
+    /// Current chain connection latency in milliseconds
+    chain_latency_ms: AtomicU64,
 }
 
 impl Default for Metrics {
@@ -47,6 +70,17 @@ impl Metrics {
                 get_requests: AtomicU64::new(0),
                 connected_peers: AtomicU64::new(0),
                 declare_holding_calls: AtomicU64::new(0),
+                // New metrics
+                gossip_messages_received: AtomicU64::new(0),
+                gossip_messages_sent: AtomicU64::new(0),
+                gossip_messages_invalid: AtomicU64::new(0),
+                endpoints_cached: AtomicU64::new(0),
+                endpoint_verifications: AtomicU64::new(0),
+                endpoint_verification_failures: AtomicU64::new(0),
+                peers_ignored: AtomicU64::new(0),
+                auth_failures: AtomicU64::new(0),
+                chain_failovers: AtomicU64::new(0),
+                chain_latency_ms: AtomicU64::new(0),
             }),
         }
     }
@@ -102,6 +136,56 @@ impl Metrics {
         self.inner.declare_holding_calls.fetch_add(1, Ordering::Relaxed);
     }
 
+    // === New methods for feature 010-multi-node-storage ===
+
+    /// Record a Gossipsub message received
+    pub fn record_gossip_received(&self) {
+        self.inner.gossip_messages_received.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a Gossipsub message sent
+    pub fn record_gossip_sent(&self) {
+        self.inner.gossip_messages_sent.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record an invalid Gossipsub message
+    pub fn record_gossip_invalid(&self) {
+        self.inner.gossip_messages_invalid.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Set the number of cached endpoints
+    pub fn set_endpoints_cached(&self, count: u64) {
+        self.inner.endpoints_cached.store(count, Ordering::Relaxed);
+    }
+
+    /// Record an endpoint verification
+    pub fn record_endpoint_verification(&self, success: bool) {
+        self.inner.endpoint_verifications.fetch_add(1, Ordering::Relaxed);
+        if !success {
+            self.inner.endpoint_verification_failures.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Set the number of ignored peers
+    pub fn set_peers_ignored(&self, count: u64) {
+        self.inner.peers_ignored.store(count, Ordering::Relaxed);
+    }
+
+    /// Record an authentication failure
+    pub fn record_auth_failure(&self) {
+        self.inner.auth_failures.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a chain failover event
+    pub fn record_chain_failover(&self) {
+        self.inner.chain_failovers.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Set the current chain latency in milliseconds
+    pub fn set_chain_latency_ms(&self, latency_ms: u64) {
+        self.inner.chain_latency_ms.store(latency_ms, Ordering::Relaxed);
+    }
+
     // === Getters ===
 
     /// Get fragment count
@@ -137,6 +221,58 @@ impl Metrics {
     /// Get declare_holding call count
     pub fn declare_holding_calls(&self) -> u64 {
         self.inner.declare_holding_calls.load(Ordering::Relaxed)
+    }
+
+    // === New getters for feature 010-multi-node-storage ===
+
+    /// Get Gossipsub messages received count
+    pub fn gossip_messages_received(&self) -> u64 {
+        self.inner.gossip_messages_received.load(Ordering::Relaxed)
+    }
+
+    /// Get Gossipsub messages sent count
+    pub fn gossip_messages_sent(&self) -> u64 {
+        self.inner.gossip_messages_sent.load(Ordering::Relaxed)
+    }
+
+    /// Get invalid Gossipsub messages count
+    pub fn gossip_messages_invalid(&self) -> u64 {
+        self.inner.gossip_messages_invalid.load(Ordering::Relaxed)
+    }
+
+    /// Get cached endpoints count
+    pub fn endpoints_cached(&self) -> u64 {
+        self.inner.endpoints_cached.load(Ordering::Relaxed)
+    }
+
+    /// Get endpoint verifications count
+    pub fn endpoint_verifications(&self) -> u64 {
+        self.inner.endpoint_verifications.load(Ordering::Relaxed)
+    }
+
+    /// Get endpoint verification failures count
+    pub fn endpoint_verification_failures(&self) -> u64 {
+        self.inner.endpoint_verification_failures.load(Ordering::Relaxed)
+    }
+
+    /// Get ignored peers count
+    pub fn peers_ignored(&self) -> u64 {
+        self.inner.peers_ignored.load(Ordering::Relaxed)
+    }
+
+    /// Get authentication failures count
+    pub fn auth_failures(&self) -> u64 {
+        self.inner.auth_failures.load(Ordering::Relaxed)
+    }
+
+    /// Get chain failovers count
+    pub fn chain_failovers(&self) -> u64 {
+        self.inner.chain_failovers.load(Ordering::Relaxed)
+    }
+
+    /// Get current chain latency in milliseconds
+    pub fn chain_latency_ms(&self) -> u64 {
+        self.inner.chain_latency_ms.load(Ordering::Relaxed)
     }
 
     /// Get utilization percentage (0.0 - 100.0)

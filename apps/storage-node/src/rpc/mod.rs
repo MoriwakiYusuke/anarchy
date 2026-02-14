@@ -3,6 +3,8 @@
 //! Exposes storage operations via HTTP JSON-RPC for blockchain node integration.
 //! This allows the blockchain node to forward fragment upload/download requests.
 
+pub mod auth;
+
 use std::sync::Arc;
 use axum::{
     extract::{DefaultBodyLimit, State},

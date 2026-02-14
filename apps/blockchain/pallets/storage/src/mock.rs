@@ -1,7 +1,7 @@
 //! Mock runtime for pallet-storage tests
 
 use crate as pallet_storage;
-use frame_support::traits::{ConstU32, ConstU64};
+use frame_support::traits::{ConstU32, ConstU64, ConstU8};
 use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
@@ -56,6 +56,13 @@ impl pallet_storage::Config for Test {
     type MaxPeerIdLen = ConstU32<64>;
     type MaxHoldersPerFragment = ConstU32<100>;
     type MaxFragmentsPerNode = ConstU32<10_000>;
+    // New security constants (relaxed for basic tests)
+    type MinPeerIdLen = ConstU32<2>;                // Relaxed for basic tests
+    type MaxRegistrationsPerBlock = ConstU32<5>;
+    type MaxDeclarationsPerBlockPerNode = ConstU32<10>;
+    type MinNodeCapacity = ConstU64<1>;              // Relaxed for basic tests
+    type PowObservationPeriod = ConstU32<10>;
+    type BasePowDifficulty = ConstU8<0>;             // No PoW for basic tests
 }
 
 /// Build test externalities
