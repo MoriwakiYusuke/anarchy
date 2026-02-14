@@ -10,10 +10,18 @@
 //! 4. On failure: 401 (missing auth) or 403 (invalid auth)
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use axum::http::{header::HeaderMap, StatusCode};
+use axum::{
+    body::Body,
+    extract::{Request, State},
+    http::{header::HeaderMap, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use schnorrkel::{PublicKey, Signature, signing_context};
 
 /// Signature validity period (5 minutes)
 pub const SIGNATURE_VALIDITY_SECS: u64 = 300;
@@ -24,8 +32,11 @@ pub const NONCE_TTL_SECS: u64 = SIGNATURE_VALIDITY_SECS;
 /// HTTP header name for authentication
 pub const AUTH_HEADER: &str = "X-Anarchy-Auth";
 
+/// Sr25519 signing context for Anarchy protocol
+const SIGNING_CONTEXT: &[u8] = b"anarchy-storage-auth";
+
 /// Signed request structure (sent in X-Anarchy-Auth header as JSON)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedRequest {
     /// Sr25519 public key (AccountId), hex-encoded 32 bytes
     pub account_id: String,
@@ -219,11 +230,46 @@ pub fn validate_request(
         return Err(AuthError::PayloadHashMismatch);
     }
     
-    // 4. Verify signature
-    // TODO: Implement actual Sr25519 verification in T043
-    // For now, accept all signatures for scaffolding
+    // 4. Verify Sr25519 signature
+    let public_key_bytes = request.get_account_id_bytes()?;
+    let signature_bytes = request.get_signature_bytes()?;
+    
+    // Build the message to verify: timestamp || nonce || payload_hash
+    let mut message = Vec::new();
+    message.extend_from_slice(&request.timestamp.to_le_bytes());
+    message.extend_from_slice(&request.get_nonce_bytes()?);
+    message.extend_from_slice(&provided_hash);
+    
+    if !verify_sr25519_signature(&public_key_bytes, &message, &signature_bytes) {
+        return Err(AuthError::InvalidSignature);
+    }
     
     Ok(())
+}
+
+/// Verify Sr25519 signature using schnorrkel
+fn verify_sr25519_signature(
+    public_key_bytes: &[u8; 32],
+    message: &[u8],
+    signature_bytes: &[u8; 64],
+) -> bool {
+    // Parse public key
+    let public_key = match PublicKey::from_bytes(public_key_bytes) {
+        Ok(pk) => pk,
+        Err(_) => return false,
+    };
+    
+    // Parse signature
+    let signature = match Signature::from_bytes(signature_bytes) {
+        Ok(sig) => sig,
+        Err(_) => return false,
+    };
+    
+    // Create signing context
+    let ctx = signing_context(SIGNING_CONTEXT);
+    
+    // Verify signature
+    public_key.verify(ctx.bytes(message), &signature).is_ok()
 }
 
 /// Parse authentication header from request
@@ -237,9 +283,129 @@ pub fn parse_auth_header(headers: &HeaderMap) -> Result<SignedRequest, AuthError
     serde_json::from_str(header_value).map_err(|_| AuthError::MalformedRequest)
 }
 
+/// Shared state for authentication middleware
+#[derive(Clone)]
+pub struct AuthState {
+    /// Nonce cache for replay prevention
+    pub nonce_cache: Arc<NonceCache>,
+    /// Whether authentication is enabled
+    pub enabled: bool,
+}
+
+impl AuthState {
+    /// Create new auth state
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            nonce_cache: Arc::new(NonceCache::default()),
+            enabled,
+        }
+    }
+    
+    /// Run periodic garbage collection on nonce cache
+    pub fn gc(&self) {
+        self.nonce_cache.gc();
+    }
+}
+
+/// Authentication middleware for axum
+///
+/// Validates X-Anarchy-Auth header on requests.
+/// Returns 401 for missing auth, 403 for invalid auth.
+///
+/// Note: This middleware validates auth when present, but does not require it.
+/// Method-specific auth requirements should be checked by the handler.
+pub async fn auth_middleware(
+    State(auth_state): State<AuthState>,
+    headers: HeaderMap,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    // If auth is disabled globally, pass through
+    if !auth_state.enabled {
+        return next.run(request).await;
+    }
+    
+    // Try to parse auth header - if not present, let the request through
+    // The handler will decide if auth is required for the specific method
+    let auth_header = headers.get(AUTH_HEADER);
+    if auth_header.is_none() {
+        // No auth header - let handler decide if this is OK
+        return next.run(request).await;
+    }
+    
+    // Auth header is present - validate it
+    let signed_request = match parse_auth_header(&headers) {
+        Ok(sr) => sr,
+        Err(e) => {
+            return (e.status_code(), e.message()).into_response();
+        }
+    };
+    
+    // Validate the request
+    let placeholder_hash = match signed_request.get_payload_hash_bytes() {
+        Ok(h) => h,
+        Err(e) => {
+            return (e.status_code(), e.message()).into_response();
+        }
+    };
+    
+    if let Err(e) = validate_request(&signed_request, &placeholder_hash, &auth_state.nonce_cache) {
+        return (e.status_code(), e.message()).into_response();
+    }
+    
+    // Auth valid - continue with the request
+    next.run(request).await
+}
+
+/// Require authentication for the request
+/// Call this in handlers that need auth
+pub fn require_auth(headers: &HeaderMap, auth_enabled: bool) -> Result<(), (StatusCode, &'static str)> {
+    if !auth_enabled {
+        return Ok(());
+    }
+    
+    if headers.get(AUTH_HEADER).is_none() {
+        return Err((StatusCode::UNAUTHORIZED, "Authentication required"));
+    }
+    
+    // If we got here, auth header was already validated by middleware
+    Ok(())
+}
+
+/// Check if a method requires authentication
+pub fn method_requires_auth(method: &str) -> bool {
+    // Only write operations require auth
+    // Read operations (get_fragment) are public
+    matches!(method, "storage_storeFragment" | "storage_deleteFragment")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use schnorrkel::Keypair;
+
+    /// Create a valid signed request for testing
+    fn create_test_signed_request(keypair: &Keypair, payload_hash: &[u8; 32], timestamp: u64) -> SignedRequest {
+        let nonce = [0u8; 16]; // Simple nonce for testing
+        
+        // Build message: timestamp || nonce || payload_hash
+        let mut message = Vec::new();
+        message.extend_from_slice(&timestamp.to_le_bytes());
+        message.extend_from_slice(&nonce);
+        message.extend_from_slice(payload_hash);
+        
+        // Sign with schnorrkel
+        let ctx = signing_context(SIGNING_CONTEXT);
+        let signature = keypair.sign(ctx.bytes(&message));
+        
+        SignedRequest {
+            account_id: hex::encode(keypair.public.to_bytes()),
+            timestamp,
+            nonce: hex::encode(&nonce),
+            payload_hash: hex::encode(payload_hash),
+            signature: hex::encode(signature.to_bytes()),
+        }
+    }
 
     #[test]
     fn test_nonce_cache_fresh() {
@@ -290,5 +456,120 @@ mod tests {
         assert!(request.get_nonce_bytes().is_ok());
         assert!(request.get_payload_hash_bytes().is_ok());
         assert!(request.get_signature_bytes().is_ok());
+    }
+
+    // T052: Test valid signature acceptance
+    #[test]
+    fn t052_valid_signature_accepted() {
+        let keypair = Keypair::generate();
+        let payload_hash = [0xab; 32];
+        let now = current_timestamp();
+        
+        let request = create_test_signed_request(&keypair, &payload_hash, now);
+        let cache = NonceCache::new(300);
+        
+        let result = validate_request(&request, &payload_hash, &cache);
+        assert!(result.is_ok(), "Valid signature should be accepted: {:?}", result);
+    }
+
+    // T053: Test invalid signature rejection (403)
+    #[test]
+    fn t053_invalid_signature_rejected() {
+        let keypair = Keypair::generate();
+        let payload_hash = [0xab; 32];
+        let now = current_timestamp();
+        
+        let mut request = create_test_signed_request(&keypair, &payload_hash, now);
+        // Corrupt the signature
+        request.signature = "ff".repeat(64);
+        
+        let cache = NonceCache::new(300);
+        
+        let result = validate_request(&request, &payload_hash, &cache);
+        assert_eq!(result, Err(AuthError::InvalidSignature));
+        assert_eq!(AuthError::InvalidSignature.status_code(), StatusCode::FORBIDDEN);
+    }
+
+    // T054: Test missing signature rejection (401)
+    #[test]
+    fn t054_missing_signature_rejected() {
+        let headers = HeaderMap::new();
+        
+        let result = parse_auth_header(&headers);
+        assert_eq!(result, Err(AuthError::MissingAuth));
+        assert_eq!(AuthError::MissingAuth.status_code(), StatusCode::UNAUTHORIZED);
+    }
+
+    // T055: Test expired timestamp rejection
+    #[test]
+    fn t055_expired_timestamp_rejected() {
+        let keypair = Keypair::generate();
+        let payload_hash = [0xab; 32];
+        // 10 minutes ago = expired
+        let old_timestamp = current_timestamp().saturating_sub(600);
+        
+        let request = create_test_signed_request(&keypair, &payload_hash, old_timestamp);
+        let cache = NonceCache::new(300);
+        
+        let result = validate_request(&request, &payload_hash, &cache);
+        assert_eq!(result, Err(AuthError::ExpiredTimestamp));
+    }
+
+    // T056: Test replay attack prevention (duplicate nonce)
+    #[test]
+    fn t056_replay_attack_prevented() {
+        let keypair = Keypair::generate();
+        let payload_hash = [0xab; 32];
+        let now = current_timestamp();
+        
+        let request = create_test_signed_request(&keypair, &payload_hash, now);
+        let cache = NonceCache::new(300);
+        
+        // First request should succeed
+        let result1 = validate_request(&request, &payload_hash, &cache);
+        assert!(result1.is_ok());
+        
+        // Create new request with same nonce (replay attempt)
+        let mut replay_request = create_test_signed_request(&keypair, &payload_hash, now);
+        replay_request.nonce = request.nonce.clone(); // Same nonce
+        
+        let result2 = validate_request(&replay_request, &payload_hash, &cache);
+        assert_eq!(result2, Err(AuthError::NonceReused));
+    }
+
+    // Test payload hash mismatch
+    #[test]
+    fn test_payload_hash_mismatch() {
+        let keypair = Keypair::generate();
+        let payload_hash = [0xab; 32];
+        let now = current_timestamp();
+        
+        let request = create_test_signed_request(&keypair, &payload_hash, now);
+        let cache = NonceCache::new(300);
+        
+        // Different expected hash
+        let wrong_hash = [0xcd; 32];
+        let result = validate_request(&request, &wrong_hash, &cache);
+        assert_eq!(result, Err(AuthError::PayloadHashMismatch));
+    }
+
+    // Test method_requires_auth
+    #[test]
+    fn test_method_requires_auth() {
+        assert!(method_requires_auth("storage_storeFragment"));
+        assert!(method_requires_auth("storage_deleteFragment"));
+        assert!(!method_requires_auth("storage_getFragment"));
+        assert!(!method_requires_auth("storage_health"));
+    }
+
+    // Test AuthState creation
+    #[test]
+    fn test_auth_state() {
+        let state = AuthState::new(true);
+        assert!(state.enabled);
+        assert_eq!(state.nonce_cache.len(), 0);
+        
+        let state_disabled = AuthState::new(false);
+        assert!(!state_disabled.enabled);
     }
 }

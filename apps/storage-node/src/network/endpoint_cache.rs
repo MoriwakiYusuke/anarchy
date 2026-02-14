@@ -242,4 +242,50 @@ mod tests {
         
         assert!(endpoint.is_expired());
     }
+
+    // T082: Test endpoint TTL expiration
+    #[tokio::test]
+    async fn t082_endpoint_ttl_expiration() {
+        let cache = EndpointCache::new([0u8; 32]);
+        
+        // Create an endpoint that's already expired
+        let mut expired_endpoint = BlockchainEndpoint {
+            url: "ws://expired:9944".to_string(),
+            chain_id: [0u8; 32],
+            last_verified: 0, // Unix epoch = very old
+            latency_ms: 100,
+            ttl_secs: 1, // 1 second TTL - definitely expired
+        };
+        
+        cache.insert(expired_endpoint.clone()).await;
+        
+        // Expired endpoints should not appear in get_all_by_latency
+        let all = cache.get_all_by_latency().await;
+        assert!(all.is_empty(), "Expired endpoint should not be returned");
+        
+        // Test GC removes expired entries
+        let removed = cache.gc().await;
+        assert_eq!(removed, 1, "GC should remove 1 expired entry");
+        
+        // Cache should now be empty
+        assert!(cache.is_empty().await);
+    }
+
+    // Test refresh updates last_verified
+    #[test]
+    fn test_endpoint_refresh() {
+        let mut endpoint = BlockchainEndpoint {
+            url: "ws://test:9944".to_string(),
+            chain_id: [0u8; 32],
+            last_verified: 1000, // Old timestamp
+            latency_ms: 100,
+            ttl_secs: 300,
+        };
+        
+        let old_verified = endpoint.last_verified;
+        endpoint.refresh();
+        
+        // Should be updated to current time (much larger)
+        assert!(endpoint.last_verified > old_verified);
+    }
 }

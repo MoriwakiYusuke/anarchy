@@ -8,6 +8,8 @@ pub mod auth;
 use std::sync::Arc;
 use axum::{
     extract::{DefaultBodyLimit, State},
+    http::StatusCode,
+    middleware,
     routing::post,
     Json, Router,
 };
@@ -16,6 +18,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn, error};
 
 use crate::storage::FragmentStore;
+use auth::{AuthState, auth_middleware, method_requires_auth, require_auth};
 
 /// Maximum fragment size: 256KB
 const MAX_FRAGMENT_SIZE: usize = 256 * 1024;
@@ -86,11 +89,16 @@ pub struct GetFragmentResult {
 #[derive(Clone)]
 pub struct RpcState {
     pub store: Arc<FragmentStore>,
+    pub auth: AuthState,
 }
 
 /// Create the HTTP RPC router
-pub fn create_rpc_router(store: Arc<FragmentStore>) -> Router {
-    let state = RpcState { store };
+pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool) -> Router {
+    let auth_state = AuthState::new(auth_enabled);
+    let state = RpcState { 
+        store,
+        auth: auth_state.clone(),
+    };
     
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -99,6 +107,7 @@ pub fn create_rpc_router(store: Arc<FragmentStore>) -> Router {
 
     Router::new()
         .route("/", post(handle_rpc))
+        .layer(middleware::from_fn_with_state(auth_state, auth_middleware))
         .with_state(state)
         .layer(cors)
         .layer(DefaultBodyLimit::max(512 * 1024)) // 512KB limit
@@ -107,9 +116,15 @@ pub fn create_rpc_router(store: Arc<FragmentStore>) -> Router {
 /// Handle JSON-RPC requests
 async fn handle_rpc(
     State(state): State<RpcState>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<RpcRequest>,
-) -> Json<RpcResponse<serde_json::Value>> {
+) -> Result<Json<RpcResponse<serde_json::Value>>, (StatusCode, &'static str)> {
     let id = request.id;
+    
+    // Check if method requires authentication (T048-T051)
+    if method_requires_auth(&request.method) {
+        require_auth(&headers, state.auth.enabled)?;
+    }
     
     let response = match request.method.as_str() {
         "storage_storeFragment" => handle_store_fragment(&state, request.params).await,
@@ -121,18 +136,18 @@ async fn handle_rpc(
     };
 
     match response {
-        Ok(result) => Json(RpcResponse {
+        Ok(result) => Ok(Json(RpcResponse {
             jsonrpc: "2.0",
             id,
             result: Some(result),
             error: None,
-        }),
-        Err(error) => Json(RpcResponse {
+        })),
+        Err(error) => Ok(Json(RpcResponse {
             jsonrpc: "2.0",
             id,
             result: None,
             error: Some(error),
-        }),
+        })),
     }
 }
 

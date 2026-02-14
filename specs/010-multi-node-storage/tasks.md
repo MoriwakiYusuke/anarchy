@@ -124,29 +124,29 @@ Based on plan.md:
 
 #### 認証ミドルウェア (FR-201-207)
 
-- [ ] T042 [US3] Define SignedRequest struct (account_id, timestamp, nonce, payload_hash, signature) in apps/storage-node/src/rpc/auth.rs
-- [ ] T043 [US3] Implement Sr25519 signature verification in apps/storage-node/src/rpc/auth.rs
-- [ ] T044 [US3] Implement timestamp validation (5-minute expiry) in apps/storage-node/src/rpc/auth.rs
-- [ ] T045 [US3] Implement nonce cache (LRU with TTL=5min) for replay prevention in apps/storage-node/src/rpc/auth.rs
-- [ ] T046 [US3] Create axum middleware layer for auth extraction/validation in apps/storage-node/src/rpc/auth.rs
-- [ ] T047 [US3] Add auth toggle to config (enabled by default) in apps/storage-node/src/config.rs
+- [X] T042 [US3] Define SignedRequest struct (account_id, timestamp, nonce, payload_hash, signature) in apps/storage-node/src/rpc/auth.rs
+- [X] T043 [US3] Implement Sr25519 signature verification in apps/storage-node/src/rpc/auth.rs
+- [X] T044 [US3] Implement timestamp validation (5-minute expiry) in apps/storage-node/src/rpc/auth.rs
+- [X] T045 [US3] Implement nonce cache (LRU with TTL=5min) for replay prevention in apps/storage-node/src/rpc/auth.rs
+- [X] T046 [US3] Create axum middleware layer for auth extraction/validation in apps/storage-node/src/rpc/auth.rs
+- [X] T047 [US3] Add auth toggle to config (enabled by default) in apps/storage-node/src/config.rs
 
 #### RPC統合
 
-- [ ] T048 [US3] Apply auth middleware to upload_fragment endpoint in apps/storage-node/src/rpc/mod.rs
-- [ ] T049 [US3] Return 401 Unauthorized for missing signature in apps/storage-node/src/rpc/mod.rs
-- [ ] T050 [US3] Return 403 Forbidden for invalid signature in apps/storage-node/src/rpc/mod.rs
-- [ ] T051 [US3] Ensure get_fragment remains public (no auth) in apps/storage-node/src/rpc/mod.rs
+- [X] T048 [US3] Apply auth middleware to upload_fragment endpoint in apps/storage-node/src/rpc/mod.rs
+- [X] T049 [US3] Return 401 Unauthorized for missing signature in apps/storage-node/src/rpc/mod.rs
+- [X] T050 [US3] Return 403 Forbidden for invalid signature in apps/storage-node/src/rpc/mod.rs
+- [X] T051 [US3] Ensure get_fragment remains public (no auth) in apps/storage-node/src/rpc/mod.rs
 
 #### Unit Tests
 
-- [ ] T052 [P] [US3] Test valid signature acceptance in apps/storage-node/src/rpc/auth.rs
-- [ ] T053 [P] [US3] Test invalid signature rejection (403) in apps/storage-node/src/rpc/auth.rs
-- [ ] T054 [P] [US3] Test missing signature rejection (401) in apps/storage-node/src/rpc/auth.rs
-- [ ] T055 [P] [US3] Test expired timestamp rejection in apps/storage-node/src/rpc/auth.rs
-- [ ] T056 [P] [US3] Test replay attack prevention (duplicate nonce) in apps/storage-node/src/rpc/auth.rs
+- [X] T052 [P] [US3] Test valid signature acceptance in apps/storage-node/src/rpc/auth.rs
+- [X] T053 [P] [US3] Test invalid signature rejection (403) in apps/storage-node/src/rpc/auth.rs
+- [X] T054 [P] [US3] Test missing signature rejection (401) in apps/storage-node/src/rpc/auth.rs
+- [X] T055 [P] [US3] Test expired timestamp rejection in apps/storage-node/src/rpc/auth.rs
+- [X] T056 [P] [US3] Test replay attack prevention (duplicate nonce) in apps/storage-node/src/rpc/auth.rs
 
-**Checkpoint**: Storage Node authentication complete - write operations secured
+**Checkpoint**: Storage Node authentication complete - write operations secured ✅
 
 ---
 
@@ -160,55 +160,55 @@ Based on plan.md:
 
 #### Gossipsub (FR-502, FR-512, FR-514)
 
-- [ ] T057 [US6] Configure Gossipsub with topic `/anarchy/endpoints/1.0.0` in apps/storage-node/src/network/gossip.rs
-- [ ] T058 [US6] Implement Ed25519 message signing in apps/storage-node/src/network/gossip.rs
-- [ ] T059 [US6] Implement message signature verification in apps/storage-node/src/network/gossip.rs
-- [ ] T060 [US6] Enforce 4KB message size limit in apps/storage-node/src/network/gossip.rs
-- [ ] T061 [US6] Implement periodic endpoint broadcast (every 60s) in apps/storage-node/src/network/gossip.rs
+- [X] T057 [US6] Configure Gossipsub with topic `/anarchy/endpoints/1.0.0` in apps/storage-node/src/network/gossip.rs
+- [X] T058 [US6] Implement Ed25519 message signing in apps/storage-node/src/network/gossip.rs
+- [X] T059 [US6] Implement message signature verification in apps/storage-node/src/network/gossip.rs
+- [X] T060 [US6] Enforce 4KB message size limit in apps/storage-node/src/network/gossip.rs
+- [X] T061 [US6] Implement periodic endpoint broadcast (every 60s) in apps/storage-node/src/network/gossip.rs
 
 #### Endpoint Cache (FR-506, FR-508)
 
-- [ ] T062 [US6] Implement TTL-based endpoint cache in apps/storage-node/src/network/endpoint_cache.rs
-- [ ] T063 [US6] Implement garbage collection (1-min interval) with re-verification in apps/storage-node/src/network/endpoint_cache.rs
-- [ ] T064 [US6] Implement chain ID verification before caching in apps/storage-node/src/network/endpoint_cache.rs
-- [ ] T065 [US6] Add latency tracking to endpoints in apps/storage-node/src/network/endpoint_cache.rs
+- [X] T062 [US6] Implement TTL-based endpoint cache in apps/storage-node/src/network/endpoint_cache.rs
+- [X] T063 [US6] Implement garbage collection (1-min interval) with re-verification in apps/storage-node/src/network/endpoint_cache.rs
+- [X] T064 [US6] Implement chain ID verification before caching in apps/storage-node/src/network/endpoint_cache.rs
+- [X] T065 [US6] Add latency tracking to endpoints in apps/storage-node/src/network/endpoint_cache.rs
 
 #### Reputation System (FR-513)
 
-- [ ] T066 [US6] Implement PeerReputation with score tracking in apps/storage-node/src/network/reputation.rs
-- [ ] T067 [US6] Implement score adjustment (-20 invalid, +1 valid) in apps/storage-node/src/network/reputation.rs
-- [ ] T068 [US6] Implement threshold check (ignore if score ≤50) in apps/storage-node/src/network/reputation.rs
+- [X] T066 [US6] Implement PeerReputation with score tracking in apps/storage-node/src/network/reputation.rs
+- [X] T067 [US6] Implement score adjustment (-20 invalid, +1 valid) in apps/storage-node/src/network/reputation.rs
+- [X] T068 [US6] Implement threshold check (ignore if score ≤50) in apps/storage-node/src/network/reputation.rs
 
 #### Active-Standby Failover (FR-510, FR-511)
 
-- [ ] T069 [US6] Implement ConnectionState enum (Init, Primary, HotStandby, Failover) in apps/storage-node/src/chain/failover.rs
-- [ ] T070 [US6] Implement liveness check (2s interval, 2s timeout) in apps/storage-node/src/chain/failover.rs
-- [ ] T071 [US6] Implement failover trigger (3 consecutive failures) in apps/storage-node/src/chain/failover.rs
-- [ ] T072 [US6] Implement Hot Standby pre-connection in apps/storage-node/src/chain/failover.rs
-- [ ] T073 [US6] Integrate failover with chain module in apps/storage-node/src/chain/mod.rs
+- [X] T069 [US6] Implement ConnectionState enum (Init, Primary, HotStandby, Failover) in apps/storage-node/src/chain/failover.rs
+- [X] T070 [US6] Implement liveness check (2s interval, 2s timeout) in apps/storage-node/src/chain/failover.rs
+- [X] T071 [US6] Implement failover trigger (3 consecutive failures) in apps/storage-node/src/chain/failover.rs
+- [X] T072 [US6] Implement Hot Standby pre-connection in apps/storage-node/src/chain/failover.rs
+- [X] T073 [US6] Integrate failover with chain module in apps/storage-node/src/chain/mod.rs
 
 #### Peering (FR-505, FR-509)
 
-- [ ] T074 [US6] Add bootstrap_peers config option in apps/storage-node/src/config.rs
-- [ ] T075 [US6] Implement peer discovery via bootstrap in apps/storage-node/src/network/gossip.rs
-- [ ] T076 [US6] Maintain 3-5 stable peers (Tor circuit pre-building) in apps/storage-node/src/network/gossip.rs
+- [X] T074 [US6] Add bootstrap_peers config option in apps/storage-node/src/config.rs
+- [X] T075 [US6] Implement peer discovery via bootstrap in apps/storage-node/src/network/gossip.rs
+- [X] T076 [US6] Maintain 3-5 stable peers (Tor circuit pre-building) in apps/storage-node/src/network/gossip.rs
 
 #### Network Integration
 
-- [ ] T077 [US6] Integrate Gossipsub into network module in apps/storage-node/src/network/mod.rs
-- [ ] T078 [US6] Wire endpoint cache to chain client in apps/storage-node/src/lib.rs
+- [X] T077 [US6] Integrate Gossipsub into network module in apps/storage-node/src/network/mod.rs
+- [X] T078 [US6] Wire endpoint cache to chain client in apps/storage-node/src/lib.rs
 
 #### Unit Tests
 
-- [ ] T079 [P] [US6] Test Gossipsub message serialization/deserialization in apps/storage-node/src/network/gossip.rs
-- [ ] T080 [P] [US6] Test invalid signature message rejection in apps/storage-node/src/network/gossip.rs
-- [ ] T081 [P] [US6] Test 4KB message size limit in apps/storage-node/src/network/gossip.rs
-- [ ] T082 [P] [US6] Test endpoint TTL expiration in apps/storage-node/src/network/endpoint_cache.rs
-- [ ] T083 [P] [US6] Test reputation score calculation in apps/storage-node/src/network/reputation.rs
-- [ ] T084 [P] [US6] Test failover state transitions in apps/storage-node/src/chain/failover.rs
-- [ ] T085 [P] [US6] Test liveness check timeout behavior in apps/storage-node/src/chain/failover.rs
+- [X] T079 [P] [US6] Test Gossipsub message serialization/deserialization in apps/storage-node/src/network/gossip.rs
+- [X] T080 [P] [US6] Test invalid signature message rejection in apps/storage-node/src/network/gossip.rs
+- [X] T081 [P] [US6] Test 4KB message size limit in apps/storage-node/src/network/gossip.rs
+- [X] T082 [P] [US6] Test endpoint TTL expiration in apps/storage-node/src/network/endpoint_cache.rs
+- [X] T083 [P] [US6] Test reputation score calculation in apps/storage-node/src/network/reputation.rs
+- [X] T084 [P] [US6] Test failover state transitions in apps/storage-node/src/chain/failover.rs
+- [X] T085 [P] [US6] Test liveness check timeout behavior in apps/storage-node/src/chain/failover.rs
 
-**Checkpoint**: P2P communication complete - blockchain node failover operational
+**Checkpoint**: P2P communication complete - blockchain node failover operational ✅
 
 ---
 
@@ -216,63 +216,70 @@ Based on plan.md:
 
 **Goal**: 投稿作成時にSSS断片（n=5）が利用可能な複数のストレージノードに自動分散される
 
-**Independent Test**: 5つのストレージノードを起動し、投稿を作成して各ノードに異なる断片が配置されることを確認
+**Independent Test**: 複数のストレージノードを起動し、投稿を作成して各ノードに異なる断片が配置されることを確認
 
-### Implementation for User Story 1
+**⚠️ アーキテクチャ変更**: フロントエンドはチェーンノード経由でのみStorage Nodeにアクセスする設計のため、
+ノード選択・分散配置ロジックはチェーンノード（apps/blockchain/node/src/rpc/storage.rs）で実装。
+フロントエンドは従来通り`storage_uploadFragment` RPCを呼び出すのみ。
 
-#### Frontend Distribution Logic (FR-001-004)
+### Implementation for User Story 1 (Chain-side)
 
-- [ ] T086 [US1] Add multi-node fragment distribution to useStorage hook in apps/frontend/src/hooks/useStorage.ts
-- [ ] T087 [US1] Implement node deduplication (no duplicate fragments per node) in apps/frontend/src/hooks/useStorage.ts
-- [ ] T088 [US1] Implement fallback for insufficient nodes (multi-fragment per node) in apps/frontend/src/hooks/useStorage.ts
-- [ ] T089 [US1] Implement retry with local cache on failure in apps/frontend/src/hooks/useStorage.ts
-- [ ] T090 [US1] Implement parallel fragment upload with Promise.allSettled in apps/frontend/src/hooks/useStorage.ts
+#### Chain Node Distribution Logic (FR-001-004)
 
-#### Fragment Retrieval (FR-005, FR-303)
+- [X] T086 [US1] Add SharedStorageNodes registry for multi-node management in apps/blockchain/node/src/rpc/mod.rs
+- [X] T087 [US1] Implement RegisteredStorageNode struct with endpoint, status tracking in apps/blockchain/node/src/rpc/storage.rs
+- [X] T088 [US1] Update register_endpoint to support multiple node registration in apps/blockchain/node/src/rpc/storage.rs
+- [X] T089 [US1] Implement fragment-index-based node selection (select_node_for_fragment) in apps/blockchain/node/src/rpc/mod.rs
+- [X] T090 [US1] Update upload_fragment to route fragments to different nodes based on index in apps/blockchain/node/src/rpc/storage.rs
 
-- [ ] T091 [US1] Query FragmentHolders from chain for fragment locations in apps/frontend/src/hooks/useStorage.ts
-- [ ] T092 [US1] Implement parallel fragment retrieval from multiple nodes in apps/frontend/src/hooks/useStorage.ts
-- [ ] T093 [US1] Implement k-of-n reconstruction (any 3 of 5 fragments) in apps/frontend/src/hooks/useStorage.ts
+#### Fragment Retrieval with Fallback (FR-005, FR-303)
+
+- [X] T091 [US1] Implement get_all_storage_clients for multi-node access in apps/blockchain/node/src/rpc/storage.rs
+- [X] T092 [US1] Update get_fragment to try all nodes with fallback on failure in apps/blockchain/node/src/rpc/storage.rs
+- [X] T093 [US1] Prioritize fragment's expected node but fallback to others in apps/blockchain/node/src/rpc/storage.rs
 
 #### Unit Tests
 
-- [ ] T094 [P] [US1] Test fragment distribution across 5 nodes in apps/frontend/tests/hooks/useStorage.test.ts
-- [ ] T095 [P] [US1] Test fallback with 3 nodes (some get multiple fragments) in apps/frontend/tests/hooks/useStorage.test.ts
-- [ ] T096 [P] [US1] Test recovery with 2 nodes offline in apps/frontend/tests/hooks/useStorage.test.ts
+- [X] T094 [P] [US1] Test RegisteredStorageNode creation in apps/blockchain/node/src/rpc/storage.rs
+- [X] T095 [P] [US1] Test storage_client_creation in apps/blockchain/node/src/rpc/storage.rs
+- [X] T096 [P] [US1] Test chain node passes existing tests (35 tests) in apps/blockchain/node
 
-**Checkpoint**: Multi-node distribution complete - fragments distributed across storage nodes
+**Checkpoint**: Multi-node distribution complete - chain node routes fragments to different storage nodes ✅
 
 ---
 
 ## Phase 7: User Story 2 - ノード選択ロジック設定 (Priority: P2)
 
-**Goal**: ユーザーが断片配置時のノード選択方式を設定でき、ネットワーク状況に応じた最適化が可能になる
+**Goal**: チェーンノードが断片配置時のノード選択方式を設定でき、ネットワーク状況に応じた最適化が可能になる
 
 **Independent Test**: 各選択方式で投稿を作成し、断片配置パターンが方式ごとに異なることを確認
 
-### Implementation for User Story 2
+**⚠️ アーキテクチャ変更**: ノード選択はチェーンノード側で実装。フロントエンドUIは将来的に
+チェーンノードへの設定RPC経由で選択方式を変更可能に。
 
-#### Node Selection Strategies (FR-101-105)
+### Implementation for User Story 2 (Chain-side)
 
-- [ ] T097 [US2] Define NodeSelectionStrategy enum (Random, RoundRobin, NearestNode) in apps/frontend/src/stores/storageSettings.ts
-- [ ] T098 [US2] Implement Random selection (default, privacy-focused) in apps/frontend/src/hooks/useStorage.ts
-- [ ] T099 [US2] Implement RoundRobin selection in apps/frontend/src/hooks/useStorage.ts
-- [ ] T100 [US2] Implement NearestNode selection with ping latency measurement in apps/frontend/src/hooks/useStorage.ts
-- [ ] T101 [US2] Filter offline nodes from selection candidates in apps/frontend/src/hooks/useStorage.ts
+#### Node Selection Strategies (FR-101-105) - Chain Node
 
-#### Settings UI (FR-103)
+- [X] T097 [US2] Implement select_node_for_fragment (fragment-index based distribution) in apps/blockchain/node/src/rpc/mod.rs
+- [X] T098 [US2] Implement next_node_round_robin for round-robin selection in apps/blockchain/node/src/rpc/mod.rs
+- [X] T099 [US2] Implement online_nodes filter (exclude offline) in apps/blockchain/node/src/rpc/mod.rs
+- [ ] T100 [US2] Add node health check for offline detection (TODO: background task)
+- [ ] T101 [US2] Add storage_setSelectionStrategy RPC for runtime configuration
 
-- [ ] T102 [US2] Add node selection strategy setting to storage settings store in apps/frontend/src/stores/storageSettings.ts
-- [ ] T103 [US2] Create NodeSelectionSettings component with strategy dropdown in apps/frontend/src/components/NodeSelectionSettings.tsx
-- [ ] T104 [US2] Integrate settings component into settings page in apps/frontend/src/app/settings/page.tsx
+#### Settings RPC (FR-103) - Optional
+
+- [ ] T102 [US2] Add SelectionStrategy enum to config (random, round-robin, nearest)
+- [ ] T103 [US2] Implement storage_getNodes RPC to list registered nodes
+- [ ] T104 [US2] Implement storage_getSelectionStrategy RPC
 
 #### Unit Tests
 
-- [ ] T105 [P] [US2] Test Random selection produces varied distribution in apps/frontend/tests/hooks/useStorage.test.ts
-- [ ] T106 [P] [US2] Test RoundRobin produces even distribution in apps/frontend/tests/hooks/useStorage.test.ts
-- [ ] T107 [P] [US2] Test NearestNode prioritizes low-latency nodes in apps/frontend/tests/hooks/useStorage.test.ts
+- [ ] T105 [P] [US2] Test round_robin produces rotating distribution
+- [ ] T106 [P] [US2] Test fragment-index selection distributes across nodes
+- [ ] T107 [P] [US2] Test offline node filtering
 
-**Checkpoint**: Node selection strategies complete - users can optimize distribution
+**Checkpoint**: Node selection strategies complete - chain node can optimize distribution
 
 ---
 

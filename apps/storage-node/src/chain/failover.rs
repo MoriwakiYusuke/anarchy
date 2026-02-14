@@ -297,4 +297,92 @@ mod tests {
         let url = manager.get_primary_url().await;
         assert_eq!(url, Some("ws://standby:9944".to_string()));
     }
+
+    // T084: Test failover state transitions
+    #[tokio::test]
+    async fn t084_failover_state_transitions() {
+        let manager = FailoverManager::new();
+        
+        // Initial state: no primary
+        assert!(!manager.has_primary().await);
+        assert_eq!(manager.standby_count().await, 0);
+        
+        // Add primary
+        manager.set_primary(make_endpoint("ws://node1:9944")).await;
+        assert!(manager.has_primary().await);
+        
+        // Add standbys
+        manager.add_standby(make_endpoint("ws://node2:9944")).await;
+        manager.add_standby(make_endpoint("ws://node3:9944")).await;
+        assert_eq!(manager.standby_count().await, 2);
+        
+        // Success resets failure count
+        manager.record_primary_success().await;
+        
+        // First failover: node1 -> node2
+        for _ in 0..FAILURE_THRESHOLD {
+            manager.record_primary_failure().await;
+        }
+        assert_eq!(manager.get_primary_url().await, Some("ws://node2:9944".to_string()));
+        
+        // After failover: old primary is demoted, standby count decreased
+        assert_eq!(manager.standby_count().await, 1); // node3 only
+        
+        // Second failover: node2 -> node3
+        for _ in 0..FAILURE_THRESHOLD {
+            manager.record_primary_failure().await;
+        }
+        assert_eq!(manager.get_primary_url().await, Some("ws://node3:9944".to_string()));
+        
+        // No more standbys available
+        assert_eq!(manager.standby_count().await, 0);
+    }
+
+    // T085: Test liveness check timeout behavior
+    #[test]
+    fn t085_liveness_check_timeout() {
+        // Verify constants are set correctly
+        assert_eq!(CHECK_INTERVAL, std::time::Duration::from_secs(2));
+        assert_eq!(CHECK_TIMEOUT, std::time::Duration::from_secs(2));
+        assert_eq!(FAILURE_THRESHOLD, 3);
+        
+        // Total time to failover = 3 checks × 2s timeout = 6 seconds max
+        let max_failover_time = FAILURE_THRESHOLD * CHECK_TIMEOUT.as_secs() as u32;
+        assert_eq!(max_failover_time, 6);
+        
+        // Test failure counting
+        let mut state = ConnectionState::new(make_endpoint("ws://test:9944"));
+        
+        // Initially no failures
+        assert!(!state.should_failover());
+        
+        // After 2 failures, still not failed over
+        state.record_failure();
+        state.record_failure();
+        assert!(!state.should_failover());
+        
+        // After 3rd failure, should failover
+        state.record_failure();
+        assert!(state.should_failover());
+        assert_eq!(state.failure_count, FAILURE_THRESHOLD);
+    }
+
+    // Test no failover without standby
+    #[tokio::test]
+    async fn test_no_failover_without_standby() {
+        let manager = FailoverManager::new();
+        manager.set_primary(make_endpoint("ws://lonely:9944")).await;
+        
+        // No standby available
+        assert_eq!(manager.standby_count().await, 0);
+        
+        // Failures should not result in failover (no standby to promote)
+        for _ in 0..5 {
+            let result = manager.record_primary_failure().await;
+            assert!(result.is_none());
+        }
+        
+        // Primary should remain the same (even though it's failing)
+        assert_eq!(manager.get_primary_url().await, Some("ws://lonely:9944".to_string()));
+    }
 }

@@ -7,14 +7,16 @@
 //! ## アーキテクチャ
 //!
 //! ```text
-//! Frontend → Blockchain Node RPC → HTTP → Storage Node
+//! Frontend → Blockchain Node RPC → HTTP → Storage Node(s)
 //!                    ↑
 //! 将来のインデクサー（読み取りキャッシュ）
 //! ```
 //!
 //! - 書き込み: プライバシー重視でBlockchain Node経由（IP匿名化）
 //! - 読み込み: 同様にBlockchain Node経由（将来はインデクサーキャッシュ）
+//! - マルチノード: 断片を複数ノードに分散配置（耐障害性向上）
 
+use crate::rpc::SharedStorageNodes;
 use anarchy_runtime::opaque::Block;
 use jsonrpsee::{
     core::RpcResult,
@@ -26,7 +28,6 @@ use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 // ============================================================================
 // Security Constants (T074)
@@ -119,6 +120,38 @@ pub struct HolderInfo {
 pub struct ListHoldersResponse {
     /// ホルダー一覧
     pub holders: Vec<HolderInfo>,
+}
+
+/// 登録されたStorage Node情報
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RegisteredStorageNode {
+    /// エンドポイントURL
+    pub endpoint: String,
+    /// ノードID（オプション、将来的にPeerIdを使用）
+    pub node_id: Option<String>,
+    /// 登録時刻（Unix timestamp）
+    pub registered_at: u64,
+    /// オンライン状態
+    pub is_online: bool,
+    /// 最後のヘルスチェック時刻
+    pub last_health_check: u64,
+}
+
+impl RegisteredStorageNode {
+    /// 新しいノードを作成
+    pub fn new(endpoint: String) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        Self {
+            endpoint,
+            node_id: None,
+            registered_at: now,
+            is_online: true,
+            last_health_check: now,
+        }
+    }
 }
 
 /// Storage RPC API定義
@@ -282,25 +315,43 @@ impl StorageNodeClient {
 pub struct Storage<C> {
     /// Runtime Client（チェーン状態参照用）
     client: Arc<C>,
-    /// Storage Node URL (動的に登録される)
-    storage_node_url: Arc<RwLock<Option<String>>>,
+    /// Storage Nodeレジストリ (マルチノード対応)
+    storage_nodes: SharedStorageNodes,
 }
 
 impl<C> Storage<C> {
     /// 新しいStorage RPCハンドラを作成
     /// Storage Nodeは起動時にstorage_registerEndpoint RPCで自動登録される
-    /// URLは全接続で共有される
-    pub fn new(client: Arc<C>, storage_node_url: Arc<RwLock<Option<String>>>) -> Self {
+    /// 複数ノードが登録可能で、断片は分散配置される
+    pub fn new(client: Arc<C>, storage_nodes: SharedStorageNodes) -> Self {
         Self { 
             client, 
-            storage_node_url,
+            storage_nodes,
         }
     }
     
-    /// Storage Nodeクライアントを取得
+    /// 指定インデックスの断片用にStorage Nodeクライアントを取得
+    /// 断片インデックスに基づいて異なるノードを選択（分散配置）
+    async fn get_storage_client_for_fragment(&self, fragment_index: usize) -> Option<StorageNodeClient> {
+        let registry = self.storage_nodes.read().await;
+        registry.select_node_for_fragment(fragment_index)
+            .map(|node| StorageNodeClient::new(node.endpoint.clone()))
+    }
+    
+    /// 最初の利用可能なStorage Nodeクライアントを取得（後方互換）
     async fn get_storage_client(&self) -> Option<StorageNodeClient> {
-        let url = self.storage_node_url.read().await;
-        url.as_ref().map(|u| StorageNodeClient::new(u.clone()))
+        let registry = self.storage_nodes.read().await;
+        registry.online_nodes().first()
+            .map(|node| StorageNodeClient::new(node.endpoint.clone()))
+    }
+    
+    /// 全てのオンラインノードへのクライアントを取得（取得時のフォールバック用）
+    async fn get_all_storage_clients(&self) -> Vec<StorageNodeClient> {
+        let registry = self.storage_nodes.read().await;
+        registry.online_nodes()
+            .iter()
+            .map(|node| StorageNodeClient::new(node.endpoint.clone()))
+            .collect()
     }
 }
 
@@ -361,13 +412,17 @@ where
             ).into());
         }
 
-        log::info!("Storage Node registered: {}", url);
+        // マルチノード対応：ノードをレジストリに追加
+        let mut registry = self.storage_nodes.write().await;
+        let node = RegisteredStorageNode::new(url.clone());
         
-        // URLを保存
-        let mut storage_url = self.storage_node_url.write().await;
-        *storage_url = Some(url);
-        
-        Ok(true)
+        if registry.register(node) {
+            log::info!("Storage Node registered: {} (total: {} nodes)", url, registry.nodes.len());
+            Ok(true)
+        } else {
+            log::info!("Storage Node already registered: {}", url);
+            Ok(false) // 既に登録済みの場合もエラーにはしない
+        }
     }
 
     async fn upload_fragment(&self, request: UploadFragmentRequest) -> RpcResult<UploadFragmentResponse> {
@@ -473,11 +528,12 @@ where
         // 3. 断片ハッシュ計算
         let fragment_hash = blake2b_hash(&data);
 
-        // 4. Storage Nodeに転送（HTTP経由）- 必須
-        let storage_client = self.get_storage_client().await.ok_or_else(|| {
+        // 4. Storage Nodeに転送（HTTP経由）- マルチノード分散配置
+        // 断片インデックスに基づいて異なるノードを選択
+        let storage_client = self.get_storage_client_for_fragment(request.index as usize).await.ok_or_else(|| {
             ErrorObject::owned(
                 ErrorCode::InternalError.code(),
-                "Storage Node not connected. Start storage-node and it will auto-register.",
+                "No Storage Nodes connected. Start storage-node(s) and they will auto-register.",
                 None::<()>,
             )
         })?;
@@ -510,33 +566,53 @@ where
             request.index
         );
 
-        // Storage Nodeから取得
-        let storage_client = self.get_storage_client().await.ok_or_else(|| {
-            ErrorObject::owned(
+        // マルチノード対応：全ノードを試行（フォールバック）
+        let storage_clients = self.get_all_storage_clients().await;
+        
+        if storage_clients.is_empty() {
+            return Err(ErrorObject::owned(
                 ErrorCode::InternalError.code(),
-                "Storage Node not connected. Start storage-node and it will auto-register.",
+                "No Storage Nodes connected. Start storage-node(s) and they will auto-register.",
                 None::<()>,
-            )
-        })?;
+            ).into());
+        }
 
-        let response = storage_client
-            .get_fragment(&request.merkle_root, request.index)
-            .await
-            .map_err(|e| {
-                ErrorObject::owned(
-                    ErrorCode::InternalError.code(),
-                    format!("Failed to get fragment from Storage Node: {}", e),
-                    None::<()>,
-                )
-            })?;
+        let mut last_error = String::new();
+        
+        // 断片を配置したノード（インデックスベース）を優先して試行
+        let primary_index = request.index as usize % storage_clients.len();
+        let mut indices: Vec<usize> = (0..storage_clients.len()).collect();
+        // 優先ノードを先頭に移動
+        indices.remove(primary_index);
+        indices.insert(0, primary_index);
+        
+        for idx in indices {
+            let client = &storage_clients[idx];
+            match client.get_fragment(&request.merkle_root, request.index).await {
+                Ok(response) => {
+                    log::info!(
+                        "Fragment retrieved from Storage Node (node {}): root={:?}, index={}",
+                        idx,
+                        hex::encode(&request.merkle_root[..8]),
+                        request.index
+                    );
+                    return Ok(response);
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to get fragment from node {}: {}",
+                        idx, e
+                    );
+                    last_error = e;
+                }
+            }
+        }
 
-        log::info!(
-            "Fragment retrieved from Storage Node: root={:?}, index={}",
-            hex::encode(&request.merkle_root[..8]),
-            request.index
-        );
-
-        Ok(response)
+        Err(ErrorObject::owned(
+            ErrorCode::InternalError.code(),
+            format!("Failed to get fragment from all Storage Nodes: {}", last_error),
+            None::<()>,
+        ).into())
     }
 
     async fn get_post_info(&self, merkle_root: [u8; 32]) -> RpcResult<PostInfoResponse> {
@@ -584,19 +660,19 @@ where
 
     async fn list_holders(&self, post_id: u64) -> RpcResult<ListHoldersResponse> {
         // TODO: declare_holdingストレージからホルダー一覧を取得
-        // 現在はStorage Nodeが1つの想定なので、登録されたURLから取得
+        // マルチノード対応：登録された全ノードから情報を取得
         log::debug!("list_holders called: post_id={}", post_id);
 
-        let url = self.storage_node_url.read().await;
-        let holders = if let Some(ref endpoint) = *url {
-            vec![HolderInfo {
-                account_id: "configured_storage_node".to_string(),
+        let registry = self.storage_nodes.read().await;
+        let holders: Vec<HolderInfo> = registry.online_nodes()
+            .iter()
+            .enumerate()
+            .map(|(idx, node)| HolderInfo {
+                account_id: format!("storage_node_{}", idx),
                 indices: (0..5).collect(), // 仮に0-4を保持
-                endpoint: Some(endpoint.clone()),
-            }]
-        } else {
-            vec![]
-        };
+                endpoint: Some(node.endpoint.clone()),
+            })
+            .collect();
 
         Ok(ListHoldersResponse { holders })
     }
@@ -941,19 +1017,26 @@ mod tests {
         assert_eq!(parsed.error.unwrap().message, "Fragment not found");
     }
 
-    // T033補足: Storage Nodeが未設定の場合のテスト
+    // T033補足: Storage Nodeクライアントのテスト
     #[test]
-    fn test_storage_client_none_handling() {
-        // Storage<C>のstorage_clientがNoneの場合、
-        // upload_fragmentとget_fragmentはエラーを返すべき
-        // (実際のasync呼び出しテストは統合テストで行う)
-        
+    fn test_storage_client_creation() {
         // StorageNodeClientが正しく作成されることのテスト
         let client = StorageNodeClient::new("http://localhost:8080".to_string());
+        // クライアントが作成されていることを確認
+        // Upload/getメソッドはasyncなので統合テストで確認
         assert!(!client.storage_node_url.is_empty());
         
         // Storage Nodeは起動時にstorage_registerEndpoint RPCで自動登録されるため、
         // 環境変数からの初期化は不要
+    }
+    
+    // マルチノード対応: RegisteredStorageNodeのテスト
+    #[test]
+    fn test_registered_storage_node() {
+        let node = RegisteredStorageNode::new("http://localhost:3030".to_string());
+        assert_eq!(node.endpoint, "http://localhost:3030");
+        assert!(node.is_online);
+        assert!(node.registered_at > 0);
     }
 
     // T033補足: 分散ストレージで必要なパラメータ検証

@@ -266,4 +266,52 @@ mod tests {
         
         assert!(manager.should_ignore(&peer_id).await);
     }
+
+    // T083: Test reputation score calculation
+    #[tokio::test]
+    async fn t083_reputation_score_calculation() {
+        let manager = ReputationManager::new();
+        let peer_id = make_peer_id();
+        
+        // Initial score should be 100
+        manager.get_or_create(peer_id).await;
+        assert_eq!(manager.get_score(&peer_id).await, Some(INITIAL_SCORE));
+        
+        // After 1 penalty: 100 + (-20) = 80
+        manager.record_invalid(peer_id).await;
+        assert_eq!(manager.get_score(&peer_id).await, Some(80));
+        
+        // After 1 reward: 80 + 1 = 81
+        manager.record_valid(peer_id).await;
+        assert_eq!(manager.get_score(&peer_id).await, Some(81));
+        
+        // Multiple rewards should not exceed MAX_SCORE
+        for _ in 0..50 {
+            manager.record_valid(peer_id).await;
+        }
+        assert_eq!(manager.get_score(&peer_id).await, Some(MAX_SCORE));
+        
+        // After 3 penalties from MAX: 100 - 60 = 40 (ignored)
+        manager.record_invalid(peer_id).await;
+        manager.record_invalid(peer_id).await;
+        manager.record_invalid(peer_id).await;
+        
+        assert!(manager.should_ignore(&peer_id).await);
+        assert!(manager.get_score(&peer_id).await.unwrap() <= IGNORE_THRESHOLD);
+    }
+
+    // Test cleanup removes old entries
+    #[tokio::test]
+    async fn test_cleanup_old_entries() {
+        let manager = ReputationManager::new();
+        let peer_id = make_peer_id();
+        
+        manager.record_valid(peer_id).await;
+        assert_eq!(manager.get_all().await.len(), 1);
+        
+        // Cleanup with 0 max_age should remove all entries (since some time has passed)
+        // Using very short duration to effectively remove everything
+        let removed = manager.cleanup(std::time::Duration::ZERO).await;
+        assert_eq!(removed, 1);
+    }
 }

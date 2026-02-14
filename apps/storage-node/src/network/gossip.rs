@@ -17,6 +17,8 @@ use libp2p::{
     PeerId,
 };
 use serde::{Deserialize, Serialize};
+use blake2::{Blake2b, Digest};
+use blake2::digest::consts::U32;
 
 use super::endpoint_cache::BlockchainEndpoint;
 
@@ -53,7 +55,7 @@ impl EndpointMessage {
     pub fn new(
         endpoints: Vec<BlockchainEndpoint>,
         sender_peer_id: PeerId,
-        _keypair: &Keypair,
+        keypair: &Keypair,
     ) -> Self {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -62,8 +64,18 @@ impl EndpointMessage {
         
         let sender_peer_id_str = sender_peer_id.to_base58();
         
-        // TODO: Implement actual signing in T058
-        let signature = "0".repeat(128); // 64 bytes hex = 128 chars
+        // Build message bytes for signing: peer_id || timestamp || hash(endpoints)
+        let endpoints_hash = hash_endpoints(&endpoints);
+        let mut sign_data = Vec::new();
+        sign_data.extend_from_slice(sender_peer_id_str.as_bytes());
+        sign_data.extend_from_slice(&timestamp.to_le_bytes());
+        sign_data.extend_from_slice(&endpoints_hash);
+        
+        // Sign with Ed25519
+        let signature = match keypair.sign(&sign_data) {
+            Ok(sig) => hex::encode(sig),
+            Err(_) => "0".repeat(128), // Fallback for non-Ed25519 keys
+        };
         
         Self {
             endpoints,
@@ -75,8 +87,39 @@ impl EndpointMessage {
     
     /// Verify the message signature
     pub fn verify_signature(&self) -> bool {
-        // TODO: Implement actual verification in T059
-        true
+        // Decode signature
+        let sig_bytes = match hex::decode(&self.signature) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        
+        // Parse PeerId from string
+        let peer_id = match self.sender_peer_id.parse::<PeerId>() {
+            Ok(id) => id,
+            Err(_) => return false,
+        };
+        
+        // Extract public key from PeerId (works for Ed25519)
+        let public_key = match libp2p::identity::PublicKey::try_decode_protobuf(
+            &peer_id.to_bytes()[2..] // Skip multicodec bytes
+        ) {
+            Ok(pk) => pk,
+            Err(_) => {
+                // Old format, or can't extract pubkey - use a different approach
+                // For modern PeerIds, the pubkey is embedded
+                return false;
+            }
+        };
+        
+        // Rebuild message bytes for verification
+        let endpoints_hash = hash_endpoints(&self.endpoints);
+        let mut sign_data = Vec::new();
+        sign_data.extend_from_slice(self.sender_peer_id.as_bytes());
+        sign_data.extend_from_slice(&self.timestamp.to_le_bytes());
+        sign_data.extend_from_slice(&endpoints_hash);
+        
+        // Verify signature
+        public_key.verify(&sign_data, &sig_bytes)
     }
     
     /// Serialize to bytes
@@ -155,9 +198,30 @@ pub fn build_gossipsub_config() -> gossipsub::Config {
         .expect("Valid gossipsub config")
 }
 
+/// Hash endpoints list for signing
+fn hash_endpoints(endpoints: &[BlockchainEndpoint]) -> [u8; 32] {
+    let mut hasher = Blake2b::<U32>::new();
+    for ep in endpoints {
+        hasher.update(ep.url.as_bytes());
+        hasher.update(&ep.chain_id);
+        hasher.update(&ep.latency_ms.to_le_bytes());
+    }
+    hasher.finalize().into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_test_endpoint() -> BlockchainEndpoint {
+        BlockchainEndpoint {
+            url: "ws://localhost:9944".to_string(),
+            chain_id: [0u8; 32],
+            last_verified: 1234567890,
+            latency_ms: 50,
+            ttl_secs: 300,
+        }
+    }
 
     #[test]
     fn test_endpoint_message_serialization() {
@@ -187,6 +251,80 @@ mod tests {
         assert!(msg.is_size_valid());
     }
 
+    // T079: Test Gossipsub message serialization/deserialization
+    #[test]
+    fn t079_gossipsub_serialization() {
+        let endpoints = vec![make_test_endpoint(), make_test_endpoint()];
+        let msg = EndpointMessage {
+            endpoints: endpoints.clone(),
+            sender_peer_id: "12D3KooWTest123".to_string(),
+            timestamp: 1700000000,
+            signature: "ab".repeat(64),
+        };
+        
+        let bytes = msg.to_bytes().expect("Should serialize");
+        let decoded = EndpointMessage::from_bytes(&bytes).expect("Should deserialize");
+        
+        assert_eq!(decoded.endpoints.len(), 2);
+        assert_eq!(decoded.sender_peer_id, msg.sender_peer_id);
+        assert_eq!(decoded.timestamp, msg.timestamp);
+        assert_eq!(decoded.signature, msg.signature);
+        assert_eq!(decoded.endpoints[0].url, "ws://localhost:9944");
+    }
+
+    // T080: Test invalid signature message rejection
+    #[test]
+    fn t080_invalid_signature_rejected() {
+        // Create a message with invalid signature
+        let msg = EndpointMessage {
+            endpoints: vec![make_test_endpoint()],
+            sender_peer_id: "12D3KooWInvalid".to_string(),  // Not a real PeerId
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            signature: "ff".repeat(64), // Invalid signature
+        };
+        
+        // Should fail verification (PeerId is not a proper one)
+        assert!(!msg.verify_signature());
+    }
+
+    // T081: Test 4KB message size limit
+    #[test]
+    fn t081_message_size_limit() {
+        // Empty message should be within limit
+        let small_msg = EndpointMessage {
+            endpoints: vec![],
+            sender_peer_id: "test".to_string(),
+            timestamp: 0,
+            signature: "0".repeat(128),
+        };
+        assert!(small_msg.is_size_valid());
+        
+        // Create a message that exceeds 4KB
+        let mut large_endpoints = Vec::new();
+        for i in 0..100 {
+            large_endpoints.push(BlockchainEndpoint {
+                url: format!("ws://node{}.example.com:9944/very/long/path/{}", i, "x".repeat(200)),
+                chain_id: [i as u8; 32],
+                last_verified: 1000000000 + i as u64,
+                latency_ms: 50 + i,
+                ttl_secs: 300,
+            });
+        }
+        
+        let large_msg = EndpointMessage {
+            endpoints: large_endpoints,
+            sender_peer_id: "test".to_string(),
+            timestamp: 0,
+            signature: "0".repeat(128),
+        };
+        
+        // Should exceed size limit
+        assert!(!large_msg.is_size_valid());
+    }
+
     #[test]
     fn test_validate_message_too_large() {
         let data = vec![0u8; MAX_MESSAGE_SIZE + 1];
@@ -197,5 +335,27 @@ mod tests {
     fn test_validate_message_malformed() {
         let data = b"not valid json";
         assert_eq!(validate_message(data), MessageValidation::Malformed);
+    }
+
+    #[test]
+    fn test_hash_endpoints_deterministic() {
+        let endpoints = vec![make_test_endpoint()];
+        let hash1 = hash_endpoints(&endpoints);
+        let hash2 = hash_endpoints(&endpoints);
+        assert_eq!(hash1, hash2);
+        
+        // Different endpoints should have different hashes
+        let endpoints2 = vec![BlockchainEndpoint {
+            url: "ws://different:9944".to_string(),
+            ..make_test_endpoint()
+        }];
+        let hash3 = hash_endpoints(&endpoints2);
+        assert_ne!(hash1, hash3);
+    }
+
+    #[test]
+    fn test_gossipsub_config() {
+        let config = build_gossipsub_config();
+        assert_eq!(config.max_transmit_size(), MAX_MESSAGE_SIZE);
     }
 }

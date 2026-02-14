@@ -56,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
         chain_url: args.chain_url.clone(),
         listen_addr: args.listen.clone(),
         rpc_port: args.rpc_port,
+        auth_enabled: None,
     };
     let config = config::Config::load(&args.config, overrides)?;
     info!("Configuration loaded from {}", args.config);
@@ -82,9 +83,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Start HTTP RPC server
     let rpc_addr = format!("0.0.0.0:{}", config.rpc_port);
-    let rpc_router = rpc::create_rpc_router(Arc::clone(&store));
+    let rpc_router = rpc::create_rpc_router(Arc::clone(&store), config.auth_enabled);
     let rpc_listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
-    info!(addr = %rpc_addr, "HTTP RPC server started");
+    info!(addr = %rpc_addr, auth = config.auth_enabled, "HTTP RPC server started");
     
     // Spawn HTTP server
     let http_server = tokio::spawn(async move {
