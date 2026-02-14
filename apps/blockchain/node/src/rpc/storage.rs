@@ -498,6 +498,25 @@ where
     }
 
     async fn upload_fragment(&self, request: UploadFragmentRequest) -> RpcResult<UploadFragmentResponse> {
+        // 0. ノード数チェック（total_leaves以上のノードが必要）
+        let required_nodes = request.total_leaves as usize;
+        let available_nodes = {
+            let registry = self.storage_nodes.read().await;
+            registry.online_nodes().len()
+        };
+        
+        if available_nodes < required_nodes {
+            return Err(ErrorObject::owned(
+                ErrorCode::ServerError(-32001).code(),
+                format!(
+                    "Insufficient Storage Nodes: {} required, {} available. Start more storage-node instances.",
+                    required_nodes,
+                    available_nodes
+                ),
+                None::<()>,
+            ).into());
+        }
+
         // 1. Base64デコード
         use base64::{engine::general_purpose::STANDARD, Engine};
         
@@ -909,6 +928,7 @@ mod tests {
             data: encoded.clone(),
             proof: STANDARD.encode(b"proof"),
             total_leaves: 5,
+            auth: None,
         };
         
         // デコード検証
@@ -1054,6 +1074,7 @@ mod tests {
                 data: STANDARD.encode(b"fragment data"),
                 proof: STANDARD.encode(b"proof bytes"),
                 total_leaves: 5,
+                auth: None,
             },
         };
         
@@ -1275,5 +1296,87 @@ mod tests {
             assert_ne!(node.endpoint, "http://node2:3030");
         }
     }
+    
+    // T108: Test insufficient nodes check for SSS_N=5
+    #[test]
+    fn test_insufficient_nodes_for_sss() {
+        use crate::rpc::StorageNodeRegistry;
+        
+        const SSS_N: usize = 5; // 必要な断片数
+        
+        // 3ノードしかない場合
+        let mut registry = StorageNodeRegistry::new();
+        registry.register(RegisteredStorageNode::new("http://node1:3030".to_string()));
+        registry.register(RegisteredStorageNode::new("http://node2:3030".to_string()));
+        registry.register(RegisteredStorageNode::new("http://node3:3030".to_string()));
+        
+        let available = registry.online_node_count();
+        assert_eq!(available, 3);
+        
+        // 5ノード必要なのに3ノードしかない -> 不十分
+        assert!(available < SSS_N);
+        
+        // 各断片がどのノードに割り当てられるか確認（重複あり）
+        let assignments: Vec<usize> = (0..SSS_N)
+            .map(|i| i % available)
+            .collect();
+        
+        // 断片0,3 -> node0, 断片1,4 -> node1, 断片2 -> node2
+        // 重複が発生している
+        assert_eq!(assignments, vec![0, 1, 2, 0, 1]);
+        
+        // 5ノード追加して十分にする
+        registry.register(RegisteredStorageNode::new("http://node4:3030".to_string()));
+        registry.register(RegisteredStorageNode::new("http://node5:3030".to_string()));
+        
+        let available = registry.online_node_count();
+        assert_eq!(available, 5);
+        
+        // 5ノード必要で5ノードある -> 十分
+        assert!(available >= SSS_N);
+        
+        // 各断片が異なるノードに割り当てられる
+        let assignments: Vec<usize> = (0..SSS_N)
+            .map(|i| i % available)
+            .collect();
+        
+        // 各断片が一意のノードに割り当て
+        assert_eq!(assignments, vec![0, 1, 2, 3, 4]);
+    }
+    
+    // T109: Test node count validation with offline nodes
+    #[test]
+    fn test_node_count_with_offline() {
+        use crate::rpc::StorageNodeRegistry;
+        
+        const SSS_N: usize = 5;
+        
+        let mut registry = StorageNodeRegistry::new();
+        
+        // 5ノード登録するが、2つはオフライン
+        for i in 0..5 {
+            let mut node = RegisteredStorageNode::new(format!("http://node{}:3030", i));
+            // ノード3と4はオフライン
+            node.is_online = i < 3;
+            registry.register(node);
+        }
+        
+        // 総ノード数は5
+        assert_eq!(registry.nodes.len(), 5);
+        
+        // オンラインノード数は3（不十分）
+        let available = registry.online_node_count();
+        assert_eq!(available, 3);
+        assert!(available < SSS_N);
+        
+        // すべてのノードをオンラインにする
+        for node in &mut registry.nodes {
+            node.is_online = true;
+        }
+        
+        // オンラインノード数は5（十分）
+        let available = registry.online_node_count();
+        assert_eq!(available, 5);
+        assert!(available >= SSS_N);
+    }
 }
-
