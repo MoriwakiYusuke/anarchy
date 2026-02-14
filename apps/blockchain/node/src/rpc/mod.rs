@@ -15,30 +15,16 @@ pub mod storage;
 
 pub use storage::{StorageApiServer, Storage, RegisteredStorageNode};
 
-/// ノード選択方式 (FR-101)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SelectionStrategy {
-    /// ランダム選択（プライバシー優先、デフォルト）(FR-102)
-    #[default]
-    Random,
-    /// ラウンドロビン選択（均等配置）
-    RoundRobin,
-    /// 最寄りノード選択（低遅延優先）(FR-104)
-    Nearest,
-}
-
 /// Storage Nodeの共有状態（マルチノード対応）
 pub type SharedStorageNodes = Arc<RwLock<StorageNodeRegistry>>;
 
 /// Storage Nodeレジストリ
+/// 
+/// プライバシー保護のため、ノード選択は常にランダム
 #[derive(Debug, Default)]
 pub struct StorageNodeRegistry {
     /// 登録されたノード一覧
     pub nodes: Vec<RegisteredStorageNode>,
-    /// ラウンドロビン用インデックス
-    pub round_robin_index: usize,
-    /// ノード選択方式 (FR-101)
-    pub selection_strategy: SelectionStrategy,
 }
 
 impl StorageNodeRegistry {
@@ -46,8 +32,6 @@ impl StorageNodeRegistry {
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
-            round_robin_index: 0,
-            selection_strategy: SelectionStrategy::Random, // FR-102: デフォルトはランダム
         }
     }
     
@@ -70,61 +54,15 @@ impl StorageNodeRegistry {
         self.nodes.iter().filter(|n| n.is_online).collect()
     }
     
-    /// 選択方式を設定
-    pub fn set_selection_strategy(&mut self, strategy: SelectionStrategy) {
-        self.selection_strategy = strategy;
-    }
-    
-    /// 現在の選択方式を取得
-    pub fn get_selection_strategy(&self) -> SelectionStrategy {
-        self.selection_strategy
-    }
-    
-    /// 現在の選択方式に基づいてノードを選択
-    pub fn select_node(&mut self) -> Option<RegisteredStorageNode> {
-        match self.selection_strategy {
-            SelectionStrategy::Random => self.next_node_random(),
-            SelectionStrategy::RoundRobin => self.next_node_round_robin(),
-            SelectionStrategy::Nearest => self.next_node_nearest(),
-        }
-    }
-    
-    /// ランダムで次のノードを選択 (FR-101, FR-102)
-    pub fn next_node_random(&self) -> Option<RegisteredStorageNode> {
-        let online: Vec<_> = self.nodes.iter().filter(|n| n.is_online).collect();
-        if online.is_empty() {
-            return None;
-        }
-        let mut rng = rand::thread_rng();
-        online.choose(&mut rng).map(|&n| n.clone())
-    }
-    
-    /// ラウンドロビンで次のノードを選択
-    pub fn next_node_round_robin(&mut self) -> Option<RegisteredStorageNode> {
-        let count = self.online_node_count();
-        if count == 0 {
-            return None;
-        }
-        let index = self.round_robin_index % count;
-        self.round_robin_index = self.round_robin_index.wrapping_add(1);
-        
-        // インデックスを更新した後に再度取得（借用問題を回避）
-        self.nodes.iter()
+    /// ランダムで並び替えたオンラインノードを取得（プライバシー優先）
+    pub fn online_nodes_shuffled(&self) -> Vec<RegisteredStorageNode> {
+        let mut online: Vec<_> = self.nodes.iter()
             .filter(|n| n.is_online)
-            .nth(index)
             .cloned()
-    }
-    
-    /// 最寄りノードを選択 (FR-104: 遅延の小さいノードを優先)
-    pub fn next_node_nearest(&self) -> Option<RegisteredStorageNode> {
-        let online: Vec<_> = self.nodes.iter().filter(|n| n.is_online).collect();
-        if online.is_empty() {
-            return None;
-        }
-        // latency_ms が最小のノードを選択
-        online.iter()
-            .min_by_key(|n| n.latency_ms.unwrap_or(u64::MAX))
-            .map(|&n| n.clone())
+            .collect();
+        let mut rng = rand::thread_rng();
+        online.shuffle(&mut rng);
+        online
     }
     
     /// 断片インデックスに基づいてノードを選択（分散配置）
@@ -133,7 +71,6 @@ impl StorageNodeRegistry {
         if online.is_empty() {
             return None;
         }
-        // 断片インデックスに基づいて異なるノードを選択
         let node_index = fragment_index % online.len();
         Some(online[node_index])
     }

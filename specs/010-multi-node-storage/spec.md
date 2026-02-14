@@ -155,10 +155,10 @@ Storage Palletの既存extrinsicに対するDoS攻撃を防止し、Post Pallet�
 
 #### ノード選択ロジック
 
-- **FR-101**: System MUST 以下のノード選択方式をサポートする: ラウンドロビン、ランダム、最寄りノード
-- **FR-102**: System MUST デフォルトのノード選択方式を「ランダム」とする（プライバシー優先）
-- ~~**FR-103**: Users MUST フロントエンド設定画面からノード選択方式を変更できる~~ _→ 対応しない（設定はAPI/config経由）_
-- **FR-104**: System MUST 「最寄りノード」方式でノードへのping応答時間を計測し、遅延の小さいノードを優先選択する
+- **FR-101**: System MUST ノード選択方式は常にランダムとする（プライバシー優先）
+- ~~**FR-102**: System MUST デフォルトのノード選択方式を「ランダム」とする（プライバシー優先）~~ _→ FR-101に統合_
+- ~~**FR-103**: Users MUST フロントエンド設定画面からノード選択方式を変更できる~~ _→ 対応しない（ランダム固定）_
+- ~~**FR-104**: System MUST 「最寄りノード」方式でノードへのping応答時間を計測し、遅延の小さいノードを優先選択する~~ _→ 対応しない（プライバシー優先）_
 - **FR-105**: System MUST 選択候補ノードをオフラインノードを除外してフィルタリングする
 
 #### ストレージノード認証
@@ -246,7 +246,6 @@ Storage Palletの既存extrinsicに対するDoS攻撃を防止し、Post Pallet�
 ### Key Entities
 
 - **FragmentPlacement（断片配置）**: 断片IDと配置先ノードIDのマッピング。投稿作成時に決定される。
-- **NodeSelectionStrategy（ノード選択戦略）**: ノード選択方式を表すEnum（RoundRobin, Random, NearestNode）。
 - **SignedRequest（署名付きリクエスト）**: AccountId、タイムスタンプ、ノンス、ペイロードハッシュ、署名を含むリクエスト構造。
 - **NodeHealthStatus（ノード健全性）**: ノードのオンライン/オフライン状態、最終応答時間、遅延を管理。
 - **BlockchainEndpoint（ブロックチェーンエンドポイント）**: RPC URL、最終検証時刻、レイテンシ、TTLを含む。ストレージノード間でGossipsub経由で共有。

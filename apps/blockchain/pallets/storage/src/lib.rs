@@ -93,6 +93,7 @@ pub trait StorageInterface<AccountId, BlockNumber> {
 }
 
 #[frame_support::pallet]
+#[allow(deprecated)]
 pub mod pallet {
     use super::*;
     use frame_support::pallet_prelude::*;

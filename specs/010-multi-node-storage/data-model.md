@@ -296,18 +296,6 @@ impl NonceCache {
 
 ## Frontend Entities
 
-### NodeSelectionStrategy
-
-ユーザー設定用Enum
-
-```typescript
-enum NodeSelectionStrategy {
-  Random = 'random',
-  RoundRobin = 'round-robin',
-  NearestNode = 'nearest-node',
-}
-```
-
 ### FragmentPlacement
 
 断片配置状態

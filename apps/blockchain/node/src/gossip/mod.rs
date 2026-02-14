@@ -126,11 +126,6 @@ impl StorageNodeGossip {
         (service, handle)
     }
 
-    /// プロトコル名を取得
-    pub fn protocol_name() -> ProtocolName {
-        STORAGE_NODE_PROTOCOL.into()
-    }
-
     /// Gossipイベントループを実行
     pub async fn run(mut self) {
         info!("Storage Node Gossip service started");

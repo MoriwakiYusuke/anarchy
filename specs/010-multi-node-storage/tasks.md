@@ -259,32 +259,32 @@ Based on plan.md:
 
 ### Implementation for User Story 2 (Chain-side)
 
-#### Node Selection Strategies (FR-101-105) - Chain Node
+#### Node Selection (FR-101, FR-105) - Chain Node
 
 - [X] T097 [US2] Implement select_node_for_fragment (fragment-index based distribution) in apps/blockchain/node/src/rpc/mod.rs
-- [X] T098 [US2] Implement next_node_round_robin for round-robin selection in apps/blockchain/node/src/rpc/mod.rs
+- [~] T098 [US2] DELETED - next_node_round_robin removed (プライバシー優先でランダムのみ)
 - [X] T099 [US2] Implement online_nodes filter (exclude offline) in apps/blockchain/node/src/rpc/mod.rs
-- [X] T100 [US2] Implement SelectionStrategy enum (Random, RoundRobin, Nearest) in apps/blockchain/node/src/rpc/mod.rs
-- [X] T101 [US2] Implement next_node_random for random selection (FR-101, FR-102) in apps/blockchain/node/src/rpc/mod.rs
-- [X] T102 [US2] Implement next_node_nearest for latency-based selection (FR-104) in apps/blockchain/node/src/rpc/mod.rs
+- [~] T100 [US2] DELETED - SelectionStrategy enum removed (ランダム固定)
+- [X] T101 [US2] Implement online_nodes_shuffled for random selection (FR-101) in apps/blockchain/node/src/rpc/mod.rs
+- [~] T102 [US2] DELETED - next_node_nearest removed (プライバシー優先)
 - [X] T103 [US2] Add latency_ms field to RegisteredStorageNode in apps/blockchain/node/src/rpc/storage.rs
-- [X] T104 [US2] Implement set/get_selection_strategy methods in apps/blockchain/node/src/rpc/mod.rs
-- [X] T105 [US2] Implement select_node method using current strategy in apps/blockchain/node/src/rpc/mod.rs
+- [~] T104 [US2] DELETED - set/get_selection_strategy removed (ランダム固定)
+- [~] T105 [US2] DELETED - select_node removed (online_nodes_shuffled使用)
 
-#### Settings RPC (FR-103) - Optional (Skipped - config via API/config)
+#### Settings RPC (FR-103) - Removed
 
-- [~] T106 [US2] SKIPPED - storage_setSelectionStrategy RPC (use API/config instead per spec)
-- [~] T107 [US2] SKIPPED - storage_getSelectionStrategy RPC
+- [~] T106 [US2] DELETED - storage_setSelectionStrategy RPC (ランダム固定)
+- [~] T107 [US2] DELETED - storage_getSelectionStrategy RPC
 
 #### Unit Tests
 
-- [X] T108 [P] [US2] Test round_robin produces rotating distribution
+- [~] T108 [P] [US2] DELETED - round_robin test removed
 - [X] T109 [P] [US2] Test fragment-index selection distributes across nodes
 - [X] T110 [P] [US2] Test offline node filtering
-- [X] T111 [P] [US2] Test random selection
-- [X] T112 [P] [US2] Test nearest node selection (FR-104)
-- [X] T113 [P] [US2] Test default strategy is random (FR-102)
-- [X] T114 [P] [US2] Test select_node uses current strategy
+- [X] T111 [P] [US2] Test random selection (online_nodes_shuffled)
+- [~] T112 [P] [US2] DELETED - nearest node selection test removed
+- [~] T113 [P] [US2] DELETED - default strategy test removed (ランダム固定)
+- [~] T114 [P] [US2] DELETED - select_node test removed
 
 **Checkpoint**: Node selection strategies complete - chain node can optimize distribution
 

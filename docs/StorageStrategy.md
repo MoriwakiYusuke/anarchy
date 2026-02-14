@@ -12,7 +12,7 @@
 >   - フロントエンド統合 (`useStorage` hook)
 > - + Phase 2 Multi-Node Storage - 2026-02-14
 >   - マルチノード断片分散配置 (SharedStorageNodes)
->   - ノード選択戦略 (Random/RoundRobin/Nearest)
+>   - ノード選択方式: ランダム固定（プライバシー優先）
 >   - Storage Node間P2P通信 (Gossipsub)
 >   - アクセス認証 (Sr25519署名検証)
 >   - Storage Palletセキュリティ (PoW + レート制限)
@@ -350,7 +350,7 @@ pub threshold: u8,
 | **Chain** | Substrate / Storage Pallet | ノード登録、保持表明 + PoW + レート制限 | ✅完了 |
 | **Storage** | Custom Daemon + HTTP JSON-RPC | 断片保存・取得 | ✅完了 |
 | **Storage** | + マルチノード分散 | SharedStorageNodes, fragment-index分散 | ✅完了 |
-| **Storage** | + ノード選択戦略 | Random/RoundRobin/Nearest | ✅完了 |
+| **Storage** | + ノード選択方式 | ランダム固定（プライバシー優先） | ✅完了 |
 | **Storage** | + アクセス認証 | Sr25519署名検証, nonce replay防止 | ✅完了 |
 | **Crypto** | SSS (sharks crate) | 断片化 | ✅完了 |
 | **Crypto** | Merkle Tree (blake2b) | 断片ID導出 | ✅完了 |
@@ -437,7 +437,7 @@ Anarchy プロトコルの「体」になる部分。
 | **+ Post Pallet V2** | ✅ 実装済み | create_post_v2(merkle_root, fragment_count) |
 | **+ フロントエンド統合** | ✅ 実装済み | useStorage hook, PAPI Binary対応 |
 | **+ マルチノード分散** | ✅ 実装済み (2026-02-14) | SharedStorageNodes, fragment-index分散 |
-| **+ ノード選択戦略** | ✅ 実装済み | Random/RoundRobin/Nearest |
+| **+ ノード選択方式** | ✅ 実装済み | ランダム固定（プライバシー優先） |
 | **+ アクセス認証** | ✅ 実装済み | Sr25519署名検証 + nonce replay防止 |
 | **+ Storage Palletセキュリティ** | ✅ 実装済み | PoW検証 + レート制限 |
 | **+ P2P Gossipsub** | ✅ 実装済み | エンドポイント共有 + フェイルオーバー |
@@ -490,7 +490,7 @@ Phase 1.5: Post Storage Migration ← ✅ 完了 (2026-02-10)
     │
     │ マルチノード対応 & セキュリティ強化
     │ - 断片マルチノード分散配置 (SharedStorageNodes)
-    │ - ノード選択戦略 (Random/RoundRobin/Nearest)
+    │ - ノード選択方式: ランダム固定（プライバシー優先）
     │ - Storage Node間P2P通信 (Gossipsub)
     │ - アクセス認証 (Sr25519署名検証)
     │ - Storage Palletセキュリティ (PoW + レート制限)

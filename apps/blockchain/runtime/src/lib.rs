@@ -13,11 +13,12 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
-    create_runtime_str, generic, impl_opaque_keys,
+    generic, impl_opaque_keys,
     traits::{BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify},
     transaction_validity::{TransactionSource, TransactionValidity},
     ApplyExtrinsicResult, MultiSignature,
 };
+use sp_std::borrow::Cow;
 use sp_std::prelude::*;
 use sp_version::RuntimeVersion;
 
@@ -70,8 +71,8 @@ pub mod opaque {
 /// Runtime version
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-    spec_name: create_runtime_str!("anarchy"),
-    impl_name: create_runtime_str!("anarchy"),
+    spec_name: Cow::Borrowed("anarchy"),
+    impl_name: Cow::Borrowed("anarchy"),
     authoring_version: 1,
     spec_version: 104,  // Bumped: $moral = native token, removed pallet_moral
     impl_version: 1,

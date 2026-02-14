@@ -201,10 +201,8 @@
   - [x] + fragment-indexベース分散: 各断片を異なるノードに配置
   - [x] + フェイルオーバー取得: 取得失敗時に他ノードへフォールバック
 
-- [x] + **ノード選択戦略** (SelectionStrategy enum)
-  - [x] + ランダム選択 (デフォルト): 負荷分散
-  - [x] + ラウンドロビン選択: 均等分散
-  - [x] + 最寄りノード選択: レイテンシベース最適化
+- [x] + **ノード選択方式**: ランダム固定（プライバシー優先）
+  - [x] + ランダム選択: プライバシーと負荷分散
   - [x] + オフラインノードフィルタリング
 
 - [x] + **ストレージノードP2P通信** (libp2p Gossipsub)
@@ -459,7 +457,7 @@
 ### + Phase 2 スコープ（010-multi-node-storage） → ✅完了 (2026-02-14)
 
 - ✅ + マルチノード対応: SharedStorageNodes、fragment-index分散
-- ✅ + ノード選択戦略: Random/RoundRobin/Nearest
+- ✅ + ノード選択方式: ランダム固定（プライバシー優先）
 - ✅ + Storage Node P2P: Gossipsub (`/anarchy/endpoints/1.0.0`)
 - ✅ + アクセス認証: Sr25519署名検証、nonce replay防止
 - ✅ + Storage Palletセキュリティ: PoW + レート制限
@@ -570,10 +568,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
   - [x] + fragment-index分散: 各断片を異なるノードに配置
   - [x] + フォールバック取得: 失敗時に他ノードへフォールバック
 
-- [x] + **ノード選択戦略** (SelectionStrategy)
-  - [x] + Random (デフォルト): 負荷分散
-  - [x] + RoundRobin: 均等分散
-  - [x] + Nearest: レイテンシベース最適化
+- [x] + **ノード選択方式**: ランダム固定（プライバシー優先）
 
 - [x] + **ストレージノード間P2P通信** (libp2p Gossipsub)
   - [x] + トピック: `/anarchy/endpoints/1.0.0`
