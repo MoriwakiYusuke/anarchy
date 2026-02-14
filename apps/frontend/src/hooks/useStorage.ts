@@ -134,9 +134,9 @@ function toHex(bytes: Uint8Array): string {
 /**
  * 認証用のSignedAuthを生成
  * @param signer 署名用キーペア
- * @param payload リクエストボディ（JSON文字列）
+ * @param params リクエストパラメータオブジェクト
  */
-function generateAuth(signer: StorageSigner, payload: string): SignedAuth {
+function generateAuth(signer: StorageSigner, params: Record<string, unknown>): SignedAuth {
   // タイムスタンプ（秒）
   const timestamp = Math.floor(Date.now() / 1000)
   
@@ -145,6 +145,12 @@ function generateAuth(signer: StorageSigner, payload: string): SignedAuth {
   crypto.getRandomValues(nonceBytes)
   
   // ペイロードハッシュ（Blake2b-256）
+  // キーをアルファベット順にソートしてJSON.stringify（serde_jsonと同じ順序）
+  const sortedParams = Object.keys(params).sort().reduce((acc, key) => {
+    acc[key] = params[key]
+    return acc
+  }, {} as Record<string, unknown>)
+  const payload = JSON.stringify(sortedParams)
   const payloadBytes = new TextEncoder().encode(payload)
   const payloadHash = blake2b(payloadBytes, undefined, 32)
   
@@ -350,8 +356,7 @@ export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
             
             // 認証情報を追加（signerが提供されている場合、毎回新しいnonceで生成）
             if (signer) {
-              const payload = JSON.stringify(requestParams)
-              requestParams.auth = generateAuth(signer, payload)
+              requestParams.auth = generateAuth(signer, baseParams)
             }
 
             const result = await rpcCall<{ success: boolean; fragment_hash: number[] }>(

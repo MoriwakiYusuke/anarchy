@@ -277,21 +277,26 @@ impl StorageNodeClient {
             message: String,
         }
 
+        // Clone request and strip auth from body - auth is sent via header only
+        // This ensures storage node can verify body hash matches what client signed
+        let mut params_without_auth = request.clone();
+        let auth = params_without_auth.auth.take();
+        
         let rpc_request = RpcRequest {
             jsonrpc: "2.0",
             id: 1,
             method: "storage_storeFragment",
-            params: request,
+            params: &params_without_auth,
         };
 
-        // Build HTTP request with optional auth header
+        // Build HTTP request with auth in header only (not in body)
         let mut http_request = self.http_client
             .post(&self.storage_node_url)
             .json(&rpc_request);
         
         // Add X-Anarchy-Auth header if auth is present
-        if let Some(auth) = &request.auth {
-            let auth_json = serde_json::to_string(auth)
+        if let Some(auth) = auth {
+            let auth_json = serde_json::to_string(&auth)
                 .map_err(|e| format!("Failed to serialize auth: {}", e))?;
             http_request = http_request.header("X-Anarchy-Auth", auth_json);
         }

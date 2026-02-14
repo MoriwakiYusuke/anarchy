@@ -215,14 +215,38 @@ fn current_timestamp() -> u64 {
         .as_secs()
 }
 
+/// Extract params from JSON-RPC request and compute Blake2b-256 hash
+/// 
+/// Frontend hashes only the params object (without auth field), not the full JSON-RPC wrapper.
+/// This function extracts params, removes auth if present, and hashes the result.
+fn extract_and_hash_params(body: &[u8]) -> Result<[u8; 32], AuthError> {
+    // Parse JSON-RPC request
+    let mut json: serde_json::Value = serde_json::from_slice(body)
+        .map_err(|_| AuthError::InvalidSignature)?;
+    
+    // Extract params field
+    let params = json.get_mut("params")
+        .ok_or(AuthError::InvalidSignature)?;
+    
+    // Remove auth field if present (frontend doesn't include auth in hash)
+    if let Some(obj) = params.as_object_mut() {
+        obj.remove("auth");
+    }
+    
+    // Serialize params back to JSON string (same format as frontend)
+    let params_json = serde_json::to_string(params)
+        .map_err(|_| AuthError::InvalidSignature)?;
+    
+    // Compute Blake2b-256 hash
+    let mut hasher = Blake2b::<U32>::new();
+    hasher.update(params_json.as_bytes());
+    Ok(hasher.finalize().into())
+}
+
 /// Validate a signed request
-///
-/// Note: Payload hash verification is skipped because the blockchain node
-/// proxies requests with a different JSON-RPC structure than the frontend.
-/// The signature itself contains the payload_hash, so tampering is still detected.
 pub fn validate_request(
     request: &SignedRequest,
-    _expected_payload_hash: &[u8; 32],  // Not used - structure mismatch between frontend and proxy
+    expected_payload_hash: &[u8; 32],
     nonce_cache: &NonceCache,
 ) -> Result<(), AuthError> {
     // 1. Check timestamp (within 5 minutes)
@@ -243,10 +267,12 @@ pub fn validate_request(
         return Err(AuthError::NonceReused);
     }
     
-    // 3. Payload hash verification skipped
-    // The frontend hashes baseParams, but blockchain node proxies with different structure.
-    // Signature includes payload_hash, so if signature is valid, the hash wasn't tampered.
+    // 3. Verify payload hash matches what client signed
+    // The blockchain node now strips auth from body, so hash should match
     let provided_hash = request.get_payload_hash_bytes()?;
+    if &provided_hash != expected_payload_hash {
+        return Err(AuthError::PayloadHashMismatch);
+    }
     
     // 4. Verify Sr25519 signature
     let public_key_bytes = request.get_account_id_bytes()?;
@@ -370,11 +396,14 @@ pub async fn auth_middleware(
         }
     };
     
-    // Compute Blake2b-256 hash of request body
-    // Frontend sends auth via X-Anarchy-Auth header, so body contains no auth field
-    let mut hasher = Blake2b::<U32>::new();
-    hasher.update(&body_bytes);
-    let actual_payload_hash: [u8; 32] = hasher.finalize().into();
+    // Compute Blake2b-256 hash of the params field only (not the full JSON-RPC wrapper)
+    // Frontend hashes only the params object, not { jsonrpc, id, method, params }
+    let actual_payload_hash: [u8; 32] = match extract_and_hash_params(&body_bytes) {
+        Ok(hash) => hash,
+        Err(_) => {
+            return (StatusCode::BAD_REQUEST, "Invalid JSON-RPC request").into_response();
+        }
+    };
     
     // Validate the request against actual body hash
     if let Err(e) = validate_request(&signed_request, &actual_payload_hash, &auth_state.nonce_cache) {
@@ -569,11 +598,9 @@ mod tests {
         assert_eq!(result2, Err(AuthError::NonceReused));
     }
 
-    // Test that payload hash mismatch is now skipped (due to proxy architecture)
-    // The blockchain node proxies with different JSON structure, so we can't
-    // verify the actual body hash. Signature still protects payload_hash integrity.
+    // Test that payload hash mismatch is detected
     #[test]
-    fn test_payload_hash_mismatch_skipped() {
+    fn test_payload_hash_mismatch() {
         let keypair = Keypair::generate();
         let payload_hash = [0xab; 32];
         let now = current_timestamp();
@@ -581,11 +608,10 @@ mod tests {
         let request = create_test_signed_request(&keypair, &payload_hash, now);
         let cache = NonceCache::new(300);
         
-        // Different expected hash - but validation should still pass
-        // because we skip body hash verification in proxy architecture
+        // Different expected hash - should fail validation
         let wrong_hash = [0xcd; 32];
         let result = validate_request(&request, &wrong_hash, &cache);
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Err(AuthError::PayloadHashMismatch));
     }
 
     // Test method_requires_auth
@@ -606,5 +632,98 @@ mod tests {
         
         let state_disabled = AuthState::new(false);
         assert!(!state_disabled.enabled);
+    }
+}
+
+#[cfg(test)]
+mod json_format_tests {
+    use super::*;
+    
+    #[test]
+    fn test_json_key_order_sorted() {
+        // Frontend now sorts keys alphabetically before JSON.stringify
+        // This matches serde_json's default behavior
+        let frontend_sorted = r#"{"data":"dGVzdA==","index":0,"merkle_root":[1,2,3],"proof":"cHJvb2Y=","total_leaves":5}"#;
+        
+        // Parse and re-serialize (serde_json sorts alphabetically)
+        let parsed: serde_json::Value = serde_json::from_str(frontend_sorted).unwrap();
+        let reserialized = serde_json::to_string(&parsed).unwrap();
+        
+        assert_eq!(frontend_sorted, reserialized, "Sorted JSON should match serde_json output");
+    }
+    
+    #[test]
+    fn test_extract_and_hash_params_matches_frontend() {
+        // Simulate what frontend does:
+        // 1. Create params object (without auth)
+        // 2. Sort keys alphabetically
+        // 3. JSON.stringify
+        // 4. Blake2b-256 hash
+        
+        // Frontend's sorted params (keys in alphabetical order)
+        let frontend_params = r#"{"data":"dGVzdA==","index":0,"merkle_root":[1,2,3],"proof":"cHJvb2Y=","total_leaves":5}"#;
+        
+        // Compute hash as frontend would
+        let mut frontend_hasher = Blake2b::<U32>::new();
+        frontend_hasher.update(frontend_params.as_bytes());
+        let frontend_hash: [u8; 32] = frontend_hasher.finalize().into();
+        
+        // Simulate what storage node receives (JSON-RPC wrapper with params)
+        // Note: auth might be present but extract_and_hash_params removes it
+        let json_rpc_body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "storage_storeFragment",
+            "params": {
+                "merkle_root": [1,2,3],
+                "index": 0,
+                "data": "dGVzdA==",
+                "proof": "cHJvb2Y=",
+                "total_leaves": 5
+            }
+        }"#;
+        
+        // Extract and hash params as storage node does
+        let storage_hash = extract_and_hash_params(json_rpc_body.as_bytes()).unwrap();
+        
+        assert_eq!(
+            frontend_hash, storage_hash,
+            "Frontend and storage node hashes must match\nFrontend params: {}\nFrontend hash: {:?}\nStorage hash: {:?}",
+            frontend_params, frontend_hash, storage_hash
+        );
+    }
+    
+    #[test]
+    fn test_extract_and_hash_params_removes_auth() {
+        // Even if auth is present in params, it should be removed before hashing
+        let params_without_auth = r#"{"data":"dGVzdA==","index":0,"merkle_root":[1,2,3],"proof":"cHJvb2Y=","total_leaves":5}"#;
+        
+        let mut expected_hasher = Blake2b::<U32>::new();
+        expected_hasher.update(params_without_auth.as_bytes());
+        let expected_hash: [u8; 32] = expected_hasher.finalize().into();
+        
+        let json_rpc_with_auth = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "storage_storeFragment",
+            "params": {
+                "merkle_root": [1,2,3],
+                "index": 0,
+                "data": "dGVzdA==",
+                "proof": "cHJvb2Y=",
+                "total_leaves": 5,
+                "auth": {
+                    "account_id": "abc",
+                    "timestamp": 12345,
+                    "nonce": "def",
+                    "payload_hash": "ghi",
+                    "signature": "jkl"
+                }
+            }
+        }"#;
+        
+        let actual_hash = extract_and_hash_params(json_rpc_with_auth.as_bytes()).unwrap();
+        
+        assert_eq!(expected_hash, actual_hash, "Auth should be stripped before hashing");
     }
 }
