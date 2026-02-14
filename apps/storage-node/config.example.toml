@@ -25,3 +25,47 @@ declare_rate_limit = 10
 # Default: 3030
 # Set STORAGE_NODE_URL=http://localhost:3030 on blockchain node
 rpc_port = 3030
+
+# ============================================================
+# Multi-Node Configuration (010-multi-node-storage)
+# ============================================================
+
+# Node identifier for multi-node setup (optional)
+# Used for logging and debugging in distributed environments
+# node_id = "storage-node-1"
+
+# Auto-register with blockchain node on startup
+# When true, node registers itself via storage_registerEndpoint RPC
+# Default: true
+auto_register = true
+
+# Blockchain node HTTP endpoint for registration
+# Default: "http://127.0.0.1:9944"
+chain_http_endpoint = "http://127.0.0.1:9944"
+
+# P2P bootstrap nodes for fragment replication (multiaddr format)
+# Empty list for standalone node, add peers for distributed setup
+# Example:
+# bootstrap_peers = [
+#   "/ip4/192.168.1.10/tcp/4001/p2p/QmXxxx...",
+#   "/ip4/192.168.1.11/tcp/4001/p2p/QmYyyy..."
+# ]
+bootstrap_peers = []
+
+# ============================================================
+# Authentication (010-multi-node-storage)
+# ============================================================
+
+# Enable Sr25519 signature verification for fragment uploads
+# When true, requires valid signature from registered accounts
+# Default: false (for backward compatibility)
+require_auth = false
+
+# Public key whitelist (SS58 format)
+# Only these accounts can upload fragments when require_auth = true
+# Empty list allows any valid signature
+# authorized_accounts = [
+#   "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+#   "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
+# ]
+authorized_accounts = []

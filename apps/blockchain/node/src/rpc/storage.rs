@@ -122,6 +122,28 @@ pub struct ListHoldersResponse {
     pub holders: Vec<HolderInfo>,
 }
 
+/// GetNodesレスポンス（T103: 登録ノード一覧取得RPC用）
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GetNodesResponse {
+    /// 登録されたノード一覧
+    pub nodes: Vec<NodeInfo>,
+    /// オンラインノード数
+    pub online_count: usize,
+    /// 総ノード数
+    pub total_count: usize,
+}
+
+/// ノード情報（RPC用、簡略化版）
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodeInfo {
+    /// エンドポイントURL
+    pub endpoint: String,
+    /// オンライン状態
+    pub is_online: bool,
+    /// 登録時刻（Unix timestamp）
+    pub registered_at: u64,
+}
+
 /// 登録されたStorage Node情報
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegisteredStorageNode {
@@ -188,6 +210,13 @@ pub trait StorageApi {
     /// 指定された投稿IDに対してdeclare_holdingしているStorage Nodeの一覧を返す。
     #[method(name = "listHolders")]
     async fn list_holders(&self, post_id: u64) -> RpcResult<ListHoldersResponse>;
+
+    /// 登録されたStorage Node一覧を取得
+    ///
+    /// チェーンノードに登録されている全Storage Nodeの情報を返す。
+    /// フロントエンドでのノード状態表示に使用。
+    #[method(name = "getNodes")]
+    async fn get_nodes(&self) -> RpcResult<GetNodesResponse>;
 }
 
 /// Storage Node HTTPクライアント
@@ -676,6 +705,32 @@ where
 
         Ok(ListHoldersResponse { holders })
     }
+
+    async fn get_nodes(&self) -> RpcResult<GetNodesResponse> {
+        log::debug!("get_nodes called");
+
+        let registry = self.storage_nodes.read().await;
+        
+        let nodes: Vec<NodeInfo> = registry.nodes
+            .iter()
+            .map(|node| NodeInfo {
+                endpoint: node.endpoint.clone(),
+                is_online: node.is_online,
+                registered_at: node.registered_at,
+            })
+            .collect();
+        
+        let online_count = registry.online_nodes().len();
+        let total_count = registry.nodes.len();
+
+        log::info!("get_nodes: {} total, {} online", total_count, online_count);
+
+        Ok(GetNodesResponse {
+            nodes,
+            online_count,
+            total_count,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1058,6 +1113,124 @@ mod tests {
         let n = 5;
         let tolerance = n - k; // 許容オフラインノード数
         assert_eq!(tolerance, 2); // 2ノードまでオフラインでOK
+    }
+    
+    // ============================================================================
+    // T105-T107: Multi-node selection tests
+    // ============================================================================
+
+    // T105: Test round_robin produces rotating distribution
+    #[test]
+    fn test_round_robin_rotating_distribution() {
+        use crate::rpc::StorageNodeRegistry;
+        
+        let mut registry = StorageNodeRegistry::new();
+        
+        // 3つのオンラインノードを登録
+        let node1 = RegisteredStorageNode::new("http://node1:3030".to_string());
+        let node2 = RegisteredStorageNode::new("http://node2:3030".to_string());
+        let node3 = RegisteredStorageNode::new("http://node3:3030".to_string());
+        
+        registry.register(node1);
+        registry.register(node2);
+        registry.register(node3);
+        
+        assert_eq!(registry.online_node_count(), 3);
+        
+        // ラウンドロビンでノードがローテーションされることを確認
+        let selected1 = registry.next_node_round_robin().unwrap();
+        let selected2 = registry.next_node_round_robin().unwrap();
+        let selected3 = registry.next_node_round_robin().unwrap();
+        let selected4 = registry.next_node_round_robin().unwrap();
+        
+        // 順番に異なるノードが選択される
+        assert_ne!(selected1.endpoint, selected2.endpoint);
+        assert_ne!(selected2.endpoint, selected3.endpoint);
+        
+        // 4回目は最初に戻る
+        assert_eq!(selected1.endpoint, selected4.endpoint);
+        
+        // wrapping_add により round_robin_index は 4 になっている
+        assert_eq!(registry.round_robin_index, 4);
+    }
+    
+    // T106: Test fragment-index selection distributes across nodes
+    #[test]
+    fn test_fragment_index_distribution() {
+        use crate::rpc::StorageNodeRegistry;
+        
+        let mut registry = StorageNodeRegistry::new();
+        
+        // 3つのノードを登録
+        registry.register(RegisteredStorageNode::new("http://node1:3030".to_string()));
+        registry.register(RegisteredStorageNode::new("http://node2:3030".to_string()));
+        registry.register(RegisteredStorageNode::new("http://node3:3030".to_string()));
+        
+        // 5つの断片を分散配置
+        let mut node_assignments: Vec<String> = Vec::new();
+        for i in 0..5 {
+            let node = registry.select_node_for_fragment(i).unwrap();
+            node_assignments.push(node.endpoint.clone());
+        }
+        
+        // 断片0 -> node1 (0 % 3 = 0)
+        // 断片1 -> node2 (1 % 3 = 1)
+        // 断片2 -> node3 (2 % 3 = 2)
+        // 断片3 -> node1 (3 % 3 = 0)
+        // 断片4 -> node2 (4 % 3 = 1)
+        assert_eq!(node_assignments[0], "http://node1:3030");
+        assert_eq!(node_assignments[1], "http://node2:3030");
+        assert_eq!(node_assignments[2], "http://node3:3030");
+        assert_eq!(node_assignments[3], "http://node1:3030");
+        assert_eq!(node_assignments[4], "http://node2:3030");
+        
+        // 全ノードが使用されていることを確認
+        let unique_nodes: std::collections::HashSet<_> = node_assignments.iter().collect();
+        assert_eq!(unique_nodes.len(), 3);
+    }
+    
+    // T107: Test offline node filtering
+    #[test]
+    fn test_offline_node_filtering() {
+        use crate::rpc::StorageNodeRegistry;
+        
+        let mut registry = StorageNodeRegistry::new();
+        
+        // 3つのノードを登録（1つはオフライン）
+        let mut node1 = RegisteredStorageNode::new("http://node1:3030".to_string());
+        let mut node2 = RegisteredStorageNode::new("http://node2:3030".to_string());
+        let node3 = RegisteredStorageNode::new("http://node3:3030".to_string());
+        
+        // Node2をオフラインに設定
+        node1.is_online = true;
+        node2.is_online = false;
+        
+        registry.register(node1);
+        registry.register(node2);
+        registry.register(node3);
+        
+        // 総ノード数は3
+        assert_eq!(registry.nodes.len(), 3);
+        
+        // オンラインノード数は2
+        assert_eq!(registry.online_node_count(), 2);
+        
+        // オンラインノードのみが選択可能
+        let online = registry.online_nodes();
+        assert_eq!(online.len(), 2);
+        
+        // オフラインノード(node2)は含まれない
+        let endpoints: Vec<&str> = online.iter().map(|n| n.endpoint.as_str()).collect();
+        assert!(!endpoints.contains(&"http://node2:3030"));
+        assert!(endpoints.contains(&"http://node1:3030"));
+        assert!(endpoints.contains(&"http://node3:3030"));
+        
+        // 断片選択時もオフラインノードはスキップ
+        for i in 0..10 {
+            let node = registry.select_node_for_fragment(i).unwrap();
+            assert!(node.is_online);
+            assert_ne!(node.endpoint, "http://node2:3030");
+        }
     }
 }
 

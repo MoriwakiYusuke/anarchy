@@ -150,6 +150,19 @@ start_node() {
 start_all() {
     local node_count="${1:-$DEFAULT_NODE_COUNT}"
     
+    # 多重起動チェック
+    for name in "${NODE_NAMES[@]}"; do
+        local pid_file="$DATA_DIR/$name.pid"
+        if [ -f "$pid_file" ]; then
+            local pid=$(cat "$pid_file")
+            if kill -0 "$pid" 2>/dev/null; then
+                log_error "ノードが既に起動中です。先に停止してください: $0 stop"
+                exit 1
+            fi
+            rm -f "$pid_file"
+        fi
+    done
+    
     # バリデーション
     if [ "$node_count" -lt 1 ] || [ "$node_count" -gt $MAX_NODE_COUNT ]; then
         log_error "Node count must be between 1 and $MAX_NODE_COUNT"

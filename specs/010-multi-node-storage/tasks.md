@@ -270,45 +270,47 @@ Based on plan.md:
 #### Settings RPC (FR-103) - Optional
 
 - [ ] T102 [US2] Add SelectionStrategy enum to config (random, round-robin, nearest)
-- [ ] T103 [US2] Implement storage_getNodes RPC to list registered nodes
+- [X] T103 [US2] Implement storage_getNodes RPC to list registered nodes
 - [ ] T104 [US2] Implement storage_getSelectionStrategy RPC
 
 #### Unit Tests
 
-- [ ] T105 [P] [US2] Test round_robin produces rotating distribution
-- [ ] T106 [P] [US2] Test fragment-index selection distributes across nodes
-- [ ] T107 [P] [US2] Test offline node filtering
+- [X] T105 [P] [US2] Test round_robin produces rotating distribution
+- [X] T106 [P] [US2] Test fragment-index selection distributes across nodes
+- [X] T107 [P] [US2] Test offline node filtering
 
 **Checkpoint**: Node selection strategies complete - chain node can optimize distribution
 
 ---
 
-## Phase 8: User Story 4 - 断片配置状態の可視化 (Priority: P3)
+## Phase 8: User Story 4 - 断片配置状態の可視化 (Priority: P3) - **SKIPPED**
+
+**Status**: スキップ - フロントエンドは対象外（チェーンRPC経由でのみアクセス）
 
 **Goal**: フロントエンドで投稿の各断片がどのノードに配置されているかを確認でき、健全性ステータスが表示される
 
 **Independent Test**: 投稿詳細画面で断片配置情報が表示されることを確認
 
-### Implementation for User Story 4
+### Implementation for User Story 4 - SKIPPED
 
-#### Fragment Status Component (FR-302)
+#### Fragment Status Component (FR-302) - SKIPPED
 
-- [ ] T108 [US4] Create FragmentStatus component displaying fragment-to-node mapping in apps/frontend/src/components/FragmentStatus.tsx
-- [ ] T109 [US4] Add node reachability indicator (online/offline) in apps/frontend/src/components/FragmentStatus.tsx
-- [ ] T110 [US4] Add health status badge (e.g., "3/5 fragments reachable") in apps/frontend/src/components/FragmentStatus.tsx
-- [ ] T111 [US4] Style component with warning state for degraded health in apps/frontend/src/components/FragmentStatus.tsx
+- [~] T108 [US4] SKIPPED - Frontend out of scope
+- [~] T109 [US4] SKIPPED - Frontend out of scope
+- [~] T110 [US4] SKIPPED - Frontend out of scope
+- [~] T111 [US4] SKIPPED - Frontend out of scope
 
-#### Integration
+#### Integration - SKIPPED
 
-- [ ] T112 [US4] Integrate FragmentStatus into post detail view in apps/frontend/src/app/post/[id]/page.tsx
-- [ ] T113 [US4] Add periodic health check refresh (every 30s) in apps/frontend/src/components/FragmentStatus.tsx
+- [~] T112 [US4] SKIPPED - Frontend out of scope
+- [~] T113 [US4] SKIPPED - Frontend out of scope
 
-#### Unit Tests
+#### Unit Tests - SKIPPED
 
-- [ ] T114 [P] [US4] Test FragmentStatus renders all 5 fragments in apps/frontend/tests/components/FragmentStatus.test.tsx
-- [ ] T115 [P] [US4] Test health warning displays when nodes offline in apps/frontend/tests/components/FragmentStatus.test.tsx
+- [~] T114 [P] [US4] SKIPPED - Frontend out of scope
+- [~] T115 [P] [US4] SKIPPED - Frontend out of scope
 
-**Checkpoint**: Fragment visualization complete - users can monitor distribution health
+**Checkpoint**: Phase skipped - frontend changes are out of scope
 
 ---
 
@@ -316,11 +318,11 @@ Based on plan.md:
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T116 [P] Update README.md with multi-node storage documentation in apps/storage-node/README.md
-- [ ] T117 [P] Update config.example.toml with new auth and P2P settings in apps/storage-node/config.example.toml
-- [ ] T118 [P] Add integration test: 3-node fragment distribution in apps/blockchain/tests/integration/test_multi_node.sh
-- [ ] T119 [P] Add integration test: P2P endpoint propagation in apps/blockchain/tests/integration/test_p2p_gossip.sh
-- [ ] T120 [P] Add integration test: failover under node failure in apps/blockchain/tests/integration/test_failover.sh
+- [X] T116 [P] Update README.md with multi-node storage documentation in apps/storage-node/README.md
+- [X] T117 [P] Update config.example.toml with new auth and P2P settings in apps/storage-node/config.example.toml
+- [X] T118 [P] Add integration test: 3-node fragment distribution in apps/blockchain/tests/integration/test_multi_node.sh
+- [X] T119 [P] Add integration test: P2P endpoint propagation in apps/blockchain/tests/integration/test_p2p_gossip.sh
+- [X] T120 [P] Add integration test: failover under node failure in apps/blockchain/tests/integration/test_failover.sh
 - [ ] T121 Run quickstart.md validation scenarios
 - [ ] T122 Performance profiling: fragment upload <500ms target
 - [ ] T123 Code review and cleanup across all modified files
