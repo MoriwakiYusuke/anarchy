@@ -81,15 +81,6 @@ bootstrap_peers = []
 # ============================================================
 
 # Enable Sr25519 signature verification for fragment uploads
-# When true, requires valid signature from registered accounts
-# Default: false (for backward compatibility)
-require_auth = false
-
-# Public key whitelist (SS58 format)
-# Only these accounts can upload fragments when require_auth = true
-# Empty list allows any valid signature
-# authorized_accounts = [
-#   "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-#   "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
-# ]
-authorized_accounts = []
+# When true, requires valid signature in X-Anarchy-Auth header
+# Default: true (authentication enabled by default per FR-201)
+auth_enabled = true

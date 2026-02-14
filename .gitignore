@@ -40,3 +40,5 @@ apps/blockchain/logs/
 # Storage Node
 apps/storage-node/data/
 apps/storage-node/config.toml
+apps/storage-node/node*.toml
+apps/storage-node/logs/

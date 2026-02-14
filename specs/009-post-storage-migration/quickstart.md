@@ -312,7 +312,7 @@ cargo test -p anarchy-integration-tests
 
 | 問題 | 解決策 |
 |------|--------|
-| Wasm build失敗 | `wasm-pack --version`確認、`rustup target add wasm32-unknown-unknown` |
+| Wasm build失敗 | `wasm-pack --version`確認、`rustup target add wasm32v1-none` |
 | RPC not found | service.rsでカスタムRPCがmergeされているか確認 |
 | Storage Node接続失敗 | libp2pブートストラップノード設定確認 |
 | MerkleProof検証失敗 | Wasmエンジンとノード側のBlake2b実装が一致しているか確認 |

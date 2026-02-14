@@ -9,6 +9,7 @@ pub mod reputation;
 use std::collections::HashSet;
 use std::time::Duration;
 use libp2p::{
+    gossipsub::{self, IdentTopic, MessageAuthenticity},
     identity::Keypair,
     noise, yamux,
     request_response::{self, Codec, ProtocolSupport},
@@ -21,6 +22,8 @@ use tracing::{info, warn, debug};
 use anyhow::{Context, Result};
 
 use crate::storage::{FragmentId, FragmentStore};
+use endpoint_cache::BlockchainEndpoint;
+use gossip::{build_gossipsub_config, EndpointMessage, ENDPOINT_TOPIC, validate_message, MessageValidation};
 
 /// Protocol name for fragment exchange
 pub const FRAGMENT_PROTOCOL: &str = "/anarchy/fragment/1.0.0";
@@ -153,6 +156,7 @@ impl Codec for FragmentCodec {
 pub struct StorageNodeBehaviour {
     pub fragment_protocol: request_response::Behaviour<FragmentCodec>,
     pub identify: libp2p::identify::Behaviour,
+    pub gossipsub: gossipsub::Behaviour,
 }
 
 /// Events emitted by the storage node behaviour
@@ -160,6 +164,7 @@ pub struct StorageNodeBehaviour {
 pub enum StorageNodeEvent {
     Fragment(request_response::Event<FragmentRequest, FragmentResponse>),
     Identify(Box<libp2p::identify::Event>),
+    Gossipsub(gossipsub::Event),
 }
 
 impl From<request_response::Event<FragmentRequest, FragmentResponse>> for StorageNodeEvent {
@@ -174,10 +179,18 @@ impl From<libp2p::identify::Event> for StorageNodeEvent {
     }
 }
 
+impl From<gossipsub::Event> for StorageNodeEvent {
+    fn from(e: gossipsub::Event) -> Self {
+        StorageNodeEvent::Gossipsub(e)
+    }
+}
+
 /// P2P Network manager
 pub struct Network {
     swarm: Swarm<StorageNodeBehaviour>,
     connected_peers: HashSet<PeerId>,
+    keypair: Keypair,
+    endpoint_topic: IdentTopic,
 }
 
 impl Network {
@@ -185,8 +198,11 @@ impl Network {
     pub fn new(keypair: Keypair, _listen_addr: &str) -> Result<Self> {
         let peer_id = PeerId::from(keypair.public());
         info!(peer_id = %peer_id, "Creating network");
+        
+        let endpoint_topic = IdentTopic::new(ENDPOINT_TOPIC);
+        let keypair_clone = keypair.clone();
 
-        let swarm = SwarmBuilder::with_existing_identity(keypair)
+        let swarm = SwarmBuilder::with_existing_identity(keypair.clone())
             .with_tokio()
             .with_tcp(
                 tcp::Config::default(),
@@ -207,10 +223,18 @@ impl Network {
                         key.public(),
                     ),
                 );
+                
+                // Configure gossipsub for endpoint sharing
+                let gossipsub_config = build_gossipsub_config();
+                let gossipsub = gossipsub::Behaviour::new(
+                    MessageAuthenticity::Signed(keypair_clone.clone()),
+                    gossipsub_config,
+                ).expect("Valid gossipsub config");
 
                 StorageNodeBehaviour {
                     fragment_protocol,
                     identify,
+                    gossipsub,
                 }
             })
             .context("Failed to create behaviour")?
@@ -219,7 +243,35 @@ impl Network {
         Ok(Self {
             swarm,
             connected_peers: HashSet::new(),
+            keypair,
+            endpoint_topic,
         })
+    }
+    
+    /// Subscribe to the endpoint sharing topic
+    pub fn subscribe_endpoints(&mut self) -> Result<()> {
+        self.swarm.behaviour_mut().gossipsub
+            .subscribe(&self.endpoint_topic)
+            .context("Failed to subscribe to endpoint topic")?;
+        info!(topic = ENDPOINT_TOPIC, "Subscribed to endpoint topic");
+        Ok(())
+    }
+    
+    /// Broadcast known endpoints to the network
+    pub fn broadcast_endpoints(&mut self, endpoints: Vec<BlockchainEndpoint>) -> Result<()> {
+        let peer_id = PeerId::from(self.keypair.public());
+        let message = EndpointMessage::new(endpoints, peer_id, &self.keypair)
+            .context("Failed to create endpoint message")?;
+        
+        let data = message.to_bytes()
+            .context("Failed to serialize endpoint message")?;
+        
+        self.swarm.behaviour_mut().gossipsub
+            .publish(self.endpoint_topic.clone(), data)
+            .map_err(|e| anyhow::anyhow!("Failed to publish: {:?}", e))?;
+        
+        debug!("Broadcast endpoint update");
+        Ok(())
     }
 
     /// Start listening on the configured address
@@ -298,6 +350,47 @@ impl Network {
                 }
                 Ok(None)
             }
+            SwarmEvent::Behaviour(StorageNodeEvent::Gossipsub(gossipsub::Event::Message {
+                propagation_source,
+                message,
+                ..
+            })) => {
+                // Validate and process endpoint sharing messages
+                match validate_message(&message.data) {
+                    MessageValidation::Valid => {
+                        if let Ok(endpoint_msg) = EndpointMessage::from_bytes(&message.data) {
+                            debug!(
+                                peer = %propagation_source,
+                                endpoints = endpoint_msg.endpoints.len(),
+                                "Received endpoint update"
+                            );
+                            return Ok(Some(NetworkEvent::EndpointUpdate {
+                                from: propagation_source,
+                                endpoints: endpoint_msg.endpoints,
+                            }));
+                        }
+                    }
+                    validation => {
+                        warn!(
+                            peer = %propagation_source,
+                            validation = ?validation,
+                            "Rejected invalid gossipsub message"
+                        );
+                    }
+                }
+                Ok(None)
+            }
+            SwarmEvent::Behaviour(StorageNodeEvent::Gossipsub(gossipsub::Event::Subscribed {
+                peer_id,
+                topic,
+            })) => {
+                debug!(peer = %peer_id, topic = %topic, "Peer subscribed to topic");
+                Ok(None)
+            }
+            SwarmEvent::Behaviour(StorageNodeEvent::Gossipsub(_)) => {
+                // Other gossipsub events (unsubscribed, etc.)
+                Ok(None)
+            }
             _ => Ok(None),
         }
     }
@@ -343,6 +436,11 @@ pub enum NetworkEvent {
     /// Fragment was stored locally - trigger auto-declare (T056)
     FragmentStored {
         fragment_id: FragmentId,
+    },
+    /// Endpoint update received via Gossipsub (FR-502, FR-512)
+    EndpointUpdate {
+        from: PeerId,
+        endpoints: Vec<BlockchainEndpoint>,
     },
 }
 

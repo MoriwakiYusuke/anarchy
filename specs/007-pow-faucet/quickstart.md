@@ -5,7 +5,7 @@
 
 ## Prerequisites
 
-- Rust 1.82+ with `wasm32-unknown-unknown` target
+- Rust 1.82+ with `wasm32v1-none` target
 - Node.js 20+ with pnpm
 - Running local Substrate node (`apps/blockchain/`)
 

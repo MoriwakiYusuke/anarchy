@@ -5,6 +5,7 @@ import { blake2b } from 'blakejs'
 
 /**
  * Storage RPC エンドポイント
+ * blockchain nodeがstorage RPCをプロキシする
  */
 const RPC_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944'
 

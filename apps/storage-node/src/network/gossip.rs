@@ -22,6 +22,25 @@ use blake2::digest::consts::U32;
 
 use super::endpoint_cache::BlockchainEndpoint;
 
+/// Error type for message creation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GossipError {
+    /// Keypair does not support signing (non-Ed25519)
+    UnsupportedKeyType,
+}
+
+impl std::fmt::Display for GossipError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GossipError::UnsupportedKeyType => {
+                write!(f, "Keypair does not support signing (non-Ed25519)")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GossipError {}
+
 /// Gossipsub topic for endpoint sharing
 pub const ENDPOINT_TOPIC: &str = "/anarchy/endpoints/1.0.0";
 
@@ -43,6 +62,10 @@ pub struct EndpointMessage {
     /// Sender's PeerID (base58 encoded)
     pub sender_peer_id: String,
     
+    /// Sender's public key (protobuf-encoded, hex string)
+    /// Required for verification with hashed PeerIds
+    pub sender_public_key: String,
+    
     /// Message timestamp (Unix seconds)
     pub timestamp: u64,
     
@@ -52,17 +75,22 @@ pub struct EndpointMessage {
 
 impl EndpointMessage {
     /// Create a new endpoint message with signature
+    /// 
+    /// Returns an error if the keypair does not support signing (non-Ed25519)
     pub fn new(
         endpoints: Vec<BlockchainEndpoint>,
         sender_peer_id: PeerId,
         keypair: &Keypair,
-    ) -> Self {
+    ) -> Result<Self, GossipError> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
         
         let sender_peer_id_str = sender_peer_id.to_base58();
+        
+        // Encode public key as protobuf (for verification with hashed PeerIds)
+        let sender_public_key = hex::encode(keypair.public().encode_protobuf());
         
         // Build message bytes for signing: peer_id || timestamp || hash(endpoints)
         let endpoints_hash = hash_endpoints(&endpoints);
@@ -71,21 +99,27 @@ impl EndpointMessage {
         sign_data.extend_from_slice(&timestamp.to_le_bytes());
         sign_data.extend_from_slice(&endpoints_hash);
         
-        // Sign with Ed25519
-        let signature = match keypair.sign(&sign_data) {
-            Ok(sig) => hex::encode(sig),
-            Err(_) => "0".repeat(128), // Fallback for non-Ed25519 keys
-        };
+        // Sign with Ed25519 - fail explicitly if key type doesn't support signing
+        let signature = keypair
+            .sign(&sign_data)
+            .map(hex::encode)
+            .map_err(|_| GossipError::UnsupportedKeyType)?;
         
-        Self {
+        Ok(Self {
             endpoints,
             sender_peer_id: sender_peer_id_str,
+            sender_public_key,
             timestamp,
             signature,
-        }
+        })
     }
     
     /// Verify the message signature
+    /// 
+    /// Validates that:
+    /// 1. The public key decodes correctly
+    /// 2. The public key matches the claimed PeerId
+    /// 3. The signature is valid for the message
     pub fn verify_signature(&self) -> bool {
         // Decode signature
         let sig_bytes = match hex::decode(&self.signature) {
@@ -94,22 +128,27 @@ impl EndpointMessage {
         };
         
         // Parse PeerId from string
-        let peer_id = match self.sender_peer_id.parse::<PeerId>() {
+        let claimed_peer_id = match self.sender_peer_id.parse::<PeerId>() {
             Ok(id) => id,
             Err(_) => return false,
         };
         
-        // Extract public key from PeerId (works for Ed25519)
-        let public_key = match libp2p::identity::PublicKey::try_decode_protobuf(
-            &peer_id.to_bytes()[2..] // Skip multicodec bytes
-        ) {
-            Ok(pk) => pk,
-            Err(_) => {
-                // Old format, or can't extract pubkey - use a different approach
-                // For modern PeerIds, the pubkey is embedded
-                return false;
-            }
+        // Decode public key from message
+        let pubkey_bytes = match hex::decode(&self.sender_public_key) {
+            Ok(b) => b,
+            Err(_) => return false,
         };
+        
+        let public_key = match libp2p::identity::PublicKey::try_decode_protobuf(&pubkey_bytes) {
+            Ok(pk) => pk,
+            Err(_) => return false,
+        };
+        
+        // Verify public key matches the claimed PeerId
+        // This prevents an attacker from using a different key to forge messages
+        if public_key.to_peer_id() != claimed_peer_id {
+            return false;
+        }
         
         // Rebuild message bytes for verification
         let endpoints_hash = hash_endpoints(&self.endpoints);
@@ -199,12 +238,21 @@ pub fn build_gossipsub_config() -> gossipsub::Config {
 }
 
 /// Hash endpoints list for signing
+/// 
+/// Includes all fields to prevent tampering with unsigned data:
+/// - url: endpoint WebSocket URL
+/// - chain_id: genesis hash
+/// - last_verified: health check timestamp
+/// - latency_ms: measured latency
+/// - ttl_secs: time-to-live
 fn hash_endpoints(endpoints: &[BlockchainEndpoint]) -> [u8; 32] {
     let mut hasher = Blake2b::<U32>::new();
     for ep in endpoints {
         hasher.update(ep.url.as_bytes());
         hasher.update(ep.chain_id);
+        hasher.update(ep.last_verified.to_le_bytes());
         hasher.update(ep.latency_ms.to_le_bytes());
+        hasher.update(ep.ttl_secs.to_le_bytes());
     }
     hasher.finalize().into()
 }
@@ -228,6 +276,7 @@ mod tests {
         let msg = EndpointMessage {
             endpoints: vec![],
             sender_peer_id: "12D3KooWtest".to_string(),
+            sender_public_key: "00".repeat(37), // Dummy protobuf-encoded key
             timestamp: 1234567890,
             signature: "0".repeat(128),
         };
@@ -244,6 +293,7 @@ mod tests {
         let msg = EndpointMessage {
             endpoints: vec![],
             sender_peer_id: "test".to_string(),
+            sender_public_key: "00".repeat(37),
             timestamp: 0,
             signature: "0".repeat(128),
         };
@@ -258,6 +308,7 @@ mod tests {
         let msg = EndpointMessage {
             endpoints: endpoints.clone(),
             sender_peer_id: "12D3KooWTest123".to_string(),
+            sender_public_key: "ab".repeat(37),
             timestamp: 1700000000,
             signature: "ab".repeat(64),
         };
@@ -267,6 +318,7 @@ mod tests {
         
         assert_eq!(decoded.endpoints.len(), 2);
         assert_eq!(decoded.sender_peer_id, msg.sender_peer_id);
+        assert_eq!(decoded.sender_public_key, msg.sender_public_key);
         assert_eq!(decoded.timestamp, msg.timestamp);
         assert_eq!(decoded.signature, msg.signature);
         assert_eq!(decoded.endpoints[0].url, "ws://localhost:9944");
@@ -279,6 +331,7 @@ mod tests {
         let msg = EndpointMessage {
             endpoints: vec![make_test_endpoint()],
             sender_peer_id: "12D3KooWInvalid".to_string(),  // Not a real PeerId
+            sender_public_key: "ff".repeat(37), // Invalid key
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -297,6 +350,7 @@ mod tests {
         let small_msg = EndpointMessage {
             endpoints: vec![],
             sender_peer_id: "test".to_string(),
+            sender_public_key: "00".repeat(37),
             timestamp: 0,
             signature: "0".repeat(128),
         };
@@ -317,6 +371,7 @@ mod tests {
         let large_msg = EndpointMessage {
             endpoints: large_endpoints,
             sender_peer_id: "test".to_string(),
+            sender_public_key: "00".repeat(37),
             timestamp: 0,
             signature: "0".repeat(128),
         };

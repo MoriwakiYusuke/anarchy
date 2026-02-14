@@ -5,7 +5,7 @@
 
 ## Prerequisites
 
-- Rust 1.75+ with `wasm32-unknown-unknown` target
+- Rust 1.75+ with `wasm32v1-none` target
 - Node.js 18+ with pnpm
 - Docker (optional, for multi-node testing)
 

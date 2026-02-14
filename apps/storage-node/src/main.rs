@@ -179,6 +179,14 @@ async fn main() -> anyhow::Result<()> {
                             error!(error = %e, "Failed to declare holding (rate limited?)");
                         }
                     }
+                    Ok(Some(network::NetworkEvent::EndpointUpdate { from, endpoints })) => {
+                        info!(
+                            peer = %from,
+                            endpoint_count = endpoints.len(),
+                            "Received endpoint update via gossipsub"
+                        );
+                        // TODO: Update local peer endpoint cache for discovery
+                    }
                     Ok(None) => {}
                     Err(e) => {
                         error!("Network error: {}", e);

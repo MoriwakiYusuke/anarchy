@@ -250,24 +250,24 @@ components:
       properties:
         account_id:
           type: string
-          pattern: '^0x[0-9a-fA-F]{64}$'
-          description: Sr25519 public key (32 bytes hex)
+          pattern: '^(0x)?[0-9a-fA-F]{64}$'
+          description: Sr25519 public key (32 bytes hex, 0x prefix optional)
         timestamp:
           type: integer
           format: int64
           description: Unix timestamp in seconds
         nonce:
           type: string
-          pattern: '^0x[0-9a-fA-F]{32}$'
-          description: Random nonce (16 bytes hex)
+          pattern: '^(0x)?[0-9a-fA-F]{32}$'
+          description: Random nonce (16 bytes hex, 0x prefix optional)
         payload_hash:
           type: string
-          pattern: '^0x[0-9a-fA-F]{64}$'
-          description: Blake2b hash of request body (32 bytes hex)
+          pattern: '^(0x)?[0-9a-fA-F]{64}$'
+          description: Blake2b hash of request body (32 bytes hex, 0x prefix optional)
         signature:
           type: string
-          pattern: '^0x[0-9a-fA-F]{128}$'
-          description: Sr25519 signature (64 bytes hex)
+          pattern: '^(0x)?[0-9a-fA-F]{128}$'
+          description: Sr25519 signature (64 bytes hex, 0x prefix optional)
 
     UploadResponse:
       type: object
