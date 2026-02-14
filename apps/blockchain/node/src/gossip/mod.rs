@@ -164,7 +164,9 @@ impl StorageNodeGossip {
                         }
                         None => {
                             // チャンネルがクローズされた（全ハンドルがドロップ）
+                            // breakしないとNoneが即座に返り続けてCPUを消費する
                             debug!("Broadcast channel closed");
+                            break;
                         }
                     }
                 }

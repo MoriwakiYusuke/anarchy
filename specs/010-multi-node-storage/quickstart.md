@@ -232,11 +232,13 @@ async function uploadFragment(
   const nonce = crypto.getRandomValues(new Uint8Array(16));
   const payloadHash = blake2b(data, { dkLen: 32 });
   
-  // Message to sign: timestamp || nonce || payloadHash
-  const message = new Uint8Array(56);
-  new DataView(message.buffer).setBigUint64(0, BigInt(timestamp), true);
-  message.set(nonce, 8);
-  message.set(payloadHash, 24);
+  // Message to sign: account_id(32) || timestamp(8) || nonce(16) || payloadHash(32) = 88 bytes
+  // Uses schnorrkel signing_context(b"substrate") to match @polkadot/keyring
+  const message = new Uint8Array(88);
+  message.set(keypair.publicKey, 0);        // account_id (32 bytes)
+  new DataView(message.buffer).setBigUint64(32, BigInt(timestamp), true);
+  message.set(nonce, 40);                    // nonce (16 bytes)
+  message.set(payloadHash, 56);              // payload_hash (32 bytes)
   
   const signature = sr25519Sign(message, keypair);
   
