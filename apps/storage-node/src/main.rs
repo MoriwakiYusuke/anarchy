@@ -90,13 +90,28 @@ async fn main() -> anyhow::Result<()> {
     metrics.set_capacity_total(config.capacity);
     info!("Metrics initialized");
 
+    // Initialize endpoint cache for peer discovery (FR-507)
+    // Using dev chain_id [0; 32] - in production this should be fetched from genesis
+    let endpoint_cache = Arc::new(network::endpoint_cache::EndpointCache::new([0u8; 32]));
+    info!("Endpoint cache initialized for peer discovery");
+
+    // Initialize failover manager (FR-510, FR-511)
+    let failover_manager = Arc::new(chain::failover::FailoverManager::new());
+    info!("Failover manager initialized");
+
     // Initialize chain client (for declare_holding)
-    let chain_client = Arc::new(chain::ChainClient::new(&config.chain_url, config.declare_rate_limit).await?);
-    info!(endpoint = %config.chain_url, "Chain client initialized");
+    let chain_client = Arc::new(chain::ChainClient::new(
+        &config.chain_url,
+        config.declare_rate_limit,
+        Arc::clone(&failover_manager),
+        Arc::clone(&endpoint_cache),
+    ).await?);
+    info!(endpoint = %config.chain_url, "Chain client initialized with failover support");
 
     // Initialize network
     let mut network = network::Network::new(identity.keypair().clone(), &config.listen_addr)?;
     network.listen(&config.listen_addr)?;
+    network.subscribe_endpoints()?;
     info!("Network listening on {}", config.listen_addr);
 
     // Start HTTP RPC server
@@ -185,7 +200,13 @@ async fn main() -> anyhow::Result<()> {
                             endpoint_count = endpoints.len(),
                             "Received endpoint update via gossipsub"
                         );
-                        // TODO: Update local peer endpoint cache for discovery
+                        // Update local endpoint cache for discovery (FR-507)
+                        let cache = endpoint_cache.clone();
+                        for ep in endpoints {
+                            if cache.insert(ep.clone()).await {
+                                debug!(url = %ep.url, "Added endpoint to cache");
+                            }
+                        }
                     }
                     Ok(None) => {}
                     Err(e) => {

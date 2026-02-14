@@ -4,8 +4,23 @@
 //! - declare_holding subxt call
 //! - Rate limiting behavior
 //! - Error handling
+//! - Failover integration (T073, T078)
 
 use super::*;
+use std::sync::Arc;
+use crate::network::endpoint_cache::EndpointCache;
+
+/// Helper to create ChainClient with default failover/cache for testing
+async fn create_test_client(rate_limit: u32) -> ChainClient {
+    let failover_manager = Arc::new(FailoverManager::new());
+    let endpoint_cache = Arc::new(EndpointCache::new([0u8; 32]));
+    ChainClient::new(
+        "ws://127.0.0.1:9944",
+        rate_limit,
+        failover_manager,
+        endpoint_cache,
+    ).await.unwrap()
+}
 
 // === Existing tests (moved from mod.rs) ===
 
@@ -35,13 +50,13 @@ async fn test_rate_limiter_remaining() {
 
 #[tokio::test]
 async fn test_chain_client_creation() {
-    let client = ChainClient::new("ws://127.0.0.1:9944", 10).await.unwrap();
+    let client = create_test_client(10).await;
     assert_eq!(client.endpoint, "ws://127.0.0.1:9944");
 }
 
 #[tokio::test]
 async fn test_declare_holding_rate_limited() {
-    let client = ChainClient::new("ws://127.0.0.1:9944", 2).await.unwrap();
+    let client = create_test_client(2).await;
     let fragment_id = [1u8; 32];
     
     // First two should succeed
@@ -65,7 +80,7 @@ mod declare_holding_subxt {
     /// This is the new API for Post Storage Migration.
     #[tokio::test]
     async fn test_declare_holding_post_fragment() {
-        let client = ChainClient::new("ws://127.0.0.1:9944", 10).await.unwrap();
+        let client = create_test_client(10).await;
         
         let post_id: u64 = 12345;
         let index: u32 = 0;
@@ -82,7 +97,7 @@ mod declare_holding_subxt {
     /// Test: declare_holding returns success (stub behavior)
     #[tokio::test]
     async fn test_stub_declare_holding_success() {
-        let client = ChainClient::new("ws://127.0.0.1:9944", 10).await.unwrap();
+        let client = create_test_client(10).await;
         let fragment_hash = [42u8; 32];
         
         let result = client.declare_holding(fragment_hash).await;
@@ -92,7 +107,7 @@ mod declare_holding_subxt {
     /// Test: Rate limiting for declare_holding_for_post
     #[tokio::test]
     async fn test_declare_holding_post_rate_limited() {
-        let client = ChainClient::new("ws://127.0.0.1:9944", 2).await.unwrap();
+        let client = create_test_client(2).await;
         let hash = [1u8; 32];
         
         // First two should succeed
@@ -109,7 +124,7 @@ mod declare_holding_subxt {
     /// Verifies that the method tracks post_id and index for later retrieval.
     #[tokio::test]
     async fn test_declare_holding_tracks_post_info() {
-        let client = ChainClient::new("ws://127.0.0.1:9944", 10).await.unwrap();
+        let client = create_test_client(10).await;
         
         let post_id: u64 = 999;
         let index: u32 = 3;
@@ -130,7 +145,7 @@ mod declare_holding_subxt {
     /// Test: Multiple fragments for same post
     #[tokio::test]
     async fn test_declare_holdings_same_post_multiple_fragments() {
-        let client = ChainClient::new("ws://127.0.0.1:9944", 10).await.unwrap();
+        let client = create_test_client(10).await;
         let post_id: u64 = 42;
         
         // Declare holdings for 5 fragments (n=5)

@@ -9,12 +9,15 @@ pub mod failover;
 mod tests;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use anyhow::{Result, bail};
 use tracing::{info, warn, debug};
 
+use crate::network::endpoint_cache::{BlockchainEndpoint, EndpointCache};
 use crate::storage::FragmentId;
+use failover::FailoverManager;
 
 /// Rate limiter for declare_holding calls (FR-108)
 pub struct RateLimiter {
@@ -66,9 +69,13 @@ impl RateLimiter {
 /// Note: Currently a stub implementation.
 /// Full implementation requires subxt with generated runtime types.
 pub struct ChainClient {
-    /// RPC endpoint URL
+    /// RPC endpoint URL (initial endpoint)
     #[allow(dead_code)]
     endpoint: String,
+    /// Failover manager for blockchain connections (FR-510, FR-511)
+    failover_manager: Arc<FailoverManager>,
+    /// Endpoint cache for peer discovery (FR-507)
+    endpoint_cache: Arc<EndpointCache>,
     /// Rate limiter for declare_holding
     rate_limiter: RateLimiter,
     /// Connection status
@@ -79,18 +86,73 @@ pub struct ChainClient {
 
 impl ChainClient {
     /// Create a new chain client
-    pub async fn new(endpoint: &str, declare_rate_limit: u32) -> Result<Self> {
+    pub async fn new(
+        endpoint: &str,
+        declare_rate_limit: u32,
+        failover_manager: Arc<FailoverManager>,
+        endpoint_cache: Arc<EndpointCache>,
+    ) -> Result<Self> {
         info!(endpoint = endpoint, "Connecting to chain");
+        
+        // Set initial endpoint as primary in failover manager
+        let initial_endpoint = BlockchainEndpoint {
+            url: endpoint.to_string(),
+            chain_id: [0u8; 32], // Dev chain_id
+            last_verified: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            latency_ms: 0,
+            ttl_secs: 300,
+        };
+        failover_manager.set_primary(initial_endpoint).await;
         
         // Note: In full implementation, connect via subxt:
         // let api = OnlineClient::<AnarchyConfig>::from_url(endpoint).await?;
         
         Ok(Self {
             endpoint: endpoint.to_string(),
+            failover_manager,
+            endpoint_cache,
             rate_limiter: RateLimiter::new(declare_rate_limit),
             connected: false, // Would be true after successful connection
             holding_map: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Get the current active endpoint URL (from failover manager)
+    pub async fn active_endpoint(&self) -> Option<String> {
+        self.failover_manager.get_primary_url().await
+    }
+
+    /// Report a successful RPC call
+    pub async fn report_success(&self) {
+        self.failover_manager.record_primary_success().await;
+    }
+
+    /// Report a failed RPC call and potentially trigger failover
+    /// 
+    /// Returns the new primary URL if failover occurred
+    pub async fn report_failure(&self) -> Option<String> {
+        let new_primary = self.failover_manager.record_primary_failure().await;
+        if new_primary.is_some() {
+            // Try to add standbys from endpoint cache
+            self.refresh_standbys_from_cache().await;
+        }
+        new_primary
+    }
+
+    /// Refresh standby connections from endpoint cache
+    async fn refresh_standbys_from_cache(&self) {
+        let endpoints = self.endpoint_cache.get_all_by_latency().await;
+        let current_primary = self.failover_manager.get_primary_url().await;
+        
+        for endpoint in endpoints.into_iter().take(5) {
+            // Don't add current primary as standby
+            if Some(&endpoint.url) != current_primary.as_ref() {
+                self.failover_manager.add_standby(endpoint).await;
+            }
+        }
     }
 
     /// Check if a fragment is registered on-chain (FR-107)
@@ -220,18 +282,8 @@ impl ChainClient {
     /// 
     /// Calls the `storage_registerEndpoint` RPC to register our HTTP endpoint.
     /// This allows the blockchain node to forward fragment requests to us.
+    /// Uses failover manager to handle primary node failures (FR-510, FR-511).
     pub async fn register_with_blockchain(&self, our_rpc_url: &str) -> Result<()> {
-        // Convert ws:// to http:// for JSON-RPC
-        let http_endpoint = self.endpoint
-            .replace("ws://", "http://")
-            .replace("wss://", "https://");
-        
-        info!(
-            blockchain = %http_endpoint,
-            storage_node = %our_rpc_url,
-            "Registering Storage Node with blockchain"
-        );
-        
         #[derive(serde::Serialize)]
         struct RpcRequest<'a> {
             jsonrpc: &'static str,
@@ -259,27 +311,80 @@ impl ChainClient {
             params: [our_rpc_url],
         };
         
-        let response = client
-            .post(&http_endpoint)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to connect to blockchain node: {}", e))?;
+        // Retry loop for failover (max 3 attempts)
+        const MAX_RETRIES: u32 = 3;
+        let mut last_error = None;
         
-        let rpc_response: RpcResponse = response
-            .json()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
-        
-        if let Some(error) = rpc_response.error {
-            bail!("Blockchain node rejected registration: {}", error.message);
+        for attempt in 0..MAX_RETRIES {
+            // Get current primary endpoint from failover manager
+            let endpoint_url = match self.active_endpoint().await {
+                Some(url) => url,
+                None => {
+                    return Err(anyhow::anyhow!("No primary endpoint available"));
+                }
+            };
+            
+            // Convert ws:// to http:// for JSON-RPC
+            let http_endpoint = endpoint_url
+                .replace("ws://", "http://")
+                .replace("wss://", "https://");
+            
+            if attempt > 0 {
+                info!(
+                    blockchain = %http_endpoint,
+                    attempt = attempt + 1,
+                    "Retrying registration after failover"
+                );
+            } else {
+                info!(
+                    blockchain = %http_endpoint,
+                    storage_node = %our_rpc_url,
+                    "Registering Storage Node with blockchain"
+                );
+            }
+            
+            match client
+                .post(&http_endpoint)
+                .json(&request)
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    self.report_success().await;
+                    
+                    let rpc_response: RpcResponse = resp
+                        .json()
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+                    
+                    if let Some(error) = rpc_response.error {
+                        bail!("Blockchain node rejected registration: {}", error.message);
+                    }
+                    
+                    if rpc_response.result == Some(true) {
+                        info!("Successfully registered with blockchain node");
+                    }
+                    
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    // Report failure to failover manager
+                    if let Some(new_primary) = self.report_failure().await {
+                        info!(new_primary = %new_primary, "Failover triggered, will retry with new primary");
+                        continue;
+                    }
+                    // No failover possible, break and return error
+                    break;
+                }
+            }
         }
         
-        if rpc_response.result == Some(true) {
-            info!("Successfully registered with blockchain node");
-        }
-        
-        Ok(())
+        Err(anyhow::anyhow!(
+            "Failed to connect to blockchain node after {} attempts: {}",
+            MAX_RETRIES,
+            last_error.map(|e| e.to_string()).unwrap_or_default()
+        ))
     }
 }
 

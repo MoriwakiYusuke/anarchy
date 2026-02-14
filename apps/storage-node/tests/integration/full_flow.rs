@@ -6,7 +6,22 @@
 //! 3. declare_holding called via subxt
 
 use anyhow::Result;
+use std::sync::Arc;
 use tempfile::TempDir;
+use anarchy_storage_node::chain::failover::FailoverManager;
+use anarchy_storage_node::network::endpoint_cache::EndpointCache;
+
+/// Helper to create ChainClient for integration tests
+async fn create_test_chain_client(rate_limit: u32) -> anarchy_storage_node::chain::ChainClient {
+    let failover_manager = Arc::new(FailoverManager::new());
+    let endpoint_cache = Arc::new(EndpointCache::new([0u8; 32]));
+    anarchy_storage_node::chain::ChainClient::new(
+        "ws://127.0.0.1:9944",
+        rate_limit,
+        failover_manager,
+        endpoint_cache,
+    ).await.unwrap()
+}
 
 /// T057: Full flow integration test (receive → store → declare)
 ///
@@ -25,7 +40,7 @@ async fn test_full_flow_receive_store_declare() -> Result<()> {
     let store = anarchy_storage_node::storage::FragmentStore::new(data_dir, 10 * 1024 * 1024)?;
     
     // Create chain client (stub for now)
-    let chain_client = anarchy_storage_node::chain::ChainClient::new("ws://127.0.0.1:9944", 10).await?;
+    let chain_client = create_test_chain_client(10).await;
     
     // Simulate receiving a fragment
     let post_id: u64 = 12345;
@@ -61,7 +76,7 @@ async fn test_auto_declare_on_storage() -> Result<()> {
     let data_dir = temp_dir.path().to_str().unwrap();
     
     let store = anarchy_storage_node::storage::FragmentStore::new(data_dir, 10 * 1024 * 1024)?;
-    let chain_client = anarchy_storage_node::chain::ChainClient::new("ws://127.0.0.1:9944", 10).await?;
+    let chain_client = create_test_chain_client(10).await;
     
     let post_id: u64 = 42;
     let fragments: Vec<Vec<u8>> = (0..5u32)
@@ -96,7 +111,7 @@ async fn test_full_flow_rate_limiting() -> Result<()> {
     
     let store = anarchy_storage_node::storage::FragmentStore::new(data_dir, 10 * 1024 * 1024)?;
     // Rate limit of 3 per minute
-    let chain_client = anarchy_storage_node::chain::ChainClient::new("ws://127.0.0.1:9944", 3).await?;
+    let chain_client = create_test_chain_client(3).await;;
     
     let post_id: u64 = 99;
     
@@ -131,7 +146,7 @@ async fn test_full_flow_disk_full_error() -> Result<()> {
     
     // Very small quota (100 bytes)
     let store = anarchy_storage_node::storage::FragmentStore::new(data_dir, 100)?;
-    let chain_client = anarchy_storage_node::chain::ChainClient::new("ws://127.0.0.1:9944", 10).await?;
+    let chain_client = create_test_chain_client(10).await;
     
     // First small fragment should succeed
     let small_data = b"Small".to_vec();
@@ -158,7 +173,7 @@ async fn test_full_flow_with_retrieval() -> Result<()> {
     let data_dir = temp_dir.path().to_str().unwrap();
     
     let store = anarchy_storage_node::storage::FragmentStore::new(data_dir, 10 * 1024 * 1024)?;
-    let chain_client = anarchy_storage_node::chain::ChainClient::new("ws://127.0.0.1:9944", 10).await?;
+    let chain_client = create_test_chain_client(10).await;
     
     let post_id: u64 = 777;
     let index: u32 = 2;
