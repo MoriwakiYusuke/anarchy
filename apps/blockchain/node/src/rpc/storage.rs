@@ -47,6 +47,22 @@ pub const MIN_K: u32 = 1;
 /// Maximum proof size: 8KB (proofはlog2(n)に比例)
 pub const MAX_PROOF_SIZE: usize = 8 * 1024;
 
+/// 署名付きリクエスト（認証用）
+/// Storage Nodeの認証ミドルウェアが検証するJSON構造体
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SignedAuth {
+    /// Sr25519公開鍵（hex 32バイト）
+    pub account_id: String,
+    /// Unixタイムスタンプ（秒）
+    pub timestamp: u64,
+    /// ランダムnonce（hex 16バイト）
+    pub nonce: String,
+    /// リクエストボディのBlake2bハッシュ（hex 32バイト）
+    pub payload_hash: String,
+    /// Sr25519署名（hex 64バイト）
+    pub signature: String,
+}
+
 /// 断片アップロードリクエスト
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UploadFragmentRequest {
@@ -60,6 +76,9 @@ pub struct UploadFragmentRequest {
     pub proof: String,
     /// 総断片数
     pub total_leaves: u32,
+    /// 認証情報（オプション）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth: Option<SignedAuth>,
 }
 
 /// 断片アップロードレスポンス
@@ -264,12 +283,29 @@ impl StorageNodeClient {
             params: request,
         };
 
-        let response = self.http_client
+        // Build HTTP request with optional auth header
+        let mut http_request = self.http_client
             .post(&self.storage_node_url)
-            .json(&rpc_request)
+            .json(&rpc_request);
+        
+        // Add X-Anarchy-Auth header if auth is present
+        if let Some(auth) = &request.auth {
+            let auth_json = serde_json::to_string(auth)
+                .map_err(|e| format!("Failed to serialize auth: {}", e))?;
+            http_request = http_request.header("X-Anarchy-Auth", auth_json);
+        }
+
+        let response = http_request
             .send()
             .await
             .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        // Check HTTP status before parsing JSON
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Storage Node returned HTTP {}: {}", status.as_u16(), body));
+        }
 
         let rpc_response: RpcResponse = response
             .json()
@@ -326,6 +362,13 @@ impl StorageNodeClient {
             .send()
             .await
             .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        // Check HTTP status before parsing JSON
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Storage Node returned HTTP {}: {}", status.as_u16(), body));
+        }
 
         let rpc_response: RpcResponse = response
             .json()

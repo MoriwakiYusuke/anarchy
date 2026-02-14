@@ -32,8 +32,8 @@ pub const NONCE_TTL_SECS: u64 = SIGNATURE_VALIDITY_SECS;
 /// HTTP header name for authentication
 pub const AUTH_HEADER: &str = "X-Anarchy-Auth";
 
-/// Sr25519 signing context for Anarchy protocol
-const SIGNING_CONTEXT: &[u8] = b"anarchy-storage-auth";
+/// Sr25519 signing context - must match @polkadot/keyring default
+const SIGNING_CONTEXT: &[u8] = b"substrate";
 
 /// Signed request structure (sent in X-Anarchy-Auth header as JSON)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,8 +234,10 @@ pub fn validate_request(
     let public_key_bytes = request.get_account_id_bytes()?;
     let signature_bytes = request.get_signature_bytes()?;
     
-    // Build the message to verify: timestamp || nonce || payload_hash
+    // Build the message to verify: account_id || timestamp || nonce || payload_hash
+    // This matches the frontend signing format
     let mut message = Vec::new();
+    message.extend_from_slice(&public_key_bytes);  // account_id (32 bytes)
     message.extend_from_slice(&request.timestamp.to_le_bytes());
     message.extend_from_slice(&request.get_nonce_bytes()?);
     message.extend_from_slice(&provided_hash);
@@ -388,8 +390,9 @@ mod tests {
     fn create_test_signed_request(keypair: &Keypair, payload_hash: &[u8; 32], timestamp: u64) -> SignedRequest {
         let nonce = [0u8; 16]; // Simple nonce for testing
         
-        // Build message: timestamp || nonce || payload_hash
+        // Build message: account_id || timestamp || nonce || payload_hash
         let mut message = Vec::new();
+        message.extend_from_slice(&keypair.public.to_bytes()); // account_id
         message.extend_from_slice(&timestamp.to_le_bytes());
         message.extend_from_slice(&nonce);
         message.extend_from_slice(payload_hash);
