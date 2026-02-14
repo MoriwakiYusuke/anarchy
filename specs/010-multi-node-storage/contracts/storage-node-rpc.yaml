@@ -108,7 +108,10 @@ paths:
           in: header
           required: true
           schema:
-            $ref: '#/components/schemas/SignedRequest'
+            type: string
+          description: |
+            JSON-encoded SignedRequest object. See Authentication section for format.
+            Contains: account_id, timestamp, nonce, payload_hash, signature
       requestBody:
         required: true
         content:
