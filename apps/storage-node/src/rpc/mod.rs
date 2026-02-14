@@ -186,8 +186,8 @@ async fn handle_store_fragment(
     let fragment_id = create_fragment_id(&params.merkle_root, params.index);
 
     info!(
-        fragment_id = %hex::encode(&fragment_id),
-        merkle_root = %hex::encode(&params.merkle_root),
+        fragment_id = %hex::encode(fragment_id),
+        merkle_root = %hex::encode(params.merkle_root),
         index = params.index,
         size = data.len(),
         "Storing fragment"
@@ -238,8 +238,8 @@ async fn handle_get_fragment(
     let fragment_id = create_fragment_id(&params.merkle_root, params.index);
 
     info!(
-        fragment_id = %hex::encode(&fragment_id),
-        merkle_root = %hex::encode(&params.merkle_root),
+        fragment_id = %hex::encode(fragment_id),
+        merkle_root = %hex::encode(params.merkle_root),
         index = params.index,
         "Getting fragment"
     );
@@ -266,7 +266,7 @@ async fn handle_get_fragment(
         }
         Ok(None) => {
             warn!(
-                fragment_id = %hex::encode(&fragment_id),
+                fragment_id = %hex::encode(fragment_id),
                 "Fragment not found"
             );
             Err(RpcError {
@@ -291,7 +291,7 @@ fn create_fragment_id(merkle_root: &[u8; 32], index: u32) -> [u8; 32] {
     use blake2::digest::consts::U32;
     let mut hasher = Blake2b::<U32>::new();
     hasher.update(merkle_root);
-    hasher.update(&index.to_le_bytes());
+    hasher.update(index.to_le_bytes());
     hasher.finalize().into()
 }
 
@@ -299,8 +299,8 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 
 /// Decode base64 or hex (0x-prefixed) string to bytes
 fn b64_decode(input: &str) -> Result<Vec<u8>, String> {
-    if input.starts_with("0x") {
-        hex::decode(&input[2..]).map_err(|e| e.to_string())
+    if let Some(hex_str) = input.strip_prefix("0x") {
+        hex::decode(hex_str).map_err(|e| e.to_string())
     } else {
         BASE64_STANDARD.decode(input).map_err(|e| e.to_string())
     }

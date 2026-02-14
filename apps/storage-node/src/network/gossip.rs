@@ -203,8 +203,8 @@ fn hash_endpoints(endpoints: &[BlockchainEndpoint]) -> [u8; 32] {
     let mut hasher = Blake2b::<U32>::new();
     for ep in endpoints {
         hasher.update(ep.url.as_bytes());
-        hasher.update(&ep.chain_id);
-        hasher.update(&ep.latency_ms.to_le_bytes());
+        hasher.update(ep.chain_id);
+        hasher.update(ep.latency_ms.to_le_bytes());
     }
     hasher.finalize().into()
 }

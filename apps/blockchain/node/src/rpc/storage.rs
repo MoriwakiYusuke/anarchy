@@ -548,7 +548,7 @@ where
                 ErrorCode::InvalidParams.code(),
                 "Invalid URL: must start with http:// or https://",
                 None::<()>,
-            ).into());
+            ));
         }
 
         // マルチノード対応：ノードをレジストリに追加
@@ -587,7 +587,7 @@ where
                     available_nodes
                 ),
                 None::<()>,
-            ).into());
+            ));
         }
 
         // 1. Base64デコード
@@ -623,7 +623,7 @@ where
                     MAX_FRAGMENT_SIZE
                 ),
                 None::<()>,
-            ).into());
+            ));
         }
 
         // Proof size check (max 8KB)
@@ -636,7 +636,7 @@ where
                     MAX_PROOF_SIZE
                 ),
                 None::<()>,
-            ).into());
+            ));
         }
 
         // total_leaves check
@@ -649,7 +649,7 @@ where
                     MAX_TOTAL_LEAVES
                 ),
                 None::<()>,
-            ).into());
+            ));
         }
 
         // index check (must be < total_leaves)
@@ -662,7 +662,7 @@ where
                     request.total_leaves
                 ),
                 None::<()>,
-            ).into());
+            ));
         }
 
         // 2. MerkleProof検証
@@ -686,7 +686,7 @@ where
                 ErrorCode::InvalidParams.code(),
                 "MerkleProof verification failed",
                 None::<()>,
-            ).into());
+            ));
         }
 
         // 3. 断片ハッシュ計算
@@ -738,7 +738,7 @@ where
                 ErrorCode::InternalError.code(),
                 "No Storage Nodes connected. Start storage-node(s) and they will auto-register.",
                 None::<()>,
-            ).into());
+            ));
         }
 
         let mut last_error = String::new();
@@ -776,7 +776,7 @@ where
             ErrorCode::InternalError.code(),
             format!("Failed to get fragment from all Storage Nodes: {}", last_error),
             None::<()>,
-        ).into())
+        ))
     }
 
     async fn get_post_info(&self, merkle_root: [u8; 32]) -> RpcResult<PostInfoResponse> {
@@ -811,12 +811,12 @@ where
 
         // TODO: Storage Nodeから利用可能な断片インデックスを取得
         // 暫定: 全インデックスを返す（0..n）
-        let available_indices = (0..content_info.n as u32).collect();
+        let available_indices = (0..content_info.n).collect();
 
         Ok(PostInfoResponse {
             merkle_root: content_info.root,
-            k: content_info.k as u32,
-            n: content_info.n as u32,
+            k: content_info.k,
+            n: content_info.n,
             size: content_info.size,
             available_indices,
         })

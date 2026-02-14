@@ -159,7 +159,7 @@ pub struct StorageNodeBehaviour {
 #[derive(Debug)]
 pub enum StorageNodeEvent {
     Fragment(request_response::Event<FragmentRequest, FragmentResponse>),
-    Identify(libp2p::identify::Event),
+    Identify(Box<libp2p::identify::Event>),
 }
 
 impl From<request_response::Event<FragmentRequest, FragmentResponse>> for StorageNodeEvent {
@@ -170,7 +170,7 @@ impl From<request_response::Event<FragmentRequest, FragmentResponse>> for Storag
 
 impl From<libp2p::identify::Event> for StorageNodeEvent {
     fn from(e: libp2p::identify::Event) -> Self {
-        StorageNodeEvent::Identify(e)
+        StorageNodeEvent::Identify(Box::new(e))
     }
 }
 
@@ -292,10 +292,10 @@ impl Network {
                 }
                 Ok(None)
             }
-            SwarmEvent::Behaviour(StorageNodeEvent::Identify(
-                libp2p::identify::Event::Received { peer_id, info, .. }
-            )) => {
-                debug!(peer = %peer_id, agent = %info.agent_version, "Identified peer");
+            SwarmEvent::Behaviour(StorageNodeEvent::Identify(event)) => {
+                if let libp2p::identify::Event::Received { peer_id, info, .. } = *event {
+                    debug!(peer = %peer_id, agent = %info.agent_version, "Identified peer");
+                }
                 Ok(None)
             }
             _ => Ok(None),

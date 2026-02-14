@@ -18,7 +18,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use blake2::{Blake2b, Digest};
 use blake2::digest::consts::U32;
-use tracing::{info, warn, debug};
+use tracing::{info, debug};
 
 // ============================================================================
 // Security Constants (T074)
@@ -281,7 +281,7 @@ impl FragmentStore {
         for entry in fs::read_dir(&post_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "bin") {
+            if path.extension().is_some_and(|ext| ext == "bin") {
                 if let Some(stem) = path.file_stem() {
                     if let Some(stem_str) = stem.to_str() {
                         if let Ok(index) = stem_str.parse::<u32>() {
@@ -351,6 +351,7 @@ impl FragmentStore {
     }
 
     /// Compute Blake2-256 hash (internal alias)
+    #[allow(dead_code)] // Utility function for future use
     fn hash(data: &[u8]) -> FragmentId {
         Self::compute_hash(data)
     }
@@ -368,7 +369,7 @@ impl FragmentStore {
             for entry in walkdir::WalkDir::new(base_dir)
                 .into_iter()
                 .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().map_or(false, |ext| ext == "bin"))
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "bin"))
             {
                 if let Ok(meta) = entry.metadata() {
                     total += meta.len();
@@ -391,7 +392,7 @@ impl FragmentStore {
         for entry in walkdir::WalkDir::new(base_dir)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "bin"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "bin"))
         {
             if let Some(stem) = entry.path().file_stem() {
                 if let Some(hex_str) = stem.to_str() {

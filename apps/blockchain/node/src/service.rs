@@ -148,7 +148,7 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
     } = new_partial(&config)?;
 
     let genesis_hash: <Block as BlockT>::Hash = client
-        .block_hash(0u32.into())?
+        .block_hash(0u32)?
         .expect("Genesis block exists; qed");
 
     let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(

@@ -63,6 +63,7 @@ impl BlockchainEndpoint {
 #[derive(Debug, Clone)]
 struct CacheEntry {
     endpoint: BlockchainEndpoint,
+    #[allow(dead_code)] // For potential future TTL-based eviction
     added_at: Instant,
     verified_locally: bool,
 }

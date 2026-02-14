@@ -363,7 +363,7 @@ Based on plan.md:
 - [X] T120 [P] Add integration test: failover under node failure in apps/blockchain/tests/integration/test_failover.sh
 - [X] T121 Run quickstart.md validation scenarios
 - [X] T122 Performance profiling: fragment upload <500ms target
-- [ ] T123 Code review and cleanup across all modified files
+- [X] T123 Code review and cleanup across all modified files
 
 ---
 
