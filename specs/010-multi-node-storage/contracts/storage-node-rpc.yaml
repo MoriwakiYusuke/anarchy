@@ -1,0 +1,385 @@
+openapi: 3.1.0
+info:
+  title: Anarchy Storage Node API
+  version: 1.1.0
+  description: |
+    HTTP JSON-RPC API for Anarchy distributed storage nodes.
+    
+    ## Authentication
+    
+    Write operations (upload_fragment) require signature authentication.
+    Read operations are public.
+    
+    ### Signature Format
+    
+    Include `X-Anarchy-Auth` header with JSON:
+    ```json
+    {
+      "account_id": "0x...",      // 32 bytes hex
+      "timestamp": 1707900000,     // Unix timestamp
+      "nonce": "0x...",            // 16 bytes hex
+      "payload_hash": "0x...",     // 32 bytes hex (Blake2b of body)
+      "signature": "0x..."         // 64 bytes hex (Sr25519)
+    }
+    ```
+
+servers:
+  - url: http://localhost:3030
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: health
+      tags:
+        - System
+      responses:
+        '200':
+          description: Node is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      operationId: metrics
+      tags:
+        - System
+      responses:
+        '200':
+          description: Prometheus text format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /fragment/{fragment_id}:
+    get:
+      summary: Get fragment data
+      operationId: get_fragment
+      tags:
+        - Fragment
+      description: |
+        Retrieve fragment data by ID. No authentication required (public read).
+      parameters:
+        - name: fragment_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{64}$'
+          description: Fragment ID (32 bytes hex)
+      responses:
+        '200':
+          description: Fragment data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Fragment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Upload fragment
+      operationId: upload_fragment
+      tags:
+        - Fragment
+      description: |
+        Upload a new fragment. Requires signature authentication.
+      security:
+        - signatureAuth: []
+      parameters:
+        - name: fragment_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{64}$'
+          description: Fragment ID (32 bytes hex)
+        - name: X-Anarchy-Auth
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/SignedRequest'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              maxLength: 1048576  # 1MB
+      responses:
+        '201':
+          description: Fragment stored successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '401':
+          description: Missing or invalid authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (invalid signature)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Fragment already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Fragment too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /fragments:
+    get:
+      summary: List stored fragments
+      operationId: list_fragments
+      tags:
+        - Fragment
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of fragment IDs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FragmentListResponse'
+
+  /nodes:
+    get:
+      summary: Get known storage nodes
+      operationId: get_nodes
+      tags:
+        - Network
+      description: |
+        Returns list of known storage nodes from P2P network.
+      responses:
+        '200':
+          description: List of storage nodes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodesResponse'
+
+  /endpoints:
+    get:
+      summary: Get known blockchain endpoints
+      operationId: get_endpoints
+      tags:
+        - Network
+      description: |
+        Returns list of known blockchain RPC endpoints (shared via Gossipsub).
+      responses:
+        '200':
+          description: List of blockchain endpoints
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointsResponse'
+
+components:
+  securitySchemes:
+    signatureAuth:
+      type: apiKey
+      in: header
+      name: X-Anarchy-Auth
+      description: Sr25519 signature authentication
+
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - peer_id
+        - connected_peers
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded]
+        peer_id:
+          type: string
+          description: This node's PeerID (base58)
+        connected_peers:
+          type: integer
+          description: Number of connected storage node peers
+        blockchain_connected:
+          type: boolean
+          description: Whether connected to blockchain node
+        registered:
+          type: boolean
+          description: Whether registered on-chain
+
+    SignedRequest:
+      type: object
+      required:
+        - account_id
+        - timestamp
+        - nonce
+        - payload_hash
+        - signature
+      properties:
+        account_id:
+          type: string
+          pattern: '^0x[0-9a-fA-F]{64}$'
+          description: Sr25519 public key (32 bytes hex)
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp in seconds
+        nonce:
+          type: string
+          pattern: '^0x[0-9a-fA-F]{32}$'
+          description: Random nonce (16 bytes hex)
+        payload_hash:
+          type: string
+          pattern: '^0x[0-9a-fA-F]{64}$'
+          description: Blake2b hash of request body (32 bytes hex)
+        signature:
+          type: string
+          pattern: '^0x[0-9a-fA-F]{128}$'
+          description: Sr25519 signature (64 bytes hex)
+
+    UploadResponse:
+      type: object
+      required:
+        - fragment_id
+        - size
+      properties:
+        fragment_id:
+          type: string
+        size:
+          type: integer
+
+    FragmentListResponse:
+      type: object
+      required:
+        - fragments
+        - total
+      properties:
+        fragments:
+          type: array
+          items:
+            type: string
+            pattern: '^[0-9a-fA-F]{64}$'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    NodesResponse:
+      type: object
+      required:
+        - nodes
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageNodeInfo'
+
+    StorageNodeInfo:
+      type: object
+      required:
+        - peer_id
+        - endpoint
+        - status
+      properties:
+        peer_id:
+          type: string
+          description: PeerID (base58)
+        endpoint:
+          type: string
+          description: HTTP endpoint URL
+        status:
+          type: string
+          enum: [online, offline, unknown]
+        latency_ms:
+          type: integer
+          description: Last measured latency
+
+    EndpointsResponse:
+      type: object
+      required:
+        - endpoints
+      properties:
+        endpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlockchainEndpoint'
+
+    BlockchainEndpoint:
+      type: object
+      required:
+        - url
+        - chain_id
+      properties:
+        url:
+          type: string
+          format: uri
+        chain_id:
+          type: string
+          pattern: '^0x[0-9a-fA-F]{64}$'
+          description: Genesis hash
+        last_verified:
+          type: integer
+          format: int64
+          description: Unix timestamp of last health check
+        latency_ms:
+          type: integer
+        ttl_secs:
+          type: integer
+          default: 300
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          enum:
+            - NOT_FOUND
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - CONFLICT
+            - PAYLOAD_TOO_LARGE
+            - INTERNAL_ERROR
+            - EXPIRED_SIGNATURE
+            - REPLAYED_NONCE
+            - INVALID_SIGNATURE
+        details:
+          type: string
