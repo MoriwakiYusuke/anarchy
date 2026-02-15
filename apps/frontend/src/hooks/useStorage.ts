@@ -10,9 +10,10 @@ import { blake2b } from 'blakejs'
 const RPC_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944'
 
 /**
- * SSS/Merkle設定（システム固定値）
+ * ハイブリッド分割設定（システム固定値）
+ * - AES-256-GCM暗号化 + Reed-Solomon符号化 + キーSSS分割
  */
-const SSS_K = 3  // 復元に必要な最小断片数
+const SSS_K = 3  // 復元に必要な最小断片数（閾値）
 const SSS_N = 5  // 総断片数
 
 /**
