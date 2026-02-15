@@ -3,11 +3,107 @@
 //! 32バイト暗号鍵のSSS分割・復元を提供。
 //! ハイブリッドアプローチの第3段階として、AES-256鍵をk-of-n分割する。
 //!
-//! 既存のsharks実装（sss.rs）を再利用。
-
-use crate::sss::{sss_recover_internal, sss_split_internal};
+//! GF(256)上のShamirの秘密分散を自前実装（sharksクレート不要）。
 
 use super::encryption::KEY_SIZE;
+
+// =============================================================================
+// GF(256) Arithmetic (AES/Rijndael field: x^8 + x^4 + x^3 + x + 1)
+// =============================================================================
+
+/// GF(256)上の乗算
+fn gf256_mul(a: u8, b: u8) -> u8 {
+    let mut result: u8 = 0;
+    let mut a = a;
+    let mut b = b;
+
+    while b > 0 {
+        if b & 1 != 0 {
+            result ^= a;
+        }
+        let hi_bit = a & 0x80;
+        a <<= 1;
+        if hi_bit != 0 {
+            a ^= 0x1b; // x^8 → x^4 + x^3 + x + 1
+        }
+        b >>= 1;
+    }
+    result
+}
+
+/// GF(256)上の逆元（拡張ユークリッド法代わりにフェルマーの小定理: a^254 = a^(-1)）
+fn gf256_inv(a: u8) -> u8 {
+    if a == 0 {
+        return 0; // 数学的には未定義だが0を返す
+    }
+    // a^254 = a^(-1) in GF(256)
+    let mut result = a;
+    for _ in 0..6 {
+        result = gf256_mul(result, result);
+        result = gf256_mul(result, a);
+    }
+    gf256_mul(result, result) // 最後に2乗
+}
+
+/// GF(256)上の除算: a / b
+fn gf256_div(a: u8, b: u8) -> u8 {
+    if b == 0 {
+        return 0; // エラーケース
+    }
+    gf256_mul(a, gf256_inv(b))
+}
+
+// =============================================================================
+// Shamir's Secret Sharing over GF(256)
+// =============================================================================
+
+/// 多項式をx点で評価（ホーナー法）
+fn poly_eval(coeffs: &[u8], x: u8) -> u8 {
+    // coeffs[0] = 秘密, coeffs[1..] = ランダム係数
+    let mut result = 0u8;
+    for i in (0..coeffs.len()).rev() {
+        result = gf256_mul(result, x);
+        result ^= coeffs[i]; // GF(256)での加算はXOR
+    }
+    result
+}
+
+/// 単一バイトをk-of-nでSSS分割
+fn sss_split_byte(secret: u8, k: u8, n: u8) -> Vec<(u8, u8)> {
+    // k-1個のランダム係数を生成（秘密が定数項）
+    let mut coeffs = vec![secret];
+    let mut random_bytes = vec![0u8; (k - 1) as usize];
+    getrandom::getrandom(&mut random_bytes).expect("RNG failure");
+    coeffs.extend(random_bytes);
+
+    // x=1,2,...,n で評価
+    (1..=n)
+        .map(|x| (x, poly_eval(&coeffs, x)))
+        .collect()
+}
+
+/// ラグランジュ補間でx=0の値を復元
+fn lagrange_interpolate_at_zero(shares: &[(u8, u8)]) -> u8 {
+    let mut result = 0u8;
+
+    for (i, &(xi, yi)) in shares.iter().enumerate() {
+        // ラグランジュ基底多項式のx=0での値を計算
+        let mut num = 1u8;
+        let mut den = 1u8;
+
+        for (j, &(xj, _)) in shares.iter().enumerate() {
+            if i != j {
+                num = gf256_mul(num, xj); // (0 - xj) = xj in GF(256)
+                den = gf256_mul(den, xi ^ xj); // (xi - xj)
+            }
+        }
+
+        let term = gf256_mul(yi, gf256_div(num, den));
+        result ^= term;
+    }
+
+    result
+}
 
 /// 鍵SSS エラー
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,8 +116,6 @@ pub enum KeySssError {
     InsufficientShares,
     /// 復元失敗
     RecoveryFailed,
-    /// 内部エラー
-    InternalError(String),
 }
 
 impl core::fmt::Display for KeySssError {
@@ -31,11 +125,10 @@ impl core::fmt::Display for KeySssError {
                 write!(f, "Invalid key size: expected {} bytes", KEY_SIZE)
             }
             KeySssError::InvalidThreshold => {
-                write!(f, "Invalid threshold: k must be >= 2 and <= n")
+                write!(f, "Invalid threshold: k must be >= 2 and <= n <= 20")
             }
             KeySssError::InsufficientShares => write!(f, "Insufficient shares for key recovery"),
             KeySssError::RecoveryFailed => write!(f, "Key recovery failed"),
-            KeySssError::InternalError(msg) => write!(f, "Internal error: {}", msg),
         }
     }
 }
@@ -43,9 +136,9 @@ impl core::fmt::Display for KeySssError {
 /// 鍵シェア
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyShare {
-    /// シェアのインデックス (0-based, 内部でsharks用に+1)
+    /// シェアのインデックス (1-based x座標)
     pub index: u8,
-    /// シリアライズされたsharksシェア
+    /// シェアデータ（32バイト: 各バイトのy値）
     pub data: Vec<u8>,
 }
 
@@ -70,23 +163,24 @@ pub fn key_split(key: &[u8], k: u8, n: u8) -> Result<KeySplitResult, KeySssError
     if key.len() != KEY_SIZE {
         return Err(KeySssError::InvalidKeySize);
     }
-    if k < 2 || k > n {
+    if k < 2 || k > n || n > 20 {
         return Err(KeySssError::InvalidThreshold);
     }
 
-    // 既存のSSS実装を使用
-    let fragments = sss_split_internal(key, k, n)
-        .map_err(|e| KeySssError::InternalError(e))?;
-
-    // シェアを構築
-    let shares = fragments
-        .into_iter()
-        .enumerate()
-        .map(|(i, data)| KeyShare {
-            index: i as u8,
-            data,
+    // 各バイトを独立にSSS分割
+    let mut shares: Vec<KeyShare> = (1..=n)
+        .map(|x| KeyShare {
+            index: x,
+            data: Vec::with_capacity(KEY_SIZE),
         })
         .collect();
+
+    for &byte in key {
+        let byte_shares = sss_split_byte(byte, k, n);
+        for (i, (_, y)) in byte_shares.into_iter().enumerate() {
+            shares[i].data.push(y);
+        }
+    }
 
     Ok(KeySplitResult { shares })
 }
@@ -104,20 +198,21 @@ pub fn key_recover(shares: &[KeyShare], k: u8) -> Result<[u8; KEY_SIZE], KeySssE
         return Err(KeySssError::InsufficientShares);
     }
 
-    // シェアデータを抽出
-    let fragments: Vec<Vec<u8>> = shares.iter().map(|s| s.data.clone()).collect();
-
-    // 既存のSSS実装で復元
-    let recovered = sss_recover_internal(&fragments, k)
-        .map_err(|e| KeySssError::InternalError(e))?;
-
-    // 鍵サイズを検証
-    if recovered.len() != KEY_SIZE {
+    // シェアサイズ確認
+    if !shares.iter().all(|s| s.data.len() == KEY_SIZE) {
         return Err(KeySssError::RecoveryFailed);
     }
 
+    // 各バイト位置で補間
     let mut key = [0u8; KEY_SIZE];
-    key.copy_from_slice(&recovered);
+    for i in 0..KEY_SIZE {
+        let points: Vec<(u8, u8)> = shares
+            .iter()
+            .take(k as usize)
+            .map(|s| (s.index, s.data[i]))
+            .collect();
+        key[i] = lagrange_interpolate_at_zero(&points);
+    }
 
     Ok(key)
 }

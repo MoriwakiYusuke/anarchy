@@ -44,7 +44,7 @@ async function initWasm(): Promise<void> {
  */
 interface WorkerRequest {
   id: string;
-  type: "hybrid_split" | "hybrid_recover" | "sss_split" | "sss_recover" | "merkle_build" | "merkle_generate_proof" | "merkle_verify" | "blake2b_hash";
+  type: "hybrid_split" | "hybrid_recover" | "merkle_build" | "merkle_generate_proof" | "merkle_verify" | "blake2b_hash";
   payload: unknown;
 }
 
@@ -75,23 +75,6 @@ interface HybridRecoverPayload {
   ciphertextLen: number;
   shardSize: number;
   compressed: boolean;
-}
-
-/**
- * SSS分割リクエスト (Legacy互換)
- */
-interface SssSplitPayload {
-  data: Uint8Array;
-  k: number;
-  n: number;
-}
-
-/**
- * SSS復元リクエスト (Legacy互換)
- */
-interface SssRecoverPayload {
-  shares: Uint8Array[];
-  k: number;
 }
 
 /**
@@ -174,31 +157,6 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         const { shardBytes, k, n, originalLen, ciphertextLen, shardSize, compressed } = payload as HybridRecoverPayload;
         result = new Uint8Array(wasmModule.hybrid_recover(shardBytes, k, n, originalLen, ciphertextLen, shardSize, compressed));
         break;
-      }
-
-      case "sss_split": {
-        // Legacy互換: hybrid_splitを使用
-        const { data, k, n } = payload as SssSplitPayload;
-        const splitResult = wasmModule.hybrid_split(data, k, n);
-        // Legacy形式: シリアライズされたシャード配列を返す
-        const shards: Uint8Array[] = [];
-        for (let i = 0; i < splitResult.shard_count; i++) {
-          const shard = splitResult.get_shard(i);
-          if (shard) {
-            shards.push(new Uint8Array(shard.to_bytes()));
-          }
-        }
-        result = shards;
-        break;
-      }
-
-      case "sss_recover": {
-        // Legacy互換: hybrid_recoverのデフォルト値を使用
-        const { shares, k } = payload as SssRecoverPayload;
-        // Note: Legacy APIではメタデータがないため、ここでは使用不可
-        // フロントエンドがhybrid_recoverに移行するまでの一時的な対応
-        console.warn("[CryptoWorker] sss_recover is deprecated, use hybrid_recover with metadata");
-        throw new Error("sss_recover requires metadata. Please use hybrid_recover API.");
       }
 
       case "merkle_build": {

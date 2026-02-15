@@ -2,11 +2,10 @@
 //!
 //! ブラウザで実行可能なWasm暗号エンジン。
 //! - KZG-VSS: BLS12-381曲線上の検証可能秘密分散
-//! - MerkleTree: Blake2b ベースのマークルツリー構築・検証 (legacy)
+//! - Hybrid: AES-256-GCM暗号 + KZG-VSS鍵分散
 
 pub mod kzg;
 mod merkle;
-mod sss;
 
 use wasm_bindgen::prelude::*;
 
@@ -23,9 +22,8 @@ pub fn init() {
     set_panic_hook();
 }
 
-// Re-export public APIs (legacy SSS)
+// Re-export Merkle tree APIs (legacy)
 pub use merkle::*;
-pub use sss::*;
 
 // Re-export KZG-VSS APIs
 pub use kzg::{

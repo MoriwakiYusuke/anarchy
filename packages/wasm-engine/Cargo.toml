@@ -30,9 +30,6 @@ flate2 = { version = "1.0", default-features = false, features = ["rust_backend"
 # MerkleTree (legacy, keep for compatibility)
 rs_merkle = "1.4"
 
-# Legacy SSS (sharks) - to be removed in Phase 8 (T074)
-sharks = "0.5"
-
 # Blake2b hashing
 blake2 = "0.10"
 

@@ -293,7 +293,7 @@
 - [X] T071 [P] Update CLAUDE.md with KZG-VSS module documentation
 - [X] T072 [P] Add hysteresis for score boundary changes (Edge Case)
 - [X] T073 Run quickstart.md validation (all commands succeed)
-- [ ] T074 Remove sharks crate from `Cargo.toml` and delete `packages/wasm-engine/src/sss_core.rs` **BLOCKED**: Frontend still uses sss_split - requires frontend migration to hybrid_split first
+- [X] T074 Remove sharks crate from `Cargo.toml` and delete `packages/wasm-engine/src/sss.rs` — SSS cleanup complete, key_sss.rs now uses GF(256) Shamir implementation
 
 ---
 
