@@ -1,7 +1,7 @@
 //! Mock runtime for pallet-storage tests
 
 use crate as pallet_storage;
-use frame_support::traits::{ConstU32, ConstU64, ConstU8};
+use frame_support::traits::{ConstU128, ConstU32, ConstU64, ConstU8};
 use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
@@ -64,6 +64,8 @@ impl pallet_storage::Config for Test {
     type PowObservationPeriod = ConstU32<10>;
     type BasePowDifficulty = ConstU8<0>;             // No PoW for basic tests
     type MaxHttpUrlLen = ConstU32<256>;
+    type BaseRewardPerByte = ConstU128<1>;           // 1 unit per byte for tests
+    type ScoreThreshold = ConstU64<100>;             // Score threshold for tests
 }
 
 /// Build test externalities

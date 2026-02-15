@@ -29,8 +29,10 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
+pub mod kzg;
 pub mod pow;
 pub mod rate_limit;
+pub mod rewards;
 
 /// Fragment ID type (Blake2-256 hash)
 pub type FragmentId = [u8; 32];
@@ -100,6 +102,7 @@ pub trait StorageInterface<AccountId, BlockNumber> {
 pub mod pallet {
     use super::*;
     use frame_support::pallet_prelude::*;
+    use frame_support::sp_runtime::Saturating;
     use frame_system::pallet_prelude::*;
 
     /// Fragment metadata stored on-chain
@@ -184,6 +187,25 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
+    // ============ Genesis Config ============
+
+    /// Genesis configuration for pallet-storage
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T: Config> {
+        /// Initial reward pool balance (for dev/testnet)
+        pub initial_reward_pool: u128,
+        #[serde(skip)]
+        pub _phantom: core::marker::PhantomData<T>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            RewardPoolBalance::<T>::put(self.initial_reward_pool);
+        }
+    }
+
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Clear per-block rate limiting counters at block finalization (FR-406, FR-410).
@@ -247,6 +269,17 @@ pub mod pallet {
         /// Maximum HTTP URL length in bytes (default: 256)
         #[pallet::constant]
         type MaxHttpUrlLen: Get<u32>;
+
+        /// Base reward per byte for holding proofs (T050, FR-109)
+        /// Default: 1_000 (0.000001 MORAL per byte)
+        #[pallet::constant]
+        type BaseRewardPerByte: Get<u128>;
+
+        /// Score threshold for reward eligibility (T059, FR-111)
+        /// Content below this score receives 0 rewards
+        /// Default: 100
+        #[pallet::constant]
+        type ScoreThreshold: Get<u64>;
     }
 
     // ============ Storage ============
@@ -362,6 +395,19 @@ pub mod pallet {
     pub type ScoreCache<T: Config> =
         StorageMap<_, Blake2_128Concat, super::ContentHash, u64, OptionQuery>;
 
+    /// Pending rewards per account (accumulated from prove_holding_kzg)
+    #[pallet::storage]
+    #[pallet::getter(fn pending_rewards)]
+    pub type PendingRewards<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u128, ValueQuery>;
+
+    /// Forgetting candidates - content with score below threshold (FR-110)
+    /// Stores the block number when content became a candidate
+    #[pallet::storage]
+    #[pallet::getter(fn forgetting_candidates)]
+    pub type ForgettingCandidates<T: Config> =
+        StorageMap<_, Blake2_128Concat, super::ContentHash, BlockNumberFor<T>, OptionQuery>;
+
     // ============ Events ============
 
     #[pallet::event]
@@ -413,6 +459,38 @@ pub mod pallet {
             data_size: u32,
             fragment_count: u8,
             threshold: u8,
+        },
+
+        /// KZG holding proof submitted successfully (FR-104)
+        HoldingProved {
+            content_hash: super::ContentHash,
+            holder: T::AccountId,
+            share_index: u8,
+        },
+
+        /// Challenge issued to a storage node (FR-103)
+        ChallengeIssued {
+            content_hash: super::ContentHash,
+            share_index: u8,
+            target_node: T::AccountId,
+            deadline: BlockNumberFor<T>,
+        },
+
+        /// Reward claimed by storage node (FR-108)
+        RewardClaimed {
+            holder: T::AccountId,
+            amount: u128,
+        },
+
+        /// Content marked as forgetting candidate (FR-110)
+        ForgettingCandidateMarked {
+            content_hash: super::ContentHash,
+            marked_at: BlockNumberFor<T>,
+        },
+
+        /// Content recovered from forgetting candidate (T054)
+        ScoreRecovered {
+            content_hash: super::ContentHash,
         },
     }
 
@@ -480,6 +558,30 @@ pub mod pallet {
         FragmentCountTooSmall,
         /// Commitment conversion failed
         InvalidCommitment,
+
+        // === KZG Proof verification errors (US2) ===
+
+        /// Invalid KZG proof (pairing check failed)
+        InvalidKzgProof,
+        /// Challenge not found
+        ChallengeNotFound,
+        /// Node not challenged (no active challenge)
+        NotChallenged,
+        /// Challenge already issued for this node/fragment
+        ChallengeAlreadyIssued,
+        /// Proof already submitted for this challenge
+        ProofAlreadySubmitted,
+        /// Invalid challenge index
+        InvalidChallengeIndex,
+        /// KZG fragment not found
+        KzgFragmentNotFound,
+
+        // === Reward errors (US3) ===
+
+        /// No pending reward to claim
+        NoPendingReward,
+        /// Reward pool has insufficient balance
+        InsufficientRewardPool,
     }
 
     // ============ Extrinsics ============
@@ -808,6 +910,222 @@ pub mod pallet {
                 data_size,
                 fragment_count,
                 threshold,
+            });
+
+            Ok(())
+        }
+
+        /// Submit KZG proof of holding (US2).
+        ///
+        /// Storage nodes submit proof in response to a challenge.
+        /// The proof demonstrates they hold the correct share value.
+        ///
+        /// # Arguments
+        /// * `content_hash` - The content being proven
+        /// * `share_index` - Which share the node holds (1..=n)
+        /// * `share_value` - The share value (32 bytes)
+        /// * `proof` - KZG opening proof (48 bytes)
+        #[pallet::call_index(7)]
+        #[pallet::weight(Weight::from_parts(50_000_000, 0) + T::DbWeight::get().reads_writes(2, 1))]
+        pub fn prove_holding_kzg(
+            origin: OriginFor<T>,
+            content_hash: super::ContentHash,
+            share_index: u8,
+            share_value: BoundedVec<u8, ConstU32<32>>,
+            proof: BoundedVec<u8, ConstU32<48>>,
+        ) -> DispatchResult {
+            let prover = ensure_signed(origin)?;
+
+            // Validate share value length
+            ensure!(share_value.len() == 32, Error::<T>::FragmentTooSmall);
+
+            // Validate proof length
+            ensure!(proof.len() == 48, Error::<T>::InvalidCommitmentLength);
+
+            // Get KZG fragment
+            let kzg_fragment = KzgFragments::<T>::get(content_hash)
+                .ok_or(Error::<T>::KzgFragmentNotFound)?;
+
+            // Validate share index
+            ensure!(
+                share_index >= 1 && share_index <= kzg_fragment.fragment_count,
+                Error::<T>::InvalidChallengeIndex
+            );
+
+            // Convert BoundedVec to fixed arrays for KZG verification
+            let commitment_arr: [u8; 48] = kzg_fragment.commitment.as_slice()
+                .try_into()
+                .map_err(|_| Error::<T>::InvalidCommitmentLength)?;
+            let share_value_arr: [u8; 32] = share_value.as_slice()
+                .try_into()
+                .map_err(|_| Error::<T>::FragmentTooSmall)?;
+            let proof_arr: [u8; 48] = proof.as_slice()
+                .try_into()
+                .map_err(|_| Error::<T>::InvalidCommitmentLength)?;
+
+            // Verify KZG proof
+            let is_valid = super::kzg::verify_kzg_proof(
+                &commitment_arr,
+                share_index,
+                &share_value_arr,
+                &proof_arr,
+            ).map_err(|_| Error::<T>::InvalidKzgProof)?;
+
+            ensure!(is_valid, Error::<T>::InvalidKzgProof);
+
+            // Calculate reward (T046-T047)
+            let score = ScoreCache::<T>::get(content_hash).unwrap_or(1000); // Default high score
+            let score_threshold = T::ScoreThreshold::get();
+            let reward = super::rewards::calculate_reward_with_threshold(
+                kzg_fragment.data_size,
+                T::BaseRewardPerByte::get(),
+                score,
+                score_threshold,
+            );
+
+            // Update proof record (FR-104, FR-109, T042)
+            let current_block = <frame_system::Pallet<T>>::block_number();
+            ProofRecords::<T>::mutate(content_hash, &prover, |record| {
+                record.last_proved_at = current_block;
+                record.success_count = record.success_count.saturating_add(1);
+                record.failure_count = 0; // Reset failures on success
+                record.pending_reward = record.pending_reward.saturating_add(reward);
+            });
+
+            // Accumulate reward in PendingRewards for efficient claim (T048)
+            if reward > 0 {
+                PendingRewards::<T>::mutate(&prover, |pending| {
+                    *pending = pending.saturating_add(reward);
+                });
+
+                // Score recovered - remove from forgetting candidates if present (T054)
+                if ForgettingCandidates::<T>::contains_key(content_hash) {
+                    ForgettingCandidates::<T>::remove(content_hash);
+                    Self::deposit_event(Event::ScoreRecovered { content_hash });
+                }
+            } else {
+                // Reward is 0 due to low score - mark as forgetting candidate (T056, FR-110)
+                if !ForgettingCandidates::<T>::contains_key(content_hash) {
+                    ForgettingCandidates::<T>::insert(content_hash, current_block);
+                    Self::deposit_event(Event::ForgettingCandidateMarked {
+                        content_hash,
+                        marked_at: current_block,
+                    });
+                }
+            }
+
+            // Remove pending challenge if exists
+            PendingChallenges::<T>::remove(content_hash, share_index);
+
+            // Emit success event
+            Self::deposit_event(Event::HoldingProved {
+                content_hash,
+                holder: prover,
+                share_index,
+            });
+
+            Ok(())
+        }
+
+        /// Issue a challenge to a storage node (US2).
+        ///
+        /// Challenges are issued to verify storage nodes still hold data.
+        /// Nodes must respond with valid KZG proofs within a time window.
+        ///
+        /// # Arguments
+        /// * `content_hash` - The content to challenge
+        /// * `node_account` - The storage node operator account
+        /// * `challenge_index` - Random share index to prove
+        #[pallet::call_index(8)]
+        #[pallet::weight(Weight::from_parts(30_000, 0) + T::DbWeight::get().reads_writes(2, 1))]
+        pub fn issue_challenge(
+            origin: OriginFor<T>,
+            content_hash: super::ContentHash,
+            node_account: T::AccountId,
+            challenge_index: u8,
+        ) -> DispatchResult {
+            ensure_signed(origin)?; // Anyone can issue challenges (spam-limited by fees)
+
+            // Get KZG fragment
+            let kzg_fragment = KzgFragments::<T>::get(content_hash)
+                .ok_or(Error::<T>::KzgFragmentNotFound)?;
+
+            // Validate challenge index
+            ensure!(
+                challenge_index >= 1 && challenge_index <= kzg_fragment.fragment_count,
+                Error::<T>::InvalidChallengeIndex
+            );
+
+            // Check if challenge already exists for this share
+            ensure!(
+                !PendingChallenges::<T>::contains_key(content_hash, challenge_index),
+                Error::<T>::ChallengeAlreadyIssued
+            );
+
+            // Calculate deadline (100 blocks from now)
+            let current_block = <frame_system::Pallet<T>>::block_number();
+            let deadline = current_block.saturating_add(100u32.into());
+
+            // Create and store challenge
+            let challenge = Challenge {
+                content_hash,
+                share_index: challenge_index,
+                challenged_node: node_account.clone(),
+                issued_at: current_block,
+                deadline,
+            };
+
+            PendingChallenges::<T>::insert(content_hash, challenge_index, challenge);
+
+            // Emit event
+            Self::deposit_event(Event::ChallengeIssued {
+                content_hash,
+                share_index: challenge_index,
+                target_node: node_account,
+                deadline,
+            });
+
+            Ok(())
+        }
+
+        /// Claim accumulated rewards (T048, FR-108).
+        ///
+        /// Transfers pending rewards from PendingRewards storage to caller's balance.
+        #[pallet::call_index(9)]
+        #[pallet::weight(Weight::from_parts(50_000, 0) + T::DbWeight::get().reads_writes(2, 2))]
+        pub fn claim_reward(origin: OriginFor<T>) -> DispatchResult {
+            let claimer = ensure_signed(origin)?;
+
+            // Get accumulated pending rewards
+            let total_reward = PendingRewards::<T>::get(&claimer);
+            ensure!(total_reward > 0, Error::<T>::NoPendingReward);
+
+            // Check pool balance
+            let pool_balance = RewardPoolBalance::<T>::get();
+            let payout = core::cmp::min(total_reward, pool_balance);
+            ensure!(payout > 0, Error::<T>::InsufficientRewardPool);
+
+            // Deduct from pool
+            RewardPoolBalance::<T>::mutate(|balance| {
+                *balance = balance.saturating_sub(payout);
+            });
+
+            // Clear pending rewards
+            // If pro-rata applied (pool exhausted), remainder stays in PendingRewards
+            if payout < total_reward {
+                // Pro-rata: only clear what was paid out
+                PendingRewards::<T>::mutate(&claimer, |pending| {
+                    *pending = pending.saturating_sub(payout);
+                });
+            } else {
+                // Full payout: clear all
+                PendingRewards::<T>::remove(&claimer);
+            }
+
+            // Emit event
+            Self::deposit_event(Event::RewardClaimed {
+                holder: claimer,
+                amount: payout,
             });
 
             Ok(())

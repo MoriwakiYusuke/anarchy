@@ -199,7 +199,7 @@ pub fn vss_recover(
 // === Internal Helper Functions ===
 
 /// Construct polynomial f(x) = Σ(scalars[i] * x^i).
-fn construct_polynomial(scalars: &[Fr], _threshold: usize) -> Result<DensePolynomial<Fr>, KzgError> {
+pub(crate) fn construct_polynomial(scalars: &[Fr], _threshold: usize) -> Result<DensePolynomial<Fr>, KzgError> {
     if scalars.is_empty() {
         return Err(KzgError::EncodingError("No scalars for polynomial".into()));
     }
@@ -250,21 +250,41 @@ fn generate_proofs(
     let mut proofs = Vec::with_capacity(shares.len());
 
     for share in shares {
-        let x_i = Fr::from(share.index as u64);
-        let y_i = polynomial.evaluate(&x_i);
-
-        // Compute quotient polynomial q(x) = (f(x) - f(i)) / (x - i)
-        let quotient = compute_quotient_polynomial(polynomial, x_i, y_i)?;
-
-        // Commit to quotient: π = [q(τ)]₁
-        let proof_commitment = compute_commitment(&quotient, srs)?;
-
-        proofs.push(KzgProof {
-            bytes: proof_commitment.bytes,
-        });
+        let proof = generate_single_proof(polynomial, share.index, srs)?;
+        proofs.push(proof);
     }
 
     Ok(proofs)
+}
+
+/// Generate a single KZG opening proof for a share.
+///
+/// This is used by storage nodes to re-prove their holdings.
+///
+/// # Arguments
+/// * `polynomial` - The original polynomial f(x)
+/// * `share_index` - The share index (1..=n)
+/// * `srs` - Structured Reference String
+///
+/// # Returns
+/// * KZG proof for the share
+pub(crate) fn generate_single_proof(
+    polynomial: &DensePolynomial<Fr>,
+    share_index: u8,
+    srs: &super::srs::Srs,
+) -> Result<KzgProof, KzgError> {
+    let x_i = Fr::from(share_index as u64);
+    let y_i = polynomial.evaluate(&x_i);
+
+    // Compute quotient polynomial q(x) = (f(x) - f(i)) / (x - i)
+    let quotient = compute_quotient_polynomial(polynomial, x_i, y_i)?;
+
+    // Commit to quotient: π = [q(τ)]₁
+    let proof_commitment = compute_commitment(&quotient, srs)?;
+
+    Ok(KzgProof {
+        bytes: proof_commitment.bytes,
+    })
 }
 
 /// Compute quotient polynomial q(x) = (f(x) - y) / (x - point).

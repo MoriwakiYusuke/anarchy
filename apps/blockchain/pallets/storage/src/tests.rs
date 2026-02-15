@@ -6,7 +6,7 @@
 use crate::{self as pallet_storage, Error, Event, FragmentId};
 use frame_support::{
     assert_noop, assert_ok,
-    traits::{ConstU32, ConstU64, ConstU8},
+    traits::{ConstU128, ConstU32, ConstU64, ConstU8},
     BoundedVec,
 };
 use sp_core::H256;
@@ -77,6 +77,8 @@ impl pallet_storage::Config for Test {
     type PowObservationPeriod = ConstU32<10>;
     type BasePowDifficulty = ConstU8<0>;             // No PoW for basic tests
     type MaxHttpUrlLen = ConstU32<256>;
+    type BaseRewardPerByte = ConstU128<1>;           // 1 unit per byte for tests
+    type ScoreThreshold = ConstU64<100>;             // Score threshold for tests
 }
 
 /// Build test externalities
@@ -881,3 +883,233 @@ fn t031_challenge_generation_random() {
     });
 }
 
+/// T032: 未応答カウントが正しく増加
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires failure counting (T042)"]
+fn t032_unanswered_count_increments() {
+    new_test_ext().execute_with(|| {
+        let _node = 2u64;
+        let _content_hash = test_content_hash(1);
+
+        // Setup:
+        // 1. Register storage node
+        // 2. Register KzgFragment 
+        // 3. Node declares holding
+        // 4. Issue challenge to node
+
+        // Action:
+        // 1. Progress blocks past challenge deadline
+        // 2. Trigger on_finalize / challenge expiry hook
+
+        // Verify:
+        // 1. unanswered_count for node increases by 1
+        // 2. If unanswered_count >= threshold, warning_flag is set
+        // 3. NodeWarned event is emitted
+
+        // TODO (T042): Implement after failure counting is in place
+    });
+}
+
+// ============================================================
+// Phase 5: User Story 3 - 保持報酬の分配 Tests
+// ============================================================
+
+/// T043: スコア閾値以上で報酬計算（データサイズ依存）
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires rewards implementation (T046-T050)"]
+fn t043_reward_calculation_based_on_data_size() {
+    new_test_ext().execute_with(|| {
+        let node = 2u64;
+        let content_hash = test_content_hash(1);
+        let data_size = 1024u32; // 1KB
+
+        // Setup:
+        // 1. Register storage node
+        // 2. Register KzgFragment with data_size
+        // 3. Set score above threshold
+
+        // Action:
+        // 1. Node submits successful holding proof
+
+        // Verify:
+        // 1. Pending reward = BaseRewardPerByte × data_size
+        // 2. ProofRecord.pending_reward is updated
+        let _ = (node, content_hash, data_size);
+    });
+}
+
+/// T044: 報酬プール枯渇時に按分分配
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires rewards implementation (T046-T050)"]
+fn t044_reward_pool_exhaustion_pro_rata() {
+    new_test_ext().execute_with(|| {
+        let node1 = 2u64;
+        let node2 = 3u64;
+
+        // Setup:
+        // 1. Set RewardPoolBalance to small amount (e.g., 100)
+        // 2. Multiple nodes have pending rewards (e.g., 60 + 60 = 120 > 100)
+
+        // Action:
+        // 1. Trigger batch reward distribution
+
+        // Verify:
+        // 1. Each node receives proportional share (60/120 * 100 = 50 each)
+        // 2. RewardPoolBalance becomes 0
+        // 3. Rewards are distributed fairly
+        let _ = (node1, node2);
+    });
+}
+
+/// T045: E2E 保持証明成功→報酬分配
+/// Integration test placeholder
+#[test]
+#[ignore = "Integration test - requires running nodes"]
+fn t045_e2e_proof_success_reward_distribution() {
+    // This is an integration test that requires:
+    // 1. Running blockchain node
+    // 2. Running storage node
+    // 3. Registered content with KZG commitment
+    
+    // Test flow:
+    // 1. Issue challenge to storage node
+    // 2. Storage node submits valid proof
+    // 3. Wait for reward distribution (batch processing)
+    // 4. Verify node operator wallet balance increased
+}
+
+/// T075: 大きいデータサイズ→高い報酬（1KB vs 10KB比較）
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires rewards implementation (T046-T050)"]
+fn t075_larger_data_higher_reward() {
+    new_test_ext().execute_with(|| {
+        let node1 = 2u64;
+        let node2 = 3u64;
+        let small_data_size = 1024u32;   // 1KB
+        let large_data_size = 10240u32;  // 10KB
+
+        // Setup:
+        // 1. Register two storage nodes
+        // 2. Register KzgFragment for node1 with small_data_size
+        // 3. Register KzgFragment for node2 with large_data_size
+        // 4. Both scores above threshold
+
+        // Action:
+        // 1. Both nodes submit successful holding proofs
+
+        // Verify:
+        // 1. node2 pending_reward > node1 pending_reward
+        // 2. node2 pending_reward = 10 × node1 pending_reward
+        let _ = (node1, node2, small_data_size, large_data_size);
+    });
+}
+
+/// T076: 複数断片保持→報酬累積
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires rewards implementation (T046-T050)"]
+fn t076_multiple_fragments_reward_accumulation() {
+    new_test_ext().execute_with(|| {
+        let node = 2u64;
+        let content_hash1 = test_content_hash(1);
+        let content_hash2 = test_content_hash(2);
+        let content_hash3 = test_content_hash(3);
+
+        // Setup:
+        // 1. Register storage node
+        // 2. Register 3 KzgFragments (different content)
+        // 3. All scores above threshold
+
+        // Action:
+        // 1. Node submits successful holding proofs for all 3
+
+        // Verify:
+        // 1. Total pending_reward = sum of all individual rewards
+        // 2. claim_reward returns total accumulated amount
+        let _ = (node, content_hash1, content_hash2, content_hash3);
+    });
+}
+
+// ============ Phase 6: User Story 4 Tests ============
+
+/// T051: スコア閾値未満で報酬が0になる (T-104)
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires score threshold implementation (T055-T059)"]
+fn t051_score_below_threshold_zero_reward() {
+    new_test_ext().execute_with(|| {
+        let node = 2u64;
+        let content_hash = test_content_hash(1);
+        let score_below_threshold = 50u64; // Below SCORE_THRESHOLD (100)
+
+        // Setup:
+        // 1. Register storage node
+        // 2. Register KzgFragment with data_size = 1000
+        // 3. Set ScoreCache to score_below_threshold
+
+        // Action:
+        // 1. Node submits valid prove_holding_kzg
+
+        // Verify:
+        // 1. pending_reward for this content = 0
+        // 2. HoldingProved event still emitted (proof is valid)
+        // 3. success_count incremented
+        let _ = (node, content_hash, score_below_threshold);
+    });
+}
+
+/// T052: 報酬0の断片が「忘却候補」マークされる (T-105)
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires forgetting candidate implementation (T056)"]
+fn t052_zero_reward_becomes_forgetting_candidate() {
+    new_test_ext().execute_with(|| {
+        let content_hash = test_content_hash(1);
+
+        // Setup:
+        // 1. Register KzgFragment
+        // 2. Set ScoreCache below threshold
+        // 3. Multiple prove_holding_kzg with 0 rewards
+
+        // Action:
+        // 1. Check ForgettingCandidates storage
+
+        // Verify:
+        // 1. content_hash is in ForgettingCandidates
+        // 2. ForgettingCandidate event emitted
+        // 3. marked_at timestamp recorded
+        let _ = content_hash;
+    });
+}
+
+// ============ Phase 7: User Story 5 Tests ============
+
+/// T061: ScoreProvider未接続時にデフォルトスコア使用
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires ScoreProvider trait (T063-T064)"]
+fn t061_default_score_when_provider_unavailable() {
+    new_test_ext().execute_with(|| {
+        let node = 2u64;
+        let content_hash = test_content_hash(1);
+        let data_size = 1000u32;
+
+        // Setup:
+        // 1. Register storage node
+        // 2. Register KzgFragment with data_size
+        // 3. Do NOT set ScoreCache (simulating no provider)
+
+        // Action:
+        // 1. Node submits valid prove_holding_kzg
+
+        // Verify:
+        // 1. Default score (1000) is used
+        // 2. Reward is calculated: data_size × base_reward_per_byte
+        // 3. pending_reward = 1000 × 1 = 1000 (for data_size=1000, base=1)
+        let _ = (node, content_hash, data_size);
+    });
+}

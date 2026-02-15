@@ -50,6 +50,12 @@ console_error_panic_hook = { version = "0.1", optional = true }
 # Getrandom for Wasm
 getrandom = { version = "0.2", features = ["js"] }
 
+# Hybrid approach: AES-256-GCM encryption
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+
+# Hybrid approach: Reed-Solomon erasure coding
+reed-solomon-erasure = { version = "6.0", default-features = false }
+
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
 

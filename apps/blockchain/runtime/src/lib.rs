@@ -278,6 +278,10 @@ impl pallet_storage::Config for Runtime {
     type BasePowDifficulty = ConstU8<12>;
     /// HTTP URL最大長: 256バイト
     type MaxHttpUrlLen = ConstU32<256>;
+    /// バイトあたり基本報酬: 1 unit (12 decimals = 1e-12 MORAL/byte)
+    type BaseRewardPerByte = ConstU128<1>;
+    /// 報酬対象スコア閾値: 100
+    type ScoreThreshold = ConstU64<100>;
 }
 
 // Runtime構築

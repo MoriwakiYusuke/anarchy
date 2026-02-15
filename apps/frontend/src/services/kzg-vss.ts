@@ -14,7 +14,11 @@ import initWasm, {
   kzg_verify_proof,
   kzg_init_srs,
   kzg_is_srs_initialized,
+  hybrid_split,
+  hybrid_recover,
   WasmVssSplitResult,
+  WasmHybridSplitResult,
+  WasmHybridShard,
 } from 'anarchy-wasm-engine';
 
 /**
@@ -47,6 +51,46 @@ export interface VssSplitResult {
   multiSegment: boolean;
   /** セグメント数 */
   segmentCount: number;
+}
+
+/**
+ * ハイブリッドシェア (AES + Reed-Solomon + Key SSS)
+ */
+export interface HybridShard {
+  /** シェアインデックス (0..n) */
+  index: number;
+  /** Reed-Solomonチャンク */
+  chunk: Uint8Array;
+  /** チャンクハッシュ (Blake2b-256, 32 bytes) */
+  chunkHash: Uint8Array;
+  /** 鍵シェアインデックス */
+  keyShareIndex: number;
+  /** 鍵シェアデータ */
+  keyShareData: Uint8Array;
+  /** シリアライズされたシェア */
+  bytes: Uint8Array;
+}
+
+/**
+ * ハイブリッド分割結果
+ */
+export interface HybridSplitResult {
+  /** 生成されたシェア */
+  shards: HybridShard[];
+  /** 元データ長 */
+  originalLen: number;
+  /** 圧縮が適用されたか */
+  compressed: boolean;
+  /** 暗号文長 */
+  ciphertextLen: number;
+  /** シェアサイズ */
+  shardSize: number;
+  /** 閾値 k */
+  threshold: number;
+  /** 総シェア数 n */
+  totalShards: number;
+  /** メタデータ (復元用) */
+  metadata: Uint8Array;
 }
 
 /**
@@ -207,6 +251,131 @@ export class KzgVssService {
     await this.initialize();
 
     return kzg_verify_proof(commitment, index, value, proof);
+  }
+
+  // ============================================================================
+  // Hybrid API (AES + Reed-Solomon + Key SSS)
+  // 推奨: 大容量データはこちらのAPIを使用
+  // ============================================================================
+
+  /**
+   * データをハイブリッド方式で分割 (推奨)
+   *
+   * AES-256-GCM暗号化 + Reed-Solomon符号化 + 鍵SSS分割を組み合わせた
+   * k-of-n閾値分散方式。任意サイズのデータに対応。
+   *
+   * @param data - 分割するデータ
+   * @param threshold - 復元に必要な最小シェア数 (k, >= 2)
+   * @param shardCount - 生成するシェア数 (n)
+   * @returns HybridSplitResult
+   */
+  async hybridSplit(
+    data: Uint8Array,
+    threshold: number,
+    shardCount: number
+  ): Promise<HybridSplitResult> {
+    await this.initialize();
+
+    const wasmResult: WasmHybridSplitResult = hybrid_split(data, threshold, shardCount);
+    const shardCount_ = wasmResult.shard_count;
+    const shards: HybridShard[] = [];
+
+    for (let i = 0; i < shardCount_; i++) {
+      const shard: WasmHybridShard | undefined = wasmResult.get_shard(i);
+      if (shard) {
+        const bytes = shard.to_bytes();
+        shards.push({
+          index: shard.index,
+          chunk: new Uint8Array(shard.chunk),
+          chunkHash: new Uint8Array(shard.chunk_hash),
+          keyShareIndex: shard.key_share_index,
+          keyShareData: new Uint8Array(shard.key_share_data),
+          bytes: new Uint8Array(bytes),
+        });
+        shard.free();
+      }
+    }
+
+    const result: HybridSplitResult = {
+      shards,
+      originalLen: wasmResult.original_len,
+      compressed: wasmResult.compressed,
+      ciphertextLen: wasmResult.ciphertext_len,
+      shardSize: wasmResult.shard_size,
+      threshold: wasmResult.threshold,
+      totalShards: wasmResult.total_shards,
+      metadata: new Uint8Array(wasmResult.metadata_to_bytes()),
+    };
+
+    wasmResult.free();
+    return result;
+  }
+
+  /**
+   * ハイブリッドシェアから元データを復元
+   *
+   * @param shards - 復元に使用するシェア (k個以上)
+   * @param threshold - 復元閾値 (k)
+   * @param totalShards - 総シェア数 (n)
+   * @param originalLen - 元データ長
+   * @param ciphertextLen - 暗号文長
+   * @param shardSize - シェアサイズ
+   * @param compressed - 圧縮フラグ
+   * @returns 復元されたデータ
+   */
+  async hybridRecover(
+    shards: HybridShard[],
+    threshold: number,
+    totalShards: number,
+    originalLen: number,
+    ciphertextLen: number,
+    shardSize: number,
+    compressed: boolean
+  ): Promise<Uint8Array> {
+    await this.initialize();
+
+    // Convert shards to Uint8Array format for Wasm
+    const shardBytesArray = shards.map((s) => s.bytes);
+
+    return hybrid_recover(
+      shardBytesArray,
+      threshold,
+      totalShards,
+      originalLen,
+      ciphertextLen,
+      shardSize,
+      compressed
+    );
+  }
+
+  /**
+   * メタデータから復元用パラメータをパース
+   *
+   * @param metadata - HybridSplitResult.metadata
+   * @returns 復元用パラメータ
+   */
+  parseMetadata(metadata: Uint8Array): {
+    originalLen: number;
+    compressed: boolean;
+    ciphertextLen: number;
+    shardSize: number;
+    threshold: number;
+    totalShards: number;
+  } {
+    if (metadata.length < 18) {
+      throw new Error('Invalid metadata length');
+    }
+
+    const view = new DataView(metadata.buffer, metadata.byteOffset, metadata.byteLength);
+
+    return {
+      originalLen: view.getUint32(0, true),
+      compressed: metadata[4] === 1,
+      ciphertextLen: view.getUint32(5, true),
+      shardSize: view.getUint32(9, true),
+      threshold: metadata[13],
+      totalShards: metadata[14],
+    };
   }
 }
 

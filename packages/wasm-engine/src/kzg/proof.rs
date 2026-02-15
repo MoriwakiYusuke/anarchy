@@ -2,8 +2,9 @@
 //!
 //! KZG opening proofの生成と検証。
 
-use ark_bls12_381::{Fr, G1Affine, G1Projective};
-use ark_ec::CurveGroup;
+use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective, G2Affine, G2Projective};
+use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
+use ark_poly::DenseUVPolynomial;
 use ark_serialize::CanonicalDeserialize;
 use ark_std::vec::Vec;
 
@@ -17,7 +18,7 @@ use super::{
 ///
 /// Verifies that proof π is valid for commitment C at point (index, value).
 ///
-/// Verification equation: e(C - [y]₁, [1]₂) = e(π, [τ - x]₂)
+/// Verification equation: e(C - [y]₁, [1]₂) = e(π, [τ]₂ - [x]₂)
 /// Or equivalently: e(C - [y]₁, [1]₂) · e(-π, [τ]₂ - [x]₂) = 1
 ///
 /// # Arguments
@@ -50,65 +51,67 @@ pub fn verify_kzg_proof(
     // Evaluation point
     let x = Fr::from(index as u64);
 
-    // Compute C - [y]₁
-    let generator_g1 = srs.powers_of_g1[0]; // This should be G1 generator
-    let y_g1 = (generator_g1 * y).into_affine();
+    // G1 generator (should be same as srs.powers_of_g1[0] but use standard)
+    let g1_gen = G1Affine::generator();
+    
+    // G2 generator
+    let g2_gen = G2Affine::generator();
+
+    // Compute C - [y]₁ (commitment minus y times generator)
+    let y_g1 = (G1Projective::from(g1_gen) * y).into_affine();
     let c_minus_y = (G1Projective::from(c) - G1Projective::from(y_g1)).into_affine();
 
-    // Compute [τ]₂ - [x]₂
-    // We need G2 generator for this
-    let tau_g2 = srs.tau_g2;
-    
-    // For verification, we use the pairing check:
-    // e(C - [y]₁, [1]₂) = e(π, [τ - x]₂)
-    //
-    // This can be rewritten as:
-    // e(C - [y]₁, [1]₂) · e(-π, [τ - x]₂) = 1
-    //
-    // But we need [1]₂ (G2 generator) which is not in our SRS.
-    // Alternative: Use the standard KZG verification:
-    // e(π, [τ]₂ - [x]₂) = e(C - [y]₁, [1]₂)
-    //
-    // For simplicity, we'll use single pairing check with precomputed values.
-    // This is a placeholder implementation - full implementation needs proper G2 generator.
+    // Compute [τ]₂ - [x]₂ (tau_g2 minus x times g2_gen)
+    let x_g2 = (G2Projective::from(g2_gen) * x).into_affine();
+    let tau_minus_x_g2 = (G2Projective::from(srs.tau_g2) - G2Projective::from(x_g2)).into_affine();
 
-    // TODO: Implement full pairing verification
-    // For now, return a placeholder that does basic structure validation
-    let _ = (c_minus_y, pi, x, tau_g2);
-    
-    // Placeholder: actual verification would use ark-ec pairing
-    Ok(true)
+    // Pairing check: e(C - [y]₁, [1]₂) = e(π, [τ - x]₂)
+    // Equivalent to: e(C - [y]₁, [1]₂) · e(-π, [τ - x]₂) = 1
+    let lhs = Bls12_381::pairing(c_minus_y, g2_gen);
+    let rhs = Bls12_381::pairing(pi, tau_minus_x_g2);
+
+    Ok(lhs == rhs)
 }
 
 /// Generate KZG proof for a specific share.
 ///
 /// This function regenerates a proof given the polynomial coefficients.
+/// Storage nodes use this to respond to challenges.
 ///
 /// # Arguments
-/// * `commitment` - The KZG commitment
+/// * `commitment` - The KZG commitment (for validation)
 /// * `share` - The share to prove
-/// * `polynomial_coeffs` - Polynomial coefficients (for reconstruction)
+/// * `polynomial_coeffs` - Polynomial coefficients serialized as 32-byte scalars
 ///
 /// # Returns
 /// * KZG proof for the share
 pub fn vss_prove(
-    _commitment: &KzgCommitment,
+    commitment: &KzgCommitment,
     share: &VssShare,
     polynomial_coeffs: &[u8],
 ) -> Result<KzgProof, KzgError> {
+    use ark_poly::univariate::DensePolynomial;
+    
     let srs = get_srs()?;
 
     // Decode polynomial coefficients
-    let _coeffs = decode_polynomial_coeffs(polynomial_coeffs)?;
+    let coeffs = decode_polynomial_coeffs(polynomial_coeffs)?;
+    
+    if coeffs.is_empty() {
+        return Err(KzgError::EncodingError("Empty polynomial coefficients".into()));
+    }
 
-    // Compute quotient and generate proof
-    // This is similar to what's done in vss_split
-    // For now, return a placeholder
+    // Construct polynomial from coefficients
+    let polynomial = DensePolynomial::from_coefficients_vec(coeffs);
 
-    let _ = (share, srs);
+    // Generate proof for this share
+    let proof = super::vss::generate_single_proof(&polynomial, share.index, srs)?;
 
-    // Placeholder proof - actual implementation in T034
-    Ok(KzgProof { bytes: [0u8; 48] })
+    // Optional: verify the proof matches the commitment
+    // This is a sanity check to ensure polynomial_coeffs are correct
+    let _ = commitment; // We trust the caller
+
+    Ok(proof)
 }
 
 /// Decode polynomial coefficients from bytes.

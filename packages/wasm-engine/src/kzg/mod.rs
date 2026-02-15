@@ -9,10 +9,18 @@
 //! - `vss`: シェア生成・復元
 //! - `proof`: KZG proof生成・検証
 //! - `wasm`: wasm-bindgen バインディング
+//! - `encryption`: AES-256-GCM暗号化（ハイブリッド方式）
+//! - `reed_solomon`: Reed-Solomon erasure coding（ハイブリッド方式）
+//! - `key_sss`: 鍵SSS分割（ハイブリッド方式）
+//! - `hybrid`: ハイブリッド統合API
 
 pub mod compression;
 pub mod encoding;
+pub mod encryption;
+pub mod hybrid;
+pub mod key_sss;
 pub mod proof;
+pub mod reed_solomon;
 pub mod srs;
 pub mod vss;
 pub mod wasm;

@@ -352,6 +352,301 @@ pub fn kzg_decompress(data: &[u8]) -> Result<Vec<u8>, JsError> {
     compression::decompress(data).map_err(kzg_error_to_js)
 }
 
+// ============================================================================
+// Hybrid API (AES + Reed-Solomon + Key SSS)
+// ============================================================================
+
+use super::hybrid::{self, HybridError, HybridShard, HybridSplitResult as InternalHybridResult};
+
+fn hybrid_error_to_js(e: HybridError) -> JsError {
+    JsError::new(&e.to_string())
+}
+
+/// Wasm-friendly Hybrid Shard
+#[wasm_bindgen]
+pub struct WasmHybridShard {
+    index: usize,
+    chunk: Vec<u8>,
+    chunk_hash: Vec<u8>,
+    key_share_index: u8,
+    key_share_data: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl WasmHybridShard {
+    /// Shard index (0..n)
+    #[wasm_bindgen(getter)]
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    /// Chunk data
+    #[wasm_bindgen(getter)]
+    pub fn chunk(&self) -> Vec<u8> {
+        self.chunk.clone()
+    }
+
+    /// Chunk hash (Blake2b-256, 32 bytes)
+    #[wasm_bindgen(getter)]
+    pub fn chunk_hash(&self) -> Vec<u8> {
+        self.chunk_hash.clone()
+    }
+
+    /// Key share index
+    #[wasm_bindgen(getter)]
+    pub fn key_share_index(&self) -> u8 {
+        self.key_share_index
+    }
+
+    /// Key share data
+    #[wasm_bindgen(getter)]
+    pub fn key_share_data(&self) -> Vec<u8> {
+        self.key_share_data.clone()
+    }
+
+    /// Serialize shard to bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::new();
+        // index (4 bytes) + chunk_len (4 bytes) + key_share_index (1 byte)
+        result.extend(&(self.index as u32).to_le_bytes());
+        result.extend(&(self.chunk.len() as u32).to_le_bytes());
+        result.push(self.key_share_index);
+        // chunk_hash (32 bytes)
+        result.extend(&self.chunk_hash);
+        // chunk data
+        result.extend(&self.chunk);
+        // key_share_data_len (4 bytes) + key_share_data
+        result.extend(&(self.key_share_data.len() as u32).to_le_bytes());
+        result.extend(&self.key_share_data);
+        result
+    }
+
+    /// Deserialize shard from bytes
+    pub fn from_bytes(data: &[u8]) -> Result<WasmHybridShard, JsError> {
+        if data.len() < 45 {
+            return Err(JsError::new("Data too short for shard"));
+        }
+
+        let index = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+        let chunk_len = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+        let key_share_index = data[8];
+        let chunk_hash = data[9..41].to_vec();
+
+        if data.len() < 45 + chunk_len {
+            return Err(JsError::new("Data too short for chunk"));
+        }
+
+        let chunk = data[41..41 + chunk_len].to_vec();
+        let key_data_offset = 41 + chunk_len;
+
+        if data.len() < key_data_offset + 4 {
+            return Err(JsError::new("Data too short for key share length"));
+        }
+
+        let key_share_len = u32::from_le_bytes([
+            data[key_data_offset],
+            data[key_data_offset + 1],
+            data[key_data_offset + 2],
+            data[key_data_offset + 3],
+        ]) as usize;
+
+        if data.len() < key_data_offset + 4 + key_share_len {
+            return Err(JsError::new("Data too short for key share data"));
+        }
+
+        let key_share_data = data[key_data_offset + 4..key_data_offset + 4 + key_share_len].to_vec();
+
+        Ok(WasmHybridShard {
+            index,
+            chunk,
+            chunk_hash,
+            key_share_index,
+            key_share_data,
+        })
+    }
+}
+
+/// Wasm-friendly Hybrid Split Result
+#[wasm_bindgen]
+pub struct WasmHybridSplitResult {
+    shards: Vec<WasmHybridShard>,
+    original_len: usize,
+    compressed: bool,
+    ciphertext_len: usize,
+    shard_size: usize,
+    threshold: u8,
+    total_shards: u8,
+}
+
+#[wasm_bindgen]
+impl WasmHybridSplitResult {
+    /// Number of shards
+    #[wasm_bindgen(getter)]
+    pub fn shard_count(&self) -> usize {
+        self.shards.len()
+    }
+
+    /// Get shard by index
+    pub fn get_shard(&self, idx: usize) -> Option<WasmHybridShard> {
+        self.shards.get(idx).map(|s| WasmHybridShard {
+            index: s.index,
+            chunk: s.chunk.clone(),
+            chunk_hash: s.chunk_hash.clone(),
+            key_share_index: s.key_share_index,
+            key_share_data: s.key_share_data.clone(),
+        })
+    }
+
+    /// Original data length
+    #[wasm_bindgen(getter)]
+    pub fn original_len(&self) -> usize {
+        self.original_len
+    }
+
+    /// Whether compression was applied
+    #[wasm_bindgen(getter)]
+    pub fn compressed(&self) -> bool {
+        self.compressed
+    }
+
+    /// Ciphertext length (for recovery)
+    #[wasm_bindgen(getter)]
+    pub fn ciphertext_len(&self) -> usize {
+        self.ciphertext_len
+    }
+
+    /// Shard size (for recovery)
+    #[wasm_bindgen(getter)]
+    pub fn shard_size(&self) -> usize {
+        self.shard_size
+    }
+
+    /// Threshold k
+    #[wasm_bindgen(getter)]
+    pub fn threshold(&self) -> u8 {
+        self.threshold
+    }
+
+    /// Total shards n
+    #[wasm_bindgen(getter)]
+    pub fn total_shards(&self) -> u8 {
+        self.total_shards
+    }
+
+    /// Serialize metadata for storage
+    pub fn metadata_to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(18);
+        result.extend(&(self.original_len as u32).to_le_bytes());
+        result.push(if self.compressed { 1 } else { 0 });
+        result.extend(&(self.ciphertext_len as u32).to_le_bytes());
+        result.extend(&(self.shard_size as u32).to_le_bytes());
+        result.push(self.threshold);
+        result.push(self.total_shards);
+        result
+    }
+}
+
+impl From<InternalHybridResult> for WasmHybridSplitResult {
+    fn from(internal: InternalHybridResult) -> Self {
+        WasmHybridSplitResult {
+            shards: internal
+                .shards
+                .into_iter()
+                .map(|s| WasmHybridShard {
+                    index: s.index,
+                    chunk: s.chunk,
+                    chunk_hash: s.chunk_hash.to_vec(),
+                    key_share_index: s.key_share.index,
+                    key_share_data: s.key_share.data,
+                })
+                .collect(),
+            original_len: internal.original_len,
+            compressed: internal.compressed,
+            ciphertext_len: internal.ciphertext_len,
+            shard_size: internal.shard_size,
+            threshold: internal.threshold,
+            total_shards: internal.total_shards,
+        }
+    }
+}
+
+/// Split data into k-of-n hybrid shards (AES + Reed-Solomon + Key SSS)
+///
+/// This is the recommended API for large data. It supports arbitrary data sizes
+/// and provides efficient k-of-n recovery.
+///
+/// # Arguments
+/// * `data` - Data to split (max 32MB)
+/// * `threshold` - Minimum shards needed for recovery (k, must be >= 2)
+/// * `shard_count` - Total shards to generate (n)
+///
+/// # Returns
+/// * WasmHybridSplitResult containing n shards
+#[wasm_bindgen]
+pub fn hybrid_split(data: &[u8], threshold: u8, shard_count: u8) -> Result<WasmHybridSplitResult, JsError> {
+    let result = hybrid::hybrid_split(data, threshold, shard_count).map_err(hybrid_error_to_js)?;
+    Ok(result.into())
+}
+
+/// Recover data from k-of-n hybrid shards
+///
+/// # Arguments
+/// * `shard_bytes` - Array of serialized shards (from WasmHybridShard.to_bytes())
+/// * `threshold` - Minimum shards needed (k)
+/// * `total_shards` - Total shard count (n)
+/// * `original_len` - Original data length (from split result)
+/// * `ciphertext_len` - Ciphertext length (from split result)
+/// * `shard_size` - Shard size (from split result)
+/// * `compressed` - Whether data was compressed (from split result)
+///
+/// # Returns
+/// * Original data
+#[wasm_bindgen]
+pub fn hybrid_recover(
+    shard_bytes: Vec<js_sys::Uint8Array>,
+    threshold: u8,
+    total_shards: u8,
+    original_len: usize,
+    ciphertext_len: usize,
+    shard_size: usize,
+    compressed: bool,
+) -> Result<Vec<u8>, JsError> {
+    use super::key_sss::KeyShare;
+
+    // Parse shards from bytes
+    let shards: Result<Vec<HybridShard>, JsError> = shard_bytes
+        .iter()
+        .map(|arr| {
+            let bytes = arr.to_vec();
+            let wasm_shard = WasmHybridShard::from_bytes(&bytes)?;
+            Ok(HybridShard {
+                index: wasm_shard.index,
+                chunk: wasm_shard.chunk,
+                chunk_hash: wasm_shard.chunk_hash.try_into().map_err(|_| {
+                    JsError::new("Invalid chunk hash length")
+                })?,
+                key_share: KeyShare {
+                    index: wasm_shard.key_share_index,
+                    data: wasm_shard.key_share_data,
+                },
+            })
+        })
+        .collect();
+
+    let shards = shards?;
+
+    hybrid::hybrid_recover(
+        &shards,
+        threshold,
+        total_shards,
+        original_len,
+        ciphertext_len,
+        shard_size,
+        compressed,
+    )
+    .map_err(hybrid_error_to_js)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
