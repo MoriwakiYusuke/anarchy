@@ -26,7 +26,7 @@
 - [ ] T002 [P] Download Ethereum KZG Ceremony SRS and add to `packages/wasm-engine/srs/mainnet.bin`
 - [ ] T003 [P] Add flate2 (gzip) dependency to `packages/wasm-engine/Cargo.toml`
 - [ ] T004 [P] Create `packages/wasm-engine/src/kzg/mod.rs` module structure
-- [ ] T005 [P] Add new storage types to `apps/blockchain/pallets/storage/src/lib.rs` (Fragment, Challenge, ProofRecord)
+- [ ] T005 [P] Add new storage types to `apps/blockchain/pallets/storage/src/lib.rs` (Fragment, Challenge, ProofRecord) and create `tests/` directory with `mod.rs`
 - [ ] T006 [P] Create frontend service stubs `apps/frontend/src/services/kzg-vss.ts` and `compression.ts`
 
 ---
@@ -42,8 +42,14 @@
 - [ ] T009 Implement BLS12-381 scalar encoding (32-byte chunks) in `packages/wasm-engine/src/kzg/encoding.rs`
 - [ ] T010 [P] Add `RewardPoolBalance` storage and 90/10 split logic to `apps/blockchain/pallets/storage/src/lib.rs` (FR-113, FR-114)
 - [ ] T011 Build wasm-pack target and verify module loads: `cd packages/wasm-engine && wasm-pack build --target web`
+- [ ] T081 ⚠️ **no_std PoC検証**: `apps/blockchain/pallets/storage/`で`ark-poly-commit`のno_stdコンパイルテストを実施。`cargo check --no-default-features`で`std`なしビルドを試行。**失敗した場合**: ユーザーに確認し、Off-chain Worker実装への切り替えを協議する（追加工数+2-3日）
 
 **Checkpoint**: Foundation ready - KZG primitives available, user story implementation can begin
+
+> **⚠️ T081 Decision Point**: no_std検証が失敗した場合、以下の選択肢をユーザーに提示:
+> 1. Off-chain Worker実装（KZG検証をオフチェーンで実行、追加工数+2-3日）
+> 2. フロントエンドのみでKZG検証（オンチェーン検証を断念）
+> 3. 代替ライブラリ調査（blst等、追加調査時間必要）
 
 ---
 
