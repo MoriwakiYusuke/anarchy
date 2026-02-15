@@ -43,10 +43,12 @@
 **Acceptance Scenarios**:
 
 1. **Given** 投稿者が新規投稿を作成する, **When** Submit ボタンを押す, **Then** クライアント側でKZG-VSS分割が実行され、5個のシェアが生成される
-2. **Given** KZG-VSSシェアが生成された, **When** ストレージノードへアップロードが完了する, **Then** KZGコミットメント（48バイト）がオンチェーンに記録される
-3. **Given** 投稿費用が支払われる, **When** トランザクションが確定する, **Then** 投稿費用の90%が報酬プールに蓄積され、10%がバーンされる
-4. **Given** 3個以上のシェアが取得可能である, **When** 閲覧者が投稿を表示する, **Then** Lagrange補間により元データが復元され表示される
-5. **Given** 2個のシェアしか取得できない, **When** 復元を試みる, **Then** 復元に失敗しエラーメッセージが表示される
+2. **Given** KZG-VSSシェアが生成された, **When** `register_kzg_fragment` extrinsicが確定する, **Then** KZGコミットメント（48バイト）がオンチェーンに記録される
+3. **Given** コミットメントが登録された, **When** `storage_uploadKzgShard` RPCが呼び出される, **Then** ブロックチェーンノードがオンチェーンのコミットメントでKZG proofを検証し、検証成功後にストレージノードへシェアが配送される
+4. **Given** 投稿費用が支払われる, **When** トランザクションが確定する, **Then** 投稿費用の90%が報酬プールに蓄積され、10%がバーンされる
+5. **Given** 3個以上のシェアが取得可能である, **When** 閲覧者が投稿を表示する, **Then** Lagrange補間により元データが復元され表示される
+6. **Given** 2個のシェアしか取得できない, **When** 復元を試みる, **Then** 復元に失敗しエラーメッセージが表示される
+7. **Given** 不正なKZG proofを含むシェアがアップロードされる, **When** RPCがKZG検証を実行する, **Then** 検証失敗でエラーが返され、ストレージノードには配送されない
 
 ---
 
@@ -160,6 +162,15 @@
 - **FR-112**: System MUST スコアシステム未接続時にデフォルトスコア（閾値以上）を使用する
 - **FR-113**: System MUST 投稿費用の90%を報酬プールに蓄積し、残り10%をバーンする
 - **FR-114**: System MUST 報酬プールの残高をストレージ（`RewardPoolBalance`）で管理する
+- **FR-115**: System MUST `get_kzg_fragment` Runtime APIを提供し、RPCからオンチェーンのコミットメントを取得可能にする
+
+#### Blockchain Node RPC (シェア配送)
+
+- **FR-150**: System MUST `storage_uploadKzgShard` RPCを実装し、KZG-VSSシェアの配送を処理する
+- **FR-151**: System MUST 配送前にオンチェーンの`KzgFragments`ストレージからコミットメントを取得する
+- **FR-152**: System MUST シェア値とKZG proofを検証し、不正なシェアを拒否する
+- **FR-153**: System MUST 検証成功後、SSS方式と同様にStorage Nodeにシェアを転送する
+- **FR-154**: System MUST 既存の`upload_fragment` RPCと共存し、SSS投稿フローに影響を与えない
 
 #### Storage Node (オフチェーン)
 
@@ -236,11 +247,22 @@
 - **T-204**: E2E: スコアが閾値以上に回復 → 報酬再開 → 保持継続
 - **T-205**: E2E: スコアシステム未接続 → デフォルトスコア使用 → 全投稿が報酬対象
 - **T-206**: E2E: 投稿費用支払い → 90%が報酬プールに蓄積 → 10%がバーン
+- **T-207**: E2E: `storage_uploadKzgShard` RPC → KZG検証 → ストレージノード配送成功
+- **T-208**: E2E: 不正なKZG proof → RPC検証失敗 → 配送拒否
+
+#### Blockchain Node RPC Tests
+
+- **T-301**: `storage_uploadKzgShard` で有効なシェアがストレージノードに配送される
+- **T-302**: 未登録のcontent_hashで `KzgFragmentNotFound` エラーが返される
+- **T-303**: 不正なKZG proofで `InvalidKzgProof` エラーが返される
+- **T-304**: 無効なshare_index（0または>n）で `InvalidShareIndex` エラーが返される
+- **T-305**: ストレージノード未接続時に適切なエラーが返される
+- **T-306**: 既存の`upload_fragment` RPCが引き続き動作する
 
 ## Assumptions
 
 - Ethereum KZG Ceremony (Powers of Tau) の成果物は公開されており、自由に利用可能
-- arkworksクレートはWasm（wasm32-unknown-unknown）ターゲットでビルド可能
+- arkworksクレートはWasm（wasm32v1-none）ターゲットでビルド可能
 - BLS12-381ペアリング計算はSubstrateランタイムで実行可能（または Off-chain Worker で実行）
 - 報酬計算はブロックごとではなく、24時間ごとにバッチ処理
 - ストレージノードは常時オンラインを前提とせず、猶予期間内に証明を提出できれば良い

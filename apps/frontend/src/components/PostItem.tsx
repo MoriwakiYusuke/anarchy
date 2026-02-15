@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useStorage } from '@/hooks/useStorage'
+import { useStorage, type HybridMetadata } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n/context'
 import styles from './Timeline.module.css'
 
@@ -10,6 +10,10 @@ interface ContentRef {
   k: number
   n: number
   total_size: number
+  // Optional hybrid metadata fields (may not be present in older posts)
+  ciphertext_len?: number
+  shard_size?: number
+  compressed?: boolean
 }
 
 interface Props {
@@ -74,7 +78,21 @@ export function PostItem({
           
           console.log(`[PostItem] Recovering content for post ${postId}, merkle_root:`, Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join(''))
           
-          const result = await recoverContent(merkleRoot, contentRef.k, contentRef.n)
+          // Construct HybridMetadata from ContentRef
+          // Use provided values or calculate defaults for backwards compatibility
+          const metadata: HybridMetadata = {
+            originalLen: contentRef.total_size,
+            // ciphertext_len is approximately originalLen + AES overhead (16 bytes IV + padding)
+            ciphertextLen: contentRef.ciphertext_len ?? (contentRef.total_size + 32),
+            // shard_size is approximately ciphertext_len / n (rough estimate)
+            shardSize: contentRef.shard_size ?? Math.ceil((contentRef.total_size + 32) / contentRef.n),
+            // Default to compressed=true for new posts
+            compressed: contentRef.compressed ?? true,
+            threshold: contentRef.k,
+            totalShards: contentRef.n,
+          }
+          
+          const result = await recoverContent(merkleRoot, metadata)
           const text = new TextDecoder().decode(result.data)
           setContent(text)
         } catch (err) {

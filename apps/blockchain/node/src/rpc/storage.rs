@@ -106,6 +106,35 @@ pub struct GetFragmentResponse {
     pub hash: [u8; 32],
 }
 
+// ============================================================================
+// KZG-VSS Shard Types (FR-150)
+// ============================================================================
+
+/// KZG-VSSシェアアップロードリクエスト
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UploadKzgShardRequest {
+    /// コンテンツハッシュ（オンチェーンのKzgFragmentsで登録済み）
+    pub content_hash: [u8; 32],
+    /// シェアインデックス (1 ~ n)
+    pub share_index: u8,
+    /// シェアデータ (base64エンコード: RS chunk + key share)
+    pub shard_data: String,
+    /// KZG opening proof (base64エンコード, 48バイト)
+    pub proof: String,
+    /// 認証情報（オプション）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth: Option<SignedAuth>,
+}
+
+/// KZG-VSSシェアアップロードレスポンス
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UploadKzgShardResponse {
+    /// 成功フラグ
+    pub success: bool,
+    /// シェアハッシュ (Blake2b-256)
+    pub shard_hash: [u8; 32],
+}
+
 /// 投稿情報取得レスポンス
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PostInfoResponse {
@@ -237,6 +266,14 @@ pub trait StorageApi {
     /// フロントエンドでのノード状態表示に使用。
     #[method(name = "getNodes")]
     async fn get_nodes(&self) -> RpcResult<GetNodesResponse>;
+
+    /// KZG-VSSシェアをアップロード (FR-150)
+    ///
+    /// フロントエンドからのKZG-VSSシェアを受け取り、
+    /// オンチェーンのコミットメントでKZG proofを検証後、
+    /// HTTP経由でStorage Nodeに転送する。
+    #[method(name = "uploadKzgShard")]
+    async fn upload_kzg_shard(&self, request: UploadKzgShardRequest) -> RpcResult<UploadKzgShardResponse>;
 }
 
 /// Storage Node HTTPクライアント
@@ -370,6 +407,82 @@ impl StorageNodeClient {
             .map_err(|e| format!("HTTP request failed: {}", e))?;
 
         // Check HTTP status before parsing JSON
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Storage Node returned HTTP {}: {}", status.as_u16(), body));
+        }
+
+        let rpc_response: RpcResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        if let Some(error) = rpc_response.error {
+            return Err(error.message);
+        }
+
+        rpc_response.result.ok_or_else(|| "No result in response".to_string())
+    }
+
+    /// KZG-VSSシェアをStorage Nodeに格納 (FR-153)
+    pub async fn store_kzg_shard(&self, request: &UploadKzgShardRequest) -> Result<UploadKzgShardResponse, String> {
+        #[derive(Serialize)]
+        struct RpcRequest<'a> {
+            jsonrpc: &'static str,
+            id: u32,
+            method: &'static str,
+            params: StoreKzgShardParams<'a>,
+        }
+
+        #[derive(Serialize)]
+        struct StoreKzgShardParams<'a> {
+            content_hash: [u8; 32],
+            shard_index: u8,
+            shard_data: &'a str,  // base64 encoded
+            kzg_proof: &'a str,   // base64 encoded
+        }
+
+        #[derive(Deserialize)]
+        struct RpcResponse {
+            result: Option<UploadKzgShardResponse>,
+            error: Option<RpcError>,
+        }
+
+        #[derive(Deserialize)]
+        struct RpcError {
+            message: String,
+        }
+
+        let rpc_request = RpcRequest {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "storage_storeKzgShard",
+            params: StoreKzgShardParams {
+                content_hash: request.content_hash,
+                shard_index: request.share_index,
+                shard_data: &request.shard_data,
+                kzg_proof: &request.proof,
+            },
+        };
+
+        // Build HTTP request with auth in header
+        let mut http_request = self.http_client
+            .post(&self.storage_node_url)
+            .json(&rpc_request);
+        
+        // Add X-Anarchy-Auth header if auth is present
+        if let Some(ref auth) = request.auth {
+            let auth_json = serde_json::to_string(auth)
+                .map_err(|e| format!("Failed to serialize auth: {}", e))?;
+            http_request = http_request.header("X-Anarchy-Auth", auth_json);
+        }
+
+        let response = http_request
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
@@ -522,6 +635,98 @@ fn blake2b_hash(data: &[u8]) -> [u8; 32] {
     let mut hasher = Blake2b::<blake2::digest::consts::U32>::new();
     hasher.update(data);
     hasher.finalize().into()
+}
+
+/// KZG Opening Proofを検証 (FR-152)
+///
+/// * `commitment` - KZGコミットメント (48バイト, compressed G1)
+/// * `share_index` - シェアインデックス (1-based)
+/// * `share_value` - シェア値 (32バイト)
+/// * `proof` - KZG opening proof (48バイト, compressed G1)
+fn verify_kzg_proof(
+    commitment: &[u8],
+    share_index: u8,
+    share_value: &[u8],
+    proof: &[u8],
+) -> Result<bool, String> {
+    use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective, G2Affine, G2Projective};
+    use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
+    use ark_ff::PrimeField;
+    use ark_serialize::CanonicalDeserialize;
+
+    // Validate input lengths
+    if commitment.len() != 48 {
+        return Err(format!("Invalid commitment length: expected 48, got {}", commitment.len()));
+    }
+    if proof.len() != 48 {
+        return Err(format!("Invalid proof length: expected 48, got {}", proof.len()));
+    }
+    if share_value.len() != 32 {
+        return Err(format!("Invalid share_value length: expected 32, got {}", share_value.len()));
+    }
+    if share_index == 0 {
+        return Err("share_index must be >= 1".to_string());
+    }
+
+    // Deserialize commitment (compressed G1)
+    let c = G1Affine::deserialize_compressed(&commitment[..])
+        .map_err(|e| format!("Invalid commitment: {:?}", e))?;
+
+    // Deserialize proof (compressed G1)
+    let pi = G1Affine::deserialize_compressed(&proof[..])
+        .map_err(|e| format!("Invalid proof: {:?}", e))?;
+
+    // Convert share value to scalar (little-endian)
+    let y = {
+        let mut repr = <Fr as PrimeField>::BigInt::default();
+        for (i, chunk) in share_value.chunks(8).enumerate() {
+            let mut bytes = [0u8; 8];
+            bytes[..chunk.len()].copy_from_slice(chunk);
+            repr.0[i] = u64::from_le_bytes(bytes);
+        }
+        Fr::from_bigint(repr).ok_or("Invalid scalar value")?
+    };
+
+    // Evaluation point (1-based index)
+    let x = Fr::from(share_index as u64);
+
+    // G1 and G2 generators
+    let g1_gen = G1Affine::generator();
+    let g2_gen = G2Affine::generator();
+
+    // Embedded tau_g2 from Ethereum KZG Ceremony (Powers of Tau)
+    // This is [τ]₂ where τ is the secret from the trusted setup
+    const TAU_G2_BYTES: [u8; 96] = [
+        0x93, 0xe0, 0x2b, 0x60, 0x52, 0x71, 0x9f, 0x60,
+        0x7d, 0xac, 0xd3, 0xa0, 0x88, 0x27, 0x4f, 0x65,
+        0x59, 0x6b, 0xd0, 0xd0, 0x99, 0x20, 0xb6, 0x1a,
+        0xb5, 0xda, 0x61, 0xbb, 0xdc, 0x7f, 0x50, 0x49,
+        0x33, 0x4c, 0xf1, 0x12, 0x13, 0x94, 0x5d, 0x57,
+        0xe5, 0xac, 0x7d, 0x05, 0x5d, 0x04, 0x2b, 0x7e,
+        0x02, 0x4a, 0xa2, 0xb2, 0xf0, 0x8f, 0x0a, 0x91,
+        0x26, 0x08, 0x05, 0x27, 0x2d, 0xc5, 0x10, 0x51,
+        0xc6, 0xe4, 0x7a, 0xd4, 0xfa, 0x40, 0x3b, 0x02,
+        0xb4, 0x51, 0x0b, 0x64, 0x7a, 0xe3, 0xd1, 0x77,
+        0x06, 0x34, 0x65, 0x08, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    let tau_g2 = G2Affine::deserialize_compressed(&TAU_G2_BYTES[..])
+        .map_err(|e| format!("Invalid tau_g2: {:?}", e))?;
+
+    // Compute C - [y]₁ (commitment minus y times generator)
+    let y_g1 = (G1Projective::from(g1_gen) * y).into_affine();
+    let c_minus_y = (G1Projective::from(c) - G1Projective::from(y_g1)).into_affine();
+
+    // Compute [τ]₂ - [x]₂ (tau_g2 minus x times g2_gen)
+    let x_g2 = (G2Projective::from(g2_gen) * x).into_affine();
+    let tau_minus_x_g2 = (G2Projective::from(tau_g2) - G2Projective::from(x_g2)).into_affine();
+
+    // Pairing check: e(C - [y]₁, [1]₂) = e(π, [τ - x]₂)
+    let lhs = Bls12_381::pairing(c_minus_y, g2_gen);
+    let rhs = Bls12_381::pairing(pi, tau_minus_x_g2);
+
+    Ok(lhs == rhs)
 }
 
 #[async_trait::async_trait]
@@ -884,6 +1089,159 @@ where
             nodes,
             online_count,
             total_count,
+        })
+    }
+
+    /// KZG-VSSシェアをアップロード (FR-150)
+    ///
+    /// 1. オンチェーンからコミットメントを取得 (FR-151)
+    /// 2. KZG proofを検証 (FR-152)
+    /// 3. Storage Nodeに転送 (FR-153)
+    async fn upload_kzg_shard(&self, request: UploadKzgShardRequest) -> RpcResult<UploadKzgShardResponse> {
+        log::debug!(
+            "upload_kzg_shard: content_hash={:?}, share_index={}",
+            hex::encode(&request.content_hash[..8]),
+            request.share_index
+        );
+
+        // 1. オンチェーンからKzgFragmentを取得 (FR-151)
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        let kzg_fragment = api.get_kzg_fragment(best_hash, request.content_hash)
+            .map_err(|e| {
+                ErrorObject::owned(
+                    ErrorCode::InternalError.code(),
+                    format!("Failed to call Runtime API: {:?}", e),
+                    None::<()>,
+                )
+            })?
+            .ok_or_else(|| {
+                ErrorObject::owned(
+                    ErrorCode::InvalidParams.code(),
+                    "KzgFragmentNotFound: content_hash not registered on-chain",
+                    None::<()>,
+                )
+            })?;
+
+        // 2. share_indexの検証
+        if request.share_index == 0 || request.share_index > kzg_fragment.fragment_count {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!(
+                    "InvalidShareIndex: {} (must be 1-{})",
+                    request.share_index,
+                    kzg_fragment.fragment_count
+                ),
+                None::<()>,
+            ));
+        }
+
+        // 3. Base64デコード
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        
+        let shard_data = STANDARD.decode(&request.shard_data).map_err(|e| {
+            ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!("Invalid base64 shard_data: {}", e),
+                None::<()>,
+            )
+        })?;
+
+        let proof = STANDARD.decode(&request.proof).map_err(|e| {
+            ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!("Invalid base64 proof: {}", e),
+                None::<()>,
+            )
+        })?;
+
+        // 4. サイズ検証
+        if shard_data.len() > MAX_FRAGMENT_SIZE {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!(
+                    "Shard data too large: {} > {} bytes",
+                    shard_data.len(),
+                    MAX_FRAGMENT_SIZE
+                ),
+                None::<()>,
+            ));
+        }
+
+        if proof.len() != 48 {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!("Invalid proof length: expected 48, got {}", proof.len()),
+                None::<()>,
+            ));
+        }
+
+        // 5. シェア値を抽出（shard_dataの先頭32バイト）
+        // KZG-VSSでは shard_data = share_value(32) + RS_chunk + key_share の構造
+        if shard_data.len() < 32 {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                "Shard data too small: must contain at least 32 bytes for share_value",
+                None::<()>,
+            ));
+        }
+        let share_value: [u8; 32] = shard_data[..32].try_into().unwrap();
+
+        // 6. KZG proof検証 (FR-152)
+        let is_valid = verify_kzg_proof(
+            &kzg_fragment.commitment,
+            request.share_index,
+            &share_value,
+            &proof,
+        ).map_err(|e| {
+            ErrorObject::owned(
+                ErrorCode::InternalError.code(),
+                format!("KZG verification error: {}", e),
+                None::<()>,
+            )
+        })?;
+
+        if !is_valid {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                "InvalidKzgProof: KZG proof verification failed",
+                None::<()>,
+            ));
+        }
+
+        // 7. シェアハッシュ計算
+        let shard_hash = blake2b_hash(&shard_data);
+
+        // 8. Storage Nodeに転送 (FR-153)
+        // content_hashとshare_indexベースでノード選択（SSS方式と同様）
+        let storage_client = self.get_storage_client_for_fragment(&request.content_hash, request.share_index as usize).await
+            .ok_or_else(|| {
+                ErrorObject::owned(
+                    ErrorCode::InternalError.code(),
+                    "No Storage Nodes connected. Start storage-node(s) and they will auto-register.",
+                    None::<()>,
+                )
+            })?;
+
+        storage_client.store_kzg_shard(&request).await.map_err(|e| {
+            ErrorObject::owned(
+                ErrorCode::InternalError.code(),
+                format!("Failed to store KZG shard to Storage Node: {}", e),
+                None::<()>,
+            )
+        })?;
+
+        log::info!(
+            "KZG shard uploaded: content_hash={:?}, share_index={}, size={}",
+            hex::encode(&request.content_hash[..8]),
+            request.share_index,
+            shard_data.len()
+        );
+
+        Ok(UploadKzgShardResponse {
+            success: true,
+            shard_hash,
         })
     }
 }

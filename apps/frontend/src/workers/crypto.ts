@@ -2,7 +2,7 @@
  * Crypto Web Worker
  *
  * Wasm暗号エンジン(anarchy-wasm-engine)をWeb Worker内で実行し、
- * メインスレッドをブロックせずにSSS分割/復元、MerkleTree構築/検証を行う。
+ * メインスレッドをブロックせずにKZG-VSS Hybrid分割/復元、MerkleTree構築/検証を行う。
  */
 
 // Worker内でのWasmモジュール
@@ -44,7 +44,7 @@ async function initWasm(): Promise<void> {
  */
 interface WorkerRequest {
   id: string;
-  type: "sss_split" | "sss_recover" | "merkle_build" | "merkle_generate_proof" | "merkle_verify" | "blake2b_hash";
+  type: "hybrid_split" | "hybrid_recover" | "sss_split" | "sss_recover" | "merkle_build" | "merkle_generate_proof" | "merkle_verify" | "blake2b_hash";
   payload: unknown;
 }
 
@@ -56,7 +56,29 @@ interface WorkerResponse {
 }
 
 /**
- * SSS分割リクエスト
+ * Hybrid分割リクエスト
+ */
+interface HybridSplitPayload {
+  data: Uint8Array;
+  k: number;
+  n: number;
+}
+
+/**
+ * Hybrid復元リクエスト
+ */
+interface HybridRecoverPayload {
+  shardBytes: Uint8Array[];
+  k: number;
+  n: number;
+  originalLen: number;
+  ciphertextLen: number;
+  shardSize: number;
+  compressed: boolean;
+}
+
+/**
+ * SSS分割リクエスト (Legacy互換)
  */
 interface SssSplitPayload {
   data: Uint8Array;
@@ -65,7 +87,7 @@ interface SssSplitPayload {
 }
 
 /**
- * SSS復元リクエスト
+ * SSS復元リクエスト (Legacy互換)
  */
 interface SssRecoverPayload {
   shares: Uint8Array[];
@@ -121,18 +143,62 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     let result: unknown;
 
     switch (type) {
+      case "hybrid_split": {
+        const { data, k, n } = payload as HybridSplitPayload;
+        const splitResult = wasmModule.hybrid_split(data, k, n);
+        // シャードをシリアライズしてメタデータと共に返す
+        const shards: Uint8Array[] = [];
+        for (let i = 0; i < splitResult.shard_count; i++) {
+          const shard = splitResult.get_shard(i);
+          if (shard) {
+            shards.push(new Uint8Array(shard.to_bytes()));
+          }
+        }
+        result = {
+          shards,
+          shardHashes: shards.map((_, i) => {
+            const shard = splitResult.get_shard(i);
+            return shard ? new Uint8Array(shard.chunk_hash) : new Uint8Array(32);
+          }),
+          originalLen: splitResult.original_len,
+          ciphertextLen: splitResult.ciphertext_len,
+          shardSize: splitResult.shard_size,
+          compressed: splitResult.compressed,
+          threshold: splitResult.threshold,
+          totalShards: splitResult.total_shards,
+        };
+        break;
+      }
+
+      case "hybrid_recover": {
+        const { shardBytes, k, n, originalLen, ciphertextLen, shardSize, compressed } = payload as HybridRecoverPayload;
+        result = new Uint8Array(wasmModule.hybrid_recover(shardBytes, k, n, originalLen, ciphertextLen, shardSize, compressed));
+        break;
+      }
+
       case "sss_split": {
+        // Legacy互換: hybrid_splitを使用
         const { data, k, n } = payload as SssSplitPayload;
-        const splitResult = wasmModule.sss_split(data, k, n);
-        // SplitResultからUint8Array[]を取得
-        result = splitResult.get_all_fragments();
+        const splitResult = wasmModule.hybrid_split(data, k, n);
+        // Legacy形式: シリアライズされたシャード配列を返す
+        const shards: Uint8Array[] = [];
+        for (let i = 0; i < splitResult.shard_count; i++) {
+          const shard = splitResult.get_shard(i);
+          if (shard) {
+            shards.push(new Uint8Array(shard.to_bytes()));
+          }
+        }
+        result = shards;
         break;
       }
 
       case "sss_recover": {
+        // Legacy互換: hybrid_recoverのデフォルト値を使用
         const { shares, k } = payload as SssRecoverPayload;
-        result = wasmModule.sss_recover(shares, k);
-        break;
+        // Note: Legacy APIではメタデータがないため、ここでは使用不可
+        // フロントエンドがhybrid_recoverに移行するまでの一時的な対応
+        console.warn("[CryptoWorker] sss_recover is deprecated, use hybrid_recover with metadata");
+        throw new Error("sss_recover requires metadata. Please use hybrid_recover API.");
       }
 
       case "merkle_build": {

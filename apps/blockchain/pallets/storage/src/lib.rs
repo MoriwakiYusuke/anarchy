@@ -61,6 +61,23 @@ pub struct StorageNodeInfoRpc {
     pub peer_id: Vec<u8>,
 }
 
+/// KZG fragment info for Runtime API (FR-115)
+#[derive(Clone, Encode, Decode, TypeInfo, Debug, PartialEq, Eq)]
+pub struct KzgFragmentInfoRpc {
+    /// Owner account (32 bytes)
+    pub owner: [u8; 32],
+    /// KZG commitment (48 bytes, compressed G1)
+    pub commitment: Vec<u8>,
+    /// Data size in bytes
+    pub data_size: u32,
+    /// Number of shares (n)
+    pub fragment_count: u8,
+    /// Recovery threshold (k)
+    pub threshold: u8,
+    /// Block number when created
+    pub created_at: u32,
+}
+
 sp_api::decl_runtime_apis! {
     /// Storage Pallet Runtime API
     ///
@@ -68,6 +85,10 @@ sp_api::decl_runtime_apis! {
     pub trait StorageApi {
         /// Get all registered storage nodes with their HTTP URLs
         fn get_all_storage_nodes() -> Vec<StorageNodeInfoRpc>;
+
+        /// Get KZG fragment info by content hash (FR-115)
+        /// Returns None if content_hash is not registered
+        fn get_kzg_fragment(content_hash: ContentHash) -> Option<KzgFragmentInfoRpc>;
     }
 }
 
@@ -280,6 +301,13 @@ pub mod pallet {
         /// Default: 100
         #[pallet::constant]
         type ScoreThreshold: Get<u64>;
+
+        /// Score hysteresis margin (T072)
+        /// Prevents rapid toggling between eligible/ineligible states
+        /// Recovery requires score >= ScoreThreshold + ScoreHysteresisMargin 
+        /// Default: 20 (20% of threshold=100)
+        #[pallet::constant]
+        type ScoreHysteresisMargin: Get<u64>;
     }
 
     // ============ Storage ============
@@ -998,8 +1026,11 @@ pub mod pallet {
                     *pending = pending.saturating_add(reward);
                 });
 
-                // Score recovered - remove from forgetting candidates if present (T054)
-                if ForgettingCandidates::<T>::contains_key(content_hash) {
+                // Score recovered - remove from forgetting candidates if present (T054, T072 hysteresis)
+                // To recover from forgetting candidate state, score must exceed threshold + hysteresis margin
+                // This prevents rapid toggling between eligible/ineligible states
+                let recovery_threshold = score_threshold.saturating_add(T::ScoreHysteresisMargin::get());
+                if ForgettingCandidates::<T>::contains_key(content_hash) && score >= recovery_threshold {
                     ForgettingCandidates::<T>::remove(content_hash);
                     Self::deposit_event(Event::ScoreRecovered { content_hash });
                 }

@@ -7,7 +7,7 @@
 ## 1. arkworks Wasm Compilation
 
 ### Decision
-`ark-bls12-381`, `ark-poly`, `ark-poly-commit` を `wasm32-unknown-unknown` ターゲットでビルド。
+`ark-bls12-381`, `ark-poly`, `ark-poly-commit` を `wasm32v1-none` ターゲットでビルド。
 
 ### Rationale
 - arkworksは公式にWasmをサポート（`default-features = false` + `std` feature flag）

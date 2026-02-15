@@ -11,8 +11,6 @@
  * spec.md Ref: FR-304
  */
 
-import { describe, it, expect } from '@jest/globals';
-
 // TODO: Import when component is implemented
 // import { render, screen } from '@testing-library/react';
 // import { ScoreIndicator } from '@/components/ScoreIndicator';

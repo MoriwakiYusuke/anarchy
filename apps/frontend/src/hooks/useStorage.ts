@@ -80,7 +80,22 @@ export async function createStorageSigner(derivePath: string): Promise<StorageSi
 export interface UploadResult {
   merkleRoot: Uint8Array
   fragmentHashes: Uint8Array[]
+  shardHashes: Uint8Array[]
   totalSize: number
+  /** ハイブリッド復元用メタデータ */
+  metadata: HybridMetadata
+}
+
+/**
+ * ハイブリッド分割メタデータ（復元に必要）
+ */
+export interface HybridMetadata {
+  originalLen: number
+  ciphertextLen: number
+  shardSize: number
+  compressed: boolean
+  threshold: number
+  totalShards: number
 }
 
 /**
@@ -102,10 +117,10 @@ export interface UseStorageOptions {
  * useStorage hookの戻り値
  */
 export interface UseStorageResult {
-  /** コンテンツをSSS分割してアップロード */
+  /** コンテンツをハイブリッド分割してアップロード */
   uploadContent: (content: Uint8Array) => Promise<UploadResult>
-  /** MerkleRootから断片を取得して復元 */
-  recoverContent: (merkleRoot: Uint8Array, k: number, n: number) => Promise<RecoverResult>
+  /** MerkleRootから断片を取得して復元（メタデータ必須） */
+  recoverContent: (merkleRoot: Uint8Array, metadata: HybridMetadata) => Promise<RecoverResult>
   /** 進捗状態 (0-100) */
   progress: number
   /** エラーメッセージ */
@@ -299,7 +314,7 @@ export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
   }, [rpcCall])
 
   /**
-   * コンテンツをSSS分割してアップロード
+   * コンテンツをハイブリッド分割してアップロード
    */
   const uploadContent = useCallback(async (content: Uint8Array): Promise<UploadResult> => {
     setIsProcessing(true)
@@ -307,18 +322,29 @@ export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
     setProgress(0)
 
     try {
-      // 1. SSS分割 (Wasm Worker)
+      // 1. ハイブリッド分割 (Wasm Worker)
       setProgress(10)
-      const shares = await sendToWorker<Uint8Array[]>('sss_split', {
+      interface HybridSplitResult {
+        shards: Uint8Array[]
+        shardHashes: Uint8Array[]
+        originalLen: number
+        ciphertextLen: number
+        shardSize: number
+        compressed: boolean
+        threshold: number
+        totalShards: number
+      }
+      const splitResult = await sendToWorker<HybridSplitResult>('hybrid_split', {
         data: content,
         k: SSS_K,
         n: SSS_N,
       })
+      const { shards, shardHashes, originalLen, ciphertextLen, shardSize, compressed, threshold, totalShards } = splitResult
 
       // 2. MerkleTree構築 (Wasm Worker)
       setProgress(20)
       const merkleResult = await sendToWorker<{ root: Uint8Array; rootHex: string; leafCount: number }>('merkle_build', {
-        fragments: shares,
+        fragments: shards,
       })
       const merkleRoot = merkleResult.root
       const merkleRootHex = merkleResult.rootHex
@@ -328,7 +354,7 @@ export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
       const progressPerFragment = 70 / SSS_N
 
       // 並列アップロード（全n個）
-      const uploadPromises = shares.map(async (share, index) => {
+      const uploadPromises = shards.map(async (share, index) => {
         // MerkleProof生成
         const proof = await sendToWorker<Uint8Array>('merkle_generate_proof', {
           merkleRootHex,
@@ -382,7 +408,16 @@ export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
       return {
         merkleRoot,
         fragmentHashes,
+        shardHashes,
         totalSize: content.length,
+        metadata: {
+          originalLen,
+          ciphertextLen,
+          shardSize,
+          compressed,
+          threshold,
+          totalShards,
+        },
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -394,26 +429,25 @@ export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
   }, [sendToWorker, rpcCall, signer])
 
   /**
-   * MerkleRootから断片を取得して復元
+   * MerkleRootから断片を取得して復元（メタデータ必須）
    */
   const recoverContent = useCallback(async (
     merkleRoot: Uint8Array,
-    k: number = SSS_K,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    n: number = SSS_N
+    metadata: HybridMetadata
   ): Promise<RecoverResult> => {
+    const { threshold: k, totalShards: n, originalLen, ciphertextLen, shardSize, compressed } = metadata
     setIsProcessing(true)
     setError(null)
     setProgress(0)
 
     try {
       // 1. k個以上の断片を取得
-      const shares: Uint8Array[] = []
+      const shardBytes: Uint8Array[] = []
       const progressPerFragment = 70 / k
 
       console.log(`[useStorage] Recovering content: merkleRoot=${Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join('')}, k=${k}, n=${n}`)
 
-      for (let index = 0; index < k; index++) {
+      for (let index = 0; index < n && shardBytes.length < k; index++) {
         try {
           const params = {
             merkle_root: Array.from(merkleRoot),
@@ -428,7 +462,7 @@ export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
 
           // Base64デコード
           const data = Uint8Array.from(atob(result.data), c => c.charCodeAt(0))
-          shares.push(data)
+          shardBytes.push(data)
           setProgress(prev => Math.min(prev + progressPerFragment, 70))
         } catch (err) {
           console.warn(`[useStorage] Failed to get fragment ${index}:`, err)
@@ -436,15 +470,20 @@ export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
         }
       }
 
-      if (shares.length < k) {
-        throw new Error(`Insufficient fragments: got ${shares.length}, need ${k}`)
+      if (shardBytes.length < k) {
+        throw new Error(`Insufficient fragments: got ${shardBytes.length}, need ${k}`)
       }
 
-      // 2. SSS復元 (Wasm Worker)
+      // 2. ハイブリッド復元 (Wasm Worker)
       setProgress(80)
-      const recovered = await sendToWorker<Uint8Array>('sss_recover', {
-        shares,
+      const recovered = await sendToWorker<Uint8Array>('hybrid_recover', {
+        shardBytes,
         k,
+        n,
+        originalLen,
+        ciphertextLen,
+        shardSize,
+        compressed,
       })
 
       setProgress(100)

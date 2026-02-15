@@ -66,6 +66,7 @@ impl pallet_storage::Config for Test {
     type MaxHttpUrlLen = ConstU32<256>;
     type BaseRewardPerByte = ConstU128<1>;           // 1 unit per byte for tests
     type ScoreThreshold = ConstU64<100>;             // Score threshold for tests
+    type ScoreHysteresisMargin = ConstU64<20>;       // 20% margin for hysteresis (T072)
 }
 
 /// Build test externalities

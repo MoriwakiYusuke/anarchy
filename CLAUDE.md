@@ -95,11 +95,13 @@ pnpm testnet:purge            # Purge chain data
   - `runtime/` — FRAME runtime (pallet composition, genesis config)
   - `pallets/post/` — Post pallet (`create_post_v2`: records MerkleRoot on-chain, content stored off-chain)
   - `pallets/faucet/` — PoW faucet pallet (token claiming with client-side proof-of-work)
-  - `pallets/storage/` — Distributed storage pallet (on-chain storage commitments)
+  - `pallets/storage/` — Distributed storage pallet (on-chain storage commitments, KZG proof verification, reward distribution)
   - `tests/integration/` — Shell-based integration tests
 - **apps/storage-node/** — Off-chain distributed storage daemon (libp2p P2P + axum HTTP JSON-RPC on port 3030, separate Cargo project). Auto-registers with blockchain node on startup.
 - **apps/frontend/** — Next.js 14 (App Router) + React 18 + TypeScript
-- **packages/wasm-engine/** — Wasm crypto engine (SSS via `sharks`, MerkleTree via `rs_merkle`, Blake2b hashing). Built with `wasm-pack`, consumed by frontend as file dependency.
+- **packages/wasm-engine/** — Wasm crypto engine (KZG-VSS hybrid via `ark-bls12-381`, Merkle tree via `rs_merkle`, Blake2b hashing). Built with `wasm-pack`, consumed by frontend as file dependency.
+  - **KZG-VSS hybrid scheme**: Combines verifiable secret sharing with KZG polynomial commitments for efficient storage proofs
+  - Key functions: `hybrid_split()`, `hybrid_reconstruct()`, `generate_kzg_proof()`, `verify_kzg_proof()`
 - **scripts/** — Token minting utilities (sudo-mint, transfer scripts using PAPI)
 - **specs/** — Feature specifications (numbered: 001-identity, 002-webauthn, ..., 009-post-storage-migration)
 - **docs/** — Architecture docs, Tor deployment guides
@@ -129,6 +131,16 @@ const api = client.getUnsafeApi()
 ### Pallet Inter-dependencies
 
 The Post pallet depends on `pallet_balances` (via tight coupling with `Config: pallet_balances::Config`) for burning MORAL tokens on post creation. Cost formula: `PostBaseCost + (content_bytes × PostByteCost)`.
+
+### KZG Reward System (pallet-storage)
+
+Storage nodes receive MORAL rewards for provable fragment holding. Key concepts:
+
+- **KZG Commitment**: Polynomial commitment generated from post content shards
+- **Proof Verification**: Storage nodes submit `prove_holding_kzg(fragment_id, kzg_proof)` to claim rewards
+- **Reward Pool**: Post fees flow 90% to reward pool, 10% burned
+- **Score System**: `ScoreProvider` trait for node reputation (default: score=1000, threshold=100)
+- **GC Lifecycle**: Fragment lifecycle StateProposed → Active → ForgettingCandidate → deleted
 
 ### Spec-Driven Development
 

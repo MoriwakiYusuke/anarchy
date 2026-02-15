@@ -36,6 +36,7 @@ pub use kzg::{
 
 // Re-export Wasm bindings
 pub use kzg::wasm::{
-    kzg_compress, kzg_decompress, kzg_generate_proof, kzg_init_srs, kzg_is_srs_initialized,
-    kzg_verify_proof, kzg_vss_recover, kzg_vss_split, WasmVssShare, WasmVssSplitResult,
+    hybrid_recover, hybrid_split, kzg_compress, kzg_decompress, kzg_generate_proof,
+    kzg_init_srs, kzg_is_srs_initialized, kzg_verify_proof, kzg_vss_recover, kzg_vss_split,
+    WasmHybridShard, WasmHybridSplitResult, WasmVssShare, WasmVssSplitResult,
 };

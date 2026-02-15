@@ -282,6 +282,8 @@ impl pallet_storage::Config for Runtime {
     type BaseRewardPerByte = ConstU128<1>;
     /// 報酬対象スコア閾値: 100
     type ScoreThreshold = ConstU64<100>;
+    /// スコアヒステリシスマージン: 20 (回復には閾値+20必要)
+    type ScoreHysteresisMargin = ConstU64<20>;
 }
 
 // Runtime構築
@@ -530,6 +532,21 @@ impl_runtime_apis! {
                     }
                 })
                 .collect()
+        }
+
+        fn get_kzg_fragment(content_hash: pallet_storage::ContentHash) -> Option<pallet_storage::KzgFragmentInfoRpc> {
+            use sp_runtime::SaturatedConversion;
+            pallet_storage::KzgFragments::<Runtime>::get(content_hash).map(|fragment| {
+                let owner_bytes: [u8; 32] = fragment.owner.into();
+                pallet_storage::KzgFragmentInfoRpc {
+                    owner: owner_bytes,
+                    commitment: fragment.commitment.into_inner(),
+                    data_size: fragment.data_size,
+                    fragment_count: fragment.fragment_count,
+                    threshold: fragment.threshold,
+                    created_at: fragment.created_at.saturated_into::<u32>(),
+                }
+            })
         }
     }
 }

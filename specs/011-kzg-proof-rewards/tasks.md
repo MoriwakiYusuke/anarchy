@@ -42,7 +42,7 @@
 - [x] T009 Implement BLS12-381 scalar encoding (32-byte chunks) in `packages/wasm-engine/src/kzg/encoding.rs`
 - [x] T010 [P] Add `RewardPoolBalance` storage and 90/10 split logic to `apps/blockchain/pallets/storage/src/lib.rs` (FR-113, FR-114)
 - [x] T011 Build wasm-pack target and verify module loads: `cd packages/wasm-engine && wasm-pack build --target web`
-- [x] T081 ⚠️ **no_std PoC検証**: `apps/blockchain/pallets/storage/`で`ark-poly-commit`のno_stdコンパイルテストを実施。wasm32-unknown-unknownターゲットでコンパイル成功を確認。
+- [x] T081 ⚠️ **no_std PoC検証**: `apps/blockchain/pallets/storage/`で`ark-poly-commit`のno_stdコンパイルテストを実施。wasm32v1-noneターゲットでコンパイル成功を確認。
 
 **Checkpoint**: Foundation ready - KZG primitives available, user story implementation can begin
 
@@ -105,6 +105,18 @@
 - [X] T024 [US1] Implement `register_kzg_fragment` extrinsic in `apps/blockchain/pallets/storage/src/lib.rs` (FR-102)
 - [X] T025 [US1] Integrate KZG-VSS in frontend post creation in `apps/frontend/src/services/kzg-vss.ts` (FR-301, FR-306)
 - [X] T026 [US1] Integrate KZG-VSS recovery in frontend post viewing in `apps/frontend/src/services/kzg-vss.ts` (FR-302, FR-307)
+
+#### T026a-T026e: シャード配送フロー (FR-115, FR-150-154)
+
+**設計決定**: 既存のSSS/Merkle配送フロー（upload_fragment RPC）に合わせた2段階フロー:
+1. `register_kzg_fragment` extrinsic → オンチェーンコミットメント登録
+2. `storage_uploadKzgShard` RPC → KZG検証 → Storage Nodeへ配送
+
+- [X] T026a [US1] Implement `get_kzg_fragment` Runtime API in `apps/blockchain/pallets/storage/src/lib.rs` (FR-115)
+- [X] T026b [US1] Implement `upload_kzg_shard` RPC in `apps/blockchain/node/src/rpc/storage.rs` (FR-150-FR-153)
+- [X] T026c [US1] Implement `verify_kzg_proof` function with arkworks in blockchain node RPC (FR-151)
+- [X] T026d [US1] Implement `storage_storeKzgShard` handler in `apps/storage-node/src/rpc/mod.rs` (FR-150)
+- [X] T026e [US1] Add tests for KZG shard delivery in storage-node (T-301-T-306)
 
 **Checkpoint**: US1完了 - 投稿のKZG-VSS断片化と復元が機能
 
@@ -247,7 +259,7 @@
 | AS5-4 | 大きいデータ → 高い報酬 | T075 | — (US3) |
 
 - [X] T061 [P] [US5] Pallet test: ScoreProvider未接続時にデフォルトスコア使用 in `apps/blockchain/pallets/storage/tests/kzg_tests.rs`
-- [ ] T062 [P] [US5] Integration test: E2E スコアシステム未接続→全投稿が報酬対象 (T-205)
+- [X] T062 [P] [US5] Integration test: E2E スコアシステム未接続→全投稿が報酬対象 (T-205)
 
 **Tests created** - proceeding to implementation
 
@@ -269,19 +281,19 @@
 
 ### Success Criteria Tests
 
-- [ ] T068 [P] Add performance benchmarks for SC-001 (1MB <5s browser) in `packages/wasm-engine/benches/`
-- [ ] T069 [P] Add performance benchmarks for SC-002 (verify <10ms on-chain) in `apps/blockchain/pallets/storage/benchmarking.rs`
-- [ ] T078 [P] Add performance benchmark for SC-003 (100-node batch verification <1s) in `apps/blockchain/pallets/storage/benchmarking.rs`
-- [ ] T079 [P] Integration test: SC-004 proof success rate measurement (>=99% for active nodes)
-- [ ] T080 [P] Integration test: SC-005 GC timing accuracy (±10% of grace period)
+- [X] T068 [P] Add performance benchmarks for SC-001 (1MB <5s browser) in `packages/wasm-engine/benches/`
+- [X] T069 [P] Add performance benchmarks for SC-002 (verify <10ms on-chain) in `apps/blockchain/pallets/storage/benchmarking.rs`
+- [X] T078 [P] Add performance benchmark for SC-003 (100-node batch verification <1s) in `apps/blockchain/pallets/storage/benchmarking.rs`
+- [X] T079 [P] Integration test: SC-004 proof success rate measurement (>=99% for active nodes)
+- [X] T080 [P] Integration test: SC-005 GC timing accuracy (±10% of grace period)
 
 ### Cross-Cutting
 
-- [ ] T070 [P] Integration test: E2E 投稿費用→90%報酬プール→10%バーン (T-206)
-- [ ] T071 [P] Update CLAUDE.md with KZG-VSS module documentation
-- [ ] T072 [P] Add hysteresis for score boundary changes (Edge Case)
-- [ ] T073 Run quickstart.md validation (all commands succeed)
-- [ ] T074 Remove sharks crate from `Cargo.toml` and delete `packages/wasm-engine/src/sss_core.rs`
+- [X] T070 [P] Integration test: E2E 投稿費用→90%報酬プール→10%バーン (T-206)
+- [X] T071 [P] Update CLAUDE.md with KZG-VSS module documentation
+- [X] T072 [P] Add hysteresis for score boundary changes (Edge Case)
+- [X] T073 Run quickstart.md validation (all commands succeed)
+- [ ] T074 Remove sharks crate from `Cargo.toml` and delete `packages/wasm-engine/src/sss_core.rs` **BLOCKED**: Frontend still uses sss_split - requires frontend migration to hybrid_split first
 
 ---
 

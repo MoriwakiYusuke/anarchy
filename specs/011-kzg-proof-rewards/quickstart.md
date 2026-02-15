@@ -8,7 +8,7 @@
 ```bash
 # Rust toolchain (stable2503)
 rustup update stable
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 
 # wasm-pack
 cargo install wasm-pack

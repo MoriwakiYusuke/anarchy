@@ -436,7 +436,7 @@ pub fn require_auth(headers: &HeaderMap, auth_enabled: bool) -> Result<(), (Stat
 pub fn method_requires_auth(method: &str) -> bool {
     // Only write operations require auth
     // Read operations (get_fragment) are public
-    matches!(method, "storage_storeFragment" | "storage_deleteFragment")
+    matches!(method, "storage_storeFragment" | "storage_deleteFragment" | "storage_storeKzgShard")
 }
 
 #[cfg(test)]
@@ -619,6 +619,7 @@ mod tests {
     fn test_method_requires_auth() {
         assert!(method_requires_auth("storage_storeFragment"));
         assert!(method_requires_auth("storage_deleteFragment"));
+        assert!(method_requires_auth("storage_storeKzgShard"));
         assert!(!method_requires_auth("storage_getFragment"));
         assert!(!method_requires_auth("storage_health"));
     }

@@ -15,7 +15,7 @@
 **Primary Dependencies**: arkworks (ark-bls12-381, ark-poly, ark-poly-commit), wasm-pack, PAPI  
 **Storage**: Substrate on-chain storage (`Fragments`, `RewardPoolBalance`)  
 **Testing**: `cargo test` (pallets, wasm-engine), Jest (frontend)  
-**Target Platform**: Wasm (wasm32-unknown-unknown, browser), no_std (Substrate runtime), Linux (storage-node)  
+**Target Platform**: Wasm (wasm32v1-none for runtime, wasm32-unknown-unknown for browser), no_std (Substrate runtime), Linux (storage-node)  
 **Project Type**: Monorepo (apps/blockchain, apps/frontend, packages/wasm-engine, apps/storage-node)  
 **Performance Goals**: 1MB KZG-VSS split <5s (browser), KZG verify <10ms (on-chain), 100-node batch <1s  
 **Constraints**: BLS12-381 pairing in Wasm, SRS embedding size (~300KB for degree-1024), 3-of-5 threshold  
