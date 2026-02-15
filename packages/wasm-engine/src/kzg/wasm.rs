@@ -681,4 +681,90 @@ mod tests {
         assert_eq!(recovered.original_len, 100);
         assert_eq!(recovered.processed_len, 80);
     }
+
+    #[test]
+    fn test_wasm_hybrid_shard_serialization_roundtrip() {
+        let shard = WasmHybridShard {
+            index: 2,
+            chunk: vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            chunk_hash: vec![0xabu8; 32],
+            key_share_index: 3,
+            key_share_data: vec![0xcd; 33],
+        };
+
+        let bytes = shard.to_bytes();
+        let recovered = WasmHybridShard::from_bytes(&bytes).unwrap();
+
+        assert_eq!(recovered.index, shard.index);
+        assert_eq!(recovered.chunk, shard.chunk);
+        assert_eq!(recovered.chunk_hash, shard.chunk_hash);
+        assert_eq!(recovered.key_share_index, shard.key_share_index);
+        assert_eq!(recovered.key_share_data, shard.key_share_data);
+    }
+
+    #[test]
+    fn test_hybrid_split_recover_with_serialization_roundtrip() {
+        // This simulates the frontend flow:
+        // 1. hybrid_split() -> WasmHybridSplitResult
+        // 2. get_shard(i).to_bytes() -> store
+        // 3. WasmHybridShard::from_bytes() -> hybrid_recover()
+
+        let data = b"Test data for serialization roundtrip";
+        let k = 2u8;
+        let n = 3u8;
+
+        // Step 1: Split
+        let split_result = hybrid::hybrid_split(data, k, n).unwrap();
+        let wasm_result = WasmHybridSplitResult::from(split_result.clone());
+
+        // Step 2: Serialize each shard (simulating storage)
+        let serialized_shards: Vec<Vec<u8>> = (0..n as usize)
+            .map(|i| {
+                let shard = wasm_result.get_shard(i).unwrap();
+                shard.to_bytes()
+            })
+            .collect();
+
+        // Step 3: Deserialize and recover
+        let recovered_shards: Vec<HybridShard> = serialized_shards
+            .iter()
+            .map(|bytes| {
+                let wasm_shard = WasmHybridShard::from_bytes(bytes).unwrap();
+                HybridShard {
+                    index: wasm_shard.index,
+                    chunk: wasm_shard.chunk,
+                    chunk_hash: wasm_shard.chunk_hash.try_into().unwrap(),
+                    key_share: super::super::key_sss::KeyShare {
+                        index: wasm_shard.key_share_index,
+                        data: wasm_shard.key_share_data,
+                    },
+                }
+            })
+            .collect();
+
+        // Verify chunk sizes match shard_size
+        for shard in &recovered_shards {
+            assert_eq!(
+                shard.chunk.len(),
+                split_result.shard_size,
+                "Chunk size {} != expected shard_size {}",
+                shard.chunk.len(),
+                split_result.shard_size
+            );
+        }
+
+        // Step 4: Recover using k shards
+        let recovered = hybrid::hybrid_recover(
+            &recovered_shards[0..k as usize],
+            k,
+            n,
+            split_result.original_len,
+            split_result.ciphertext_len,
+            split_result.shard_size,
+            split_result.compressed,
+        )
+        .unwrap();
+
+        assert_eq!(recovered, data);
+    }
 }

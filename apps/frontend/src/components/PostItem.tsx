@@ -80,12 +80,14 @@ export function PostItem({
           
           // Construct HybridMetadata from ContentRef
           // Note: Posts created before hybrid migration cannot be recovered with this code path
+          // Reed-Solomon shard_size = ceil(ciphertext_len / k)
+          // AES-GCM overhead: 12 bytes nonce + 16 bytes tag = 28 bytes
+          const estimatedCiphertextLen = contentRef.total_size + 28
           const metadata: HybridMetadata = {
             originalLen: contentRef.total_size,
-            // ciphertext_len: AES-GCM adds 12 bytes nonce + 16 bytes tag overhead
-            ciphertextLen: contentRef.ciphertext_len ?? (contentRef.total_size + 28),
-            // shard_size: approximation based on ciphertext_len and total shards
-            shardSize: contentRef.shard_size ?? Math.ceil((contentRef.total_size + 28) / contentRef.n),
+            ciphertextLen: contentRef.ciphertext_len ?? estimatedCiphertextLen,
+            // shard_size must use k (threshold), not n (total shards)
+            shardSize: contentRef.shard_size ?? Math.ceil((contentRef.ciphertext_len ?? estimatedCiphertextLen) / contentRef.k),
             // compressed flag from ContentRef, default false for older posts (may fail if mismatched)
             compressed: contentRef.compressed ?? false,
             threshold: contentRef.k,

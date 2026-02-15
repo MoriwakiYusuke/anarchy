@@ -10,7 +10,6 @@ use tracing::{info, warn, debug, error};
 use anyhow::Result;
 
 use crate::prover::KzgProver;
-use crate::storage::FragmentId;
 
 /// Challenge data received from blockchain
 #[derive(Debug, Clone)]
@@ -101,8 +100,8 @@ impl ChallengeMonitor {
     async fn try_submit_proof(&self, content_hash: [u8; 32], share_index: u8) -> Result<()> {
         let key = (content_hash, share_index);
 
-        // Get pending challenge
-        let pending_challenge = {
+        // Get pending challenge (currently unused until chain submission is implemented)
+        let _pending_challenge = {
             let mut pending = self.pending.lock().await;
             match pending.get_mut(&key) {
                 Some(pc) => {
@@ -132,7 +131,7 @@ impl ChallengeMonitor {
             &content_hash,
             share_index,
         ).await {
-            Ok((share_value, proof)) => {
+            Ok((_share_value, _proof)) => {
                 info!(
                     content_hash = hex::encode(content_hash),
                     share_index = share_index,

@@ -4,9 +4,8 @@
 //! Uses arkworks BLS12-381 implementation.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, debug, error};
+use tracing::{info, debug};
 use anyhow::{Result, bail};
 
 use ark_bls12_381::{Fr, G1Affine, G1Projective};
@@ -16,7 +15,7 @@ use ark_poly::univariate::DensePolynomial;
 use ark_poly::DenseUVPolynomial;
 use ark_serialize::CanonicalSerialize;
 
-use crate::storage::FragmentId;
+
 
 /// Stored share data for proof generation
 #[derive(Clone)]

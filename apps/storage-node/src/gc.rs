@@ -33,8 +33,6 @@ pub struct GarbageCollector {
     candidates: HashMap<[u8; 32], GcCandidate>,
     /// Grace period duration
     grace_period: Duration,
-    /// Whether in development mode
-    dev_mode: bool,
 }
 
 impl GarbageCollector {
@@ -49,7 +47,6 @@ impl GarbageCollector {
         Self {
             candidates: HashMap::new(),
             grace_period,
-            dev_mode,
         }
     }
 

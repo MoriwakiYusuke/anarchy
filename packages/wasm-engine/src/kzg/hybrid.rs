@@ -518,4 +518,31 @@ mod tests {
 
         assert_eq!(recovered, data);
     }
+
+    #[test]
+    fn test_small_data_shard_size_calculation() {
+        // Test with small data (< 256 bytes, no compression)
+        let data = b"Test";
+        let k = 2u8;
+        let n = 3u8;
+        
+        let result = hybrid_split(data, k, n).unwrap();
+        
+        println!("original_len: {}", result.original_len);
+        println!("ciphertext_len: {}", result.ciphertext_len);
+        println!("shard_size: {}", result.shard_size);
+        println!("compressed: {}", result.compressed);
+        
+        // Verify fallback calculation:
+        // For uncompressed data, ciphertext_len = original_len + 28 (AES-GCM overhead)
+        let expected_ciphertext_len = data.len() + 28; // 12 nonce + 16 tag
+        assert_eq!(result.compressed, false, "Small data should not be compressed");
+        assert_eq!(result.ciphertext_len, expected_ciphertext_len, 
+            "Ciphertext length mismatch: {} != {}", result.ciphertext_len, expected_ciphertext_len);
+        
+        // shard_size = ceil(ciphertext_len / k)
+        let expected_shard_size = (expected_ciphertext_len + k as usize - 1) / k as usize;
+        assert_eq!(result.shard_size, expected_shard_size,
+            "Shard size mismatch: {} != {}", result.shard_size, expected_shard_size);
+    }
 }
