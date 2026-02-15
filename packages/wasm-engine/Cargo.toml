@@ -1,23 +1,37 @@
 [package]
 name = "anarchy-wasm-engine"
-version = "0.1.0"
+version = "2.0.0"
 edition = "2021"
 authors = ["Anarchy Team"]
 license = "MIT"
-description = "Wasm cryptographic engine for SSS and MerkleTree operations"
+description = "Wasm cryptographic engine for KZG-VSS and MerkleTree operations"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["console_error_panic_hook"]
+# Enable test utilities (init_test_srs) for integration tests
+test-utils = []
 
 [dependencies]
-# Shamir's Secret Sharing
-sharks = "0.5"
+# KZG-VSS (arkworks stack)
+ark-bls12-381 = { version = "0.5", default-features = false, features = ["curve"] }
+ark-ec = { version = "0.5", default-features = false }
+ark-ff = { version = "0.5", default-features = false }
+ark-poly = { version = "0.5", default-features = false }
+ark-poly-commit = { version = "0.5", default-features = false }
+ark-serialize = { version = "0.5", default-features = false }
+ark-std = { version = "0.5", default-features = false }
 
-# MerkleTree
+# Compression
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+
+# MerkleTree (legacy, keep for compatibility)
 rs_merkle = "1.4"
+
+# Legacy SSS (sharks) - to be removed in Phase 8 (T074)
+sharks = "0.5"
 
 # Blake2b hashing
 blake2 = "0.10"
@@ -33,7 +47,7 @@ serde-wasm-bindgen = "0.6"
 # Error handling in Wasm
 console_error_panic_hook = { version = "0.1", optional = true }
 
-# Getrandom for Wasm (required by sharks)
+# Getrandom for Wasm
 getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]

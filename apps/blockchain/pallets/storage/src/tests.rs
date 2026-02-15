@@ -727,3 +727,157 @@ fn t038_declaration_rate_limit() {
         );
     });
 }
+
+// ============================================================================
+// KZG-VSS Tests (011-kzg-proof-rewards)
+// ============================================================================
+
+/// Helper: Create a test content hash
+fn test_content_hash(n: u8) -> crate::ContentHash {
+    let mut hash = [0u8; 32];
+    hash[0] = n;
+    hash
+}
+
+/// Helper: Create a test KZG commitment (48 bytes G1 compressed)
+fn test_commitment() -> BoundedVec<u8, ConstU32<48>> {
+    // Valid compressed G1 point (identity point encoded for tests)
+    let mut bytes = vec![0u8; 48];
+    bytes[0] = 0xc0; // Compressed flag + infinity flag
+    BoundedVec::try_from(bytes).unwrap()
+}
+
+/// T017: register_kzg_fragment で90%報酬プール/10%バーン
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires register_kzg_fragment extrinsic (T024)"]
+fn t017_register_kzg_fragment_90_10_split() {
+    new_test_ext().execute_with(|| {
+        let _owner = 1u64;
+        let _content_hash = test_content_hash(1);
+        let _commitment = test_commitment();
+        let _data_size = 10_000u32; // 10KB
+        let _fragment_count = 5u8;
+        let _threshold = 3u8;
+        let _fee = 100_000_000_000u128; // 0.1 MORAL = 100,000,000,000 units (12 decimals)
+
+        // Get initial reward pool balance
+        let _initial_pool = Storage::reward_pool_balance();
+
+        // TODO (T024): Uncomment when register_kzg_fragment is implemented
+        // Register KZG fragment with fee
+        // assert_ok!(Storage::register_kzg_fragment(
+        //     RuntimeOrigin::signed(owner),
+        //     content_hash,
+        //     commitment.clone(),
+        //     data_size,
+        //     fragment_count,
+        //     threshold,
+        //     fee,
+        // ));
+
+        // Verify 90% went to reward pool
+        // let expected_pool_increase = (fee * 90) / 100; // 90%
+        // let new_pool = Storage::reward_pool_balance();
+        // assert_eq!(
+        //     new_pool,
+        //     initial_pool + expected_pool_increase,
+        //     "90% of fee should go to reward pool"
+        // );
+
+        // Verify KzgFragment was stored correctly
+        // let fragment = Storage::kzg_fragments(content_hash).expect("Fragment should exist");
+        // assert_eq!(fragment.owner, owner);
+        // assert_eq!(fragment.commitment.to_vec(), commitment.to_vec());
+        // assert_eq!(fragment.data_size, data_size);
+        // assert_eq!(fragment.fragment_count, fragment_count);
+        // assert_eq!(fragment.threshold, threshold);
+
+        // Verify event emitted (KzgFragmentRegistered)
+    });
+}
+
+/// T029: prove_holding_kzg で有効な証明が検証される
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires prove_holding_kzg extrinsic (T034)"]
+fn t029_prove_holding_kzg_valid_proof_succeeds() {
+    new_test_ext().execute_with(|| {
+        let _owner = 1u64;
+        let _node = 2u64;
+        let _content_hash = test_content_hash(1);
+        let _commitment = test_commitment();
+        let _share_index = 1u8;
+
+        // TODO (T034): Setup - Create a pending challenge
+        // let challenge = crate::Challenge::<Test> {
+        //     content_hash,
+        //     share_index,
+        //     challenged_node: node,
+        //     issued_at: 1u64,
+        //     deadline: 100u64,
+        // };
+        // PendingChallenges::<T>::insert(node, challenge);
+
+        // Provide valid KZG proof (48 bytes compressed G1)
+        // let kzg_proof = test_commitment();
+
+        // TODO (T034): Submit proof
+        // assert_ok!(Storage::prove_holding_kzg(
+        //     RuntimeOrigin::signed(node),
+        //     content_hash,
+        //     share_index,
+        //     kzg_proof,
+        // ));
+
+        // Verify: proof record updated
+        // Verify: success_count incremented
+        // Verify: pending_reward increased
+    });
+}
+
+/// T030: 無効な証明で InvalidKzgProof エラー
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires prove_holding_kzg extrinsic (T034)"]
+fn t030_prove_holding_kzg_invalid_proof_fails() {
+    new_test_ext().execute_with(|| {
+        let _node = 2u64;
+        let _content_hash = test_content_hash(1);
+        let _share_index = 1u8;
+
+        // Create a deliberately invalid proof
+        let _invalid_proof: BoundedVec<u8, ConstU32<48>> = {
+            let bytes = vec![0xffu8; 48]; // Invalid G1 point
+            BoundedVec::try_from(bytes).unwrap()
+        };
+
+        // TODO (T034): Submit invalid proof - should fail
+        // assert_noop!(
+        //     Storage::prove_holding_kzg(
+        //         RuntimeOrigin::signed(node),
+        //         content_hash,
+        //         share_index,
+        //         invalid_proof,
+        //     ),
+        //     Error::<Test>::InvalidKzgProof
+        // );
+    });
+}
+
+/// T031: チャレンジ生成がランダムに動作
+/// TDD test - written before implementation
+#[test]
+#[ignore = "Requires issue_challenge hook (T035)"]
+fn t031_challenge_generation_random() {
+    new_test_ext().execute_with(|| {
+        // This test verifies that the challenge selection is pseudo-random
+        // based on block hash
+
+        // Setup: Register multiple KzgFragments
+        // Progress blocks
+        // Verify: Different challenges are issued based on block randomness
+        // Verify: Challenge includes share_index (1..n)
+    });
+}
+

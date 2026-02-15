@@ -35,6 +35,9 @@ pub mod rate_limit;
 /// Fragment ID type (Blake2-256 hash)
 pub type FragmentId = [u8; 32];
 
+/// Content hash type for KZG-VSS (H256)
+pub type ContentHash = [u8; 32];
+
 use alloc::vec::Vec;
 use parity_scale_codec::{Decode, Encode};
 use scale_info::TypeInfo;
@@ -125,6 +128,57 @@ pub mod pallet {
         pub pow_nonce: u64,
         /// HTTP endpoint URL for fragment storage (e.g., "http://127.0.0.1:3030")
         pub http_url: BoundedVec<u8, T::MaxHttpUrlLen>,
+    }
+
+    // ============ KZG-VSS Types (011-kzg-proof-rewards) ============
+
+    /// KZG Fragment metadata for proof-of-holding (FR-102)
+    #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, PartialEq, Eq)]
+    #[scale_info(skip_type_params(T))]
+    pub struct KzgFragment<T: Config> {
+        /// Owner (post creator)
+        pub owner: T::AccountId,
+        /// KZG commitment (compressed G1 point, 48 bytes)
+        pub commitment: BoundedVec<u8, ConstU32<48>>,
+        /// Data size in bytes
+        pub data_size: u32,
+        /// Number of shares (n)
+        pub fragment_count: u8,
+        /// Recovery threshold (k)
+        pub threshold: u8,
+        /// Block when created
+        pub created_at: BlockNumberFor<T>,
+        /// Active share holders
+        pub holders: BoundedVec<T::AccountId, ConstU32<16>>,
+    }
+
+    /// Challenge issued for proof-of-holding (FR-103)
+    #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, PartialEq, Eq)]
+    #[scale_info(skip_type_params(T))]
+    pub struct Challenge<T: Config> {
+        /// Target content hash
+        pub content_hash: super::ContentHash,
+        /// Target share index (1..n)
+        pub share_index: u8,
+        /// Challenged node
+        pub challenged_node: T::AccountId,
+        /// Block when issued
+        pub issued_at: BlockNumberFor<T>,
+        /// Deadline block
+        pub deadline: BlockNumberFor<T>,
+    }
+
+    /// Proof record for tracking holding proofs (FR-104, FR-109)
+    #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, PartialEq, Eq, Default)]
+    pub struct ProofRecord<BlockNumber: Default> {
+        /// Last successful proof block
+        pub last_proved_at: BlockNumber,
+        /// Consecutive success count
+        pub success_count: u32,
+        /// Consecutive failure count
+        pub failure_count: u32,
+        /// Pending reward (unclaimed)
+        pub pending_reward: u128,
     }
 
     #[pallet::pallet]
@@ -263,6 +317,51 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    // ============ KZG-VSS Storage (011-kzg-proof-rewards) ============
+
+    /// KZG Fragment storage (content_hash -> KzgFragment)
+    #[pallet::storage]
+    #[pallet::getter(fn kzg_fragments)]
+    pub type KzgFragments<T: Config> =
+        StorageMap<_, Blake2_128Concat, super::ContentHash, KzgFragment<T>, OptionQuery>;
+
+    /// Pending challenges (content_hash, share_index) -> Challenge
+    #[pallet::storage]
+    #[pallet::getter(fn pending_challenges)]
+    pub type PendingChallenges<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        super::ContentHash,
+        Blake2_128Concat,
+        u8,  // share_index
+        Challenge<T>,
+        OptionQuery,
+    >;
+
+    /// Proof records (content_hash, holder) -> ProofRecord
+    #[pallet::storage]
+    #[pallet::getter(fn proof_records)]
+    pub type ProofRecords<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        super::ContentHash,
+        Blake2_128Concat,
+        T::AccountId,
+        ProofRecord<BlockNumberFor<T>>,
+        ValueQuery,
+    >;
+
+    /// Reward pool balance (total accumulated from post fees)
+    #[pallet::storage]
+    #[pallet::getter(fn reward_pool_balance)]
+    pub type RewardPoolBalance<T: Config> = StorageValue<_, u128, ValueQuery>;
+
+    /// Score cache for external score provider
+    #[pallet::storage]
+    #[pallet::getter(fn score_cache)]
+    pub type ScoreCache<T: Config> =
+        StorageMap<_, Blake2_128Concat, super::ContentHash, u64, OptionQuery>;
+
     // ============ Events ============
 
     #[pallet::event]
@@ -304,6 +403,16 @@ pub mod pallet {
         HoldingRevoked {
             peer_id: BoundedVec<u8, T::MaxPeerIdLen>,
             fragment_id: FragmentId,
+        },
+
+        /// KZG fragment registered (FR-102)
+        KzgFragmentRegistered {
+            content_hash: super::ContentHash,
+            owner: T::AccountId,
+            commitment: BoundedVec<u8, ConstU32<48>>,
+            data_size: u32,
+            fragment_count: u8,
+            threshold: u8,
         },
     }
 
@@ -358,6 +467,19 @@ pub mod pallet {
         PeerIdTooLong,
         /// HTTP URL is empty or invalid
         InvalidHttpUrl,
+
+        // === KZG-VSS errors (011-kzg-proof-rewards) ===
+
+        /// KZG fragment already exists for this content hash
+        KzgFragmentAlreadyExists,
+        /// Invalid KZG commitment length (expected 48 bytes)
+        InvalidCommitmentLength,
+        /// Invalid threshold: must be 1 <= threshold <= fragment_count
+        InvalidKzgThreshold,
+        /// Fragment count too small (minimum 2)
+        FragmentCountTooSmall,
+        /// Commitment conversion failed
+        InvalidCommitment,
     }
 
     // ============ Extrinsics ============
@@ -616,6 +738,77 @@ pub mod pallet {
 
             // Emit event
             Self::deposit_event(Event::HoldingRevoked { peer_id, fragment_id });
+
+            Ok(())
+        }
+
+        /// Register a KZG fragment for proof-of-holding (FR-102).
+        ///
+        /// Records KZG commitment on-chain for later challenge/proof verification.
+        /// This should be called atomically during post creation.
+        ///
+        /// # Arguments
+        /// * `content_hash` - Blake2-256 hash of the content
+        /// * `commitment` - KZG commitment (48 bytes, compressed G1 point)
+        /// * `data_size` - Original data size in bytes
+        /// * `fragment_count` - Total number of shares (n)
+        /// * `threshold` - Recovery threshold (k)
+        #[pallet::call_index(6)]
+        #[pallet::weight(Weight::from_parts(20_000, 0) + T::DbWeight::get().writes(1))]
+        pub fn register_kzg_fragment(
+            origin: OriginFor<T>,
+            content_hash: super::ContentHash,
+            commitment: BoundedVec<u8, ConstU32<48>>,
+            data_size: u32,
+            fragment_count: u8,
+            threshold: u8,
+        ) -> DispatchResult {
+            let owner = ensure_signed(origin)?;
+
+            // Validate commitment length (must be exactly 48 bytes)
+            ensure!(commitment.len() == 48, Error::<T>::InvalidCommitmentLength);
+
+            // Validate fragment count (minimum 2)
+            ensure!(fragment_count >= 2, Error::<T>::FragmentCountTooSmall);
+
+            // Validate threshold (1 <= k <= n)
+            ensure!(
+                threshold >= 1 && threshold <= fragment_count,
+                Error::<T>::InvalidKzgThreshold
+            );
+
+            // Validate data size
+            ensure!(data_size > 0, Error::<T>::FragmentTooSmall);
+
+            // Check for duplicates
+            ensure!(
+                !KzgFragments::<T>::contains_key(content_hash),
+                Error::<T>::KzgFragmentAlreadyExists
+            );
+
+            // Create KZG fragment metadata
+            let kzg_fragment = KzgFragment::<T> {
+                owner: owner.clone(),
+                commitment: commitment.clone(),
+                data_size,
+                fragment_count,
+                threshold,
+                created_at: frame_system::Pallet::<T>::block_number(),
+                holders: BoundedVec::default(),
+            };
+
+            // Store
+            KzgFragments::<T>::insert(content_hash, kzg_fragment);
+
+            // Emit event
+            Self::deposit_event(Event::KzgFragmentRegistered {
+                content_hash,
+                owner,
+                commitment,
+                data_size,
+                fragment_count,
+                threshold,
+            });
 
             Ok(())
         }

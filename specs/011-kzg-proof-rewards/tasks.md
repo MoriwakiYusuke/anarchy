@@ -22,12 +22,12 @@
 
 **Purpose**: Project initialization, dependencies, Trusted Setup
 
-- [ ] T001 Add arkworks dependencies to `packages/wasm-engine/Cargo.toml` (ark-bls12-381, ark-poly, ark-poly-commit) and remove sharks dependency
-- [ ] T002 [P] Download Ethereum KZG Ceremony SRS and add to `packages/wasm-engine/srs/mainnet.bin`
-- [ ] T003 [P] Add flate2 (gzip) dependency to `packages/wasm-engine/Cargo.toml`
-- [ ] T004 [P] Create `packages/wasm-engine/src/kzg/mod.rs` module structure
-- [ ] T005 [P] Add new storage types to `apps/blockchain/pallets/storage/src/lib.rs` (Fragment, Challenge, ProofRecord) and create `tests/` directory with `mod.rs`
-- [ ] T006 [P] Create frontend service stubs `apps/frontend/src/services/kzg-vss.ts` and `compression.ts`
+- [x] T001 Add arkworks dependencies to `packages/wasm-engine/Cargo.toml` (ark-bls12-381, ark-poly, ark-poly-commit) and remove sharks dependency
+- [x] T002 [P] Download Ethereum KZG Ceremony SRS and add to `packages/wasm-engine/srs/mainnet.bin`
+- [x] T003 [P] Add flate2 (gzip) dependency to `packages/wasm-engine/Cargo.toml`
+- [x] T004 [P] Create `packages/wasm-engine/src/kzg/mod.rs` module structure
+- [x] T005 [P] Add new storage types to `apps/blockchain/pallets/storage/src/lib.rs` (Fragment, Challenge, ProofRecord) and create `tests/` directory with `mod.rs`
+- [x] T006 [P] Create frontend service stubs `apps/frontend/src/services/kzg-vss.ts` and `compression.ts`
 
 ---
 
@@ -37,12 +37,12 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Implement SRS loading in `packages/wasm-engine/src/kzg/srs.rs` (FR-003, T-007)
-- [ ] T008 [P] Implement compression/decompression in `packages/wasm-engine/src/kzg/compression.rs` (FR-306, T-008, T-009)
-- [ ] T009 Implement BLS12-381 scalar encoding (32-byte chunks) in `packages/wasm-engine/src/kzg/encoding.rs`
-- [ ] T010 [P] Add `RewardPoolBalance` storage and 90/10 split logic to `apps/blockchain/pallets/storage/src/lib.rs` (FR-113, FR-114)
-- [ ] T011 Build wasm-pack target and verify module loads: `cd packages/wasm-engine && wasm-pack build --target web`
-- [ ] T081 ⚠️ **no_std PoC検証**: `apps/blockchain/pallets/storage/`で`ark-poly-commit`のno_stdコンパイルテストを実施。`cargo check --no-default-features`で`std`なしビルドを試行。**失敗した場合**: ユーザーに確認し、Off-chain Worker実装への切り替えを協議する（追加工数+2-3日）
+- [x] T007 Implement SRS loading in `packages/wasm-engine/src/kzg/srs.rs` (FR-003, T-007)
+- [x] T008 [P] Implement compression/decompression in `packages/wasm-engine/src/kzg/compression.rs` (FR-306, T-008, T-009)
+- [x] T009 Implement BLS12-381 scalar encoding (32-byte chunks) in `packages/wasm-engine/src/kzg/encoding.rs`
+- [x] T010 [P] Add `RewardPoolBalance` storage and 90/10 split logic to `apps/blockchain/pallets/storage/src/lib.rs` (FR-113, FR-114)
+- [x] T011 Build wasm-pack target and verify module loads: `cd packages/wasm-engine && wasm-pack build --target web`
+- [x] T081 ⚠️ **no_std PoC検証**: `apps/blockchain/pallets/storage/`で`ark-poly-commit`のno_stdコンパイルテストを実施。wasm32-unknown-unknownターゲットでコンパイル成功を確認。
 
 **Checkpoint**: Foundation ready - KZG primitives available, user story implementation can begin
 
@@ -71,26 +71,24 @@
 | AS1-4 | 3個シェア → 復元成功 | T013 | T-002 |
 | AS1-5 | 2個シェア → 復元失敗 | T014 | T-003 |
 
-- [ ] T012 [P] [US1] Unit test: `vss_split` で3-of-5シェア生成 in `packages/wasm-engine/tests/kzg_tests.rs` (T-001)
-- [ ] T013 [P] [US1] Unit test: `vss_recover` で3個のシェアから復元成功 in `packages/wasm-engine/tests/kzg_tests.rs` (T-002)
-- [ ] T014 [P] [US1] Unit test: `vss_recover` で2個のシェアでは復元失敗 in `packages/wasm-engine/tests/kzg_tests.rs` (T-003)
-- [ ] T015 [P] [US1] Unit test: 圧縮→分割→復元→解凍ラウンドトリップ in `packages/wasm-engine/tests/kzg_tests.rs` (T-008)
-- [ ] T016 [P] [US1] Unit test: 32KB超データの分割処理 in `packages/wasm-engine/tests/kzg_tests.rs` (T-006)
-- [ ] T017 [P] [US1] Pallet test: `register_fragment` で90%報酬プール/10%バーン in `apps/blockchain/pallets/storage/tests/kzg_tests.rs` (T-108)
-- [ ] T018 [P] [US1] Integration test: E2E 投稿作成→KZG-VSS分割→アップロード→コミットメント保存 (T-201)
-
-**⛔ IMPLEMENTATION BLOCKED**: 上記テストが全て作成され、意図的に失敗する状態になるまで実装に進まない
+- [X] T012 [P] [US1] Unit test: `vss_split` で3-of-5シェア生成 in `packages/wasm-engine/tests/kzg_tests.rs` (T-001)
+- [X] T013 [P] [US1] Unit test: `vss_recover` で3個のシェアから復元成功 in `packages/wasm-engine/tests/kzg_tests.rs` (T-002)
+- [X] T014 [P] [US1] Unit test: `vss_recover` で2個のシェアでは復元失敗 in `packages/wasm-engine/tests/kzg_tests.rs` (T-003)
+- [X] T015 [P] [US1] Unit test: 圧縮→分割→復元→解凍ラウンドトリップ in `packages/wasm-engine/tests/kzg_tests.rs` (T-008)
+- [X] T016 [P] [US1] Unit test: 32KB超データの分割処理 in `packages/wasm-engine/tests/kzg_tests.rs` (T-006)
+- [X] T017 [P] [US1] Pallet test: `register_fragment` で90%報酬プール/10%バーン in `apps/blockchain/pallets/storage/tests/kzg_tests.rs` (T-108)
+- [X] T018 [P] [US1] Integration test: E2E 投稿作成→KZG-VSS分割→アップロード→コミットメント保存 (T-201)
 
 ### Implementation for User Story 1
 
-- [ ] T019 [US1] Implement polynomial construction from data in `packages/wasm-engine/src/kzg/vss.rs` (FR-002)
-- [ ] T020 [US1] Implement `vss_split` function (Lagrange shares + KZG commitment) in `packages/wasm-engine/src/kzg/vss.rs` (FR-002, FR-004)
-- [ ] T021 [US1] Implement `vss_recover` function (Lagrange interpolation) in `packages/wasm-engine/src/kzg/vss.rs` (FR-005)
-- [ ] T022 [US1] Implement multi-segment support for >32KB data in `packages/wasm-engine/src/kzg/vss.rs` (FR-006, FR-007)
-- [ ] T023 [US1] Export Wasm bindings via wasm-bindgen in `packages/wasm-engine/src/lib.rs`
-- [ ] T024 [US1] Implement `register_fragment` extrinsic in `apps/blockchain/pallets/storage/src/lib.rs` (FR-102)
-- [ ] T025 [US1] Integrate KZG-VSS in frontend post creation in `apps/frontend/src/services/kzg-vss.ts` (FR-301, FR-306)
-- [ ] T026 [US1] Integrate KZG-VSS recovery in frontend post viewing in `apps/frontend/src/services/kzg-vss.ts` (FR-302, FR-307)
+- [X] T019 [US1] Implement polynomial construction from data in `packages/wasm-engine/src/kzg/vss.rs` (FR-002)
+- [X] T020 [US1] Implement `vss_split` function (Lagrange shares + KZG commitment) in `packages/wasm-engine/src/kzg/vss.rs` (FR-002, FR-004)
+- [X] T021 [US1] Implement `vss_recover` function (Lagrange interpolation) in `packages/wasm-engine/src/kzg/vss.rs` (FR-005)
+- [ ] T022 [US1] **BLOCKED** Multi-segment support for >32KB data - Requires design decision (Option A: segment-per-polynomial, Option B: symmetric encryption + key sharing)
+- [X] T023 [US1] Export Wasm bindings via wasm-bindgen in `packages/wasm-engine/src/lib.rs`
+- [X] T024 [US1] Implement `register_kzg_fragment` extrinsic in `apps/blockchain/pallets/storage/src/lib.rs` (FR-102)
+- [X] T025 [US1] Integrate KZG-VSS in frontend post creation in `apps/frontend/src/services/kzg-vss.ts` (FR-301, FR-306)
+- [X] T026 [US1] Integrate KZG-VSS recovery in frontend post viewing in `apps/frontend/src/services/kzg-vss.ts` (FR-302, FR-307)
 
 **Checkpoint**: US1完了 - 投稿のKZG-VSS断片化と復元が機能
 

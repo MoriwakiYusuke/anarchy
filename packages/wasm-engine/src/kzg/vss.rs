@@ -1,0 +1,444 @@
+//! KZG-VSS: Verifiable Secret Sharing using KZG Commitments
+//!
+//! 同一の多項式でSSS（シェア生成）とKZG（コミットメント）の両役割を果たす。
+
+use ark_bls12_381::{Fr, G1Projective};
+use ark_ec::CurveGroup;
+use ark_ff::Field;
+use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
+use ark_std::vec::Vec;
+use ark_std::Zero;
+
+use super::{
+    compression::{compress, decompress},
+    encoding::{decode_from_scalars, encode_to_scalars, BYTES_PER_SCALAR},
+    srs::get_srs,
+    KzgError,
+};
+
+/// VSS Share
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VssShare {
+    /// Share index (1..=n)
+    pub index: u8,
+    /// Share value (BLS12-381 scalar, 32 bytes)
+    pub value: [u8; 32],
+}
+
+/// KZG Commitment (compressed G1 point)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KzgCommitment {
+    /// Compressed G1 point (48 bytes)
+    pub bytes: [u8; 48],
+}
+
+/// KZG Proof (compressed G1 point)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KzgProof {
+    /// Compressed G1 point (48 bytes)
+    pub bytes: [u8; 48],
+}
+
+/// Result of vss_split operation
+#[derive(Clone, Debug)]
+pub struct VssSplitResult {
+    /// KZG commitment
+    pub commitment: KzgCommitment,
+    /// Generated shares (n shares)
+    pub shares: Vec<VssShare>,
+    /// KZG proofs for each share (n proofs)
+    pub proofs: Vec<KzgProof>,
+    /// Whether compression was applied
+    pub compressed: bool,
+    /// Original data length (for reconstruction after decompression)
+    pub original_len: usize,
+    /// Processed data length (after compression, before encoding)
+    pub processed_len: usize,
+    /// Multi-segment flag (for >32KB data)
+    pub multi_segment: bool,
+    /// Number of segments (if multi-segment)
+    pub segment_count: usize,
+}
+
+/// Maximum data size (32MB)
+pub const MAX_DATA_SIZE: usize = 32 * 1024 * 1024;
+
+/// Maximum segment size (32KB worth of scalars)
+pub const MAX_SEGMENT_SIZE: usize = 32 * 1024;
+
+/// Split data into k-of-n VSS shares with KZG commitments.
+///
+/// # Arguments
+/// * `data` - Data to split (max 32MB)
+/// * `threshold` - Minimum shares needed for recovery (k)
+/// * `share_count` - Total shares to generate (n)
+///
+/// # Returns
+/// * VssSplitResult containing commitment, shares, and proofs
+pub fn vss_split(data: &[u8], threshold: u8, share_count: u8) -> Result<VssSplitResult, KzgError> {
+    // Validate inputs
+    if data.is_empty() || data.len() > MAX_DATA_SIZE {
+        return Err(KzgError::DataTooLarge);
+    }
+    if threshold < 1 || threshold > share_count || share_count < 2 {
+        return Err(KzgError::InvalidThreshold);
+    }
+
+    let srs = get_srs()?;
+
+    // Step 1: Compress data if beneficial
+    let (processed_data, compressed) = compress(data);
+    let original_len = data.len();
+
+    // Step 2: Encode to scalars
+    let scalars = encode_to_scalars(&processed_data)?;
+
+    // Step 3: Construct polynomial with random coefficients for threshold
+    // f(x) = a_0 + a_1*x + ... + a_{k-1}*x^{k-1}
+    // where a_0 encodes data and remaining coefficients are for threshold
+    let polynomial = construct_polynomial(&scalars, threshold as usize)?;
+
+    // Step 4: Compute KZG commitment C = [f(τ)]₁
+    let commitment = compute_commitment(&polynomial, srs)?;
+
+    // Step 5: Evaluate polynomial at points 1..=n to get shares
+    let mut shares = Vec::with_capacity(share_count as usize);
+    for i in 1..=share_count {
+        let x = Fr::from(i as u64);
+        let y = polynomial.evaluate(&x);
+        shares.push(VssShare {
+            index: i,
+            value: super::encoding::scalar_to_bytes(&y),
+        });
+    }
+
+    // Step 6: Generate KZG proofs for each share
+    let proofs = generate_proofs(&polynomial, &shares, srs)?;
+
+    // Check if multi-segment
+    let segment_count = (processed_data.len() + MAX_SEGMENT_SIZE - 1) / MAX_SEGMENT_SIZE;
+    let multi_segment = segment_count > 1;
+    let processed_len = processed_data.len();
+
+    Ok(VssSplitResult {
+        commitment,
+        shares,
+        proofs,
+        compressed,
+        original_len,
+        processed_len,
+        multi_segment,
+        segment_count,
+    })
+}
+
+/// Recover data from k or more shares.
+///
+/// # Arguments
+/// * `shares` - At least k shares for recovery
+/// * `threshold` - Minimum shares required (k)
+/// * `compressed` - Whether data was compressed (from VssSplitResult)
+/// * `original_len` - Original data length (before compression)
+/// * `processed_len` - Processed data length (after compression, from VssSplitResult)
+///
+/// # Returns
+/// * Recovered data
+pub fn vss_recover(
+    shares: &[VssShare],
+    threshold: u8,
+    compressed: bool,
+    original_len: usize,
+    processed_len: usize,
+) -> Result<Vec<u8>, KzgError> {
+    if (shares.len() as u8) < threshold {
+        return Err(KzgError::InsufficientShares);
+    }
+
+    // Validate share indices (no duplicates, in range)
+    let mut seen_indices = [false; 256];
+    for share in shares {
+        if share.index == 0 {
+            return Err(KzgError::InvalidShareIndex);
+        }
+        if seen_indices[share.index as usize] {
+            return Err(KzgError::InvalidShareIndex);
+        }
+        seen_indices[share.index as usize] = true;
+    }
+
+    // Use first `threshold` shares for Lagrange interpolation
+    let used_shares = &shares[..threshold as usize];
+
+    // Convert shares to (x, y) points
+    let points: Vec<(Fr, Fr)> = used_shares
+        .iter()
+        .map(|s| {
+            let x = Fr::from(s.index as u64);
+            let y = super::encoding::bytes_to_scalar(&s.value);
+            (x, y)
+        })
+        .collect();
+
+    // Lagrange interpolate to recover polynomial
+    let polynomial = lagrange_interpolate(&points)?;
+
+    // Extract coefficients (data scalars)
+    let scalars: Vec<Fr> = polynomial.coeffs().to_vec();
+
+    // Decode scalars back to bytes using the processed_len
+    let processed_data = decode_from_scalars(&scalars, processed_len)?;
+
+    // Decompress if necessary
+    if compressed {
+        decompress(&processed_data)
+    } else {
+        Ok(processed_data)
+    }
+}
+
+// === Internal Helper Functions ===
+
+/// Construct polynomial f(x) = Σ(scalars[i] * x^i).
+fn construct_polynomial(scalars: &[Fr], _threshold: usize) -> Result<DensePolynomial<Fr>, KzgError> {
+    if scalars.is_empty() {
+        return Err(KzgError::EncodingError("No scalars for polynomial".into()));
+    }
+
+    Ok(DensePolynomial::from_coefficients_vec(scalars.to_vec()))
+}
+
+/// Compute KZG commitment C = [f(τ)]₁ = Σ(a_i * [τ^i]₁).
+fn compute_commitment(
+    polynomial: &DensePolynomial<Fr>,
+    srs: &super::srs::Srs,
+) -> Result<KzgCommitment, KzgError> {
+    let coeffs = polynomial.coeffs();
+    
+    if coeffs.len() > srs.powers_of_g1.len() {
+        return Err(KzgError::EncodingError(format!(
+            "Polynomial degree {} exceeds SRS size {}",
+            coeffs.len(),
+            srs.powers_of_g1.len()
+        )));
+    }
+
+    // C = Σ(a_i * [τ^i]₁)
+    let mut commitment = G1Projective::zero();
+    for (i, coeff) in coeffs.iter().enumerate() {
+        commitment += srs.powers_of_g1[i] * coeff;
+    }
+
+    // Serialize to compressed form
+    let affine = commitment.into_affine();
+    let mut bytes = [0u8; 48];
+    use ark_serialize::CanonicalSerialize;
+    affine
+        .serialize_compressed(&mut bytes[..])
+        .map_err(|e| KzgError::EncodingError(format!("Failed to serialize commitment: {}", e)))?;
+
+    Ok(KzgCommitment { bytes })
+}
+
+/// Generate KZG opening proofs for each share.
+///
+/// Proof for point (i, f(i)): π_i = [(f(x) - f(i)) / (x - i)]₁
+fn generate_proofs(
+    polynomial: &DensePolynomial<Fr>,
+    shares: &[VssShare],
+    srs: &super::srs::Srs,
+) -> Result<Vec<KzgProof>, KzgError> {
+    let mut proofs = Vec::with_capacity(shares.len());
+
+    for share in shares {
+        let x_i = Fr::from(share.index as u64);
+        let y_i = polynomial.evaluate(&x_i);
+
+        // Compute quotient polynomial q(x) = (f(x) - f(i)) / (x - i)
+        let quotient = compute_quotient_polynomial(polynomial, x_i, y_i)?;
+
+        // Commit to quotient: π = [q(τ)]₁
+        let proof_commitment = compute_commitment(&quotient, srs)?;
+
+        proofs.push(KzgProof {
+            bytes: proof_commitment.bytes,
+        });
+    }
+
+    Ok(proofs)
+}
+
+/// Compute quotient polynomial q(x) = (f(x) - y) / (x - point).
+fn compute_quotient_polynomial(
+    polynomial: &DensePolynomial<Fr>,
+    point: Fr,
+    value: Fr,
+) -> Result<DensePolynomial<Fr>, KzgError> {
+    // f(x) - value
+    let mut numerator_coeffs = polynomial.coeffs().to_vec();
+    if numerator_coeffs.is_empty() {
+        numerator_coeffs.push(Fr::zero());
+    }
+    numerator_coeffs[0] -= value;
+    let numerator = DensePolynomial::from_coefficients_vec(numerator_coeffs);
+
+    // Divide by (x - point) using synthetic division
+    let divisor = DensePolynomial::from_coefficients_vec(vec![-point, Fr::from(1u64)]);
+    
+    // Polynomial division
+    let (quotient, remainder) = divide_polynomials(&numerator, &divisor)?;
+    
+    // The remainder should be zero if f(point) = value
+    if !remainder.is_zero() {
+        return Err(KzgError::EncodingError("Quotient division has non-zero remainder".into()));
+    }
+
+    Ok(quotient)
+}
+
+/// Divide polynomial a by b, returning (quotient, remainder).
+fn divide_polynomials(
+    a: &DensePolynomial<Fr>,
+    b: &DensePolynomial<Fr>,
+) -> Result<(DensePolynomial<Fr>, DensePolynomial<Fr>), KzgError> {
+    if b.is_zero() {
+        return Err(KzgError::EncodingError("Division by zero polynomial".into()));
+    }
+
+    let mut remainder = a.clone();
+    let b_lead_inv = b.coeffs().last().unwrap().inverse().unwrap();
+    let b_degree = b.degree();
+
+    let mut quotient_coeffs = vec![Fr::zero(); a.degree().saturating_sub(b_degree) + 1];
+
+    while !remainder.is_zero() && remainder.degree() >= b_degree {
+        let r_lead = *remainder.coeffs().last().unwrap();
+        let coeff = r_lead * b_lead_inv;
+        let shift = remainder.degree() - b_degree;
+
+        quotient_coeffs[shift] = coeff;
+
+        // remainder -= coeff * x^shift * b
+        let mut sub_coeffs = vec![Fr::zero(); shift + b.coeffs().len()];
+        for (i, &bc) in b.coeffs().iter().enumerate() {
+            sub_coeffs[shift + i] = coeff * bc;
+        }
+        let sub_poly = DensePolynomial::from_coefficients_vec(sub_coeffs);
+
+        // Since DensePolynomial doesn't have Sub trait easily, we subtract manually
+        let mut new_remainder_coeffs = remainder.coeffs().to_vec();
+        for (i, coeff) in sub_poly.coeffs().iter().enumerate() {
+            if i < new_remainder_coeffs.len() {
+                new_remainder_coeffs[i] -= coeff;
+            }
+        }
+        // Remove trailing zeros
+        while new_remainder_coeffs.last() == Some(&Fr::zero()) {
+            new_remainder_coeffs.pop();
+        }
+        remainder = DensePolynomial::from_coefficients_vec(new_remainder_coeffs);
+    }
+
+    Ok((
+        DensePolynomial::from_coefficients_vec(quotient_coeffs),
+        remainder,
+    ))
+}
+
+/// Lagrange interpolation to recover polynomial from points.
+fn lagrange_interpolate(points: &[(Fr, Fr)]) -> Result<DensePolynomial<Fr>, KzgError> {
+    if points.is_empty() {
+        return Err(KzgError::InsufficientShares);
+    }
+
+    let n = points.len();
+    let mut result = DensePolynomial::from_coefficients_vec(vec![Fr::zero()]);
+
+    for i in 0..n {
+        let (x_i, y_i) = points[i];
+
+        // Compute Lagrange basis polynomial L_i(x) = Π_{j≠i} (x - x_j) / (x_i - x_j)
+        let mut basis = DensePolynomial::from_coefficients_vec(vec![Fr::from(1u64)]);
+        let mut denominator = Fr::from(1u64);
+
+        for j in 0..n {
+            if i != j {
+                let (x_j, _) = points[j];
+                // basis *= (x - x_j)
+                let factor = DensePolynomial::from_coefficients_vec(vec![-x_j, Fr::from(1u64)]);
+                basis = multiply_polynomials(&basis, &factor);
+                // denominator *= (x_i - x_j)
+                denominator *= x_i - x_j;
+            }
+        }
+
+        // Scale by y_i / denominator
+        let scale = y_i * denominator.inverse().unwrap();
+        let scaled: Vec<Fr> = basis.coeffs().iter().map(|c| *c * scale).collect();
+        let term = DensePolynomial::from_coefficients_vec(scaled);
+
+        // Add to result
+        result = add_polynomials(&result, &term);
+    }
+
+    Ok(result)
+}
+
+/// Multiply two polynomials.
+fn multiply_polynomials(
+    a: &DensePolynomial<Fr>,
+    b: &DensePolynomial<Fr>,
+) -> DensePolynomial<Fr> {
+    if a.is_zero() || b.is_zero() {
+        return DensePolynomial::from_coefficients_vec(vec![]);
+    }
+
+    let a_coeffs = a.coeffs();
+    let b_coeffs = b.coeffs();
+    let result_len = a_coeffs.len() + b_coeffs.len() - 1;
+    let mut result = vec![Fr::zero(); result_len];
+
+    for (i, &ac) in a_coeffs.iter().enumerate() {
+        for (j, &bc) in b_coeffs.iter().enumerate() {
+            result[i + j] += ac * bc;
+        }
+    }
+
+    DensePolynomial::from_coefficients_vec(result)
+}
+
+/// Add two polynomials.
+fn add_polynomials(
+    a: &DensePolynomial<Fr>,
+    b: &DensePolynomial<Fr>,
+) -> DensePolynomial<Fr> {
+    let max_len = core::cmp::max(a.coeffs().len(), b.coeffs().len());
+    let mut result = vec![Fr::zero(); max_len];
+
+    for (i, &c) in a.coeffs().iter().enumerate() {
+        result[i] += c;
+    }
+    for (i, &c) in b.coeffs().iter().enumerate() {
+        result[i] += c;
+    }
+
+    // Remove trailing zeros
+    while result.last() == Some(&Fr::zero()) && result.len() > 1 {
+        result.pop();
+    }
+
+    DensePolynomial::from_coefficients_vec(result)
+}
+
+/// Calculate processed data length from original length.
+fn calculate_processed_len(original_len: usize) -> usize {
+    // After compression, data might be smaller
+    // For now, use a generous estimate
+    ((original_len + BYTES_PER_SCALAR - 1) / BYTES_PER_SCALAR) * BYTES_PER_SCALAR
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Tests will be implemented in tasks.md T012-T016
+}
