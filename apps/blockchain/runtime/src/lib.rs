@@ -13,11 +13,12 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
-    create_runtime_str, generic, impl_opaque_keys,
+    generic, impl_opaque_keys, Perbill,
     traits::{BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify},
     transaction_validity::{TransactionSource, TransactionValidity},
     ApplyExtrinsicResult, MultiSignature,
 };
+use sp_std::borrow::Cow;
 use sp_std::prelude::*;
 use sp_version::RuntimeVersion;
 
@@ -70,8 +71,8 @@ pub mod opaque {
 /// Runtime version
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-    spec_name: create_runtime_str!("anarchy"),
-    impl_name: create_runtime_str!("anarchy"),
+    spec_name: Cow::Borrowed("anarchy"),
+    impl_name: Cow::Borrowed("anarchy"),
     authoring_version: 1,
     spec_version: 104,  // Bumped: $moral = native token, removed pallet_moral
     impl_version: 1,
@@ -86,12 +87,17 @@ pub const MILLISECS_PER_BLOCK: u64 = 6000;
 /// Slot間隔
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
-/// ブロックごとの重み制限
-pub const MAXIMUM_BLOCK_WEIGHT: Weight =
-    Weight::from_parts(2_000_000_000_000, u64::MAX);
+/// トランザクション処理に使用可能なブロック時間の割合（75%）
+const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
-/// ブロックサイズ制限
+/// ブロックサイズ制限（5MB）
 pub const MAXIMUM_BLOCK_LENGTH: u32 = 5 * 1024 * 1024;
+
+/// ブロック重み制限
+/// - ref_time: 2秒分 (2_000_000_000_000 picoseconds)
+/// - proof_size: 5MB (ステートプルーフ上限)
+pub const MAXIMUM_BLOCK_WEIGHT: Weight =
+    Weight::from_parts(2_000_000_000_000, 5 * 1024 * 1024);
 
 /// Native version
 #[cfg(feature = "std")]
@@ -103,11 +109,39 @@ pub fn native_version() -> sp_version::NativeVersion {
 }
 
 // Frame System設定
+parameter_types! {
+    pub const BlockHashCount: BlockNumber = 2400;
+    /// BlockWeights: ブロック重み制限を設定
+    pub BlockWeights: frame_system::limits::BlockWeights =
+        frame_system::limits::BlockWeights::builder()
+            .base_block(Weight::from_parts(5_000_000, 0))
+            .for_class(frame_support::dispatch::DispatchClass::all(), |weights| {
+                weights.base_extrinsic = Weight::from_parts(125_000_000, 0);
+            })
+            .for_class(frame_support::dispatch::DispatchClass::Normal, |weights| {
+                weights.max_total = Some(NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT);
+            })
+            .for_class(frame_support::dispatch::DispatchClass::Operational, |weights| {
+                weights.max_total = Some(MAXIMUM_BLOCK_WEIGHT);
+                weights.reserved = Some(
+                    MAXIMUM_BLOCK_WEIGHT - NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT
+                );
+            })
+            .avg_block_initialization(Perbill::from_percent(10))
+            .build_or_panic();
+    /// BlockLength: ブロックサイズ制限を設定
+    pub BlockLength: frame_system::limits::BlockLength =
+        frame_system::limits::BlockLength::max_with_normal_ratio(
+            MAXIMUM_BLOCK_LENGTH,
+            NORMAL_DISPATCH_RATIO,
+        );
+}
+
 #[derive_impl(frame_system::config_preludes::SolochainDefaultConfig)]
 impl frame_system::Config for Runtime {
     type Block = Block;
-    type BlockWeights = ();
-    type BlockLength = ();
+    type BlockWeights = BlockWeights;
+    type BlockLength = BlockLength;
     type AccountId = AccountId;
     type Nonce = Nonce;
     type Hash = Hash;
@@ -128,6 +162,9 @@ impl pallet_aura::Config for Runtime {
 }
 
 // Grandpa設定
+// NOTE: EquivocationReportSystem = () で二重署名報告は無効化。
+// 将来的にPoWコンセンサスへ移行予定のため、スラッシング機構は不要。
+// PoWでは計算コストが攻撃抑止力となり、Equivocation対策は本質的に解決される。
 impl pallet_grandpa::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
@@ -192,6 +229,7 @@ impl pallet_sudo::Config for Runtime {
 // Post Pallet設定
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
+    type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
     type MaxContentLength = ConstU32<10000>; // 約10KB
     /// 基本コスト: 10 MORAL
     type PostBaseCost = ConstU128<10_000_000_000_000>;
@@ -225,6 +263,21 @@ impl pallet_storage::Config for Runtime {
     type MaxHoldersPerFragment = ConstU32<100>;
     /// ノードあたり最大断片数: 10,000
     type MaxFragmentsPerNode = ConstU32<10_000>;
+    // === New security constants (FR-405-411) ===
+    /// PeerID最小長: 38バイト
+    type MinPeerIdLen = ConstU32<38>;
+    /// ブロックあたり最大ノード登録数: 5
+    type MaxRegistrationsPerBlock = ConstU32<5>;
+    /// ブロック・ノードあたり最大宣言数: 10
+    type MaxDeclarationsPerBlockPerNode = ConstU32<10>;
+    /// ノード最小容量: 1GB
+    type MinNodeCapacity = ConstU64<1_073_741_824>;
+    /// PoW観測期間: 10ブロック
+    type PowObservationPeriod = ConstU32<10>;
+    /// 基本PoW難易度: 12ビット
+    type BasePowDifficulty = ConstU8<12>;
+    /// HTTP URL最大長: 256バイト
+    type MaxHttpUrlLen = ConstU32<256>;
 }
 
 // Runtime構築
@@ -237,10 +290,10 @@ construct_runtime!(
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
-        // カスタムパレット
+        // カスタムパレット (Storage must be before Post for tight coupling)
+        Storage: pallet_storage,
         Post: pallet_post,
         Faucet: pallet_faucet,
-        Storage: pallet_storage,
     }
 );
 
@@ -453,6 +506,26 @@ impl_runtime_apis! {
                 n: content.n,
                 size: content.size,
             })
+        }
+    }
+
+    impl pallet_storage::StorageApi<Block> for Runtime {
+        fn get_all_storage_nodes() -> Vec<pallet_storage::StorageNodeInfoRpc> {
+            use sp_runtime::SaturatedConversion;
+            pallet_storage::StorageNodes::<Runtime>::iter()
+                .map(|(peer_id, info)| {
+                    // Convert AccountId to [u8; 32]
+                    let operator_bytes: [u8; 32] = info.operator.into();
+                    pallet_storage::StorageNodeInfoRpc {
+                        operator: operator_bytes,
+                        capacity: info.capacity,
+                        registered_at: info.registered_at.saturated_into::<u32>(),
+                        pow_nonce: info.pow_nonce,
+                        http_url: info.http_url.into_inner(),
+                        peer_id: peer_id.into_inner(),
+                    }
+                })
+                .collect()
         }
     }
 }

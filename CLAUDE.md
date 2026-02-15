@@ -117,7 +117,7 @@ const api = client.getUnsafeApi()
 
 **Moral token precision**: 12 decimals (1 MORAL = 1_000_000_000_000 units). Post costs: base 10 MORAL + 0.1 MORAL/byte.
 
-**Rust toolchain**: Stable channel with `wasm32-unknown-unknown` target and `rust-src` component (configured in `apps/blockchain/rust-toolchain.toml`).
+**Rust toolchain**: Stable channel with `wasm32v1-none` target and `rust-src` component (configured in `apps/blockchain/rust-toolchain.toml`).
 
 ### Security Principles (non-negotiable)
 

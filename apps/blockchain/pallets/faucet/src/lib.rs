@@ -133,34 +133,13 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure_none(origin)?;
 
-            // Check if already claimed
-            ensure!(
-                !FaucetClaims::<T>::contains_key(&account),
-                Error::<T>::AlreadyClaimed
-            );
-
-            // Get current block number
-            let current_block = frame_system::Pallet::<T>::block_number();
-
-            // Check challenge validity (not expired)
-            let validity = T::ChallengeValidity::get();
-            let max_valid_block = block_number.saturating_add(validity);
-            ensure!(current_block <= max_valid_block, Error::<T>::ChallengeExpired);
-
-            // Get block hash for challenge generation
-            let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-            ensure!(
-                block_hash != Default::default(),
-                Error::<T>::BlockNotFound
-            );
-
-            // Compute challenge and verify proof
-            let challenge = Self::compute_challenge(&block_hash, &account);
-            let difficulty = Self::calculate_difficulty();
-            ensure!(
-                Self::verify_proof(&challenge, nonce, difficulty),
-                Error::<T>::InvalidProof
-            );
+            // Validate claim parameters using shared helper
+            Self::validate_claim_params(&account, block_number, nonce).map_err(|e| match e {
+                ClaimValidationError::AlreadyClaimed => Error::<T>::AlreadyClaimed,
+                ClaimValidationError::ChallengeExpired => Error::<T>::ChallengeExpired,
+                ClaimValidationError::BlockNotFound => Error::<T>::BlockNotFound,
+                ClaimValidationError::InvalidProof => Error::<T>::InvalidProof,
+            })?;
 
             // Mint reward to account
             let amount = T::RewardAmount::get();
@@ -194,37 +173,20 @@ pub mod pallet {
         fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
             match call {
                 Call::claim { account, block_number, nonce } => {
-                    // Check if already claimed
-                    if FaucetClaims::<T>::contains_key(account) {
-                        return InvalidTransaction::Custom(1).into();
+                    // Validate claim parameters using shared helper
+                    if let Err(e) = Self::validate_claim_params(account, *block_number, *nonce) {
+                        return match e {
+                            ClaimValidationError::AlreadyClaimed => InvalidTransaction::Custom(1).into(),
+                            ClaimValidationError::ChallengeExpired => InvalidTransaction::Custom(2).into(),
+                            ClaimValidationError::BlockNotFound => InvalidTransaction::Custom(3).into(),
+                            ClaimValidationError::InvalidProof => InvalidTransaction::Custom(4).into(),
+                        };
                     }
 
-                    // Get current block number
-                    let current_block = frame_system::Pallet::<T>::block_number();
-
-                    // Check challenge validity
                     let validity = T::ChallengeValidity::get();
-                    let max_valid_block = block_number.saturating_add(validity);
-                    if current_block > max_valid_block {
-                        return InvalidTransaction::Custom(2).into();
-                    }
-
-                    // Get block hash
-                    let block_hash = frame_system::Pallet::<T>::block_hash(*block_number);
-                    if block_hash == Default::default() {
-                        return InvalidTransaction::Custom(3).into();
-                    }
-
-                    // Verify PoW proof
-                    let challenge = Self::compute_challenge(&block_hash, account);
-                    let difficulty = Self::calculate_difficulty();
-                    if !Self::verify_proof(&challenge, *nonce, difficulty) {
-                        return InvalidTransaction::Custom(4).into();
-                    }
-
                     ValidTransaction::with_tag_prefix("FaucetClaim")
                         .priority(100)
-                        .and_provides((account.clone(), block_number))
+                        .and_provides((account.clone(), *block_number, *nonce))
                         .longevity(validity.try_into().unwrap_or(64))
                         .propagate(true)
                         .build()
@@ -234,7 +196,55 @@ pub mod pallet {
         }
     }
 
+    /// Pre-validation result for faucet claims (shared between claim and validate_unsigned)
+    #[derive(Debug)]
+    pub enum ClaimValidationError {
+        AlreadyClaimed,
+        ChallengeExpired,
+        BlockNotFound,
+        InvalidProof,
+    }
+
     impl<T: Config> Pallet<T> {
+        /// Validate faucet claim parameters (shared logic for claim and validate_unsigned).
+        ///
+        /// Returns Ok(()) if valid, or Err(ClaimValidationError) if invalid.
+        pub fn validate_claim_params(
+            account: &T::AccountId,
+            block_number: BlockNumberFor<T>,
+            nonce: u64,
+        ) -> Result<(), ClaimValidationError> {
+            // Check if already claimed
+            if FaucetClaims::<T>::contains_key(account) {
+                return Err(ClaimValidationError::AlreadyClaimed);
+            }
+
+            // Get current block number
+            let current_block = frame_system::Pallet::<T>::block_number();
+
+            // Check challenge validity (not expired)
+            let validity = T::ChallengeValidity::get();
+            let max_valid_block = block_number.saturating_add(validity);
+            if current_block > max_valid_block {
+                return Err(ClaimValidationError::ChallengeExpired);
+            }
+
+            // Get block hash for challenge generation
+            let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
+            if block_hash == Default::default() {
+                return Err(ClaimValidationError::BlockNotFound);
+            }
+
+            // Compute challenge and verify proof
+            let challenge = Self::compute_challenge(&block_hash, account);
+            let difficulty = Self::calculate_difficulty();
+            if !Self::verify_proof(&challenge, nonce, difficulty) {
+                return Err(ClaimValidationError::InvalidProof);
+            }
+
+            Ok(())
+        }
+
         /// Calculate current difficulty based on total claims.
         /// Formula: min(base + floor(log2(1 + total_claims / scaling_factor)), max)
         pub fn calculate_difficulty() -> u8 {
@@ -277,13 +287,14 @@ pub mod pallet {
         }
 
         /// Count leading zero bits in a 32-byte hash.
+        /// Uses saturating_add to prevent overflow (32 bytes * 8 bits = 256 > u8::MAX).
         pub fn count_leading_zero_bits(hash: &[u8; 32]) -> u8 {
             let mut count = 0u8;
             for byte in hash.iter() {
                 if *byte == 0 {
-                    count += 8;
+                    count = count.saturating_add(8);
                 } else {
-                    count += byte.leading_zeros() as u8;
+                    count = count.saturating_add(byte.leading_zeros() as u8);
                     break;
                 }
             }

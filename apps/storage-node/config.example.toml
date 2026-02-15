@@ -25,3 +25,53 @@ declare_rate_limit = 10
 # Default: 3030
 # Set STORAGE_NODE_URL=http://localhost:3030 on blockchain node
 rpc_port = 3030
+
+# ============================================================
+# Multi-Node Configuration (010-multi-node-storage)
+# ============================================================
+
+# Node identifier for multi-node setup (optional)
+# Used for logging and debugging in distributed environments
+# node_id = "storage-node-1"
+
+# P2P bootstrap nodes for fragment replication (multiaddr format)
+# Empty list for standalone node, add peers for distributed setup
+# Example:
+# bootstrap_peers = [
+#   "/ip4/192.168.1.10/tcp/4001/p2p/QmXxxx...",
+#   "/ip4/192.168.1.11/tcp/4001/p2p/QmYyyy..."
+# ]
+bootstrap_peers = []
+
+# ============================================================
+# On-Chain Registration (Global Discovery)
+# ============================================================
+# 
+# To enable global discovery across all chain nodes, operators should
+# register their storage node on-chain using the `register_node` extrinsic.
+# This stores the HTTP URL in blockchain state, allowing any chain node
+# to discover and route fragments to this storage node.
+#
+# Registration requires:
+# 1. operator_account: Account with sufficient balance for tx fees
+# 2. peer_id: libp2p PeerID (from data_dir/identity/peer_id.txt)
+# 3. capacity: Storage capacity in bytes
+# 4. pow_nonce: Proof-of-work nonce (difficulty-based)
+# 5. http_url: This node's HTTP endpoint (e.g., "http://your-ip:3030")
+#
+# Example using polkadot-js:
+# ```javascript
+# api.tx.storage.registerNode(peerId, capacity, powNonce, httpUrl)
+# ```
+#
+# Without on-chain registration, the storage node is only visible to
+# the chain node it registers with via storage_registerEndpoint RPC.
+
+# ============================================================
+# Authentication (010-multi-node-storage)
+# ============================================================
+
+# Enable Sr25519 signature verification for fragment uploads
+# When true, requires valid signature in X-Anarchy-Auth header
+# Default: true (authentication enabled by default per FR-201)
+auth_enabled = true

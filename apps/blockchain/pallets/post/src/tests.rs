@@ -4,7 +4,9 @@ use crate::{self as pallet_post, Error, Event, Posts, NextPostId, UserPosts, Con
 use frame_support::{
     assert_noop, assert_ok,
     traits::{ConstU32, ConstU64, ConstU128, fungible::Mutate},
+    dispatch::DispatchResult,
 };
+use pallet_storage::{FragmentId, StorageInterface};
 use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
@@ -12,6 +14,21 @@ use sp_runtime::{
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
+
+/// Mock Storage implementation for Post Pallet tests
+pub struct MockStorage;
+
+impl StorageInterface<u64, u64> for MockStorage {
+    fn do_register_fragment(
+        _fragment_id: FragmentId,
+        _size: u32,
+        _creator: u64,
+        _created_at: u64,
+    ) -> DispatchResult {
+        // Always succeed in tests
+        Ok(())
+    }
+}
 
 // テスト用ランタイム構築
 frame_support::construct_runtime!(
@@ -74,6 +91,7 @@ impl pallet_balances::Config for Test {
 
 impl pallet_post::Config for Test {
     type NativeToken = Balances;
+    type Storage = MockStorage;
     type MaxContentLength = ConstU32<10000>;
     type PostBaseCost = ConstU128<100>; // テスト用: 基本100
     type PostByteCost = ConstU128<10>;  // テスト用: 1バイトあたり10

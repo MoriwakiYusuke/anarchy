@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { Binary } from 'polkadot-api'
 import { usePostCost, calculatePostCost } from '@/hooks/usePostCost'
-import { useStorage } from '@/hooks/useStorage'
+import { useStorage, createStorageSigner, StorageSigner } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n'
 import styles from './PostForm.module.css'
 
@@ -99,8 +99,23 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [status, setStatus] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null)
   
+  // Storage認証用のsigner
+  const [storageSigner, setStorageSigner] = useState<StorageSigner | null>(null)
+  
+  // derivePathが変わったらstorageSignerを再作成
+  useEffect(() => {
+    if (derivePath) {
+      createStorageSigner(derivePath).then(setStorageSigner).catch(console.error)
+    }
+  }, [derivePath])
+  
+  // signerオプションをメモ化
+  const storageOptions = useMemo(() => 
+    storageSigner ? { signer: storageSigner } : undefined
+  , [storageSigner])
+  
   // V2: Storage Hook (現在は常に使用)
-  const { uploadContent, progress: uploadProgress, error: uploadError, isProcessing, isReady: storageReady } = useStorage()
+  const { uploadContent, progress: uploadProgress, error: uploadError, isProcessing, isReady: storageReady } = useStorage(storageOptions)
 
   // ブロックチェーンからコスト設定を動的に取得
   const costConfig = usePostCost(unsafeApi)

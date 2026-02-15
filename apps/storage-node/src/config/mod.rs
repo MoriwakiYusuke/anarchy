@@ -14,6 +14,7 @@ pub struct ConfigOverrides {
     pub chain_url: Option<String>,
     pub listen_addr: Option<String>,
     pub rpc_port: Option<u16>,
+    pub auth_enabled: Option<bool>,
 }
 
 /// Storage node configuration
@@ -42,6 +43,14 @@ pub struct Config {
     /// HTTP RPC port for blockchain node communication
     #[serde(default = "default_rpc_port")]
     pub rpc_port: u16,
+
+    /// Enable authentication for write operations (default: true)
+    #[serde(default = "default_auth_enabled")]
+    pub auth_enabled: bool,
+
+    /// Bootstrap peers for Gossipsub (multiaddr strings)
+    #[serde(default = "default_bootstrap_peers")]
+    pub bootstrap_peers: Vec<String>,
 }
 
 fn default_data_dir() -> String {
@@ -68,6 +77,14 @@ fn default_rpc_port() -> u16 {
     3030 // HTTP JSON-RPC port
 }
 
+fn default_auth_enabled() -> bool {
+    true // Authentication enabled by default (FR-201)
+}
+
+fn default_bootstrap_peers() -> Vec<String> {
+    Vec::new() // No default bootstrap peers (FR-505)
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -77,6 +94,8 @@ impl Default for Config {
             listen_addr: default_listen_addr(),
             declare_rate_limit: default_declare_rate_limit(),
             rpc_port: default_rpc_port(),
+            auth_enabled: default_auth_enabled(),
+            bootstrap_peers: default_bootstrap_peers(),
         }
     }
 }
@@ -108,6 +127,9 @@ impl Config {
         if let Some(rpc_port) = overrides.rpc_port {
             config.rpc_port = rpc_port;
         }
+        if let Some(auth_enabled) = overrides.auth_enabled {
+            config.auth_enabled = auth_enabled;
+        }
 
         Ok(config)
     }
@@ -125,6 +147,7 @@ mod tests {
         assert_eq!(config.chain_url, "ws://127.0.0.1:9944");
         assert_eq!(config.declare_rate_limit, 10);
         assert_eq!(config.rpc_port, 3030);
+        assert!(config.auth_enabled);
     }
 
     #[test]
@@ -136,6 +159,7 @@ mod tests {
             listen_addr = "/ip4/127.0.0.1/tcp/5001"
             declare_rate_limit = 5
             rpc_port = 4040
+            auth_enabled = false
         "#;
 
         let config: Config = toml::from_str(toml).unwrap();
@@ -143,5 +167,6 @@ mod tests {
         assert_eq!(config.capacity, 5 * 1024 * 1024 * 1024);
         assert_eq!(config.declare_rate_limit, 5);
         assert_eq!(config.rpc_port, 4040);
+        assert!(!config.auth_enabled);
     }
 }

@@ -23,18 +23,12 @@ anarchy/
 
 ## 必要環境
 
-### ブロックチェーン
+### ブロックチェーン / Storage Node
 - Rust 1.74+
-- Cargo
 
 ```bash
-# Rustのインストール
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Wasmターゲットの追加
-rustup target add wasm32-unknown-unknown
-
-# 必要なツール
+rustup target add wasm32v1-none
 rustup component add rust-src
 ```
 
@@ -43,7 +37,6 @@ rustup component add rust-src
 - pnpm
 
 ```bash
-# pnpmのインストール
 npm install -g pnpm
 ```
 
@@ -54,113 +47,46 @@ npm install -g pnpm
 ```bash
 cd apps/blockchain
 
-# ビルド（初回のみ、時間がかかります）
+# ビルド（初回のみ）
 cargo build --release
 
-# 開発モードで起動（シングルノード）
-./target/release/anarchy-node --dev
-```
-
-ノードが起動すると `ws://127.0.0.1:9944` でWebSocket接続を受け付けます。
-
-### 1b. マルチノードテストネット
-
-```bash
-cd apps/blockchain
-
-# デフォルト3ノードで起動（Alice/Bob: Validator, Charlie: Full Node）
+# 起動（デフォルト3ノード: Alice/Bob=Validator, Charlie=Full）
 ./scripts/run-multi-node.sh start
 
-# ノード数を指定して起動（最大10ノード）
-./scripts/run-multi-node.sh start 5    # 5ノードで起動
-./scripts/run-multi-node.sh start 10   # 10ノードで起動
+# ノード数を指定（最大10）
+./scripts/run-multi-node.sh start 5
 
-# 停止
+# 停止・ステータス・削除
 ./scripts/run-multi-node.sh stop
-
-# ステータス確認
 ./scripts/run-multi-node.sh status
-
-# ログ表示（デフォルト: alice）
-./scripts/run-multi-node.sh logs
-./scripts/run-multi-node.sh logs bob
-
-# チェーンデータ削除
 ./scripts/run-multi-node.sh purge
 ```
 
-| ノード | 役割 | RPC | P2P | 備考 |
-|--------|------|-----|-----|------|
-| Alice | Validator | ws://127.0.0.1:9944 | 30333 | 常に起動 |
-| Bob | Validator | ws://127.0.0.1:9945 | 30334 | 2ノード以上 |
-| Charlie | Full Node | ws://127.0.0.1:9946 | 30335 | 3ノード以上 |
-| Dave | Full Node | ws://127.0.0.1:9947 | 30336 | 4ノード以上 |
-| Eve〜Ten | Full Node | ... | ... | 5〜10ノード |
+| ノード | 役割 | RPC | P2P |
+|--------|------|-----|-----|
+| Alice | Validator | ws://127.0.0.1:9944 | 30333 |
+| Bob | Validator | ws://127.0.0.1:9945 | 30334 |
+| Charlie〜 | Full Node | :9946〜 | 30335〜 |
 
-### 1c. Tor匿名モード
-
-ノード間通信をTorネットワーク経由で匿名化できます。
-
-```bash
-cd apps/blockchain
-
-# Tor/torsocksインストール
-./scripts/tor-setup.sh install
-
-# 匿名モードでノード起動（Onion Service設定済みの場合）
-./scripts/anarchy-tor.sh ./target/release/anarchy-node \
-  --tor-mode=forced \
-  --public-addr=/onion3/YOUR_ONION_ADDRESS:30333
-```
-
-| モード | 説明 |
-|--------|------|
-| `off` | 通常接続（開発用） |
-| `outbound-only` | 送信のみTor（受信IP露出） |
-| `forced` | 完全匿名（**本番推奨**） |
-
-> ⚠️ mainnetでは `--tor-mode=forced` が自動強制されます
-
-📖 詳細: [apps/blockchain/docs/tor-deployment.md](apps/blockchain/docs/tor-deployment.md)
-
-### 2. Storage Nodeの起動（分散ストレージ）
+### 2. Storage Nodeの起動
 
 ```bash
 cd apps/storage-node
-
-# ビルド
 cargo build --release
 
-# 設定ファイルの準備
-cp config.example.toml config.toml
-# 必要に応じてconfig.tomlを編集
+# 起動（デフォルト5ノード）
+./scripts/run-storage-nodes.sh start
+./scripts/run-storage-nodes.sh start 3   # ノード数指定
 
-# 起動
-./target/release/anarchy-storage-node --config config.toml
-```
-
-| 設定項目 | デフォルト | 説明 |
-|----------|-----------|------|
-| data_dir | ./data | データ保存ディレクトリ |
-| capacity | 10GB | 最大ストレージ容量 |
-| chain_url | ws://127.0.0.1:9944 | チェーンRPCエンドポイント |
-| listen_addr | /ip4/0.0.0.0/tcp/4001 | libp2pリッスンアドレス |
-| declare_rate_limit | 10 | declare_holding/分 |
-| rpc_port | 3030 | HTTP JSON-RPCポート |
-
-Storage Nodeは起動時にブロックチェーンノードに自動登録するため、両方を起動するだけで連携します：
-
-```bash
-# ターミナル1: ブロックチェーンノード
-cd apps/blockchain && ./target/release/anarchy-node --dev
-
-# ターミナル2: Storage Node
-cd apps/storage-node && ./target/release/anarchy-storage-node --config config.toml
+# 停止・ステータス・削除
+./scripts/run-storage-nodes.sh stop
+./scripts/run-storage-nodes.sh status
+./scripts/run-storage-nodes.sh purge
 ```
 
 📖 詳細: [apps/storage-node/README.md](apps/storage-node/README.md)
 
-### 3. Wasm暗号エンジンのビルド（フロントエンド用）
+### 3. Wasm暗号エンジンのビルド
 
 ```bash
 cd packages/wasm-engine
@@ -199,6 +125,12 @@ pnpm testnet:stop       # テストネット停止
 pnpm testnet:status     # ステータス確認
 pnpm testnet:logs       # ログ表示
 pnpm testnet:purge      # データ削除
+
+# Storage Node
+pnpm storage:start      # 5ノード起動
+pnpm storage:stop       # 全停止
+pnpm storage:status     # ステータス確認
+pnpm storage:purge      # データ削除
 
 # フロントエンド
 pnpm dev:frontend       # 開発サーバー
@@ -279,6 +211,32 @@ node scripts/mint-moral-seed.mjs dev 10000
 - ブラウザ環境: 通常HTTP/S（Torなし）
 - ノード間通信: libp2p + Tor over Arti
 - 匿名性: ステルスアドレス、ZKP
+
+## Tor匿名モード（オプション）
+
+ノード間通信をTorネットワーク経由で匿名化できます。
+
+```bash
+cd apps/blockchain
+
+# Tor/torsocksインストール
+./scripts/tor-setup.sh install
+
+# 匿名モードでノード起動（Onion Service設定済みの場合）
+./scripts/anarchy-tor.sh ./target/release/anarchy-node \
+  --tor-mode=forced \
+  --public-addr=/onion3/YOUR_ONION_ADDRESS:30333
+```
+
+| モード | 説明 |
+|--------|------|
+| `off` | 通常接続（開発用） |
+| `outbound-only` | 送信のみTor（受信IP露出） |
+| `forced` | 完全匿名（**本番推奨**） |
+
+> ⚠️ mainnetでは `--tor-mode=forced` が自動強制されます
+
+📖 詳細: [apps/blockchain/docs/tor-deployment.md](apps/blockchain/docs/tor-deployment.md)
 
 ## ライセンス
 

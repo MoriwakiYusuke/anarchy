@@ -26,7 +26,11 @@ libp2p = { version = "0.54", features = [
     "macros",
     "ed25519",
     "identify",
+    "gossipsub",
 ] }
+
+# Concurrency primitives
+parking_lot = "0.12"
 
 # Async runtime
 tokio = { version = "1", features = ["full", "signal"] }
@@ -38,12 +42,13 @@ toml = "0.8"
 
 # Logging & Metrics
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Crypto & Encoding
 hex = "0.4"
 blake2 = "0.10"
 base64 = "0.22"
+schnorrkel = "0.11"
 
 # File system
 walkdir = "2"
@@ -73,3 +78,4 @@ reqwest = { version = "0.12", features = ["json"] }
 
 [dev-dependencies]
 tempfile = "3.10"
+rand = "0.8"

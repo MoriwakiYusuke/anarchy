@@ -3,17 +3,24 @@
 //! Exposes storage operations via HTTP JSON-RPC for blockchain node integration.
 //! This allows the blockchain node to forward fragment upload/download requests.
 
+pub mod auth;
+
 use std::sync::Arc;
 use axum::{
     extract::{DefaultBodyLimit, State},
-    routing::post,
+    http::StatusCode,
+    middleware,
+    routing::{get, post},
     Json, Router,
+    response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn, error};
 
 use crate::storage::FragmentStore;
+use crate::metrics::Metrics;
+use auth::{AuthState, auth_middleware, method_requires_auth, require_auth};
 
 /// Maximum fragment size: 256KB
 const MAX_FRAGMENT_SIZE: usize = 256 * 1024;
@@ -84,19 +91,33 @@ pub struct GetFragmentResult {
 #[derive(Clone)]
 pub struct RpcState {
     pub store: Arc<FragmentStore>,
+    pub auth: AuthState,
+    pub metrics: Metrics,
 }
 
-/// Create the HTTP RPC router
-pub fn create_rpc_router(store: Arc<FragmentStore>) -> Router {
-    let state = RpcState { store };
+/// Create the HTTP RPC router (NFR-002: /metrics endpoint)
+pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics: Metrics) -> Router {
+    let auth_state = AuthState::new(auth_enabled);
+    let state = RpcState { 
+        store,
+        auth: auth_state.clone(),
+        metrics,
+    };
     
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    Router::new()
+    // Apply auth middleware only to JSON-RPC route, not to /metrics
+    // This prevents 400/403 errors when clients send X-Anarchy-Auth header on non-JSON-RPC paths
+    let jsonrpc_route = Router::new()
         .route("/", post(handle_rpc))
+        .layer(middleware::from_fn_with_state(auth_state, auth_middleware));
+
+    Router::new()
+        .merge(jsonrpc_route)
+        .route("/metrics", get(handle_metrics)) // NFR-002: Prometheus metrics endpoint
         .with_state(state)
         .layer(cors)
         .layer(DefaultBodyLimit::max(512 * 1024)) // 512KB limit
@@ -105,9 +126,15 @@ pub fn create_rpc_router(store: Arc<FragmentStore>) -> Router {
 /// Handle JSON-RPC requests
 async fn handle_rpc(
     State(state): State<RpcState>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<RpcRequest>,
-) -> Json<RpcResponse<serde_json::Value>> {
+) -> Result<Json<RpcResponse<serde_json::Value>>, (StatusCode, &'static str)> {
     let id = request.id;
+    
+    // Check if method requires authentication (T048-T051)
+    if method_requires_auth(&request.method) {
+        require_auth(&headers, state.auth.enabled)?;
+    }
     
     let response = match request.method.as_str() {
         "storage_storeFragment" => handle_store_fragment(&state, request.params).await,
@@ -119,18 +146,18 @@ async fn handle_rpc(
     };
 
     match response {
-        Ok(result) => Json(RpcResponse {
+        Ok(result) => Ok(Json(RpcResponse {
             jsonrpc: "2.0",
             id,
             result: Some(result),
             error: None,
-        }),
-        Err(error) => Json(RpcResponse {
+        })),
+        Err(error) => Ok(Json(RpcResponse {
             jsonrpc: "2.0",
             id,
             result: None,
             error: Some(error),
-        }),
+        })),
     }
 }
 
@@ -164,8 +191,8 @@ async fn handle_store_fragment(
     let fragment_id = create_fragment_id(&params.merkle_root, params.index);
 
     info!(
-        fragment_id = %hex::encode(&fragment_id),
-        merkle_root = %hex::encode(&params.merkle_root),
+        fragment_id = %hex::encode(fragment_id),
+        merkle_root = %hex::encode(params.merkle_root),
         index = params.index,
         size = data.len(),
         "Storing fragment"
@@ -216,8 +243,8 @@ async fn handle_get_fragment(
     let fragment_id = create_fragment_id(&params.merkle_root, params.index);
 
     info!(
-        fragment_id = %hex::encode(&fragment_id),
-        merkle_root = %hex::encode(&params.merkle_root),
+        fragment_id = %hex::encode(fragment_id),
+        merkle_root = %hex::encode(params.merkle_root),
         index = params.index,
         "Getting fragment"
     );
@@ -244,7 +271,7 @@ async fn handle_get_fragment(
         }
         Ok(None) => {
             warn!(
-                fragment_id = %hex::encode(&fragment_id),
+                fragment_id = %hex::encode(fragment_id),
                 "Fragment not found"
             );
             Err(RpcError {
@@ -269,7 +296,7 @@ fn create_fragment_id(merkle_root: &[u8; 32], index: u32) -> [u8; 32] {
     use blake2::digest::consts::U32;
     let mut hasher = Blake2b::<U32>::new();
     hasher.update(merkle_root);
-    hasher.update(&index.to_le_bytes());
+    hasher.update(index.to_le_bytes());
     hasher.finalize().into()
 }
 
@@ -277,8 +304,8 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 
 /// Decode base64 or hex (0x-prefixed) string to bytes
 fn b64_decode(input: &str) -> Result<Vec<u8>, String> {
-    if input.starts_with("0x") {
-        hex::decode(&input[2..]).map_err(|e| e.to_string())
+    if let Some(hex_str) = input.strip_prefix("0x") {
+        hex::decode(hex_str).map_err(|e| e.to_string())
     } else {
         BASE64_STANDARD.decode(input).map_err(|e| e.to_string())
     }
@@ -289,9 +316,85 @@ fn b64_encode(input: &[u8]) -> String {
     BASE64_STANDARD.encode(input)
 }
 
+/// Handle Prometheus metrics endpoint (NFR-002)
+///
+/// Returns metrics in Prometheus text format:
+/// - fragment_upload_total
+/// - fragment_download_total
+/// - storage_node_peers
+/// - blockchain_node_failover_total
+/// - gossipsub_messages_received_total
+/// - peer_reputation_score (gauge, average)
+async fn handle_metrics(
+    State(state): State<RpcState>,
+) -> impl IntoResponse {
+    let m = &state.metrics;
+    
+    // NFR-003: Collect required metrics
+    let output = format!(
+        r#"# HELP fragment_upload_total Total number of fragment uploads
+# TYPE fragment_upload_total counter
+fragment_upload_total {}
+
+# HELP fragment_download_total Total number of fragment downloads
+# TYPE fragment_download_total counter
+fragment_download_total {}
+
+# HELP storage_node_peers Number of connected storage node peers
+# TYPE storage_node_peers gauge
+storage_node_peers {}
+
+# HELP blockchain_node_failover_total Total number of blockchain node failovers
+# TYPE blockchain_node_failover_total counter
+blockchain_node_failover_total {}
+
+# HELP gossipsub_messages_received_total Total number of Gossipsub messages received
+# TYPE gossipsub_messages_received_total counter
+gossipsub_messages_received_total {}
+
+# HELP storage_fragments_total Total number of stored fragments
+# TYPE storage_fragments_total gauge
+storage_fragments_total {}
+
+# HELP storage_capacity_used_bytes Storage capacity used in bytes
+# TYPE storage_capacity_used_bytes gauge
+storage_capacity_used_bytes {}
+
+# HELP storage_capacity_total_bytes Total storage capacity in bytes
+# TYPE storage_capacity_total_bytes gauge
+storage_capacity_total_bytes {}
+
+# HELP storage_auth_failures_total Total number of authentication failures
+# TYPE storage_auth_failures_total counter
+storage_auth_failures_total {}
+
+# HELP storage_chain_latency_ms Current blockchain connection latency in milliseconds
+# TYPE storage_chain_latency_ms gauge
+storage_chain_latency_ms {}
+"#,
+        m.put_requests(),
+        m.get_requests(),
+        m.connected_peers(),
+        m.chain_failovers(),
+        m.gossip_messages_received(),
+        m.fragment_count(),
+        m.capacity_used_bytes(),
+        m.capacity_total_bytes(),
+        m.auth_failures(),
+        m.chain_latency_ms(),
+    );
+    
+    (
+        StatusCode::OK,
+        [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
+        output,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
     use tempfile::tempdir;
 
     #[test]

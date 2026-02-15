@@ -50,7 +50,7 @@ async fn test_libp2p_fragment_receive() -> Result<()> {
 /// T056b: Test fragment receive via PUT request simulation
 #[tokio::test]
 async fn test_fragment_put_request_handling() -> Result<()> {
-    use anarchy_storage_node::network::{FragmentRequest, FragmentResponse};
+    use anarchy_storage_node::network::FragmentRequest;
     
     let temp_dir = TempDir::new()?;
     let data_dir = temp_dir.path().to_str().unwrap();

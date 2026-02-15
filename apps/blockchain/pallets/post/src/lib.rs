@@ -46,6 +46,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::pallet_prelude::*;
+    use pallet_storage::StorageInterface;
 
     /// $moral残高型（ネイティブトークン）
     pub type BalanceOf<T> = <<T as Config>::NativeToken as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -89,6 +90,9 @@ pub mod pallet {
         
         /// ネイティブトークン（$moral）
         type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
+
+        /// Storage Pallet for atomic fragment registration (FR-401, FR-402).
+        type Storage: pallet_storage::StorageInterface<Self::AccountId, BlockNumberFor<Self>>;
 
         /// 投稿の最大長（バイト）
         #[pallet::constant]
@@ -164,6 +168,8 @@ pub mod pallet {
         CostCalculationOverflow,
         /// 投稿IDがオーバーフロー
         PostIdOverflow,
+        /// Fragment registration in Storage Pallet failed (FR-402)
+        FragmentRegistrationFailed,
     }
 
     #[pallet::call]
@@ -263,6 +269,16 @@ pub mod pallet {
                 size: total_size,
             };
             ContentRefs::<T>::insert(post_id, content_ref);
+
+            // Register fragment in Storage Pallet atomically (FR-401, FR-402)
+            // Fragment size is truncated to u32 (already validated by MaxContentLength)
+            let fragment_size = total_size.min(u32::MAX as u64) as u32;
+            T::Storage::do_register_fragment(
+                merkle_root,
+                fragment_size,
+                who.clone(),
+                frame_system::Pallet::<T>::block_number(),
+            ).map_err(|_| Error::<T>::FragmentRegistrationFailed)?;
 
             // MerkleRoot → PostID 逆引きマップを保存（RPC用）
             MerkleRootToPostId::<T>::insert(merkle_root, post_id);

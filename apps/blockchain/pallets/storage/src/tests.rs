@@ -6,7 +6,7 @@
 use crate::{self as pallet_storage, Error, Event, FragmentId};
 use frame_support::{
     assert_noop, assert_ok,
-    traits::{ConstU32, ConstU64},
+    traits::{ConstU32, ConstU64, ConstU8},
     BoundedVec,
 };
 use sp_core::H256;
@@ -69,6 +69,14 @@ impl pallet_storage::Config for Test {
     type MaxPeerIdLen = ConstU32<64>;
     type MaxHoldersPerFragment = ConstU32<100>;
     type MaxFragmentsPerNode = ConstU32<10_000>;
+    // New security constants (relaxed for tests)
+    type MinPeerIdLen = ConstU32<2>;                // Relaxed for basic tests
+    type MaxRegistrationsPerBlock = ConstU32<5>;
+    type MaxDeclarationsPerBlockPerNode = ConstU32<10>;
+    type MinNodeCapacity = ConstU64<1>;              // Relaxed for basic tests
+    type PowObservationPeriod = ConstU32<10>;
+    type BasePowDifficulty = ConstU8<0>;             // No PoW for basic tests
+    type MaxHttpUrlLen = ConstU32<256>;
 }
 
 /// Build test externalities
@@ -96,6 +104,12 @@ fn test_peer_id(n: u8) -> BoundedVec<u8, ConstU32<64>> {
     let mut id = vec![0u8; 38]; // Minimum valid PeerID length
     id[0] = n;
     BoundedVec::try_from(id).unwrap()
+}
+
+/// Helper: Create a test HTTP URL
+fn test_http_url(port: u16) -> BoundedVec<u8, ConstU32<256>> {
+    let url = format!("http://127.0.0.1:{}", port);
+    BoundedVec::try_from(url.into_bytes()).unwrap()
 }
 
 // ============ User Story 1: 断片メタデータの登録 ============
@@ -200,7 +214,9 @@ fn t003_register_node_succeeds() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator),
             peer_id.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce (difficulty=0)
+            test_http_url(3030),
         ));
 
         // Verify storage
@@ -238,12 +254,14 @@ fn t004_duplicate_peer_id_fails() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator1),
             peer_id.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Second registration with same PeerID fails
         assert_noop!(
-            Storage::register_node(RuntimeOrigin::signed(operator2), peer_id, capacity),
+            Storage::register_node(RuntimeOrigin::signed(operator2), peer_id, capacity, 0, test_http_url(3031)),
             Error::<Test>::NodeAlreadyRegistered
         );
     });
@@ -262,12 +280,14 @@ fn operator_already_has_node_fails() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator),
             peer_id1,
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Second registration with different PeerID fails
         assert_noop!(
-            Storage::register_node(RuntimeOrigin::signed(operator), peer_id2, capacity),
+            Storage::register_node(RuntimeOrigin::signed(operator), peer_id2, capacity, 0, test_http_url(3031)),
             Error::<Test>::OperatorAlreadyHasNode
         );
     });
@@ -286,7 +306,9 @@ fn t005_update_node_succeeds() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator),
             peer_id.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Update capacity
@@ -322,7 +344,9 @@ fn t006_unregister_node_succeeds() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator),
             peer_id.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Unregister
@@ -356,7 +380,9 @@ fn unregister_with_holdings_fails() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator),
             peer_id.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_fragment(
             RuntimeOrigin::signed(operator),
@@ -391,7 +417,9 @@ fn t007_declare_holding_succeeds() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator),
             peer_id.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_fragment(
             RuntimeOrigin::signed(operator),
@@ -439,7 +467,9 @@ fn t008_revoke_holding_succeeds() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator),
             peer_id.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_fragment(
             RuntimeOrigin::signed(operator),
@@ -490,12 +520,16 @@ fn t009_get_fragment_holders() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator1),
             peer_id1.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator2),
             peer_id2.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Register fragment
@@ -536,7 +570,9 @@ fn declare_holding_idempotent() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator),
             peer_id.clone(),
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
         assert_ok!(Storage::register_fragment(
             RuntimeOrigin::signed(operator),
@@ -597,13 +633,97 @@ fn declare_holding_nonexistent_fragment_fails() {
         assert_ok!(Storage::register_node(
             RuntimeOrigin::signed(operator),
             peer_id,
-            capacity
+            capacity,
+            0, // pow_nonce
+            test_http_url(3030),
         ));
 
         // Declare holding for non-existent fragment should fail
         assert_noop!(
             Storage::declare_holding(RuntimeOrigin::signed(operator), fragment_id),
             Error::<Test>::FragmentNotFound
+        );
+    });
+}
+
+// ============ Security Tests (FR-405-411) ============
+
+/// T035: Test PoW verification - Already covered in pow.rs unit tests
+/// T036: Test dynamic difficulty - Already covered in pow.rs unit tests
+
+/// T037: Test registration rate limit (6th registration rejected)
+#[test]
+fn t037_registration_rate_limit() {
+    new_test_ext().execute_with(|| {
+        // MaxRegistrationsPerBlock = 5 in test config
+        // Register 5 nodes (should all succeed)
+        for i in 1..=5u64 {
+            let peer_id = test_peer_id(i as u8);
+            assert_ok!(Storage::register_node(
+                RuntimeOrigin::signed(i),
+                peer_id,
+                10_000_000_000u64, // 10GB
+                0, // pow_nonce
+            test_http_url(3030),
+            ));
+        }
+
+        // 6th registration should fail
+        let peer_id6 = test_peer_id(6);
+        assert_noop!(
+            Storage::register_node(
+                RuntimeOrigin::signed(6),
+                peer_id6,
+                10_000_000_000u64,
+                0,
+                test_http_url(3036),
+            ),
+            Error::<Test>::TooManyRegistrationsThisBlock
+        );
+    });
+}
+
+/// T038: Test declaration rate limit (11th declaration rejected)
+#[test]
+fn t038_declaration_rate_limit() {
+    new_test_ext().execute_with(|| {
+        let operator = 1u64;
+        let peer_id = test_peer_id(1);
+        let capacity = 10_000_000_000u64;
+
+        // Register node
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(operator),
+            peer_id.clone(),
+            capacity,
+            0,
+            test_http_url(3030),
+        ));
+
+        // Register and declare 10 fragments (should all succeed)
+        for i in 1..=10u8 {
+            let fragment_id = test_fragment_id(i);
+            assert_ok!(Storage::register_fragment(
+                RuntimeOrigin::signed(operator),
+                fragment_id,
+                1024
+            ));
+            assert_ok!(Storage::declare_holding(
+                RuntimeOrigin::signed(operator),
+                fragment_id
+            ));
+        }
+
+        // 11th declaration should fail
+        let fragment_id_11 = test_fragment_id(11);
+        assert_ok!(Storage::register_fragment(
+            RuntimeOrigin::signed(operator),
+            fragment_id_11,
+            1024
+        ));
+        assert_noop!(
+            Storage::declare_holding(RuntimeOrigin::signed(operator), fragment_id_11),
+            Error::<Test>::TooManyDeclarationsThisBlock
         );
     });
 }

@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { blake2b } from 'blakejs'
 
 /**
  * Storage RPC エンドポイント
+ * blockchain nodeがstorage RPCをプロキシする
  */
 const RPC_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944'
 
@@ -20,6 +22,59 @@ const MAX_RETRIES = 3
 const RETRY_DELAY_MS = 1000
 
 /**
+ * 署名付きリクエスト（Storage Node認証用）
+ * X-Anarchy-Auth ヘッダーに含まれるJSON構造体
+ */
+export interface SignedAuth {
+  /** Sr25519公開鍵（hex 32バイト） */
+  account_id: string
+  /** Unixタイムスタンプ（秒） */
+  timestamp: number
+  /** ランダムnonce（hex 16バイト） */
+  nonce: string
+  /** リクエストボディのBlake2bハッシュ（hex 32バイト） */
+  payload_hash: string
+  /** Sr25519署名（hex 64バイト） */
+  signature: string
+}
+
+/**
+ * 署名用キーペア（Sr25519）
+ */
+export interface StorageSigner {
+  /** 公開鍵（32バイト） */
+  publicKey: Uint8Array
+  /** 署名関数 */
+  sign: (message: Uint8Array) => Uint8Array
+}
+
+/**
+ * derivation path（例：'//Alice'）からStorageSignerを作成
+ * @param derivePath シードフレーズまたはderivation path
+ * @returns StorageSignerを返すPromise
+ */
+export async function createStorageSigner(derivePath: string): Promise<StorageSigner> {
+  const { Keyring } = await import('@polkadot/keyring')
+  const { DEV_PHRASE } = await import('@polkadot/keyring/defaults')
+  
+  const keyring = new Keyring({ type: 'sr25519' })
+  let pair
+  
+  if (derivePath.startsWith('//')) {
+    // Development derivation path (e.g., //Alice, //Bob)
+    pair = keyring.addFromUri(`${DEV_PHRASE}${derivePath}`)
+  } else {
+    // Real seed phrase (12/24 words mnemonic)
+    pair = keyring.addFromUri(derivePath)
+  }
+  
+  return {
+    publicKey: pair.publicKey,
+    sign: (message: Uint8Array) => pair.sign(message)
+  }
+}
+
+/**
  * 断片アップロード結果
  */
 export interface UploadResult {
@@ -33,6 +88,14 @@ export interface UploadResult {
  */
 export interface RecoverResult {
   data: Uint8Array
+}
+
+/**
+ * useStorage hookのオプション
+ */
+export interface UseStorageOptions {
+  /** 署名用キーペア（認証が必要な場合） */
+  signer?: StorageSigner
 }
 
 /**
@@ -62,13 +125,66 @@ interface PendingRequest {
 }
 
 /**
+ * バイト配列をhex文字列に変換
+ */
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * 認証用のSignedAuthを生成
+ * @param signer 署名用キーペア
+ * @param params リクエストパラメータオブジェクト
+ */
+function generateAuth(signer: StorageSigner, params: Record<string, unknown>): SignedAuth {
+  // タイムスタンプ（秒）
+  const timestamp = Math.floor(Date.now() / 1000)
+  
+  // ランダムnonce（16バイト）
+  const nonceBytes = new Uint8Array(16)
+  crypto.getRandomValues(nonceBytes)
+  
+  // ペイロードハッシュ（Blake2b-256）
+  // キーをアルファベット順にソートしてJSON.stringify（serde_jsonと同じ順序）
+  const sortedParams = Object.keys(params).sort().reduce((acc, key) => {
+    acc[key] = params[key]
+    return acc
+  }, {} as Record<string, unknown>)
+  const payload = JSON.stringify(sortedParams)
+  const payloadBytes = new TextEncoder().encode(payload)
+  const payloadHash = blake2b(payloadBytes, undefined, 32)
+  
+  // 署名対象メッセージ: account_id || timestamp || nonce || payload_hash
+  const message = new Uint8Array(32 + 8 + 16 + 32)
+  message.set(signer.publicKey, 0)
+  const view = new DataView(message.buffer)
+  view.setBigUint64(32, BigInt(timestamp), true) // little-endian
+  message.set(nonceBytes, 40)
+  message.set(payloadHash, 56)
+  
+  // Sr25519署名
+  const signature = signer.sign(message)
+  
+  return {
+    account_id: toHex(signer.publicKey),
+    timestamp,
+    nonce: toHex(nonceBytes),
+    payload_hash: toHex(payloadHash),
+    signature: toHex(signature),
+  }
+}
+
+/**
  * 分散ストレージ操作Hook
  *
  * - SSS分割/復元（Wasm: Web Worker）
  * - MerkleTree構築/検証（Wasm: Web Worker）
  * - 断片アップロード/取得（RPC: storage_uploadFragment, storage_getFragment）
+ * 
+ * @param options オプション（署名用キーペア等）
  */
-export function useStorage(): UseStorageResult {
+export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
+  const { signer } = options
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -223,20 +339,40 @@ export function useStorage(): UseStorageResult {
         const dataB64 = btoa(String.fromCharCode.apply(null, Array.from(share)))
         const proofB64 = btoa(String.fromCharCode.apply(null, Array.from(proof)))
 
-        // RPC呼び出し（リトライ付き）
-        const result = await rpcCallWithRetry<{ success: boolean; fragment_hash: number[] }>(
-          'storage_uploadFragment',
-          [{
-            merkle_root: Array.from(merkleRoot),
-            index,
-            data: dataB64,
-            proof: proofB64,
-            total_leaves: SSS_N,
-          }]
-        )
+        // ベースリクエストパラメータ（authなし）
+        const baseParams = {
+          merkle_root: Array.from(merkleRoot),
+          index,
+          data: dataB64,
+          proof: proofB64,
+          total_leaves: SSS_N,
+        }
 
-        setProgress(prev => Math.min(prev + progressPerFragment, 90))
-        return new Uint8Array(result.fragment_hash)
+        // リトライ付きアップロード（各リトライでauthを再生成）
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            // リクエストパラメータを毎回作成
+            const requestParams: Record<string, unknown> = { ...baseParams }
+            
+            // 認証情報を追加（signerが提供されている場合、毎回新しいnonceで生成）
+            if (signer) {
+              requestParams.auth = generateAuth(signer, baseParams)
+            }
+
+            const result = await rpcCall<{ success: boolean; fragment_hash: number[] }>(
+              'storage_uploadFragment',
+              [requestParams]
+            )
+            
+            setProgress(prev => Math.min(prev + progressPerFragment, 90))
+            return new Uint8Array(result.fragment_hash)
+          } catch (err) {
+            if (attempt === MAX_RETRIES) throw err
+            console.warn(`[useStorage] Upload retry ${attempt}/${MAX_RETRIES}:`, err)
+            await new Promise(r => setTimeout(r, RETRY_DELAY_MS * attempt))
+          }
+        }
+        throw new Error('Unreachable')
       })
 
       const results = await Promise.all(uploadPromises)
@@ -255,7 +391,7 @@ export function useStorage(): UseStorageResult {
     } finally {
       setIsProcessing(false)
     }
-  }, [sendToWorker, rpcCallWithRetry])
+  }, [sendToWorker, rpcCall, signer])
 
   /**
    * MerkleRootから断片を取得して復元

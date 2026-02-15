@@ -3,7 +3,7 @@
 //! A distributed storage node for the Anarchy network.
 //! Stores fragments and communicates via libp2p.
 
-use anarchy_storage_node::{config, identity, storage, network, chain, rpc};
+use anarchy_storage_node::{config, identity, storage, network, chain, rpc, metrics::Metrics};
 
 use clap::Parser;
 use std::sync::Arc;
@@ -38,14 +38,27 @@ pub struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("anarchy_storage_node=info".parse().unwrap())
-                .add_directive("libp2p=warn".parse().unwrap()),
-        )
-        .init();
+    // Initialize logging (NFR-001: structured JSON logs when ANARCHY_LOG_JSON=1)
+    let use_json = std::env::var("ANARCHY_LOG_JSON")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+        
+    let env_filter = tracing_subscriber::EnvFilter::from_default_env()
+        .add_directive("anarchy_storage_node=info".parse().unwrap())
+        .add_directive("libp2p=warn".parse().unwrap());
+    
+    if use_json {
+        // NFR-001: JSON structured logging
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(env_filter)
+            .init();
+    } else {
+        // Human-readable format for development
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .init();
+    }
 
     // Parse CLI arguments
     let args = Args::parse();
@@ -56,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
         chain_url: args.chain_url.clone(),
         listen_addr: args.listen.clone(),
         rpc_port: args.rpc_port,
+        auth_enabled: None,
     };
     let config = config::Config::load(&args.config, overrides)?;
     info!("Configuration loaded from {}", args.config);
@@ -71,20 +85,45 @@ async fn main() -> anyhow::Result<()> {
         "Fragment storage initialized"
     );
 
+    // Initialize metrics (NFR-001, NFR-002, NFR-003)
+    let metrics = Metrics::new();
+    metrics.set_capacity_total(config.capacity);
+    info!("Metrics initialized");
+
+    // Initialize endpoint cache for peer discovery (FR-507)
+    // Using dev chain_id [0; 32] - in production this should be fetched from genesis
+    let endpoint_cache = Arc::new(network::endpoint_cache::EndpointCache::new([0u8; 32]));
+    info!("Endpoint cache initialized for peer discovery");
+    
+    // Initialize storage node cache for storage node address sharing (FR-515, FR-516)
+    let storage_node_cache = Arc::new(network::storage_node_cache::StorageNodeCache::new());
+    info!("Storage node cache initialized for address sharing");
+
+    // Initialize failover manager (FR-510, FR-511)
+    let failover_manager = Arc::new(chain::failover::FailoverManager::new());
+    info!("Failover manager initialized");
+
     // Initialize chain client (for declare_holding)
-    let chain_client = Arc::new(chain::ChainClient::new(&config.chain_url, config.declare_rate_limit).await?);
-    info!(endpoint = %config.chain_url, "Chain client initialized");
+    let chain_client = Arc::new(chain::ChainClient::new(
+        &config.chain_url,
+        config.declare_rate_limit,
+        Arc::clone(&failover_manager),
+        Arc::clone(&endpoint_cache),
+    ).await?);
+    info!(endpoint = %config.chain_url, "Chain client initialized with failover support");
 
     // Initialize network
     let mut network = network::Network::new(identity.keypair().clone(), &config.listen_addr)?;
     network.listen(&config.listen_addr)?;
+    network.subscribe_endpoints()?;
+    network.subscribe_storage_nodes()?;  // FR-520: Subscribe to storage node topic
     info!("Network listening on {}", config.listen_addr);
 
     // Start HTTP RPC server
     let rpc_addr = format!("0.0.0.0:{}", config.rpc_port);
-    let rpc_router = rpc::create_rpc_router(Arc::clone(&store));
+    let rpc_router = rpc::create_rpc_router(Arc::clone(&store), config.auth_enabled, metrics.clone());
     let rpc_listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
-    info!(addr = %rpc_addr, "HTTP RPC server started");
+    info!(addr = %rpc_addr, auth = config.auth_enabled, "HTTP RPC server started (NFR-002: /metrics endpoint enabled)");
     
     // Spawn HTTP server
     let http_server = tokio::spawn(async move {
@@ -109,6 +148,11 @@ async fn main() -> anyhow::Result<()> {
     let heartbeat_url = our_rpc_url.clone();
     let mut heartbeat_interval = tokio::time::interval(std::time::Duration::from_secs(30));
     heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    
+    // Setup periodic storage node broadcast interval (FR-519, FR-515)
+    // Broadcasts known storage nodes to peers every 60 seconds
+    let mut storage_node_broadcast_interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    storage_node_broadcast_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     // Setup shutdown signal
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -138,6 +182,16 @@ async fn main() -> anyhow::Result<()> {
                     Err(e) => debug!(error = %e, "Heartbeat: blockchain node not available"),
                 }
             }
+            _ = storage_node_broadcast_interval.tick() => {
+                // FR-519: Periodic broadcast of known storage nodes via Gossipsub
+                let nodes = storage_node_cache.get_healthy_by_latency().await;
+                if !nodes.is_empty() {
+                    match network.broadcast_storage_nodes(nodes.clone()) {
+                        Ok(()) => debug!(count = nodes.len(), "Broadcast storage node update"),
+                        Err(e) => debug!(error = %e, "Failed to broadcast storage nodes"),
+                    }
+                }
+            }
             event = network.handle_event(store.as_ref()) => {
                 match event {
                     Ok(Some(network::NetworkEvent::Listening(addr))) => {
@@ -158,6 +212,35 @@ async fn main() -> anyhow::Result<()> {
                         info!(fragment_id = %hex::encode(fragment_id), "Fragment stored, triggering auto-declare");
                         if let Err(e) = chain_client.declare_holding(fragment_id).await {
                             error!(error = %e, "Failed to declare holding (rate limited?)");
+                        }
+                    }
+                    Ok(Some(network::NetworkEvent::EndpointUpdate { from, endpoints })) => {
+                        info!(
+                            peer = %from,
+                            endpoint_count = endpoints.len(),
+                            "Received endpoint update via gossipsub"
+                        );
+                        // Update local endpoint cache for discovery (FR-507)
+                        let cache = endpoint_cache.clone();
+                        for ep in endpoints {
+                            if cache.insert(ep.clone()).await {
+                                debug!(url = %ep.url, "Added endpoint to cache");
+                            }
+                        }
+                    }
+                    Ok(Some(network::NetworkEvent::StorageNodeUpdate { from, nodes })) => {
+                        // FR-515, FR-519: Received storage node addresses via gossipsub
+                        info!(
+                            peer = %from,
+                            node_count = nodes.len(),
+                            "Received storage node update via gossipsub"
+                        );
+                        // Update local storage node cache
+                        let cache = storage_node_cache.clone();
+                        for node in nodes {
+                            if cache.insert(node.clone()).await {
+                                debug!(url = %node.url, "Added storage node to cache");
+                            }
                         }
                     }
                     Ok(None) => {}
