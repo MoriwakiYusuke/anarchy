@@ -242,23 +242,37 @@
   - [x] + fragment_upload_total, fragment_download_total
   - [x] + storage_node_peers, blockchain_node_failover_total
 
-#### Phase 2: Proof & Rewards (未実装)
+#### Phase 3: KZG Proof & Rewards → **完了** (2026-02-16)
 
-- [ ] **Storage Pallet拡張**
-  - [ ] 保持証明（Proof of Spacetime）検証ロジック
-  - [ ] **保持報酬ロジック**
-    - [ ] 保持継続ノードへの$moral分配
-    - [ ] 報酬停止による「自然な忘却」メカニズム
-    - [ ] 需要ベースの報酬調整（人気データ = 高報酬）
-  - [ ] 不正ノードのスラッシング（持っているふりの検出）
+> **実装内容**: 011-kzg-proof-rewards仕様に基づくKZG証明・報酬システム
 
-- [ ] **ストレージノード拡張**
-  - [ ] **subxtチェーン接続**: declare_holding自動送信
-  - [ ] **Proof of Spacetime (PoST) 生成**: 「データを持ち続けている」ことを証明
-  - [ ] **自動報酬請求**: 生成した証明を定期的にStorage Palletへ提出
-  - [ ] **ガベージコレクション**: 報酬停止データの自動削除
+- [x] + **Storage Pallet拡張**
+  - ~~[ ] 保持証明（Proof of Spacetime）検証ロジック~~ → [x] + KZG多項式コミットメント検証 (BLS12-381)
+  - [x] + **保持報酬ロジック**
+    - [x] + `register_fragment_kzg`: KZG commitment登録 + deposit
+    - [x] + `prove_holding_kzg`: KZG proof検証 + 報酬請求
+    - [x] + RewardPool: 投稿費用の90%をプールへ、10% burn
+    - [x] + 報酬分配: holder数で均等分配 / ScoreProviderベース
+    - [x] + 報酬停止による「自然な忘却」メカニズム
+  - [x] + **GCライフサイクル**
+    - [x] + FragmentState: StateProposed → Active → ForgettingCandidate
+    - [x] + `initiate_forgetting`: 明示的忘却開始
+    - [x] + `on_finalize` GC: ForgettingCandidateの自動削除
+  - ~~[ ] 不正ノードのスラッシング~~ → Phase 4へ延期
 
-#### Phase 3: Slashing & Repair (未実装)
+- [x] + **wasm-engine拡張** (`packages/wasm-engine/`)
+  - [x] + KZG-VSSハイブリッド暗号化 (`hybrid.rs`)
+  - [x] + `hybrid_split()`: AES-256-GCM + Reed-Solomon + SSS鍵分割
+  - [x] + `hybrid_reconstruct()`: 断片からの復元
+  - [x] + `generate_kzg_proof()` / `verify_kzg_proof()`: BLS12-381証明
+  - [x] + MerkleTree構築 (Blake2b-256)
+
+- [x] + **フロントエンド統合**
+  - [x] + useStorage hook: KZGフロー対応
+  - [x] + Reed-Solomon k-of-nエンコード/デコード
+  - [x] + HybridShard構造: chunk + key_share + chunk_hash
+
+#### Phase 4: Slashing & Repair (未実装)
 
 - [ ] **自己修復プロトコル**
   > ストレージノードがオフライン時、自動的に断片を再配布
@@ -440,8 +454,8 @@
 | **2** | SSS (Phase 2.1) | クライアント側暗号化・断片化 | - | ✅完了 |
 | **3** | + **Post Storage Migration** | 投稿コンテンツの分散ストレージ移行 | - | ✅完了 |
 | **4** | + **010-multi-node-storage** | マルチノード対応 & セキュリティ強化 | [spec.md](../specs/010-multi-node-storage/spec.md) | ✅完了 (2026-02-14) |
-| **5** | 008-distributed-storage **Phase 2** | Simple Proof & Rewards | - | 未着手 |
-| **6** | 008-distributed-storage **Phase 3** | Slashing & Repair | - | 未着手 |
+| **5** | + **011-kzg-proof-rewards** | KZG証明 & 報酬システム | [spec.md](../specs/011-kzg-proof-rewards/spec.md) | ✅完了 (2026-02-16) |
+| **6** | 008-distributed-storage **Phase 4** | Slashing & Repair | - | 未着手 |
 
 ### Phase 1 スコープ（まず繋がるだけ） → ✅完了 (2026-02-10)
 
@@ -449,10 +463,10 @@
 - ✅ Storage Daemon: libp2p断片送受信、ディスク保存
 - ✅ + HTTP JSON-RPC API: フロントエンド連携
 - ✅ + 自動登録 + heartbeat: ブロックチェーンノードへの登録
-- ❌ ~~PoST~~ → Phase 2
-- ❌ ~~報酬~~ → Phase 2
-- ❌ ~~スラッシング~~ → Phase 3
-- ❌ ~~自己修復~~ → Phase 3
+- ❌ ~~PoST~~ → Phase 3 (KZG)
+- ❌ ~~報酬~~ → Phase 3 (KZG)
+- ❌ ~~スラッシング~~ → Phase 4
+- ❌ ~~自己修復~~ → Phase 4
 
 ### + Phase 2 スコープ（010-multi-node-storage） → ✅完了 (2026-02-14)
 
@@ -478,7 +492,9 @@ Phase 2.1 (SSS/Wasm) ✅ ──── Phase 2.2 (Storage) ✅ ─┬─ + Phase 
                           │                          │
                           └── Phase 2.3 (PoW Faucet) ✅ 
                                                      │
-                                                     └─ + 010-multi-node-storage ✅ (2026-02-14)
+                                                     ├─ + 010-multi-node-storage ✅ (2026-02-14)
+                                                     │
+                                                     └─ + 011-kzg-proof-rewards ✅ (2026-02-16)
 
 Phase 3.1 (Stealth) ─── Phase 3.2 (Reaction) ─── Phase 3.3 (DM)
 
@@ -504,8 +520,9 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | **ストレージノード** | 高 | 高 | **9** | ✅完了 |
 | + **Post Storage統合** | 高 | 中 | **10** | ✅完了 |
 | + **マルチノード対応** | 高 | 高 | **11** | ✅完了 (2026-02-14) |
-| ステルスアドレス | 中 | 中 | 12 | 未着手 |
-| 反応マイニング | 低 | 中 | 13 | 未着手 |
+| + **KZG Proof & Rewards** | 高 | 高 | **12** | ✅完了 (2026-02-16) |
+| ステルスアドレス | 中 | 中 | 13 | 未着手 |
+| 反応マイニング | 低 | 中 | 14 | 未着手 |
 | ~~ZKP回路~~ | ~~低~~ | ~~高~~ | ~~13~~ | →構想移動 |
 
 ---
@@ -595,3 +612,26 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
   - [x] + JSON構造化ログ
   - [x] + Prometheusメトリクス (/metrics)
 
+### + M8: KZG Proof & Rewards ✅完了 (2026-02-16)
+
+> **実装内容**: 011-kzg-proof-rewards仕様に基づくKZG証明・報酬システム
+
+- [x] + **wasm-engine KZG-VSSハイブリッド暗号化**
+  - [x] + `hybrid_split()` / `hybrid_reconstruct()`
+  - [x] + AES-256-GCM + Reed-Solomon + SSS鍵分割
+  - [x] + KZG commitment / proof生成 (BLS12-381)
+
+- [x] + **pallet-storage KZG報酬システム**
+  - [x] + `register_fragment_kzg`: commitment + deposit登録
+  - [x] + `prove_holding_kzg`: KZG proof検証 + 報酬請求
+  - [x] + RewardPool: 投稿費用90% → プール、10% burn
+  - [x] + holder数ベース均等分配 / ScoreProvider対応
+
+- [x] + **GCライフサイクル**
+  - [x] + FragmentState: StateProposed → Active → ForgettingCandidate
+  - [x] + `initiate_forgetting`: 明示的忘却開始
+  - [x] + `on_finalize` GC: 自動削除
+
+- [x] + **フロントエンド統合**
+  - [x] + HybridShard構造対応
+  - [x] + Reed-Solomon復元ロジック
