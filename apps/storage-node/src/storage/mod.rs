@@ -148,6 +148,37 @@ impl FragmentStore {
         self.fragment_path(fragment_id).exists()
     }
 
+    /// Delete a fragment by ID (T085: GC integration)
+    /// 
+    /// Returns Ok(true) if fragment was deleted, Ok(false) if it didn't exist
+    pub fn delete(&self, fragment_id: &FragmentId) -> Result<bool> {
+        let path = self.fragment_path(fragment_id);
+        
+        if !path.exists() {
+            return Ok(false);
+        }
+
+        // Get file size before deletion for usage tracking
+        let size = std::fs::metadata(&path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        // Delete file
+        std::fs::remove_file(&path)
+            .context("Failed to delete fragment file")?;
+
+        // Update usage counter
+        self.used.fetch_sub(size, Ordering::Relaxed);
+
+        info!(
+            fragment_id = %hex::encode(fragment_id),
+            freed_bytes = size,
+            "Fragment deleted"
+        );
+
+        Ok(true)
+    }
+
     /// Get current used capacity
     pub fn used_bytes(&self) -> u64 {
         self.used.load(Ordering::Relaxed)

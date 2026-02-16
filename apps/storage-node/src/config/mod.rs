@@ -51,6 +51,15 @@ pub struct Config {
     /// Bootstrap peers for Gossipsub (multiaddr strings)
     #[serde(default = "default_bootstrap_peers")]
     pub bootstrap_peers: Vec<String>,
+
+    /// Path to SRS (Structured Reference String) file for KZG proofs
+    /// If empty and dev_mode is true, uses a test SRS
+    #[serde(default = "default_srs_path")]
+    pub srs_path: String,
+
+    /// Development mode - uses insecure test SRS if srs_path is empty
+    #[serde(default = "default_dev_mode")]
+    pub dev_mode: bool,
 }
 
 fn default_data_dir() -> String {
@@ -85,6 +94,14 @@ fn default_bootstrap_peers() -> Vec<String> {
     Vec::new() // No default bootstrap peers (FR-505)
 }
 
+fn default_srs_path() -> String {
+    String::new() // Empty means use test SRS in dev mode
+}
+
+fn default_dev_mode() -> bool {
+    true // Development mode by default (uses test SRS)
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -96,6 +113,8 @@ impl Default for Config {
             rpc_port: default_rpc_port(),
             auth_enabled: default_auth_enabled(),
             bootstrap_peers: default_bootstrap_peers(),
+            srs_path: default_srs_path(),
+            dev_mode: default_dev_mode(),
         }
     }
 }

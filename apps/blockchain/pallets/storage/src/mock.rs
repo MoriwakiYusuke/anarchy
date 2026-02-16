@@ -13,6 +13,7 @@ type Block = frame_system::mocking::MockBlock<Test>;
 frame_support::construct_runtime!(
     pub enum Test {
         System: frame_system,
+        Balances: pallet_balances,
         Storage: pallet_storage,
     }
 );
@@ -34,7 +35,7 @@ impl frame_system::Config for Test {
     type BlockHashCount = ConstU64<250>;
     type Version = ();
     type PalletInfo = PalletInfo;
-    type AccountData = ();
+    type AccountData = pallet_balances::AccountData<u128>;
     type OnNewAccount = ();
     type OnKilledAccount = ();
     type SystemWeightInfo = ();
@@ -48,6 +49,23 @@ impl frame_system::Config for Test {
     type PostInherents = ();
     type PostTransactions = ();
     type ExtensionsWeightInfo = ();
+}
+
+impl pallet_balances::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = ();
+    type Balance = u128;
+    type DustRemoval = ();
+    type ExistentialDeposit = ConstU128<1>;
+    type AccountStore = System;
+    type ReserveIdentifier = [u8; 8];
+    type RuntimeHoldReason = ();
+    type FreezeIdentifier = ();
+    type MaxLocks = ConstU32<50>;
+    type MaxReserves = ConstU32<50>;
+    type MaxFreezes = ConstU32<50>;
+    type RuntimeFreezeReason = ();
+    type DoneSlashHandler = ();
 }
 
 impl pallet_storage::Config for Test {
@@ -67,6 +85,7 @@ impl pallet_storage::Config for Test {
     type BaseRewardPerByte = ConstU128<1>;           // 1 unit per byte for tests
     type ScoreThreshold = ConstU64<100>;             // Score threshold for tests
     type ScoreHysteresisMargin = ConstU64<20>;       // 20% margin for hysteresis (T072)
+    type NativeToken = Balances;                     // T084: Use Balances for rewards
 }
 
 /// Build test externalities

@@ -124,7 +124,11 @@ pub mod pallet {
     use super::*;
     use frame_support::pallet_prelude::*;
     use frame_support::sp_runtime::Saturating;
+    use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::pallet_prelude::*;
+
+    /// Balance type from NativeToken (T084)
+    pub type BalanceOf<T> = <<T as Config>::NativeToken as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
     /// Fragment metadata stored on-chain
     #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, PartialEq, Eq)]
@@ -308,6 +312,10 @@ pub mod pallet {
         /// Default: 20 (20% of threshold=100)
         #[pallet::constant]
         type ScoreHysteresisMargin: Get<u64>;
+
+        /// Native token for reward distribution (T084)
+        /// Used to mint rewards when claim_reward is called
+        type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
     }
 
     // ============ Storage ============
@@ -610,6 +618,10 @@ pub mod pallet {
         NoPendingReward,
         /// Reward pool has insufficient balance
         InsufficientRewardPool,
+        /// Arithmetic overflow during reward calculation (T084)
+        ArithmeticOverflow,
+        /// Failed to mint reward tokens (T084)
+        RewardMintFailed,
     }
 
     // ============ Extrinsics ============
@@ -1122,8 +1134,9 @@ pub mod pallet {
         /// Claim accumulated rewards (T048, FR-108).
         ///
         /// Transfers pending rewards from PendingRewards storage to caller's balance.
+        /// T084: Actually mints tokens to claimer's account.
         #[pallet::call_index(9)]
-        #[pallet::weight(Weight::from_parts(50_000, 0) + T::DbWeight::get().reads_writes(2, 2))]
+        #[pallet::weight(Weight::from_parts(50_000, 0) + T::DbWeight::get().reads_writes(2, 3))]
         pub fn claim_reward(origin: OriginFor<T>) -> DispatchResult {
             let claimer = ensure_signed(origin)?;
 
@@ -1140,6 +1153,12 @@ pub mod pallet {
             RewardPoolBalance::<T>::mutate(|balance| {
                 *balance = balance.saturating_sub(payout);
             });
+
+            // T084: Actually mint tokens to claimer's balance
+            // Convert u128 payout to BalanceOf<T>
+            let payout_balance: BalanceOf<T> = payout.try_into().map_err(|_| Error::<T>::ArithmeticOverflow)?;
+            T::NativeToken::mint_into(&claimer, payout_balance)
+                .map_err(|_| Error::<T>::RewardMintFailed)?;
 
             // Clear pending rewards
             // If pro-rata applied (pool exhausted), remainder stays in PendingRewards

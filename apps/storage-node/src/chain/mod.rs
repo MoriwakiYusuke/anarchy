@@ -260,6 +260,149 @@ impl ChainClient {
         Ok(None)
     }
 
+    /// Submit KZG holding proof to chain (T083)
+    /// 
+    /// Submits `prove_holding_kzg` extrinsic with the proof data.
+    /// Called by ChallengeMonitor after generating a valid proof.
+    pub async fn submit_holding_proof(
+        &self,
+        content_hash: [u8; 32],
+        share_index: u8,
+        share_value: [u8; 32],
+        proof: [u8; 48],
+    ) -> Result<()> {
+        debug!(
+            content_hash = %hex::encode(content_hash),
+            share_index = share_index,
+            "Submitting KZG holding proof to chain"
+        );
+        
+        // Note: Full implementation would use subxt/PAPI:
+        // let tx = anarchy::tx().storage().prove_holding_kzg(
+        //     content_hash,
+        //     share_index,
+        //     share_value,
+        //     proof,
+        // );
+        // let progress = self.api.tx().sign_and_submit_then_watch_default(&tx, &self.signer).await?;
+        // progress.wait_for_finalized_success().await?;
+        
+        // Alternative: HTTP JSON-RPC (matches register_with_blockchain pattern)
+        #[derive(serde::Serialize)]
+        struct ProveHoldingParams {
+            content_hash: String,
+            share_index: u8,
+            share_value: String,
+            proof: String,
+        }
+        
+        #[derive(serde::Serialize)]
+        struct RpcRequest {
+            jsonrpc: &'static str,
+            id: u32,
+            method: &'static str,
+            params: ProveHoldingParams,
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcResponse {
+            result: Option<bool>,
+            error: Option<RpcError>,
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcError {
+            message: String,
+        }
+        
+        let client = reqwest::Client::new();
+        let request = RpcRequest {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "storage_proveHoldingKzg",
+            params: ProveHoldingParams {
+                content_hash: hex::encode(content_hash),
+                share_index,
+                share_value: hex::encode(share_value),
+                proof: hex::encode(proof),
+            },
+        };
+        
+        // Retry loop for failover (max 3 attempts)
+        const MAX_RETRIES: u32 = 3;
+        let mut last_error = None;
+        
+        for attempt in 0..MAX_RETRIES {
+            let endpoint_url = match self.active_endpoint().await {
+                Some(url) => url,
+                None => {
+                    return Err(anyhow::anyhow!("No primary endpoint available"));
+                }
+            };
+            
+            let http_endpoint = endpoint_url
+                .replace("ws://", "http://")
+                .replace("wss://", "https://");
+            
+            if attempt > 0 {
+                info!(
+                    blockchain = %http_endpoint,
+                    attempt = attempt + 1,
+                    "Retrying proof submission after failover"
+                );
+            } else {
+                info!(
+                    blockchain = %http_endpoint,
+                    content_hash = %hex::encode(content_hash),
+                    "Submitting KZG holding proof"
+                );
+            }
+            
+            match client
+                .post(&http_endpoint)
+                .json(&request)
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    self.report_success().await;
+                    
+                    let rpc_response: RpcResponse = resp
+                        .json()
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+                    
+                    if let Some(error) = rpc_response.error {
+                        bail!("Blockchain rejected proof: {}", error.message);
+                    }
+                    
+                    if rpc_response.result == Some(true) {
+                        info!(
+                            content_hash = %hex::encode(content_hash),
+                            "Successfully submitted KZG holding proof"
+                        );
+                    }
+                    
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if let Some(new_primary) = self.report_failure().await {
+                        info!(new_primary = %new_primary, "Failover triggered, will retry with new primary");
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+        
+        Err(anyhow::anyhow!(
+            "Failed to submit proof after {} attempts: {}",
+            MAX_RETRIES,
+            last_error.map(|e| e.to_string()).unwrap_or_default()
+        ))
+    }
+
     /// Get list of fragment holders from chain
     pub async fn get_fragment_holders(&self, fragment_id: &FragmentId) -> Result<Vec<Vec<u8>>> {
         debug!(fragment_id = %hex::encode(fragment_id), "Fetching fragment holders");

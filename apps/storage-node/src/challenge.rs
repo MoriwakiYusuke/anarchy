@@ -2,6 +2,8 @@
 //!
 //! Monitors blockchain for ChallengeIssued events and automatically
 //! responds with KZG proofs using the prover module.
+//!
+//! T041: Implements automatic proof submission via chain client.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -9,6 +11,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn, debug, error};
 use anyhow::Result;
 
+use crate::chain::ChainClient;
 use crate::prover::KzgProver;
 
 /// Challenge data received from blockchain
@@ -43,6 +46,8 @@ pub struct ChallengeMonitor {
     our_account: [u8; 32],
     /// KZG prover instance
     prover: Arc<KzgProver>,
+    /// Chain client for submitting proofs (T083)
+    chain_client: Option<Arc<ChainClient>>,
     /// Pending challenges awaiting response
     pending: Mutex<HashMap<([u8; 32], u8), PendingChallenge>>,
     /// Maximum proof submission attempts
@@ -50,11 +55,27 @@ pub struct ChallengeMonitor {
 }
 
 impl ChallengeMonitor {
-    /// Create a new challenge monitor
+    /// Create a new challenge monitor (without chain client - for testing)
     pub fn new(our_account: [u8; 32], prover: Arc<KzgProver>) -> Self {
         Self {
             our_account,
             prover,
+            chain_client: None,
+            pending: Mutex::new(HashMap::new()),
+            max_attempts: 3,
+        }
+    }
+
+    /// Create a new challenge monitor with chain client (T083, T041)
+    pub fn with_chain_client(
+        our_account: [u8; 32],
+        prover: Arc<KzgProver>,
+        chain_client: Arc<ChainClient>,
+    ) -> Self {
+        Self {
+            our_account,
+            prover,
+            chain_client: Some(chain_client),
             pending: Mutex::new(HashMap::new()),
             max_attempts: 3,
         }
@@ -131,22 +152,48 @@ impl ChallengeMonitor {
             &content_hash,
             share_index,
         ).await {
-            Ok((_share_value, _proof)) => {
+            Ok((share_value, proof)) => {
                 info!(
                     content_hash = hex::encode(content_hash),
                     share_index = share_index,
                     "Generated KZG proof, submitting to chain"
                 );
 
-                // TODO (T041): Submit proof to chain via prove_holding_kzg extrinsic
-                // For now, mark as submitted (stub)
-                let mut pending = self.pending.lock().await;
-                if let Some(pc) = pending.get_mut(&key) {
-                    pc.submitted = true;
-                }
+                // T041: Submit proof to chain via prove_holding_kzg extrinsic
+                let submission_result = if let Some(ref chain_client) = self.chain_client {
+                    chain_client.submit_holding_proof(
+                        content_hash,
+                        share_index,
+                        share_value,
+                        proof,
+                    ).await
+                } else {
+                    // No chain client - mark as submitted (stub for testing)
+                    warn!("No chain client configured, proof submission skipped");
+                    Ok(())
+                };
 
-                info!("Proof submission successful (stub)");
-                Ok(())
+                match submission_result {
+                    Ok(()) => {
+                        let mut pending = self.pending.lock().await;
+                        if let Some(pc) = pending.get_mut(&key) {
+                            pc.submitted = true;
+                        }
+                        info!(
+                            content_hash = hex::encode(content_hash),
+                            "Proof submission successful"
+                        );
+                        Ok(())
+                    }
+                    Err(e) => {
+                        error!(
+                            content_hash = hex::encode(content_hash),
+                            error = %e,
+                            "Failed to submit proof to chain"
+                        );
+                        Err(e)
+                    }
+                }
             }
             Err(e) => {
                 error!(
