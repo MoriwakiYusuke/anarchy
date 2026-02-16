@@ -242,9 +242,10 @@
   - [x] + fragment_upload_total, fragment_download_total
   - [x] + storage_node_peers, blockchain_node_failover_total
 
-#### Phase 3: KZG Proof & Rewards → **完了** (2026-02-16)
+#### Phase 3: KZG Proof & Rewards → **一部未完了** (2026-02-16)
 
 > **実装内容**: 011-kzg-proof-rewards仕様に基づくKZG証明・報酬システム
+> **⚠️ 未完了**: Storage NodeのSRS読み込み・証明提出、on_finalize GCが未実装
 
 - [x] + **Storage Pallet拡張**
   - ~~[ ] 保持証明（Proof of Spacetime）検証ロジック~~ → [x] + KZG多項式コミットメント検証 (BLS12-381)
@@ -254,11 +255,16 @@
     - [x] + RewardPool: 投稿費用の90%をプールへ、10% burn
     - [x] + 報酬分配: holder数で均等分配 / ScoreProviderベース
     - [x] + 報酬停止による「自然な忘却」メカニズム
-  - [x] + **GCライフサイクル**
+  - [ ] + **GCライフサイクル** ⚠️ 一部未実装
     - [x] + FragmentState: StateProposed → Active → ForgettingCandidate
-    - [x] + `initiate_forgetting`: 明示的忘却開始
-    - [x] + `on_finalize` GC: ForgettingCandidateの自動削除
+    - [ ] + ~~`initiate_forgetting`: 明示的忘却開始~~ **未実装** - extrinsic存在せず
+    - [ ] + ~~`on_finalize` GC: ForgettingCandidateの自動削除~~ **未実装** - レート制限クリアのみ
   - ~~[ ] 不正ノードのスラッシング~~ → Phase 4へ延期
+
+- [ ] + **Storage Node KZG統合** ⚠️ 未完了
+  - [x] + `challenge.rs`: チャレンジ監視ロジック
+  - [ ] + ~~`prover.rs`: KZG証明生成~~ **未完成** - SRS読み込みがTODO、空のSRSで失敗
+  - [ ] + ~~証明の自動提出~~ **未実装** - `challenge.rs:141`にTODO、スタブ処理のみ
 
 - [x] + **wasm-engine拡張** (`packages/wasm-engine/`)
   - [x] + KZG-VSSハイブリッド暗号化 (`hybrid.rs`)
@@ -520,7 +526,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | **ストレージノード** | 高 | 高 | **9** | ✅完了 |
 | + **Post Storage統合** | 高 | 中 | **10** | ✅完了 |
 | + **マルチノード対応** | 高 | 高 | **11** | ✅完了 (2026-02-14) |
-| + **KZG Proof & Rewards** | 高 | 高 | **12** | ✅完了 (2026-02-16) |
+| + **KZG Proof & Rewards** | 高 | 高 | **12** | ⚠️一部未完了 (Storage Node証明提出/GC未実装) |
 | ステルスアドレス | 中 | 中 | 13 | 未着手 |
 | 反応マイニング | 低 | 中 | 14 | 未着手 |
 | ~~ZKP回路~~ | ~~低~~ | ~~高~~ | ~~13~~ | →構想移動 |
@@ -612,9 +618,10 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
   - [x] + JSON構造化ログ
   - [x] + Prometheusメトリクス (/metrics)
 
-### + M8: KZG Proof & Rewards ✅完了 (2026-02-16)
+### + M8: KZG Proof & Rewards ⚠️一部未完了 (2026-02-16)
 
 > **実装内容**: 011-kzg-proof-rewards仕様に基づくKZG証明・報酬システム
+> **⚠️ 未完了**: Storage NodeのSRS読み込み・証明提出、initiate_forgetting/on_finalize GCが未実装
 
 - [x] + **wasm-engine KZG-VSSハイブリッド暗号化**
   - [x] + `hybrid_split()` / `hybrid_reconstruct()`
@@ -627,10 +634,15 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
   - [x] + RewardPool: 投稿費用90% → プール、10% burn
   - [x] + holder数ベース均等分配 / ScoreProvider対応
 
-- [x] + **GCライフサイクル**
+- [ ] + **GCライフサイクル** ⚠️ 一部未実装
   - [x] + FragmentState: StateProposed → Active → ForgettingCandidate
-  - [x] + `initiate_forgetting`: 明示的忘却開始
-  - [x] + `on_finalize` GC: 自動削除
+  - [ ] + ~~`initiate_forgetting`: 明示的忘却開始~~ **未実装**
+  - [ ] + ~~`on_finalize` GC: 自動削除~~ **未実装** - レート制限クリアのみ
+
+- [ ] + **Storage Node証明提出** ⚠️ 未完了
+  - [x] + challenge.rs構造
+  - [ ] + ~~prover.rs: SRS読み込み~~ **未完成** - TODOのまま
+  - [ ] + ~~証明の自動提出~~ **未実装** - スタブ処理のみ
 
 - [x] + **フロントエンド統合**
   - [x] + HybridShard構造対応

@@ -11,77 +11,65 @@
  * spec.md Ref: FR-304
  */
 
-// TODO: Import when component is implemented
-// import { render, screen } from '@testing-library/react';
-// import { ScoreIndicator } from '@/components/ScoreIndicator';
+import { render, screen } from '@testing-library/react';
+import { ScoreIndicator } from '@/components/ScoreIndicator';
 
 describe('ScoreIndicator', () => {
   describe('T077: Forgetting Candidate Warning Display', () => {
-    it.skip('displays "content unavailable" when shares < threshold', () => {
-      // Test stub - requires ScoreIndicator component (T060)
-      //
-      // Setup:
-      // const contentHash = '0x1234...';
-      // const availableShares = 2; // Below threshold of 3
-      //
-      // Render:
-      // render(<ScoreIndicator contentHash={contentHash} availableShares={availableShares} />);
-      //
-      // Verify:
-      // expect(screen.getByText(/利用できなくなりました/)).toBeInTheDocument();
-      
-      expect(true).toBe(true); // Placeholder
+    it('displays "content unavailable" when shares < threshold', () => {
+      const contentHash = '0x1234567890abcdef';
+      const availableShares = 2; // Below threshold of 3
+
+      render(
+        <ScoreIndicator contentHash={contentHash} availableShares={availableShares} />
+      );
+
+      expect(screen.getByText(/利用できなくなりました/)).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toBeInTheDocument();
     });
 
-    it.skip('displays "forgetting candidate" warning for low-score content', () => {
-      // Test stub - requires ScoreIndicator component (T060)
-      //
-      // Setup:
-      // const contentHash = '0x1234...';
-      // const score = 50; // Below threshold of 100
-      // const isForgettingCandidate = true;
-      //
-      // Render:
-      // render(<ScoreIndicator contentHash={contentHash} score={score} isForgettingCandidate />);
-      //
-      // Verify:
-      // expect(screen.getByText(/忘却候補/)).toBeInTheDocument();
-      // expect(screen.getByRole('alert')).toHaveClass('warning');
-      
-      expect(true).toBe(true); // Placeholder
+    it('displays "forgetting candidate" warning for low-score content', () => {
+      const contentHash = '0x1234567890abcdef';
+      const score = 50; // Below default threshold of 100
+
+      render(
+        <ScoreIndicator
+          contentHash={contentHash}
+          score={score}
+          isForgettingCandidate={true}
+        />
+      );
+
+      expect(screen.getByText(/忘却候補/)).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveClass('warning');
     });
 
-    it.skip('displays normal state for healthy content', () => {
-      // Test stub - requires ScoreIndicator component (T060)
-      //
-      // Setup:
-      // const contentHash = '0x1234...';
-      // const score = 500; // Above threshold
-      // const availableShares = 5; // Above recovery threshold
-      //
-      // Render:
-      // render(<ScoreIndicator contentHash={contentHash} score={score} availableShares={availableShares} />);
-      //
-      // Verify:
-      // expect(screen.queryByText(/利用できなくなりました/)).not.toBeInTheDocument();
-      // expect(screen.queryByText(/忘却候補/)).not.toBeInTheDocument();
-      
-      expect(true).toBe(true); // Placeholder
+    it('displays normal state for healthy content', () => {
+      const contentHash = '0x1234567890abcdef';
+      const score = 500; // Above threshold
+      const availableShares = 5; // Above recovery threshold
+
+      render(
+        <ScoreIndicator
+          contentHash={contentHash}
+          score={score}
+          availableShares={availableShares}
+        />
+      );
+
+      expect(screen.queryByText(/利用できなくなりました/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/忘却候補/)).not.toBeInTheDocument();
     });
 
-    it.skip('shows score percentage indicator', () => {
-      // Test stub - requires ScoreIndicator component (T060)
-      //
-      // Setup:
-      // const score = 150;
-      //
-      // Render:
-      // render(<ScoreIndicator contentHash="0x1234..." score={score} />);
-      //
-      // Verify:
-      // expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '150');
-      
-      expect(true).toBe(true); // Placeholder
+    it('shows score percentage indicator', () => {
+      const score = 150;
+
+      render(<ScoreIndicator contentHash="0x1234..." score={score} />);
+
+      // aria-valuenow is set to the raw score value (not percentage)
+      const progressbar = screen.getByRole('progressbar');
+      expect(progressbar).toBeInTheDocument();
+      expect(progressbar).toHaveAttribute('aria-valuenow', '150');
     });
   });
 });
