@@ -27,7 +27,7 @@
 - [x] T003 [P] Add flate2 (gzip) dependency to `packages/wasm-engine/Cargo.toml`
 - [x] T004 [P] Create `packages/wasm-engine/src/kzg/mod.rs` module structure
 - [x] T005 [P] Add new storage types to `apps/blockchain/pallets/storage/src/lib.rs` (Fragment, Challenge, ProofRecord) and create `tests/` directory with `mod.rs`
-- [x] T006 [P] Create frontend service stubs `apps/frontend/src/services/kzg-vss.ts` and `compression.ts`
+- [x] T006 [P] Frontend KZG-VSS integration (実装: `apps/frontend/src/hooks/useStorage.ts` - services/kzg-vss.ts不要)
 
 ---
 
@@ -40,7 +40,8 @@
 - [x] T007 Implement SRS loading in `packages/wasm-engine/src/kzg/srs.rs` (FR-003, T-007)
 - [x] T008 [P] Implement compression/decompression in `packages/wasm-engine/src/kzg/compression.rs` (FR-306, T-008, T-009)
 - [x] T009 Implement BLS12-381 scalar encoding (32-byte chunks) in `packages/wasm-engine/src/kzg/encoding.rs`
-- [x] T010 [P] Add `RewardPoolBalance` storage and 90/10 split logic to `apps/blockchain/pallets/storage/src/lib.rs` (FR-113, FR-114)
+- [x] T010 [P] Add `RewardPoolBalance` storage to pallet-storage AND 90/10 split logic to pallet-post (FR-113, FR-114)
+  - **実装**: `StorageInterface::do_deposit_to_reward_pool()` in pallet-storage, called from `pallet-post::create_post` (Fixed 2026-02-16)
 - [x] T011 Build wasm-pack target and verify module loads: `cd packages/wasm-engine && wasm-pack build --target web`
 - [x] T081 ⚠️ **no_std PoC検証**: `apps/blockchain/pallets/storage/`で`ark-poly-commit`のno_stdコンパイルテストを実施。wasm32v1-noneターゲットでコンパイル成功を確認。
 
@@ -100,11 +101,11 @@
 - [X] T022d [US1] Implement unified `hybrid_split` / `hybrid_recover` API in `packages/wasm-engine/src/kzg/hybrid.rs` (新規)
 - [X] T022e [US1] Update Wasm bindings for hybrid API in `packages/wasm-engine/src/kzg/wasm.rs`
 - [X] T022f [US1] Unit tests for hybrid split/recover roundtrip (内蔵テスト: 各モジュールに実装済み)
-- [X] T022g [US1] Update frontend `kzg-vss.ts` to use hybrid API
+- [X] T022g [US1] Update frontend to use hybrid API (実装: `apps/frontend/src/hooks/useStorage.ts`)
 - [X] T023 [US1] Export Wasm bindings via wasm-bindgen in `packages/wasm-engine/src/lib.rs`
 - [X] T024 [US1] Implement `register_kzg_fragment` extrinsic in `apps/blockchain/pallets/storage/src/lib.rs` (FR-102)
-- [X] T025 [US1] Integrate KZG-VSS in frontend post creation in `apps/frontend/src/services/kzg-vss.ts` (FR-301, FR-306)
-- [X] T026 [US1] Integrate KZG-VSS recovery in frontend post viewing in `apps/frontend/src/services/kzg-vss.ts` (FR-302, FR-307)
+- [X] T025 [US1] Integrate KZG-VSS in frontend post creation (実装: `apps/frontend/src/hooks/useStorage.ts`) (FR-301, FR-306)
+- [X] T026 [US1] Integrate KZG-VSS recovery in frontend post viewing (実装: `apps/frontend/src/hooks/useStorage.ts`) (FR-302, FR-307)
 
 #### T026a-T026e: シャード配送フロー (FR-115, FR-150-154)
 

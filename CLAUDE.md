@@ -121,6 +121,24 @@ const api = client.getUnsafeApi()
 
 **Rust toolchain**: Stable channel with `wasm32v1-none` target and `rust-src` component (configured in `apps/blockchain/rust-toolchain.toml`).
 
+### AI Agent Rules (non-negotiable)
+
+The following rules must NEVER be violated. Violations completely destroy trustworthiness.
+
+1. **No false task completion**: Before marking a task complete, you MUST actually write code, run tests, and verify functionality. Marking complete while saying "will do later" or "in next step" is strictly forbidden.
+2. **No referencing non-existent files**: Before reporting file creation/editing, you MUST actually use tools to create/edit the file.
+3. **No false test success reports**: When running tests, you MUST check actual output before reporting results.
+4. **No claiming unimplemented features are done**: Before saying "implemented", you MUST verify code exists and compiles/builds successfully.
+5. **No unchecked checklist updates**: Before marking tasks.md checkboxes as `[X]`, you MUST verify the task is 100% complete.
+6. **No mock-only tests without real implementation**: Writing tests that pass using mocks/stubs while the actual implementation doesn't exist or doesn't work is strictly forbidden. Tests must validate real, working code.
+
+**Violation examples (NEVER do these)**:
+- Reporting "file created" without calling file creation tool
+- Reporting "tests passed" without calling test execution tool
+- Reporting "implementation complete" without writing code
+- Reporting "success" when errors occurred
+- Writing mock tests that pass without implementing the actual feature
+
 ### Security Principles (non-negotiable)
 
 1. **Network anonymity**: Tor/I2P enforced at libp2p transport layer — no IP metadata leakage
