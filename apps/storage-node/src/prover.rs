@@ -429,17 +429,25 @@ pub fn create_prover(srs_path: &str, dev_mode: bool) -> Result<KzgProver> {
     if !srs_path.is_empty() {
         let path = Path::new(srs_path);
         if path.exists() {
-            prover.load_srs_from_file(path)?;
+            prover.load_srs_from_file(path)
+                .with_context(|| format!(
+                    "Failed to load SRS from '{}'. The file exists but may be corrupted or in an unsupported format. \
+                     Expected: Binary format (4-byte count + compressed G1/G2 points) or Ethereum KZG Ceremony text format.",
+                    srs_path
+                ))?;
             info!("Loaded SRS from file: {:?}", path);
         } else {
-            bail!("SRS file not found: {:?}", path);
+            bail!(
+                "SRS file not found: '{}'. Please ensure the file exists or set dev_mode=true for testing.",
+                srs_path
+            );
         }
     } else if dev_mode {
         // Use test SRS for development (degree 1024 is sufficient for most test cases)
         prover.init_test_srs(1024)?;
         info!("Initialized test SRS (degree 1024) for development mode");
     } else {
-        warn!("No SRS loaded - KZG proof generation will fail");
+        warn!("No SRS loaded - KZG proof generation will fail. Specify srs_path in config or enable dev_mode.");
     }
     
     Ok(prover)
