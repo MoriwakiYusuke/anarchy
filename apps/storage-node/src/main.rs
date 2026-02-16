@@ -122,6 +122,7 @@ async fn main() -> anyhow::Result<()> {
     let chain_client = Arc::new(chain::ChainClient::new(
         &config.chain_url,
         config.declare_rate_limit,
+        &config.signer_seed,
         Arc::clone(&failover_manager),
         Arc::clone(&endpoint_cache),
     ).await?);

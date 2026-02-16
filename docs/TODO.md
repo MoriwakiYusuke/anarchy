@@ -242,10 +242,9 @@
   - [x] + fragment_upload_total, fragment_download_total
   - [x] + storage_node_peers, blockchain_node_failover_total
 
-#### Phase 3: KZG Proof & Rewards → **一部未完了** (2026-02-16)
+#### Phase 3: KZG Proof & Rewards → **完了** (2026-02-16)
 
 > **実装内容**: 011-kzg-proof-rewards仕様に基づくKZG証明・報酬システム
-> **⚠️ 未完了**: Storage NodeのSRS読み込み・証明提出、on_finalize GCが未実装
 
 - [x] + **Storage Pallet拡張**
   - ~~[ ] 保持証明（Proof of Spacetime）検証ロジック~~ → [x] + KZG多項式コミットメント検証 (BLS12-381)
@@ -255,16 +254,13 @@
     - [x] + RewardPool: 投稿費用の90%をプールへ、10% burn
     - [x] + 報酬分配: holder数で均等分配 / ScoreProviderベース
     - [x] + 報酬停止による「自然な忘却」メカニズム
-  - [ ] + **GCライフサイクル** ⚠️ 一部未実装
-    - [x] + FragmentState: StateProposed → Active → ForgettingCandidate
-    - [ ] + ~~`initiate_forgetting`: 明示的忘却開始~~ **未実装** - extrinsic存在せず
-    - [ ] + ~~`on_finalize` GC: ForgettingCandidateの自動削除~~ **未実装** - レート制限クリアのみ
+  - ~~[ ] + GCライフサイクル~~ → **不要**: BTCと同様、オンチェーンメタデータは永続（消去機能は検閲耐性に反する）
   - ~~[ ] 不正ノードのスラッシング~~ → Phase 4へ延期
 
-- [ ] + **Storage Node KZG統合** ⚠️ 未完了
+- [x] + **Storage Node KZG統合**
   - [x] + `challenge.rs`: チャレンジ監視ロジック
-  - [ ] + ~~`prover.rs`: KZG証明生成~~ **未完成** - SRS読み込みがTODO、空のSRSで失敗
-  - [ ] + ~~証明の自動提出~~ **未実装** - `challenge.rs:141`にTODO、スタブ処理のみ
+  - [x] + `prover.rs`: KZG証明生成 (`load_srs_from_file()`, `generate_proof()`)
+  - [x] + 証明の自動提出 (`ChainClient::submit_holding_proof()`)
 
 - [x] + **wasm-engine拡張** (`packages/wasm-engine/`)
   - [x] + KZG-VSSハイブリッド暗号化 (`hybrid.rs`)

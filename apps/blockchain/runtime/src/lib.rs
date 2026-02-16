@@ -255,6 +255,8 @@ impl pallet_faucet::Config for Runtime {
 // Storage Pallet設定
 impl pallet_storage::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    /// ネイティブトークン: Balances (報酬ミント用)
+    type NativeToken = Balances;
     /// 断片最大サイズ: 1MB
     type MaxFragmentSize = ConstU32<1_048_576>;
     /// PeerID最大長: 64バイト

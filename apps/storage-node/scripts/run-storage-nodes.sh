@@ -25,6 +25,24 @@ NC='\033[0m'
 BASE_RPC_PORT=3030
 BASE_LIBP2P_PORT=4001
 
+# Dev用署名シード (WARNING: 本番環境では使用しないこと!)
+# https://github.com/polkadot-js/common/blob/master/packages/keyring/src/testing.ts
+DEV_SIGNER_SEEDS=(
+    "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"  # Alice
+    "398f0c28f98885e046333d4a41c19cee4c37368a9832c6502f6cfd182e2aef89"  # Bob
+    "bc1ede780f784bb6991a585e4f6e61522c14e1cae6324f92e34dd3db81a39a12"  # Charlie
+    "868020ae0687dda7d57565093a69090211449845a7e11453612800b663307246"  # Dave
+    "786ad0e2df456fe43dd1f91ebca22e235bc162e0bb8d53c633e8c85b2af68b7a"  # Eve
+    # 5ノード以上の場合はAliceから再利用
+)
+
+# ノード番号に対応するseedを取得
+get_signer_seed() {
+    local node_num=$1
+    local seed_index=$(( (node_num - 1) % ${#DEV_SIGNER_SEEDS[@]} ))
+    echo "${DEV_SIGNER_SEEDS[$seed_index]}"
+}
+
 start_nodes() {
     local num_nodes=${1:-5}
     
@@ -53,6 +71,7 @@ start_nodes() {
         fi
         
         # 設定ファイル生成
+        local signer_seed=$(get_signer_seed $i)
         mkdir -p "$node_data"
         cat > "$config_file" << EOF
 # Auto-generated config for Storage Node $i
@@ -62,6 +81,10 @@ chain_url = "ws://127.0.0.1:9944"
 listen_addr = "/ip4/0.0.0.0/tcp/$libp2p_port"
 declare_rate_limit = 10
 rpc_port = $rpc_port
+
+# Dev signer seed (Node $i)
+# WARNING: For development only! Generate unique seed for production.
+signer_seed = "$signer_seed"
 EOF
         
         # ノード起動

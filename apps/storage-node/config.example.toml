@@ -75,3 +75,20 @@ bootstrap_peers = []
 # When true, requires valid signature in X-Anarchy-Auth header
 # Default: true (authentication enabled by default per FR-201)
 auth_enabled = true
+
+# ============================================================
+# Signer Configuration (Extrinsic Signing)
+# ============================================================
+
+# Sr25519 signer seed for signing extrinsics (hex 32 bytes)
+# This account receives storage rewards from prove_holding_kzg
+#
+# Default: Alice dev account (//Alice)
+# WARNING: Do NOT use dev seeds in production! Generate your own:
+#   subkey generate --scheme sr25519
+#
+# Dev accounts (for testing only):
+# Alice: e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a
+# Bob:   398f0c28f98885e046333d4a41c19cee4c37368a9832c6502f6cfd182e2aef89
+# Charlie: bc1ede780f784bb6991a585e4f6e61522c14e1cae6324f92e34dd3db81a39a12
+signer_seed = "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"

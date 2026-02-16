@@ -15,9 +15,12 @@ use anarchy_storage_node::network::endpoint_cache::EndpointCache;
 async fn create_test_chain_client(rate_limit: u32) -> anarchy_storage_node::chain::ChainClient {
     let failover_manager = Arc::new(FailoverManager::new());
     let endpoint_cache = Arc::new(EndpointCache::new([0u8; 32]));
+    // Use Alice's dev seed for testing
+    let alice_seed = "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
     anarchy_storage_node::chain::ChainClient::new(
         "ws://127.0.0.1:9944",
         rate_limit,
+        alice_seed,
         failover_manager,
         endpoint_cache,
     ).await.unwrap()

@@ -4,6 +4,7 @@
 //! Uses subxt for type-safe chain interaction.
 
 pub mod failover;
+pub mod signer;
 
 #[cfg(test)]
 mod tests;
@@ -12,12 +13,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, Context};
 use tracing::{info, warn, debug};
 
 use crate::network::endpoint_cache::{BlockchainEndpoint, EndpointCache};
 use crate::storage::FragmentId;
 use failover::FailoverManager;
+pub use signer::Signer;
+
+// subxt imports
+use subxt::{OnlineClient, SubstrateConfig};
+use subxt::dynamic::Value;
+use subxt_signer::sr25519::Keypair as SubxtKeypair;
 
 /// Rate limiter for declare_holding calls (FR-108)
 pub struct RateLimiter {
@@ -66,8 +73,8 @@ impl RateLimiter {
 
 /// Chain client for interacting with Anarchy blockchain
 /// 
-/// Note: Currently a stub implementation.
-/// Full implementation requires subxt with generated runtime types.
+/// Uses subxt for type-safe chain interaction and extrinsic submission.
+/// Supports automatic failover to backup endpoints.
 pub struct ChainClient {
     /// RPC endpoint URL (initial endpoint)
     #[allow(dead_code)]
@@ -78,6 +85,12 @@ pub struct ChainClient {
     endpoint_cache: Arc<EndpointCache>,
     /// Rate limiter for declare_holding
     rate_limiter: RateLimiter,
+    /// Sr25519 signer (schnorrkel) for message signing
+    signer: Signer,
+    /// subxt keypair for extrinsic submission
+    subxt_keypair: SubxtKeypair,
+    /// subxt OnlineClient for chain interaction
+    subxt_client: Mutex<Option<OnlineClient<SubstrateConfig>>>,
     /// Connection status
     connected: bool,
     /// Track holdings: hash → (post_id, index)
@@ -89,10 +102,26 @@ impl ChainClient {
     pub async fn new(
         endpoint: &str,
         declare_rate_limit: u32,
+        signer_seed: &str,
         failover_manager: Arc<FailoverManager>,
         endpoint_cache: Arc<EndpointCache>,
     ) -> Result<Self> {
         info!(endpoint = endpoint, "Connecting to chain");
+        
+        // Create signer from seed
+        let signer = Signer::from_seed_hex(signer_seed)?;
+        info!(
+            account = %signer.ss58_address(),
+            "Signer initialized for extrinsic signing"
+        );
+        
+        // Create subxt keypair from same seed
+        let seed_bytes = hex::decode(signer_seed)
+            .context("Invalid hex seed for subxt keypair")?;
+        let seed_arr: [u8; 32] = seed_bytes.try_into()
+            .map_err(|_| anyhow::anyhow!("Seed must be 32 bytes"))?;
+        let subxt_keypair = SubxtKeypair::from_secret_key(seed_arr)
+            .map_err(|e| anyhow::anyhow!("Failed to create subxt keypair: {}", e))?;
         
         // Set initial endpoint as primary in failover manager
         let initial_endpoint = BlockchainEndpoint {
@@ -107,22 +136,66 @@ impl ChainClient {
         };
         failover_manager.set_primary(initial_endpoint).await;
         
-        // Note: In full implementation, connect via subxt:
-        // let api = OnlineClient::<AnarchyConfig>::from_url(endpoint).await?;
+        // Try to connect via subxt (may fail if node not running)
+        let (subxt_client, connected) = match OnlineClient::<SubstrateConfig>::from_url(endpoint).await {
+            Ok(client) => {
+                info!(endpoint = endpoint, "Connected to chain via subxt");
+                (Some(client), true)
+            }
+            Err(e) => {
+                warn!(endpoint = endpoint, error = %e, "Failed to connect via subxt, will retry on first use");
+                (None, false)
+            }
+        };
         
         Ok(Self {
             endpoint: endpoint.to_string(),
             failover_manager,
             endpoint_cache,
             rate_limiter: RateLimiter::new(declare_rate_limit),
-            connected: false, // Would be true after successful connection
+            signer,
+            subxt_keypair,
+            subxt_client: Mutex::new(subxt_client),
+            connected,
             holding_map: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Ensure we have a connected subxt client, reconnecting if necessary
+    async fn ensure_subxt_client(&self) -> Result<OnlineClient<SubstrateConfig>> {
+        let mut client_guard = self.subxt_client.lock().await;
+        
+        if let Some(ref client) = *client_guard {
+            // Client exists, assume still valid (subxt handles reconnection)
+            return Ok(client.clone());
+        }
+        
+        // Need to connect/reconnect
+        let endpoint = self.active_endpoint().await
+            .ok_or_else(|| anyhow::anyhow!("No primary endpoint available"))?;
+        
+        info!(endpoint = %endpoint, "Connecting to chain via subxt");
+        let client = OnlineClient::<SubstrateConfig>::from_url(&endpoint)
+            .await
+            .context("Failed to connect via subxt")?;
+        
+        *client_guard = Some(client.clone());
+        Ok(client)
     }
 
     /// Get the current active endpoint URL (from failover manager)
     pub async fn active_endpoint(&self) -> Option<String> {
         self.failover_manager.get_primary_url().await
+    }
+
+    /// Get the signer's account ID (for reward claims)
+    pub fn signer_account_id(&self) -> [u8; 32] {
+        self.signer.account_id()
+    }
+
+    /// Get the signer's SS58 address (for logging)
+    pub fn signer_ss58(&self) -> String {
+        self.signer.ss58_address()
     }
 
     /// Report a successful RPC call
@@ -262,7 +335,7 @@ impl ChainClient {
 
     /// Submit KZG holding proof to chain (T083)
     /// 
-    /// Submits `prove_holding_kzg` extrinsic with the proof data.
+    /// Submits `prove_holding_kzg` extrinsic with the proof data via subxt.
     /// Called by ChallengeMonitor after generating a valid proof.
     pub async fn submit_holding_proof(
         &self,
@@ -271,136 +344,125 @@ impl ChainClient {
         share_value: [u8; 32],
         proof: [u8; 48],
     ) -> Result<()> {
-        debug!(
+        info!(
             content_hash = %hex::encode(content_hash),
             share_index = share_index,
-            "Submitting KZG holding proof to chain"
+            account = %self.signer_ss58(),
+            "Submitting KZG holding proof to chain via subxt"
         );
         
-        // Note: Full implementation would use subxt/PAPI:
-        // let tx = anarchy::tx().storage().prove_holding_kzg(
-        //     content_hash,
-        //     share_index,
-        //     share_value,
-        //     proof,
-        // );
-        // let progress = self.api.tx().sign_and_submit_then_watch_default(&tx, &self.signer).await?;
-        // progress.wait_for_finalized_success().await?;
+        // Get connected subxt client
+        let client = self.ensure_subxt_client().await?;
         
-        // Alternative: HTTP JSON-RPC (matches register_with_blockchain pattern)
-        #[derive(serde::Serialize)]
-        struct ProveHoldingParams {
-            content_hash: String,
-            share_index: u8,
-            share_value: String,
-            proof: String,
-        }
+        // Build the extrinsic using subxt dynamic API
+        // pallet_storage::Call::prove_holding_kzg { content_hash, share_index, share_value, proof }
+        // share_value and proof are BoundedVec<u8, ConstU32<N>>
+        let tx = subxt::dynamic::tx(
+            "Storage",
+            "prove_holding_kzg",
+            vec![
+                // content_hash: [u8; 32]
+                Value::from_bytes(content_hash),
+                // share_index: u8
+                Value::u128(share_index as u128),
+                // share_value: BoundedVec<u8, ConstU32<32>>
+                Value::from_bytes(share_value),
+                // proof: BoundedVec<u8, ConstU32<48>>
+                Value::from_bytes(proof),
+            ],
+        );
         
-        #[derive(serde::Serialize)]
-        struct RpcRequest {
-            jsonrpc: &'static str,
-            id: u32,
-            method: &'static str,
-            params: ProveHoldingParams,
-        }
+        // Submit and watch for finalization
+        let mut progress = client
+            .tx()
+            .sign_and_submit_then_watch_default(&tx, &self.subxt_keypair)
+            .await
+            .context("Failed to submit prove_holding_kzg extrinsic")?;
         
-        #[derive(serde::Deserialize)]
-        struct RpcResponse {
-            result: Option<bool>,
-            error: Option<RpcError>,
-        }
-        
-        #[derive(serde::Deserialize)]
-        struct RpcError {
-            message: String,
-        }
-        
-        let client = reqwest::Client::new();
-        let request = RpcRequest {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "storage_proveHoldingKzg",
-            params: ProveHoldingParams {
-                content_hash: hex::encode(content_hash),
-                share_index,
-                share_value: hex::encode(share_value),
-                proof: hex::encode(proof),
-            },
-        };
-        
-        // Retry loop for failover (max 3 attempts)
-        const MAX_RETRIES: u32 = 3;
-        let mut last_error = None;
-        
-        for attempt in 0..MAX_RETRIES {
-            let endpoint_url = match self.active_endpoint().await {
-                Some(url) => url,
-                None => {
-                    return Err(anyhow::anyhow!("No primary endpoint available"));
-                }
-            };
-            
-            let http_endpoint = endpoint_url
-                .replace("ws://", "http://")
-                .replace("wss://", "https://");
-            
-            if attempt > 0 {
-                info!(
-                    blockchain = %http_endpoint,
-                    attempt = attempt + 1,
-                    "Retrying proof submission after failover"
-                );
-            } else {
-                info!(
-                    blockchain = %http_endpoint,
-                    content_hash = %hex::encode(content_hash),
-                    "Submitting KZG holding proof"
-                );
-            }
-            
-            match client
-                .post(&http_endpoint)
-                .json(&request)
-                .send()
-                .await
-            {
-                Ok(resp) => {
-                    self.report_success().await;
-                    
-                    let rpc_response: RpcResponse = resp
-                        .json()
-                        .await
-                        .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
-                    
-                    if let Some(error) = rpc_response.error {
-                        bail!("Blockchain rejected proof: {}", error.message);
-                    }
-                    
-                    if rpc_response.result == Some(true) {
-                        info!(
-                            content_hash = %hex::encode(content_hash),
-                            "Successfully submitted KZG holding proof"
-                        );
-                    }
-                    
-                    return Ok(());
-                }
-                Err(e) => {
-                    last_error = Some(e);
-                    if let Some(new_primary) = self.report_failure().await {
-                        info!(new_primary = %new_primary, "Failover triggered, will retry with new primary");
-                        continue;
-                    }
+        // Wait for finalization using next() to get status updates
+        use subxt::tx::TxStatus;
+        loop {
+            match progress.next().await {
+                Some(Ok(TxStatus::InBestBlock(details))) | Some(Ok(TxStatus::InFinalizedBlock(details))) => {
+                    // Check for dispatch error
+                    details.wait_for_success().await.context("Extrinsic dispatch failed")?;
+                    info!(
+                        content_hash = %hex::encode(content_hash),
+                        block_hash = %hex::encode(details.block_hash().0),
+                        "Successfully submitted KZG holding proof - reward pending"
+                    );
                     break;
                 }
+                Some(Ok(_)) => {
+                    // Other status, continue waiting
+                    continue;
+                }
+                Some(Err(e)) => {
+                    return Err(anyhow::anyhow!("Transaction error: {}", e));
+                }
+                None => {
+                    return Err(anyhow::anyhow!("Transaction stream ended unexpectedly"));
+                }
             }
         }
         
-        Err(anyhow::anyhow!(
-            "Failed to submit proof after {} attempts: {}",
-            MAX_RETRIES,
-            last_error.map(|e| e.to_string()).unwrap_or_default()
-        ))
+        self.report_success().await;
+        Ok(())
+    }
+
+    /// Claim accumulated rewards from chain
+    /// 
+    /// Submits `claim_reward` extrinsic via subxt.
+    /// Returns Ok(()) on success. Check balance to see claimed amount.
+    pub async fn claim_reward(&self) -> Result<()> {
+        info!(
+            account = %self.signer_ss58(),
+            "Claiming accumulated rewards from chain"
+        );
+        
+        // Get connected subxt client
+        let client = self.ensure_subxt_client().await?;
+        
+        // Build the extrinsic using subxt dynamic API
+        // pallet_storage::Call::claim_reward (no parameters)
+        let tx = subxt::dynamic::tx("Storage", "claim_reward", Vec::<Value>::new());
+        
+        // Submit and watch for finalization
+        let mut progress = client
+            .tx()
+            .sign_and_submit_then_watch_default(&tx, &self.subxt_keypair)
+            .await
+            .context("Failed to submit claim_reward extrinsic")?;
+        
+        // Wait for finalization
+        use subxt::tx::TxStatus;
+        loop {
+            match progress.next().await {
+                Some(Ok(TxStatus::InBestBlock(details))) | Some(Ok(TxStatus::InFinalizedBlock(details))) => {
+                    // Check for dispatch success
+                    details.wait_for_success().await.context("claim_reward failed")?;
+                    
+                    info!(
+                        account = %self.signer_ss58(),
+                        block_hash = %hex::encode(details.block_hash().0),
+                        "Successfully claimed reward"
+                    );
+                    break;
+                }
+                Some(Ok(_)) => {
+                    continue;
+                }
+                Some(Err(e)) => {
+                    return Err(anyhow::anyhow!("Transaction error: {}", e));
+                }
+                None => {
+                    return Err(anyhow::anyhow!("Transaction stream ended unexpectedly"));
+                }
+            }
+        }
+        
+        self.report_success().await;
+        Ok(())
     }
 
     /// Get list of fragment holders from chain

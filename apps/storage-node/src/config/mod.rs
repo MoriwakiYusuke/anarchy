@@ -60,6 +60,12 @@ pub struct Config {
     /// Development mode - uses insecure test SRS if srs_path is empty
     #[serde(default = "default_dev_mode")]
     pub dev_mode: bool,
+
+    /// Sr25519 signer seed (hex 32 bytes) for signing extrinsics
+    /// Default: Alice dev account seed
+    /// WARNING: Do not use dev seeds in production!
+    #[serde(default = "default_signer_seed")]
+    pub signer_seed: String,
 }
 
 fn default_data_dir() -> String {
@@ -102,6 +108,12 @@ fn default_dev_mode() -> bool {
     true // Development mode by default (uses test SRS)
 }
 
+fn default_signer_seed() -> String {
+    // Alice dev account seed (//Alice)
+    // WARNING: For development only! Replace with unique seed in production.
+    "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -115,6 +127,7 @@ impl Default for Config {
             bootstrap_peers: default_bootstrap_peers(),
             srs_path: default_srs_path(),
             dev_mode: default_dev_mode(),
+            signer_seed: default_signer_seed(),
         }
     }
 }
