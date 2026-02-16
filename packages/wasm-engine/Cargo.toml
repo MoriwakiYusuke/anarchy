@@ -55,6 +55,8 @@ reed-solomon-erasure = { version = "6.0", default-features = false }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+# Enable test-utils feature for integration tests
+anarchy-wasm-engine = { path = ".", features = ["test-utils"] }
 
 [profile.release]
 opt-level = "s"

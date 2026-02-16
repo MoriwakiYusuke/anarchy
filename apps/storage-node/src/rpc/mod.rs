@@ -88,6 +88,7 @@ pub struct GetFragmentResult {
 }
 
 /// KZG shard upload request (FR-150)
+/// Note: KZG proof verification happens at blockchain node RPC before forwarding here
 #[derive(Debug, Deserialize)]
 pub struct StoreKzgShardParams {
     /// Content hash identifying the post
@@ -96,8 +97,6 @@ pub struct StoreKzgShardParams {
     pub shard_index: u8,
     /// Encrypted shard data (base64 encoded)
     pub shard_data: String,
-    /// KZG proof (base64 encoded, 48 bytes compressed G1)
-    pub kzg_proof: String,
 }
 
 /// KZG shard upload response

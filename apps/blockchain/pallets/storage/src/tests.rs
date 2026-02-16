@@ -871,7 +871,11 @@ fn t029_prove_holding_kzg_valid_proof_succeeds() {
         
         // Proof validation fails because test_commitment() is identity point
         // This is expected behavior - real proofs need arkworks computation
+        // Note: In benchmark mode, verification result is ignored for weight measurement
+        #[cfg(not(feature = "runtime-benchmarks"))]
         assert!(result.is_err());
+        #[cfg(feature = "runtime-benchmarks")]
+        assert!(result.is_ok()); // Benchmark mode skips verification check
     });
 }
 

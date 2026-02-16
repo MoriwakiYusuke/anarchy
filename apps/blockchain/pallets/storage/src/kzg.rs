@@ -8,6 +8,15 @@ use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalDeserialize;
 
+/// BLS12-381 G1 generator (compressed form, 48 bytes)
+/// Use this for benchmark test vectors instead of all-zero bytes.
+#[cfg(feature = "runtime-benchmarks")]
+pub const G1_GENERATOR_COMPRESSED: [u8; 48] = [
+    151, 241, 211, 167, 49, 151, 215, 148, 38, 149, 99, 140, 79, 169, 172, 15,
+    195, 104, 140, 79, 151, 116, 185, 5, 161, 78, 58, 63, 23, 27, 172, 88,
+    108, 85, 232, 63, 249, 122, 26, 239, 251, 58, 240, 10, 219, 34, 198, 187,
+];
+
 /// KZG verification error types
 #[derive(Debug, Clone, PartialEq)]
 pub enum KzgVerifyError {
@@ -23,24 +32,29 @@ pub enum KzgVerifyError {
     VerificationFailed,
 }
 
-/// Embedded tau_g2 from Ethereum KZG Ceremony (Powers of Tau)
-/// This is [τ]₂ where τ is the secret from the trusted setup
-/// Compressed G2 point (96 bytes)
+/// Embedded tau_g2 for KZG verification: [τ]₂ where τ is from the trusted setup.
+/// Compressed G2 point (96 bytes).
+///
+/// This is KZG_SETUP_G2[1] from the Ethereum KZG Ceremony (EIP-4844).
+/// Source: https://github.com/ethereum/c-kzg-4844/blob/main/src/trusted_setup.txt
+///
+/// # IMPORTANT
+/// This value MUST match the SRS used by the storage nodes and wasm-engine.
+/// For production, both must use the same Ethereum KZG Ceremony trusted setup.
 const TAU_G2_BYTES: [u8; 96] = [
-    // Ethereum KZG ceremony tau_g2 point (mainnet KZG_SETUP_G2[1])
-    // This is a placeholder - need to use actual value from ceremony
-    0x93, 0xe0, 0x2b, 0x60, 0x52, 0x71, 0x9f, 0x60,
-    0x7d, 0xac, 0xd3, 0xa0, 0x88, 0x27, 0x4f, 0x65,
-    0x59, 0x6b, 0xd0, 0xd0, 0x99, 0x20, 0xb6, 0x1a,
-    0xb5, 0xda, 0x61, 0xbb, 0xdc, 0x7f, 0x50, 0x49,
-    0x33, 0x4c, 0xf1, 0x12, 0x13, 0x94, 0x5d, 0x57,
-    0xe5, 0xac, 0x7d, 0x05, 0x5d, 0x04, 0x2b, 0x7e,
-    0x02, 0x4a, 0xa2, 0xb2, 0xf0, 0x8f, 0x0a, 0x91,
-    0x26, 0x08, 0x05, 0x27, 0x2d, 0xc5, 0x10, 0x51,
-    0xc6, 0xe4, 0x7a, 0xd4, 0xfa, 0x40, 0x3b, 0x02,
-    0xb4, 0x51, 0x0b, 0x64, 0x7a, 0xe3, 0xd1, 0x77,
-    0x06, 0x34, 0x65, 0x08, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // KZG_SETUP_G2[1] from Ethereum KZG Ceremony (EIP-4844 trusted setup)
+    0xb5, 0xbf, 0xd7, 0xdd, 0x8c, 0xde, 0xb1, 0x28,
+    0x84, 0x3b, 0xc2, 0x87, 0x23, 0x0a, 0xf3, 0x89,
+    0x26, 0x18, 0x70, 0x75, 0xcb, 0xfb, 0xef, 0xa8,
+    0x10, 0x09, 0xa2, 0xce, 0x61, 0x5a, 0xc5, 0x3d,
+    0x29, 0x14, 0xe5, 0x87, 0x0c, 0xb4, 0x52, 0xd2,
+    0xaf, 0xaa, 0xab, 0x24, 0xf3, 0x49, 0x9f, 0x72,
+    0x18, 0x5c, 0xbf, 0xee, 0x53, 0x49, 0x27, 0x14,
+    0x73, 0x44, 0x29, 0xb7, 0xb3, 0x86, 0x08, 0xe2,
+    0x39, 0x26, 0xc9, 0x11, 0xcc, 0xec, 0xea, 0xc9,
+    0xa3, 0x68, 0x51, 0x47, 0x7b, 0xa4, 0xc6, 0x0b,
+    0x08, 0x70, 0x41, 0xde, 0x62, 0x10, 0x00, 0xed,
+    0xc9, 0x8e, 0xda, 0xda, 0x20, 0xc1, 0xde, 0xf2,
 ];
 
 /// Verify a KZG opening proof on-chain.
@@ -136,5 +150,37 @@ mod tests {
 
         let result = verify_kzg_proof(&invalid_commitment, 1, &share_value, &proof);
         assert!(matches!(result, Err(KzgVerifyError::InvalidCommitment)));
+    }
+
+    /// Print G1 generator compressed bytes (for benchmark test vectors)
+    #[test]
+    fn print_g1_generator_bytes() {
+        use ark_serialize::CanonicalSerialize;
+        let g1 = G1Affine::generator();
+        let mut buf = [0u8; 48];
+        g1.serialize_compressed(&mut buf[..]).unwrap();
+        println!("G1_GENERATOR_COMPRESSED: {:?}", buf);
+    }
+
+    /// Verify TAU_G2_BYTES is a valid G2 point (can be deserialized).
+    /// This ensures the embedded Ethereum KZG Ceremony constant is well-formed.
+    #[test]
+    fn test_tau_g2_validity() {
+        use ark_serialize::CanonicalDeserialize;
+
+        // Verify TAU_G2_BYTES deserializes to a valid G2 point
+        let result = G2Affine::deserialize_compressed(&TAU_G2_BYTES[..]);
+        assert!(
+            result.is_ok(),
+            "TAU_G2_BYTES failed to deserialize as valid G2 point: {:?}",
+            result.err()
+        );
+
+        // Verify the point is not the identity (would be useless for verification)
+        let point = result.unwrap();
+        assert!(
+            !point.is_zero(),
+            "TAU_G2_BYTES is the identity point, which is invalid"
+        );
     }
 }

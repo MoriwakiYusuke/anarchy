@@ -435,12 +435,12 @@ impl StorageNodeClient {
             params: StoreKzgShardParams<'a>,
         }
 
+        // Note: kzg_proof not forwarded - verification already done, storage node doesn't need it
         #[derive(Serialize)]
         struct StoreKzgShardParams<'a> {
             content_hash: [u8; 32],
             shard_index: u8,
             shard_data: &'a str,  // base64 encoded
-            kzg_proof: &'a str,   // base64 encoded
         }
 
         #[derive(Deserialize)]
@@ -462,7 +462,6 @@ impl StorageNodeClient {
                 content_hash: request.content_hash,
                 shard_index: request.share_index,
                 shard_data: &request.shard_data,
-                kzg_proof: &request.proof,
             },
         };
 

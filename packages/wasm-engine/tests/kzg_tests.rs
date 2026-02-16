@@ -14,7 +14,7 @@ use anarchy_wasm_engine::{
     KzgError, VssShare, BYTES_PER_SCALAR,
 };
 use anarchy_wasm_engine::kzg::encoding::{decode_from_scalars, encode_to_scalars};
-use anarchy_wasm_engine::kzg::srs::init_test_srs;
+use anarchy_wasm_engine::kzg::init_test_srs;
 
 /// Generate a test SRS for unit tests.
 ///
@@ -532,4 +532,58 @@ fn t028_verify_with_invalid_proof_fails() {
     // For now, placeholder returns true, but API should work
     assert!(result.is_ok(), "verify_kzg_proof should not panic");
     // TODO: After T035, this should be: assert!(!result.unwrap());
+}
+
+// ============================================================================
+// Ethereum KZG Ceremony SRS Loading Test
+// ============================================================================
+
+/// Test loading the actual Ethereum KZG Ceremony trusted setup
+/// This validates that the parser can handle the real production data
+#[test]
+fn test_load_ethereum_ceremony_srs() {
+    use anarchy_wasm_engine::kzg::srs::load_srs_from_ceremony_text;
+    
+    // Read the trusted setup file
+    let srs_text = std::fs::read_to_string("srs/trusted_setup.txt")
+        .expect("Failed to read srs/trusted_setup.txt");
+    
+    // Parse the ceremony format
+    let srs = load_srs_from_ceremony_text(&srs_text)
+        .expect("Failed to parse Ethereum KZG Ceremony SRS");
+    
+    // Verify expected dimensions
+    assert_eq!(srs.powers_of_g1.len(), 4096, "Should have 4096 G1 points");
+    
+    // Verify tau_g2 matches the embedded constant in pallet-storage
+    // This is KZG_SETUP_G2[1] from the ceremony
+    use ark_serialize::CanonicalSerialize;
+    let mut tau_g2_bytes = [0u8; 96];
+    srs.tau_g2.serialize_compressed(&mut tau_g2_bytes[..])
+        .expect("Failed to serialize tau_g2");
+    
+    // Expected bytes from pallet-storage TAU_G2_BYTES
+    let expected_tau_g2: [u8; 96] = [
+        0xb5, 0xbf, 0xd7, 0xdd, 0x8c, 0xde, 0xb1, 0x28,
+        0x84, 0x3b, 0xc2, 0x87, 0x23, 0x0a, 0xf3, 0x89,
+        0x26, 0x18, 0x70, 0x75, 0xcb, 0xfb, 0xef, 0xa8,
+        0x10, 0x09, 0xa2, 0xce, 0x61, 0x5a, 0xc5, 0x3d,
+        0x29, 0x14, 0xe5, 0x87, 0x0c, 0xb4, 0x52, 0xd2,
+        0xaf, 0xaa, 0xab, 0x24, 0xf3, 0x49, 0x9f, 0x72,
+        0x18, 0x5c, 0xbf, 0xee, 0x53, 0x49, 0x27, 0x14,
+        0x73, 0x44, 0x29, 0xb7, 0xb3, 0x86, 0x08, 0xe2,
+        0x39, 0x26, 0xc9, 0x11, 0xcc, 0xec, 0xea, 0xc9,
+        0xa3, 0x68, 0x51, 0x47, 0x7b, 0xa4, 0xc6, 0x0b,
+        0x08, 0x70, 0x41, 0xde, 0x62, 0x10, 0x00, 0xed,
+        0xc9, 0x8e, 0xda, 0xda, 0x20, 0xc1, 0xde, 0xf2,
+    ];
+    
+    assert_eq!(
+        tau_g2_bytes, expected_tau_g2,
+        "tau_g2 should match pallet-storage TAU_G2_BYTES"
+    );
+    
+    println!("✓ Ethereum KZG Ceremony SRS loaded successfully");
+    println!("  - {} G1 points", srs.powers_of_g1.len());
+    println!("  - tau_g2 matches pallet-storage constant");
 }

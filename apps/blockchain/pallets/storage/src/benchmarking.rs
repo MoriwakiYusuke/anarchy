@@ -187,10 +187,10 @@ mod benchmarks {
             http_url,
         );
         
-        // Setup: register KZG fragment (using simplified test data)
-        // In real scenarios, commitment would be a valid 48-byte compressed G1 point
+        // Setup: register KZG fragment using valid G1 generator point
+        // This is a valid BLS12-381 G1 point that can be deserialized on-chain
         let kzg_commitment: BoundedVec<u8, ConstU32<48>> = 
-            vec![0u8; 48].try_into().expect("commitment within bounds");
+            crate::kzg::G1_GENERATOR_COMPRESSED.to_vec().try_into().expect("commitment within bounds");
         let compressed_size: u32 = 10 * 1024; // 10KB
         let fragment_count: u8 = 5;
         let threshold: u8 = 3;
@@ -204,9 +204,11 @@ mod benchmarks {
             threshold,
         );
         
-        // Mock proof data (48 bytes compressed G1)
+        // Valid G1 proof data (G1 generator can be deserialized)
+        // Note: Pairing check will fail as commitment/proof aren't mathematically consistent,
+        // but this measures the full verification path including deserialization overhead.
         let proof: BoundedVec<u8, ConstU32<48>> = 
-            vec![0u8; 48].try_into().expect("proof within bounds");
+            crate::kzg::G1_GENERATOR_COMPRESSED.to_vec().try_into().expect("proof within bounds");
         let share_index: u8 = 1;
         let share_value: BoundedVec<u8, ConstU32<32>> = 
             vec![0u8; 32].try_into().expect("share_value within bounds");
@@ -252,7 +254,7 @@ mod benchmarks {
         // Here we measure single verification and extrapolate
         let content_hash: [u8; 32] = [7u8; 32];
         let kzg_commitment: BoundedVec<u8, ConstU32<48>> = 
-            vec![1u8; 48].try_into().expect("commitment within bounds");
+            crate::kzg::G1_GENERATOR_COMPRESSED.to_vec().try_into().expect("commitment within bounds");
         
         let _ = Pallet::<T>::register_kzg_fragment(
             RawOrigin::Signed(caller.clone()).into(),
@@ -264,7 +266,7 @@ mod benchmarks {
         );
         
         let proof: BoundedVec<u8, ConstU32<48>> = 
-            vec![1u8; 48].try_into().expect("proof within bounds");
+            crate::kzg::G1_GENERATOR_COMPRESSED.to_vec().try_into().expect("proof within bounds");
         let share_index: u8 = 1;
         let share_value: BoundedVec<u8, ConstU32<32>> = 
             vec![1u8; 32].try_into().expect("share_value within bounds");

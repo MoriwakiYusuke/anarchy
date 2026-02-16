@@ -29,7 +29,7 @@ pub mod wasm;
 pub use compression::{compress, decompress};
 pub use encoding::BYTES_PER_SCALAR;
 pub use proof::{verify_kzg_proof, vss_prove};
-pub use srs::{init_srs, is_srs_initialized};
+pub use srs::{init_srs, init_srs_from_ceremony_text, is_srs_initialized};
 pub use vss::{vss_recover, vss_split, KzgCommitment, KzgProof, VssShare, VssSplitResult};
 
 // Test utility exports (for both unit and integration tests)

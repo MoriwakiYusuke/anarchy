@@ -5,6 +5,7 @@
 use ark_bls12_381::{G1Affine, G2Affine};
 use ark_serialize::CanonicalDeserialize;
 use ark_std::vec::Vec;
+use std::sync::OnceLock;
 
 use super::KzgError;
 
@@ -16,34 +17,37 @@ pub struct Srs {
     pub tau_g2: G2Affine,
 }
 
-/// Global SRS instance (initialized once via init_srs)
-static mut GLOBAL_SRS: Option<Srs> = None;
+/// Global SRS instance (thread-safe one-time initialization)
+static GLOBAL_SRS: OnceLock<Srs> = OnceLock::new();
 
 /// Initialize the SRS from raw bytes.
 ///
 /// # Arguments
 /// * `srs_bytes` - SRS file bytes (Ethereum KZG Ceremony format)
 ///
-/// # Safety
-/// This function sets a global mutable state. Should be called once at startup.
+/// # Returns
+/// - `Ok(())` if SRS was initialized successfully or was already initialized
+/// - `Err` if loading fails
 pub fn init_srs(srs_bytes: &[u8]) -> Result<(), KzgError> {
-    let srs = load_srs_from_bytes(srs_bytes)?;
-    unsafe {
-        GLOBAL_SRS = Some(srs);
+    // If already initialized, return Ok
+    if GLOBAL_SRS.get().is_some() {
+        return Ok(());
     }
+    
+    let srs = load_srs_from_bytes(srs_bytes)?;
+    // Use get_or_init to handle race condition safely
+    GLOBAL_SRS.get_or_init(|| srs);
     Ok(())
 }
 
 /// Get reference to the global SRS.
 pub fn get_srs() -> Result<&'static Srs, KzgError> {
-    unsafe {
-        GLOBAL_SRS.as_ref().ok_or(KzgError::SrsNotLoaded)
-    }
+    GLOBAL_SRS.get().ok_or(KzgError::SrsNotLoaded)
 }
 
 /// Check if SRS is initialized.
 pub fn is_srs_initialized() -> bool {
-    unsafe { GLOBAL_SRS.is_some() }
+    GLOBAL_SRS.get().is_some()
 }
 
 /// Initialize a test SRS for testing purposes.
@@ -56,6 +60,11 @@ pub fn init_test_srs(max_degree: usize) -> Result<(), KzgError> {
     use ark_ec::AffineRepr;
     use ark_ff::Field;
     use ark_bls12_381::Fr;
+
+    // If already initialized, return Ok
+    if GLOBAL_SRS.get().is_some() {
+        return Ok(());
+    }
 
     // Use a deterministic (INSECURE) tau for testing
     // tau = 12345 (just for testing)
@@ -82,31 +91,145 @@ pub fn init_test_srs(max_degree: usize) -> Result<(), KzgError> {
         tau_g2,
     };
 
-    unsafe {
-        GLOBAL_SRS = Some(srs);
-    }
+    GLOBAL_SRS.get_or_init(|| srs);
 
     Ok(())
 }
 
-/// Load SRS from bytes (Ethereum KZG format).
-fn load_srs_from_bytes(bytes: &[u8]) -> Result<Srs, KzgError> {
-    // Ethereum KZG Ceremony format:
-    // - First 48 bytes: number of G1 points (big-endian u64, padded)
-    // - G1 points: 48 bytes each (compressed)
-    // - G2 point: 96 bytes (compressed)
-    
-    if bytes.len() < 48 + 96 {
-        return Err(KzgError::EncodingError("SRS file too small".into()));
+/// Initialize SRS from Ethereum KZG Ceremony text format.
+///
+/// This is the format used by the official Ethereum trusted setup:
+/// https://github.com/ethereum/c-kzg-4844/blob/main/src/trusted_setup.txt
+///
+/// Format:
+/// - Line 1: number of G1 points (e.g., "4096")
+/// - Line 2: number of G2 points (e.g., "65")
+/// - Lines 3 to (2 + num_g1): G1 points as hex strings (96 chars = 48 bytes compressed)
+/// - Lines (3 + num_g1) to end: G2 points as hex strings (192 chars = 96 bytes compressed)
+///
+/// We use G2[1] (second G2 point) as tau_g2 for verification.
+pub fn init_srs_from_ceremony_text(text: &str) -> Result<(), KzgError> {
+    if GLOBAL_SRS.get().is_some() {
+        return Ok(());
     }
+    
+    let srs = load_srs_from_ceremony_text(text)?;
+    GLOBAL_SRS.get_or_init(|| srs);
+    Ok(())
+}
 
-    // For now, we use a simplified format:
-    // [4 bytes: num_g1 (u32 LE)] [G1 points] [G2 point]
+/// Load SRS from Ethereum KZG Ceremony text format.
+///
+/// This returns an Srs struct without initializing the global SRS.
+/// Useful for testing and inspection.
+pub fn load_srs_from_ceremony_text(text: &str) -> Result<Srs, KzgError> {
+    let lines: Vec<&str> = text.lines().collect();
+    
+    if lines.len() < 4 {
+        return Err(KzgError::EncodingError("SRS text too short".into()));
+    }
+    
+    let num_g1: usize = lines[0].trim().parse()
+        .map_err(|_| KzgError::EncodingError("Invalid G1 count".into()))?;
+    let num_g2: usize = lines[1].trim().parse()
+        .map_err(|_| KzgError::EncodingError("Invalid G2 count".into()))?;
+    
+    if num_g1 == 0 {
+        return Err(KzgError::EncodingError("SRS must have at least 1 G1 point".into()));
+    }
+    if num_g2 < 2 {
+        return Err(KzgError::EncodingError("SRS must have at least 2 G2 points (need G2[1])".into()));
+    }
+    
+    let expected_lines = 2 + num_g1 + num_g2;
+    if lines.len() < expected_lines {
+        return Err(KzgError::EncodingError(format!(
+            "Expected {} lines, got {}", expected_lines, lines.len()
+        )));
+    }
+    
+    // Parse G1 points (lines 2 to 2+num_g1-1, 0-indexed)
+    let mut powers_of_g1 = Vec::with_capacity(num_g1);
+    for i in 0..num_g1 {
+        let hex_str = lines[2 + i].trim();
+        let bytes = hex_to_bytes(hex_str)
+            .map_err(|e| KzgError::EncodingError(format!("G1[{}] hex error: {}", i, e)))?;
+        
+        if bytes.len() != 48 {
+            return Err(KzgError::EncodingError(format!(
+                "G1[{}] wrong size: expected 48 bytes, got {}", i, bytes.len()
+            )));
+        }
+        
+        let point = G1Affine::deserialize_compressed(&bytes[..])
+            .map_err(|e| KzgError::EncodingError(format!("G1[{}] deserialize error: {}", i, e)))?;
+        powers_of_g1.push(point);
+    }
+    
+    // Parse G2[1] (second G2 point) as tau_g2
+    // G2 points start at line (2 + num_g1), G2[1] is at line (2 + num_g1 + 1)
+    let tau_g2_line = 2 + num_g1 + 1;
+    let tau_g2_hex = lines[tau_g2_line].trim();
+    let tau_g2_bytes = hex_to_bytes(tau_g2_hex)
+        .map_err(|e| KzgError::EncodingError(format!("tau_g2 hex error: {}", e)))?;
+    
+    if tau_g2_bytes.len() != 96 {
+        return Err(KzgError::EncodingError(format!(
+            "tau_g2 wrong size: expected 96 bytes, got {}", tau_g2_bytes.len()
+        )));
+    }
+    
+    let tau_g2 = G2Affine::deserialize_compressed(&tau_g2_bytes[..])
+        .map_err(|e| KzgError::EncodingError(format!("tau_g2 deserialize error: {}", e)))?;
+    
+    Ok(Srs {
+        powers_of_g1,
+        tau_g2,
+    })
+}
+
+/// Convert hex string to bytes.
+fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
+    if hex.len() % 2 != 0 {
+        return Err("Hex string has odd length".into());
+    }
+    
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| {
+            u8::from_str_radix(&hex[i..i + 2], 16)
+                .map_err(|e| format!("Invalid hex at position {}: {}", i, e))
+        })
+        .collect()
+}
+
+/// Load SRS from bytes.
+///
+/// Format (simplified binary format):
+/// - 4 bytes: num_g1 (u32 LE)
+/// - num_g1 × 48 bytes: G1 points (compressed BLS12-381 G1)
+/// - 96 bytes: G2 point (compressed BLS12-381 G2)
+fn load_srs_from_bytes(bytes: &[u8]) -> Result<Srs, KzgError> {
+    const HEADER_SIZE: usize = 4;
+    const G1_SIZE: usize = 48;
+    const G2_SIZE: usize = 96;
+    
+    // Minimum: header + at least 1 G1 point + G2 point
+    let min_size = HEADER_SIZE + G1_SIZE + G2_SIZE;
+    if bytes.len() < min_size {
+        return Err(KzgError::EncodingError(format!(
+            "SRS file too small: minimum {} bytes, got {}",
+            min_size,
+            bytes.len()
+        )));
+    }
     
     let num_g1 = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
-    let g1_size = 48; // Compressed G1
-    let g2_size = 96; // Compressed G2
-    let expected_size = 4 + num_g1 * g1_size + g2_size;
+    if num_g1 == 0 {
+        return Err(KzgError::EncodingError("SRS must contain at least 1 G1 point".into()));
+    }
+    
+    let expected_size = HEADER_SIZE + num_g1 * G1_SIZE + G2_SIZE;
     
     if bytes.len() < expected_size {
         return Err(KzgError::EncodingError(format!(
@@ -117,16 +240,16 @@ fn load_srs_from_bytes(bytes: &[u8]) -> Result<Srs, KzgError> {
     }
 
     let mut powers_of_g1 = Vec::with_capacity(num_g1);
-    let mut offset = 4;
+    let mut offset = HEADER_SIZE;
 
     for _ in 0..num_g1 {
-        let point = G1Affine::deserialize_compressed(&bytes[offset..offset + g1_size])
+        let point = G1Affine::deserialize_compressed(&bytes[offset..offset + G1_SIZE])
             .map_err(|e| KzgError::EncodingError(format!("Failed to deserialize G1 point: {}", e)))?;
         powers_of_g1.push(point);
-        offset += g1_size;
+        offset += G1_SIZE;
     }
 
-    let tau_g2 = G2Affine::deserialize_compressed(&bytes[offset..offset + g2_size])
+    let tau_g2 = G2Affine::deserialize_compressed(&bytes[offset..offset + G2_SIZE])
         .map_err(|e| KzgError::EncodingError(format!("Failed to deserialize G2 point: {}", e)))?;
 
     Ok(Srs {
@@ -140,12 +263,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_srs_not_initialized() {
-        // Reset global state for test
-        unsafe {
-            GLOBAL_SRS = None;
-        }
-        assert!(!is_srs_initialized());
-        assert!(get_srs().is_err());
+    fn test_srs_initialization() {
+        // Initialize test SRS
+        init_test_srs(10).expect("Failed to init test SRS");
+        
+        // Should be initialized now
+        assert!(is_srs_initialized());
+        
+        // Should be able to get the SRS
+        let srs = get_srs().expect("Failed to get SRS");
+        assert!(!srs.powers_of_g1.is_empty());
+        
+        // Re-initialization should be idempotent (no error)
+        assert!(init_test_srs(10).is_ok());
+    }
+
+    #[test]
+    fn test_hex_to_bytes() {
+        assert_eq!(hex_to_bytes("").unwrap(), vec![]);
+        assert_eq!(hex_to_bytes("00").unwrap(), vec![0u8]);
+        assert_eq!(hex_to_bytes("ff").unwrap(), vec![255u8]);
+        assert_eq!(hex_to_bytes("0102").unwrap(), vec![1u8, 2u8]);
+        assert_eq!(hex_to_bytes("deadbeef").unwrap(), vec![0xde, 0xad, 0xbe, 0xef]);
+        
+        // Error cases
+        assert!(hex_to_bytes("0").is_err()); // odd length
+        assert!(hex_to_bytes("gg").is_err()); // invalid hex
+    }
+
+    #[test]
+    fn test_ceremony_text_parsing_errors() {
+        // Too short
+        assert!(load_srs_from_ceremony_text("").is_err());
+        assert!(load_srs_from_ceremony_text("4096\n65\n").is_err());
+        
+        // Invalid counts
+        assert!(load_srs_from_ceremony_text("abc\n65\npoint1\npoint2").is_err());
+        assert!(load_srs_from_ceremony_text("0\n65\npoint1\npoint2").is_err());
+        assert!(load_srs_from_ceremony_text("1\n1\npoint1\npoint2").is_err()); // need at least 2 G2
     }
 }

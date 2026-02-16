@@ -116,6 +116,8 @@ pub enum KeySssError {
     InsufficientShares,
     /// 復元失敗
     RecoveryFailed,
+    /// 重複または無効なシェアインデックス
+    InvalidShareIndex,
 }
 
 impl core::fmt::Display for KeySssError {
@@ -129,6 +131,7 @@ impl core::fmt::Display for KeySssError {
             }
             KeySssError::InsufficientShares => write!(f, "Insufficient shares for key recovery"),
             KeySssError::RecoveryFailed => write!(f, "Key recovery failed"),
+            KeySssError::InvalidShareIndex => write!(f, "Duplicate or zero share index"),
         }
     }
 }
@@ -201,6 +204,21 @@ pub fn key_recover(shares: &[KeyShare], k: u8) -> Result<[u8; KEY_SIZE], KeySssE
     // シェアサイズ確認
     if !shares.iter().all(|s| s.data.len() == KEY_SIZE) {
         return Err(KeySssError::RecoveryFailed);
+    }
+
+    // インデックス検証: 重複・ゼロチェック
+    let used_shares = &shares[..k as usize];
+    for share in used_shares.iter() {
+        if share.index == 0 {
+            return Err(KeySssError::InvalidShareIndex);
+        }
+    }
+    let mut seen_indices = [false; 256];
+    for share in used_shares.iter() {
+        if seen_indices[share.index as usize] {
+            return Err(KeySssError::InvalidShareIndex);
+        }
+        seen_indices[share.index as usize] = true;
     }
 
     // 各バイト位置で補間
@@ -316,5 +334,41 @@ mod tests {
             let recovered = key_recover(&subset, k).unwrap();
             assert_eq!(recovered, key, "Failed with shares {} and {}", a, b);
         }
+    }
+
+    #[test]
+    fn test_duplicate_index_rejected() {
+        let key = generate_key().unwrap();
+        let result = key_split(&key, 3, 5).unwrap();
+
+        // 同じシェアを重複して渡す（重複インデックス）
+        let duplicate_shares = vec![
+            result.shares[0].clone(),
+            result.shares[0].clone(),  // duplicate
+            result.shares[1].clone(),
+        ];
+        assert_eq!(
+            key_recover(&duplicate_shares, 3),
+            Err(KeySssError::InvalidShareIndex)
+        );
+    }
+
+    #[test]
+    fn test_zero_index_rejected() {
+        // 手動でインデックス0のシェアを作成
+        let zero_share = KeyShare {
+            index: 0,
+            data: vec![0u8; KEY_SIZE],
+        };
+        let valid_share = KeyShare {
+            index: 1,
+            data: vec![1u8; KEY_SIZE],
+        };
+        let shares = vec![zero_share, valid_share.clone(), valid_share];
+        
+        assert_eq!(
+            key_recover(&shares, 2),
+            Err(KeySssError::InvalidShareIndex)
+        );
     }
 }

@@ -92,3 +92,24 @@ auth_enabled = true
 # Bob:   398f0c28f98885e046333d4a41c19cee4c37368a9832c6502f6cfd182e2aef89
 # Charlie: bc1ede780f784bb6991a585e4f6e61522c14e1cae6324f92e34dd3db81a39a12
 signer_seed = "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"
+
+# ============================================================
+# KZG Proof Configuration (011-kzg-proof-rewards)
+# ============================================================
+
+# Path to SRS (Structured Reference String) file for KZG proofs
+# Supports both formats:
+# 1. Binary format (4-byte header + G1 points + G2 point)
+# 2. Text format (Ethereum KZG Ceremony trusted_setup.txt)
+#
+# For production, use the Ethereum KZG Ceremony trusted setup from:
+# https://github.com/ethereum/c-kzg-4844/blob/main/src/trusted_setup.txt
+#
+# Default: "" (uses insecure test SRS in dev_mode)
+# srs_path = "/path/to/trusted_setup.txt"
+srs_path = ""
+
+# Development mode - uses insecure test SRS if srs_path is empty
+# WARNING: Test SRS uses known tau=12345, NOT cryptographically secure!
+# Set to false and provide srs_path for production
+dev_mode = true

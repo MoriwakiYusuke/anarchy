@@ -82,8 +82,8 @@ tower-http = { version = "0.6", features = ["cors"] }
 reqwest = { version = "0.12", features = ["json"] }
 
 # subxt for chain interaction
-subxt = "0.37"
-subxt-signer = { version = "0.37", features = ["sr25519"] }
+subxt = "0.38"
+subxt-signer = { version = "0.38", features = ["sr25519"] }
 
 [dev-dependencies]
 tempfile = "3.10"

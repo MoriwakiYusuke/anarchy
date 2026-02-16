@@ -66,18 +66,97 @@ impl KzgProver {
 
     /// Load SRS from file (T082)
     ///
-    /// File format (simplified Ethereum KZG format):
+    /// Supports both binary format and Ethereum KZG Ceremony text format.
+    ///
+    /// Binary format:
     /// - First 4 bytes: number of G1 points (u32 LE)
     /// - G1 points: 48 bytes each (compressed BLS12-381 G1)
     /// - G2 point: 96 bytes (compressed BLS12-381 G2)
+    ///
+    /// Text format (Ethereum KZG Ceremony):
+    /// - Line 1: number of G1 points
+    /// - Line 2: number of G2 points
+    /// - Following lines: G1 points as hex strings (48 bytes each)
+    /// - Following lines: G2 points as hex strings (96 bytes each)
     pub fn load_srs_from_file(&mut self, path: &Path) -> Result<()> {
         let bytes = std::fs::read(path)
             .with_context(|| format!("Failed to read SRS file: {:?}", path))?;
         
-        self.load_srs_from_bytes(&bytes)
+        // Try to detect format: text files start with ASCII digits
+        if bytes.len() > 4 && bytes[0].is_ascii_digit() {
+            // Likely text format
+            let text = std::str::from_utf8(&bytes)
+                .with_context(|| "SRS file appears to be text but is not valid UTF-8")?;
+            self.load_srs_from_ceremony_text(text)
+        } else {
+            // Binary format
+            self.load_srs_from_bytes(&bytes)
+        }
     }
 
-    /// Load SRS from bytes
+    /// Load SRS from Ethereum KZG Ceremony text format
+    pub fn load_srs_from_ceremony_text(&mut self, text: &str) -> Result<()> {
+        let lines: Vec<&str> = text.lines().collect();
+        
+        if lines.len() < 4 {
+            bail!("SRS text too short");
+        }
+        
+        let num_g1: usize = lines[0].trim().parse()
+            .with_context(|| "Invalid G1 count")?;
+        let num_g2: usize = lines[1].trim().parse()
+            .with_context(|| "Invalid G2 count")?;
+        
+        if num_g1 == 0 {
+            bail!("SRS must have at least 1 G1 point");
+        }
+        if num_g2 < 2 {
+            bail!("SRS must have at least 2 G2 points (need G2[1])");
+        }
+        
+        let expected_lines = 2 + num_g1 + num_g2;
+        if lines.len() < expected_lines {
+            bail!("Expected {} lines, got {}", expected_lines, lines.len());
+        }
+        
+        // Parse G1 points
+        let mut powers_of_g1 = Vec::with_capacity(num_g1);
+        for i in 0..num_g1 {
+            let hex_str = lines[2 + i].trim();
+            let bytes = hex::decode(hex_str)
+                .with_context(|| format!("G1[{}] hex error", i))?;
+            
+            if bytes.len() != 48 {
+                bail!("G1[{}] wrong size: expected 48 bytes, got {}", i, bytes.len());
+            }
+            
+            let point = G1Affine::deserialize_compressed(&bytes[..])
+                .map_err(|e| anyhow::anyhow!("G1[{}] deserialize error: {}", i, e))?;
+            powers_of_g1.push(point);
+        }
+        
+        // Parse G2[1] (second G2 point) as tau_g2
+        let tau_g2_line = 2 + num_g1 + 1;
+        let tau_g2_hex = lines[tau_g2_line].trim();
+        let tau_g2_bytes = hex::decode(tau_g2_hex)
+            .with_context(|| "tau_g2 hex error")?;
+        
+        if tau_g2_bytes.len() != 96 {
+            bail!("tau_g2 wrong size: expected 96 bytes, got {}", tau_g2_bytes.len());
+        }
+        
+        let tau_g2 = G2Affine::deserialize_compressed(&tau_g2_bytes[..])
+            .map_err(|e| anyhow::anyhow!("tau_g2 deserialize error: {}", e))?;
+        
+        info!("Loaded Ethereum KZG Ceremony SRS with {} G1 points", powers_of_g1.len());
+        
+        self.srs_g1 = powers_of_g1;
+        self._tau_g2 = Some(tau_g2);
+        
+        Ok(())
+    }
+
+    /// Load SRS from bytes (binary format)
     pub fn load_srs_from_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         if bytes.len() < 4 + 48 + 96 {
             bail!("SRS file too small: expected at least {} bytes, got {}", 4 + 48 + 96, bytes.len());
