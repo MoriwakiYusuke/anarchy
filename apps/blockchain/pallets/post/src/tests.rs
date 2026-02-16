@@ -28,6 +28,10 @@ impl StorageInterface<u64, u64> for MockStorage {
         // Always succeed in tests
         Ok(())
     }
+
+    fn do_deposit_to_reward_pool(_amount: u128) {
+        // No-op in pallet-post tests; reward pool logic tested in pallet-storage
+    }
 }
 
 // テスト用ランタイム構築

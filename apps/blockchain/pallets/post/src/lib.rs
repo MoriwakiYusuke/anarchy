@@ -238,7 +238,7 @@ pub mod pallet {
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
 
-            // $moralトークンを焼却
+            // $moralトークンを焼却 (全額をユーザーから取る)
             T::NativeToken::burn_from(
                 &who,
                 cost,
@@ -246,6 +246,10 @@ pub mod pallet {
                 frame_support::traits::tokens::Precision::Exact,
                 frame_support::traits::tokens::Fortitude::Polite,
             ).map_err(|_| Error::<T>::InsufficientMoralBalance)?;
+
+            // FR-113: 90%を報酬プールに蓄積、10%は永久にburn
+            let reward_pool_amount = total_cost.saturating_mul(90) / 100;
+            T::Storage::do_deposit_to_reward_pool(reward_pool_amount);
 
             // 投稿IDを取得・インクリメント（オーバーフロー防止）
             let post_id = NextPostId::<T>::get();

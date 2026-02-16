@@ -444,7 +444,7 @@ T019 → T020 → T021 → T022 → T023 → T024 → T025 → T026
 
 ### 9.4 テストスタブの実装
 
-- [ ] T086 [P] **Palletテスト実装**: 以下13件のTODOスタブを実テストに変換
+- [X] T086 [P] **Palletテスト実装**: 以下13件のTODOスタブを実テストに変換
   - T017: `register_fragment` 90%/10%分配
   - T029: `prove_holding_kzg` 有効証明検証
   - T030: 無効証明で`InvalidKzgProof`エラー

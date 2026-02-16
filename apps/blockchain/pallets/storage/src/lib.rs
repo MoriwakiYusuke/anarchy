@@ -116,6 +116,16 @@ pub trait StorageInterface<AccountId, BlockNumber> {
         creator: AccountId,
         created_at: BlockNumber,
     ) -> DispatchResult;
+
+    /// Deposit tokens to the reward pool (FR-113).
+    ///
+    /// Called by Post Pallet during create_post_v2 to deposit 90% of post fee
+    /// to the reward pool. The amount represents "mint rights" that will be
+    /// distributed to storage nodes via claim_reward.
+    ///
+    /// # Arguments
+    /// * `amount` - Amount of tokens (in u128) to add to reward pool
+    fn do_deposit_to_reward_pool(amount: u128);
 }
 
 #[frame_support::pallet]
@@ -1268,5 +1278,11 @@ impl<T: Config> StorageInterface<T::AccountId, BlockNumberFor<T>> for Pallet<T> 
         created_at: BlockNumberFor<T>,
     ) -> DispatchResult {
         Self::do_register_fragment_internal(fragment_id, size, creator, created_at)
+    }
+
+    fn do_deposit_to_reward_pool(amount: u128) {
+        RewardPoolBalance::<T>::mutate(|balance| {
+            *balance = balance.saturating_add(amount);
+        });
     }
 }

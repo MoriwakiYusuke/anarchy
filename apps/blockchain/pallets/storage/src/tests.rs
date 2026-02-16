@@ -1240,3 +1240,57 @@ fn t061_default_score_when_provider_unavailable() {
         assert_eq!(cached_score, None, "No score should be cached for unregistered content");
     });
 }
+
+// ============ E2E Reward Flow Test ============
+
+/// claim_reward E2E: 実際にトークンがclaimerのbalanceに振り込まれることを確認
+#[test]
+fn e2e_claim_reward_actually_mints_tokens() {
+    new_test_ext().execute_with(|| {
+        let claimer = 1u64;
+        
+        // 1. Setup: Add funds to reward pool
+        let initial_pool = 10_000u128;
+        crate::RewardPoolBalance::<Test>::put(initial_pool);
+        
+        // 2. Setup: Add pending rewards for claimer
+        let pending_reward = 5_000u128;
+        crate::PendingRewards::<Test>::insert(claimer, pending_reward);
+        
+        // 3. Get initial balance
+        use frame_support::traits::fungible::Inspect;
+        let initial_balance = <Balances as Inspect<u64>>::balance(&claimer);
+        
+        // 4. Call claim_reward
+        assert_ok!(Storage::claim_reward(RuntimeOrigin::signed(claimer)));
+        
+        // 5. Verify balance increased
+        let final_balance = <Balances as Inspect<u64>>::balance(&claimer);
+        assert_eq!(
+            final_balance,
+            initial_balance + pending_reward,
+            "Claimer balance should increase by reward amount"
+        );
+        
+        // 6. Verify reward pool decreased
+        let final_pool = crate::RewardPoolBalance::<Test>::get();
+        assert_eq!(
+            final_pool,
+            initial_pool - pending_reward,
+            "Reward pool should decrease by payout"
+        );
+        
+        // 7. Verify pending rewards cleared
+        let remaining_pending = crate::PendingRewards::<Test>::get(claimer);
+        assert_eq!(remaining_pending, 0, "Pending rewards should be cleared after claim");
+        
+        // 8. Verify event emitted
+        System::assert_last_event(
+            Event::RewardClaimed {
+                holder: claimer,
+                amount: pending_reward,
+            }
+            .into(),
+        );
+    });
+}
