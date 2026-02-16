@@ -29,13 +29,17 @@ static GLOBAL_SRS: OnceLock<Srs> = OnceLock::new();
 /// - `Ok(())` if SRS was initialized successfully or was already initialized
 /// - `Err` if loading fails
 pub fn init_srs(srs_bytes: &[u8]) -> Result<(), KzgError> {
-    // If already initialized, return Ok
+    // Early return if already initialized (idempotent call)
+    // Note: This check is redundant but avoids parsing overhead when already loaded.
+    // The actual initialization via get_or_init is atomic.
     if GLOBAL_SRS.get().is_some() {
         return Ok(());
     }
     
+    // Parse SRS before attempting initialization
     let srs = load_srs_from_bytes(srs_bytes)?;
-    // Use get_or_init to handle race condition safely
+    
+    // Atomic initialization - if another thread won, their value is kept
     GLOBAL_SRS.get_or_init(|| srs);
     Ok(())
 }
@@ -52,8 +56,23 @@ pub fn is_srs_initialized() -> bool {
 
 /// Initialize a test SRS for testing purposes.
 ///
-/// WARNING: This SRS is NOT cryptographically secure. It uses a known tau value.
-/// Only use this for unit tests, never for production!
+/// # ⚠️ SECURITY WARNING ⚠️
+///
+/// This SRS is **NOT cryptographically secure**. It uses a publicly known tau value
+/// (tau = 12345), which means the "trusted setup" is completely broken.
+/// Anyone can forge proofs when this SRS is used.
+///
+/// **ONLY use this for unit tests, NEVER for production!**
+///
+/// # Compile-time Protection
+///
+/// This function is gated behind `#[cfg(any(test, feature = "test-utils"))]`,
+/// which means it can ONLY be compiled when:
+/// - Running `cargo test` (the `test` cfg is automatically set)
+/// - Explicitly enabling the `test-utils` feature (which should never be done in production)
+///
+/// This provides a compile-time guarantee that production builds cannot accidentally
+/// use this insecure test SRS.
 #[cfg(any(test, feature = "test-utils"))]
 pub fn init_test_srs(max_degree: usize) -> Result<(), KzgError> {
     use ark_bls12_381::G1Affine;
@@ -61,13 +80,16 @@ pub fn init_test_srs(max_degree: usize) -> Result<(), KzgError> {
     use ark_ff::Field;
     use ark_bls12_381::Fr;
 
-    // If already initialized, return Ok
+    // Early return if already initialized (idempotent)
     if GLOBAL_SRS.get().is_some() {
         return Ok(());
     }
 
-    // Use a deterministic (INSECURE) tau for testing
-    // tau = 12345 (just for testing)
+    // ============================================================
+    // ⚠️ INSECURE: Known tau value for testing only ⚠️
+    // This value is publicly known and allows anyone to forge proofs.
+    // Production MUST use the Ethereum KZG Ceremony trusted setup.
+    // ============================================================
     let tau = Fr::from(12345u64);
 
     // Generate powers of tau in G1: [1]₁, [τ]₁, [τ²]₁, ...
@@ -91,6 +113,7 @@ pub fn init_test_srs(max_degree: usize) -> Result<(), KzgError> {
         tau_g2,
     };
 
+    // Atomic initialization
     GLOBAL_SRS.get_or_init(|| srs);
 
     Ok(())

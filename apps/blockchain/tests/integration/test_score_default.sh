@@ -67,25 +67,23 @@ check_prerequisites() {
 verify_score_cache_empty() {
     log_info "Verifying ScoreCache is empty..."
     
-    # Query ScoreCache storage for a random content hash
-    RANDOM_HASH=$(echo -n "test_$(date +%s)" | sha256sum | cut -d' ' -f1)
+    # NOTE:
+    #   Directly querying pallet storage via `state_getStorage` requires constructing
+    #   the correct Substrate storage key, which involves hashing the pallet name,
+    #   storage item name, and SCALE-encoded key with the configured hasher.
+    #   A plain hex-encoded string ('Storage:ScoreCache' + hash) does not produce
+    #   a valid Substrate storage key and cannot meaningfully verify the cache.
+    #
+    #   To avoid making an invalid low-level query from this shell script, we skip
+    #   the direct storage inspection here. The rest of the test still verifies
+    #   the default score behavior when no external score provider is connected.
+    #
+    #   For proper runtime storage queries, use:
+    #   - PAPI with getUnsafeApi().query.Storage.ScoreCache()
+    #   - Substrate storage RPC with correctly constructed twox_128 hashed keys
     
-    RESULT=$(curl -s -X POST -H "Content-Type: application/json" \
-        --data "{
-            \"jsonrpc\":\"2.0\",
-            \"method\":\"state_getStorage\",
-            \"params\":[\"0x$(echo -n 'Storage:ScoreCache' | xxd -p)$RANDOM_HASH\"],
-            \"id\":1
-        }" \
-        "$RPC_URL" | jq -r '.result')
-    
-    if [ "$RESULT" == "null" ] || [ -z "$RESULT" ]; then
-        log_info "ScoreCache is empty (as expected for disconnected score system)"
-        return 0
-    else
-        log_warn "ScoreCache has entries: $RESULT"
-        return 0  # Still pass - test focuses on default behavior
-    fi
+    log_warn "Skipping direct on-chain ScoreCache inspection (requires proper Substrate storage key construction)"
+    return 0
 }
 
 # ============================================================================

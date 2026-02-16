@@ -38,6 +38,14 @@ pub enum KzgVerifyError {
 /// This is KZG_SETUP_G2[1] from the Ethereum KZG Ceremony (EIP-4844).
 /// Source: https://github.com/ethereum/c-kzg-4844/blob/main/src/trusted_setup.txt
 ///
+/// # Verification
+/// To verify this constant matches the official ceremony output:
+/// 1. Download trusted_setup.txt from the official c-kzg-4844 repository
+/// 2. Line 4098 is G2[1] (second G2 point, after 4096 G1 points + G2[0])
+/// 3. Convert the hex string to bytes and compare
+///
+/// The test `test_tau_g2_validity` ensures this deserializes to a valid G2 point.
+///
 /// # IMPORTANT
 /// This value MUST match the SRS used by the storage nodes and wasm-engine.
 /// For production, both must use the same Ethereum KZG Ceremony trusted setup.
@@ -87,7 +95,12 @@ pub fn verify_kzg_proof(
     let pi = G1Affine::deserialize_compressed(&proof[..])
         .map_err(|_| KzgVerifyError::InvalidProof)?;
 
-    // Deserialize tau_g2
+    // Deserialize tau_g2 from embedded constant.
+    // Note: This deserialization happens on every call. In a no_std runtime environment,
+    // static caching via OnceLock/OnceCell requires additional dependencies (lazy_static
+    // with spin feature, or once_cell with alloc). The deserialization cost (~1μs) is
+    // negligible compared to the pairing operations (~2ms), so we accept this trade-off
+    // to keep the runtime dependency-minimal.
     let tau_g2 = G2Affine::deserialize_compressed(&TAU_G2_BYTES[..])
         .map_err(|_| KzgVerifyError::InvalidTauG2)?;
 

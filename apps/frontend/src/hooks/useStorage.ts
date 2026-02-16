@@ -448,7 +448,14 @@ export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
 
       console.log(`[useStorage] Recovering content: merkleRoot=${Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join('')}, k=${k}, n=${n}`)
 
-      for (let index = 0; index < n && shardBytes.length < k; index++) {
+      // Try to fetch fragments from storage nodes.
+      // We need at least k fragments to reconstruct, but iterate up to n
+      // in case some nodes are unavailable.
+      for (let index = 0; index < n; index++) {
+        // Stop early once we've collected the required k fragments
+        if (shardBytes.length >= k) {
+          break
+        }
         try {
           const params = {
             merkle_root: Array.from(merkleRoot),

@@ -10,13 +10,17 @@ pub const SCORE_THRESHOLD: u64 = 100;
 ///
 /// Formula: base_reward_per_byte × data_size
 ///
+/// Note: If `score` is less than [`SCORE_THRESHOLD`], this function returns `0`
+/// and no rewards are distributed. This is used by the GC system to mark
+/// low-score content as forgetting candidates.
+///
 /// # Arguments
 /// * `data_size` - Size of the content in bytes
 /// * `base_reward_per_byte` - Base reward per byte configured in pallet
 /// * `score` - Current content score (from external scorer)
 ///
 /// # Returns
-/// * Reward amount (0 if score below threshold)
+/// * Reward amount (0 if `score` is below [`SCORE_THRESHOLD`])
 pub fn calculate_reward(data_size: u32, base_reward_per_byte: u128, score: u64) -> u128 {
     calculate_reward_with_threshold(data_size, base_reward_per_byte, score, SCORE_THRESHOLD)
 }

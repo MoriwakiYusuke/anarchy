@@ -46,10 +46,21 @@ impl core::fmt::Display for EncryptionError {
     }
 }
 
-/// 暗号化用のランダム鍵を生成
+/// Generate a cryptographically secure random encryption key.
+///
+/// # Security Properties
+/// - Uses the platform's CSPRNG via `getrandom` crate
+/// - Produces 256 bits of entropy suitable for AES-256-GCM
+/// - Each call generates an independent, unpredictable key
+///
+/// # Usage Guidelines
+/// - Generate a **unique key for each post**
+/// - **Never reuse keys** across different posts or encryption operations
+/// - Keys should be immediately split via VSS and discarded from memory
+/// - The key is used with [`encrypt`] for AES-256-GCM authenticated encryption
 ///
 /// # Returns
-/// 32バイトのランダム鍵
+/// 32-byte cryptographically secure random key
 pub fn generate_key() -> Result<[u8; KEY_SIZE], EncryptionError> {
     let mut key = [0u8; KEY_SIZE];
     getrandom(&mut key).map_err(|_| EncryptionError::RandomGenerationFailed)?;

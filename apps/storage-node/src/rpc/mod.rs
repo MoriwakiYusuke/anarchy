@@ -396,13 +396,20 @@ fn create_fragment_id(merkle_root: &[u8; 32], index: u32) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// Create KZG shard ID from content_hash and shard_index
-/// Uses Blake2b-256("kzg-shard" || content_hash || shard_index) with domain separator
+/// Create KZG shard ID from content_hash and shard_index.
+///
+/// Uses Blake2b-256 with domain separator to avoid collision with SSS fragments.
+///
+/// # Domain Separator Stability
+/// The domain separator `"kzg-shard"` is a **permanent identifier** and MUST NOT
+/// be changed, as it would break lookup of all existing KZG shards in storage.
+/// If a new shard ID scheme is needed in the future, introduce a new function
+/// (e.g., `create_kzg_shard_id_v2`) with a different domain separator.
 fn create_kzg_shard_id(content_hash: &[u8; 32], shard_index: u8) -> [u8; 32] {
     use blake2::{Blake2b, Digest};
     use blake2::digest::consts::U32;
     let mut hasher = Blake2b::<U32>::new();
-    hasher.update(b"kzg-shard"); // Domain separator to avoid collision with SSS fragments
+    hasher.update(b"kzg-shard");
     hasher.update(content_hash);
     hasher.update([shard_index]);
     hasher.finalize().into()
