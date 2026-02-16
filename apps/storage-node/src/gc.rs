@@ -1,20 +1,29 @@
 //! Garbage Collection Module
 //!
 //! Score-based GC for forgetting candidates with grace period (T057-T058).
+//! Also supports reward-pool-based GC: when pool is depleted, data can be deleted.
 //!
 //! Implements:
 //! - FR-203: Score-based GC logic
 //! - FR-204: 7-day grace period before GC
+//! - FR-XXX: Reward pool depletion GC
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Grace period before garbage collection (7 days in seconds)
 pub const GC_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604800 seconds
 
 /// Development mode grace period (10 minutes for testing)
 pub const GC_GRACE_PERIOD_DEV_SECS: u64 = 10 * 60;
+
+/// Reward pool balance threshold for GC (1 MORAL = 10^12 units)
+/// When pool balance falls below this, nodes MAY delete data
+pub const GC_REWARD_POOL_THRESHOLD: u128 = 1_000_000_000_000; // 1 MORAL
+
+/// Reward pool check interval (5 minutes)
+pub const GC_POOL_CHECK_INTERVAL_SECS: u64 = 5 * 60;
 
 /// GC candidate entry
 #[derive(Debug, Clone)]
@@ -33,6 +42,14 @@ pub struct GarbageCollector {
     candidates: HashMap<[u8; 32], GcCandidate>,
     /// Grace period duration
     grace_period: Duration,
+    /// Last known reward pool balance
+    last_pool_balance: Option<u128>,
+    /// Whether pool-based GC is active (pool below threshold)
+    pool_gc_active: bool,
+    /// Reward pool check interval
+    pool_check_interval: Duration,
+    /// Last pool check time
+    last_pool_check: Option<Instant>,
 }
 
 impl GarbageCollector {
@@ -47,7 +64,56 @@ impl GarbageCollector {
         Self {
             candidates: HashMap::new(),
             grace_period,
+            last_pool_balance: None,
+            pool_gc_active: false,
+            pool_check_interval: Duration::from_secs(GC_POOL_CHECK_INTERVAL_SECS),
+            last_pool_check: None,
         }
+    }
+
+    /// Check if reward pool should be rechecked
+    pub fn should_check_pool(&self) -> bool {
+        match self.last_pool_check {
+            None => true,
+            Some(last) => Instant::now().duration_since(last) >= self.pool_check_interval,
+        }
+    }
+
+    /// Update reward pool balance and determine GC activation
+    ///
+    /// Returns true if GC mode changed (activated or deactivated)
+    pub fn update_pool_balance(&mut self, balance: u128) -> bool {
+        self.last_pool_check = Some(Instant::now());
+        self.last_pool_balance = Some(balance);
+        
+        let was_active = self.pool_gc_active;
+        self.pool_gc_active = balance < GC_REWARD_POOL_THRESHOLD;
+        
+        if self.pool_gc_active && !was_active {
+            warn!(
+                balance = balance,
+                threshold = GC_REWARD_POOL_THRESHOLD,
+                "GC: Reward pool depleted! Nodes may delete physical data."
+            );
+        } else if !self.pool_gc_active && was_active {
+            info!(
+                balance = balance,
+                threshold = GC_REWARD_POOL_THRESHOLD,
+                "GC: Reward pool recovered. GC deactivated."
+            );
+        }
+        
+        was_active != self.pool_gc_active
+    }
+
+    /// Check if pool-based GC is currently active
+    pub fn is_pool_gc_active(&self) -> bool {
+        self.pool_gc_active
+    }
+
+    /// Get last known pool balance
+    pub fn last_pool_balance(&self) -> Option<u128> {
+        self.last_pool_balance
     }
 
     /// Mark content as forgetting candidate (called when on-chain event received)

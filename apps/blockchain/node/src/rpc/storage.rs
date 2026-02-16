@@ -274,6 +274,20 @@ pub trait StorageApi {
     /// HTTP経由でStorage Nodeに転送する。
     #[method(name = "uploadKzgShard")]
     async fn upload_kzg_shard(&self, request: UploadKzgShardRequest) -> RpcResult<UploadKzgShardResponse>;
+
+    /// RewardPoolの残高を取得
+    ///
+    /// Storage NodeのGC判定に使用。残高が閾値を下回ったら
+    /// ノードは物理データを削除可能。
+    #[method(name = "getRewardPoolBalance")]
+    async fn get_reward_pool_balance(&self) -> RpcResult<u128>;
+    
+    /// 忘却候補をチェック
+    ///
+    /// 与えられたcontent_hashのリストに対して、ForgettingCandidatesに含まれるかを返す。
+    /// Storage NodeのスコアベースGC判定に使用。
+    #[method(name = "checkForgettingCandidates")]
+    async fn check_forgetting_candidates(&self, content_hashes: Vec<[u8; 32]>) -> RpcResult<Vec<([u8; 32], bool)>>;
 }
 
 /// Storage Node HTTPクライアント
@@ -1242,6 +1256,41 @@ where
             success: true,
             shard_hash,
         })
+    }
+
+    /// RewardPoolの残高を取得
+    ///
+    /// Storage NodeのGC判定に使用。残高が閾値を下回ったら
+    /// ノードは物理データを削除可能。
+    async fn get_reward_pool_balance(&self) -> RpcResult<u128> {
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        api.get_reward_pool_balance(best_hash)
+            .map_err(|e| {
+                ErrorObject::owned(
+                    ErrorCode::InternalError.code(),
+                    format!("Failed to call Runtime API: {:?}", e),
+                    None::<()>,
+                )
+            })
+    }
+    
+    /// 忘却候補をチェック
+    ///
+    /// 与えられたcontent_hashのリストに対して、ForgettingCandidatesに含まれるかを返す。
+    async fn check_forgetting_candidates(&self, content_hashes: Vec<[u8; 32]>) -> RpcResult<Vec<([u8; 32], bool)>> {
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        api.get_forgetting_candidates(best_hash, content_hashes)
+            .map_err(|e| {
+                ErrorObject::owned(
+                    ErrorCode::InternalError.code(),
+                    format!("Failed to call Runtime API: {:?}", e),
+                    None::<()>,
+                )
+            })
     }
 }
 

@@ -214,8 +214,36 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             _ = gc_check_interval.tick() => {
-                // T085: Periodic garbage collection check
+                // T085: Periodic garbage collection check (score-based)
                 let mut gc = garbage_collector.lock().await;
+                
+                // Score-based GC: Check which local fragments are forgetting candidates on-chain
+                // A fragment becomes a forgetting candidate when its score < threshold (reward = 0)
+                match gc_store.list_fragments() {
+                    Ok(local_fragments) if !local_fragments.is_empty() => {
+                        // Query chain for forgetting candidate status
+                        match chain_client.check_forgetting_candidates(local_fragments.clone()).await {
+                            Ok(candidates) => {
+                                for (content_hash, is_candidate) in candidates {
+                                    if is_candidate {
+                                        // Mark for GC with default score 0 (below threshold)
+                                        gc.mark_forgetting_candidate(content_hash, 0);
+                                    } else {
+                                        // Remove from candidates if score recovered
+                                        gc.unmark_forgetting_candidate(&content_hash);
+                                    }
+                                }
+                            }
+                            Err(e) => debug!(error = %e, "GC: Failed to check forgetting candidates"),
+                        }
+                    }
+                    Ok(_) => {
+                        // No local fragments, nothing to check
+                    }
+                    Err(e) => debug!(error = %e, "GC: Failed to list local fragments"),
+                }
+                
+                // Score-based GC: process fragments with expired grace period
                 let ready_for_gc = gc.get_gc_ready();
                 
                 if !ready_for_gc.is_empty() {

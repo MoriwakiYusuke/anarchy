@@ -89,6 +89,13 @@ sp_api::decl_runtime_apis! {
         /// Get KZG fragment info by content hash (FR-115)
         /// Returns None if content_hash is not registered
         fn get_kzg_fragment(content_hash: ContentHash) -> Option<KzgFragmentInfoRpc>;
+        
+        /// Get current reward pool balance (for storage node GC decisions)
+        fn get_reward_pool_balance() -> u128;
+        
+        /// Check which content hashes are forgetting candidates (GC-ready)
+        /// Returns a list of (content_hash, is_forgetting_candidate) pairs
+        fn get_forgetting_candidates(content_hashes: Vec<ContentHash>) -> Vec<(ContentHash, bool)>;
     }
 }
 

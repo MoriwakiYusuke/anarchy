@@ -18,7 +18,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use blake2::{Blake2b, Digest};
 use blake2::digest::consts::U32;
-use tracing::{info, debug};
+use tracing::{info, debug, warn};
 
 // ============================================================================
 // Security Constants (T074)
@@ -177,6 +177,34 @@ impl FragmentStore {
         );
 
         Ok(true)
+    }
+
+    /// Delete all fragments (for pool-based GC when reward pool is depleted)
+    ///
+    /// Returns the number of fragments deleted
+    pub fn delete_all(&self) -> Result<usize> {
+        let mut ids = Vec::new();
+        
+        // Collect all fragment IDs first
+        Self::walk_fragments(&self.base_dir, &mut |id| {
+            ids.push(id);
+            Ok(())
+        })?;
+        
+        let mut deleted = 0;
+        for id in &ids {
+            match self.delete(id) {
+                Ok(true) => deleted += 1,
+                Ok(false) => {} // Already deleted
+                Err(e) => warn!(
+                    fragment_id = %hex::encode(id),
+                    error = %e,
+                    "Failed to delete fragment during delete_all"
+                ),
+            }
+        }
+        
+        Ok(deleted)
     }
 
     /// Get current used capacity

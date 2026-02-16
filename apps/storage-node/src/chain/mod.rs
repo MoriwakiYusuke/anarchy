@@ -591,6 +591,120 @@ impl ChainClient {
             last_error.map(|e| e.to_string()).unwrap_or_default()
         ))
     }
+
+    /// Get the current reward pool balance from blockchain
+    ///
+    /// Used for GC decisions: when pool is below threshold, nodes can delete data.
+    pub async fn get_reward_pool_balance(&self) -> Result<u128> {
+        #[derive(serde::Serialize)]
+        struct RpcRequest {
+            jsonrpc: &'static str,
+            id: u32,
+            method: &'static str,
+            params: [(); 0],
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcResponse {
+            result: Option<u128>,
+            error: Option<RpcError>,
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcError {
+            message: String,
+        }
+        
+        let client = reqwest::Client::new();
+        let request = RpcRequest {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "storage_getRewardPoolBalance",
+            params: [],
+        };
+        
+        let endpoint_url = self.active_endpoint().await
+            .ok_or_else(|| anyhow::anyhow!("No primary endpoint available"))?;
+        
+        let http_endpoint = endpoint_url
+            .replace("ws://", "http://")
+            .replace("wss://", "https://");
+        
+        let resp = client
+            .post(&http_endpoint)
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send RPC request")?;
+        
+        let rpc_response: RpcResponse = resp
+            .json()
+            .await
+            .context("Failed to parse RPC response")?;
+        
+        if let Some(error) = rpc_response.error {
+            bail!("RPC error: {}", error.message);
+        }
+        
+        rpc_response.result.ok_or_else(|| anyhow::anyhow!("No result in RPC response"))
+    }
+    
+    /// Check which content hashes are forgetting candidates
+    ///
+    /// Used for score-based GC: fragments marked as forgetting candidates have score < threshold.
+    pub async fn check_forgetting_candidates(&self, content_hashes: Vec<[u8; 32]>) -> Result<Vec<([u8; 32], bool)>> {
+        #[derive(serde::Serialize)]
+        struct RpcRequest {
+            jsonrpc: &'static str,
+            id: u32,
+            method: &'static str,
+            params: [Vec<[u8; 32]>; 1],
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcResponse {
+            result: Option<Vec<([u8; 32], bool)>>,
+            error: Option<RpcError>,
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct RpcError {
+            message: String,
+        }
+        
+        let client = reqwest::Client::new();
+        let request = RpcRequest {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "storage_checkForgettingCandidates",
+            params: [content_hashes],
+        };
+        
+        let endpoint_url = self.active_endpoint().await
+            .ok_or_else(|| anyhow::anyhow!("No primary endpoint available"))?;
+        
+        let http_endpoint = endpoint_url
+            .replace("ws://", "http://")
+            .replace("wss://", "https://");
+        
+        let resp = client
+            .post(&http_endpoint)
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send RPC request")?;
+        
+        let rpc_response: RpcResponse = resp
+            .json()
+            .await
+            .context("Failed to parse RPC response")?;
+        
+        if let Some(error) = rpc_response.error {
+            bail!("RPC error: {}", error.message);
+        }
+        
+        rpc_response.result.ok_or_else(|| anyhow::anyhow!("No result in RPC response"))
+    }
 }
 
 /// Fragment metadata from chain (matches pallet types)

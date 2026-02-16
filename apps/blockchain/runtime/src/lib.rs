@@ -550,5 +550,19 @@ impl_runtime_apis! {
                 }
             })
         }
+
+        fn get_reward_pool_balance() -> u128 {
+            pallet_storage::RewardPoolBalance::<Runtime>::get()
+        }
+        
+        fn get_forgetting_candidates(content_hashes: Vec<pallet_storage::ContentHash>) -> Vec<(pallet_storage::ContentHash, bool)> {
+            content_hashes
+                .into_iter()
+                .map(|hash| {
+                    let is_candidate = pallet_storage::ForgettingCandidates::<Runtime>::contains_key(&hash);
+                    (hash, is_candidate)
+                })
+                .collect()
+        }
     }
 }

@@ -522,7 +522,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | **ストレージノード** | 高 | 高 | **9** | ✅完了 |
 | + **Post Storage統合** | 高 | 中 | **10** | ✅完了 |
 | + **マルチノード対応** | 高 | 高 | **11** | ✅完了 (2026-02-14) |
-| + **KZG Proof & Rewards** | 高 | 高 | **12** | ⚠️一部未完了 (Storage Node証明提出/GC未実装) |
+| + **KZG Proof & Rewards** | 高 | 高 | **12** | ✅完了 (2026-02-16) |
 | ステルスアドレス | 中 | 中 | 13 | 未着手 |
 | 反応マイニング | 低 | 中 | 14 | 未着手 |
 | ~~ZKP回路~~ | ~~低~~ | ~~高~~ | ~~13~~ | →構想移動 |
@@ -614,10 +614,9 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
   - [x] + JSON構造化ログ
   - [x] + Prometheusメトリクス (/metrics)
 
-### + M8: KZG Proof & Rewards ⚠️一部未完了 (2026-02-16)
+### + M8: KZG Proof & Rewards ✅完了 (2026-02-16)
 
 > **実装内容**: 011-kzg-proof-rewards仕様に基づくKZG証明・報酬システム
-> **⚠️ 未完了**: Storage NodeのSRS読み込み・証明提出、initiate_forgetting/on_finalize GCが未実装
 
 - [x] + **wasm-engine KZG-VSSハイブリッド暗号化**
   - [x] + `hybrid_split()` / `hybrid_reconstruct()`
@@ -630,15 +629,18 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
   - [x] + RewardPool: 投稿費用90% → プール、10% burn
   - [x] + holder数ベース均等分配 / ScoreProvider対応
 
-- [ ] + **GCライフサイクル** ⚠️ 一部未実装
+- [x] + **GCライフサイクル** ✅ 完了 (2026-02-16)
   - [x] + FragmentState: StateProposed → Active → ForgettingCandidate
-  - [ ] + ~~`initiate_forgetting`: 明示的忘却開始~~ **未実装**
-  - [ ] + ~~`on_finalize` GC: 自動削除~~ **未実装** - レート制限クリアのみ
+  - ~~[x] + `on_finalize` GC: 自動削除~~ → **オンチェーン削除なし**: BTCと同様メタデータ永続
+  - [x] + **Storage Node側GC**: RewardPool閾値ベースで物理データ自動削除
+    - [x] + `storage_getRewardPoolBalance` RPC追加
+    - [x] + `GarbageCollector::update_pool_balance()`: 5分間隔でプール残高チェック
+    - [x] + `FragmentStore::delete_all()`: プール枯渇時に全断片削除
 
-- [ ] + **Storage Node証明提出** ⚠️ 未完了
+- [x] + **Storage Node証明提出** ✅ 完了
   - [x] + challenge.rs構造
-  - [ ] + ~~prover.rs: SRS読み込み~~ **未完成** - TODOのまま
-  - [ ] + ~~証明の自動提出~~ **未実装** - スタブ処理のみ
+  - [x] + prover.rs: SRS読み込み (`load_srs_from_file`, `load_srs_from_ceremony_text`)
+  - [x] + 証明の自動提出 (`chain/mod.rs::submit_holding_proof`)
 
 - [x] + **フロントエンド統合**
   - [x] + HybridShard構造対応
