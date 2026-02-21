@@ -204,12 +204,20 @@ mod benchmarks {
             threshold,
         );
         
+        // SECURITY FIX: Must issue challenge before proving (PR #22 CRITICAL-1)
+        let share_index: u8 = 1;
+        let _ = Pallet::<T>::issue_challenge(
+            RawOrigin::Signed(caller.clone()).into(),
+            content_hash,
+            caller.clone(),
+            share_index,
+        );
+        
         // Valid G1 proof data (G1 generator can be deserialized)
         // Note: Pairing check will fail as commitment/proof aren't mathematically consistent,
         // but this measures the full verification path including deserialization overhead.
         let proof: BoundedVec<u8, ConstU32<48>> = 
             crate::kzg::G1_GENERATOR_COMPRESSED.to_vec().try_into().expect("proof within bounds");
-        let share_index: u8 = 1;
         let share_value: BoundedVec<u8, ConstU32<32>> = 
             vec![0u8; 32].try_into().expect("share_value within bounds");
 
@@ -265,9 +273,17 @@ mod benchmarks {
             3,
         );
         
+        // SECURITY FIX: Must issue challenge before proving (PR #22 CRITICAL-1)
+        let share_index: u8 = 1;
+        let _ = Pallet::<T>::issue_challenge(
+            RawOrigin::Signed(caller.clone()).into(),
+            content_hash,
+            caller.clone(),
+            share_index,
+        );
+        
         let proof: BoundedVec<u8, ConstU32<48>> = 
             crate::kzg::G1_GENERATOR_COMPRESSED.to_vec().try_into().expect("proof within bounds");
-        let share_index: u8 = 1;
         let share_value: BoundedVec<u8, ConstU32<32>> = 
             vec![1u8; 32].try_into().expect("share_value within bounds");
 

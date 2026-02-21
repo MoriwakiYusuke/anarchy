@@ -983,7 +983,7 @@ pub mod pallet {
         /// * `share_value` - The share value (32 bytes)
         /// * `proof` - KZG opening proof (48 bytes)
         #[pallet::call_index(7)]
-        #[pallet::weight(Weight::from_parts(50_000_000, 0) + T::DbWeight::get().reads_writes(2, 1))]
+        #[pallet::weight(Weight::from_parts(50_000_000, 0) + T::DbWeight::get().reads_writes(3, 2))]
         pub fn prove_holding_kzg(
             origin: OriginFor<T>,
             content_hash: super::ContentHash,
@@ -992,6 +992,22 @@ pub mod pallet {
             proof: BoundedVec<u8, ConstU32<48>>,
         ) -> DispatchResult {
             let prover = ensure_signed(origin)?;
+
+            // SECURITY: Require active challenge to prevent replay attacks (PR #22 CRITICAL-1)
+            // Without this check, the same proof could be submitted infinitely for rewards
+            let challenge = PendingChallenges::<T>::get(content_hash, share_index)
+                .ok_or(Error::<T>::NotChallenged)?;
+
+            // SECURITY: Verify the prover is the challenged node
+            ensure!(challenge.challenged_node == prover, Error::<T>::NotChallenged);
+
+            // SECURITY: Prevent duplicate proof submissions within the same block
+            let current_block = <frame_system::Pallet<T>>::block_number();
+            let existing_record = ProofRecords::<T>::get(content_hash, &prover);
+            ensure!(
+                existing_record.last_proved_at != current_block,
+                Error::<T>::ProofAlreadySubmitted
+            );
 
             // Validate share value length
             ensure!(share_value.len() == 32, Error::<T>::FragmentTooSmall);
@@ -1049,7 +1065,6 @@ pub mod pallet {
             );
 
             // Update proof record (FR-104, FR-109, T042)
-            let current_block = <frame_system::Pallet<T>>::block_number();
             ProofRecords::<T>::mutate(content_hash, &prover, |record| {
                 record.last_proved_at = current_block;
                 record.success_count = record.success_count.saturating_add(1);

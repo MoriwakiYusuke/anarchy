@@ -850,6 +850,14 @@ fn t029_prove_holding_kzg_valid_proof_succeeds() {
             http_url,
         ));
 
+        // SECURITY FIX: Must issue challenge before proving (PR #22 CRITICAL-1)
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            node,
+            1, // share_index
+        ));
+
         // Create share value and proof (these will be rejected by KZG verification
         // since they're not mathematically valid, but we can test the error path)
         let share_value: BoundedVec<u8, ConstU32<32>> = {
@@ -907,6 +915,14 @@ fn t030_prove_holding_kzg_invalid_proof_fails() {
             1_000_000, // capacity
             1_000_000, // pow_nonce
             http_url,
+        ));
+
+        // SECURITY FIX: Must issue challenge before proving (PR #22 CRITICAL-1)
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            node,
+            1, // share_index
         ));
 
         // Create invalid proof (all 0xFF = not on curve)
@@ -1296,5 +1312,272 @@ fn e2e_claim_reward_actually_mints_tokens() {
             }
             .into(),
         );
+    });
+}
+
+// ============ Security Tests: Reward Replay Attack Prevention (PR #22 CRITICAL-1) ============
+
+/// SEC-001: チャレンジなしで prove_holding_kzg を呼び出すと NotChallenged エラー
+#[test]
+fn sec001_prove_holding_kzg_without_challenge_fails() {
+    new_test_ext().execute_with(|| {
+        let owner = 1u64;
+        let node = 2u64;
+        let content_hash = test_content_hash(1);
+        let commitment = test_commitment();
+
+        // Setup: Register KzgFragment
+        assert_ok!(Storage::register_kzg_fragment(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            commitment,
+            1024,
+            5,
+            3,
+        ));
+
+        // Register storage node
+        let peer_id = test_peer_id(1);
+        let http_url = test_http_url(3030);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node),
+            peer_id,
+            1_000_000,
+            1_000_000,
+            http_url,
+        ));
+
+        // NO challenge issued - attempting to prove without challenge should fail
+        let share_value: BoundedVec<u8, ConstU32<32>> = {
+            BoundedVec::try_from(vec![0u8; 32]).unwrap()
+        };
+        let proof = test_commitment();
+
+        // Should fail with NotChallenged error
+        assert_noop!(
+            Storage::prove_holding_kzg(
+                RuntimeOrigin::signed(node),
+                content_hash,
+                1,
+                share_value,
+                proof,
+            ),
+            Error::<Test>::NotChallenged
+        );
+    });
+}
+
+/// SEC-002: 別のノードへのチャレンジに対して証明を提出すると NotChallenged エラー
+#[test]
+fn sec002_prove_holding_kzg_wrong_node_fails() {
+    new_test_ext().execute_with(|| {
+        let owner = 1u64;
+        let node_a = 2u64;
+        let node_b = 3u64;
+        let content_hash = test_content_hash(1);
+        let commitment = test_commitment();
+
+        // Setup: Register KzgFragment
+        assert_ok!(Storage::register_kzg_fragment(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            commitment,
+            1024,
+            5,
+            3,
+        ));
+
+        // Register both storage nodes
+        let peer_id_a = test_peer_id(1);
+        let http_url_a = test_http_url(3030);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node_a),
+            peer_id_a,
+            1_000_000,
+            1_000_000,
+            http_url_a,
+        ));
+
+        let peer_id_b = test_peer_id(2);
+        let http_url_b = test_http_url(3031);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node_b),
+            peer_id_b,
+            1_000_000,
+            1_000_001, // Different nonce
+            http_url_b,
+        ));
+
+        // Issue challenge to node_a
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            node_a, // Challenge node_a
+            1,
+        ));
+
+        // node_b tries to submit proof for node_a's challenge - should fail
+        let share_value: BoundedVec<u8, ConstU32<32>> = {
+            BoundedVec::try_from(vec![0u8; 32]).unwrap()
+        };
+        let proof = test_commitment();
+
+        assert_noop!(
+            Storage::prove_holding_kzg(
+                RuntimeOrigin::signed(node_b), // Wrong node!
+                content_hash,
+                1,
+                share_value,
+                proof,
+            ),
+            Error::<Test>::NotChallenged
+        );
+    });
+}
+
+/// SEC-003: 同一ブロック内での重複証明提出で ProofAlreadySubmitted エラー
+#[test]
+fn sec003_prove_holding_kzg_duplicate_same_block_fails() {
+    new_test_ext().execute_with(|| {
+        let owner = 1u64;
+        let node = 2u64;
+        let content_hash = test_content_hash(1);
+        let commitment = test_commitment();
+
+        // Setup: Register KzgFragment
+        assert_ok!(Storage::register_kzg_fragment(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            commitment,
+            1024,
+            5,
+            3,
+        ));
+
+        // Register storage node
+        let peer_id = test_peer_id(1);
+        let http_url = test_http_url(3030);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node),
+            peer_id,
+            1_000_000,
+            1_000_000,
+            http_url,
+        ));
+
+        // Issue first challenge
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            node,
+            1,
+        ));
+
+        // Note: In benchmark mode, proof verification is skipped
+        // For this test, we manually set last_proved_at to simulate a successful proof
+        let current_block = frame_system::Pallet::<Test>::block_number();
+        crate::ProofRecords::<Test>::mutate(content_hash, node, |record| {
+            record.last_proved_at = current_block;
+            record.success_count = 1;
+        });
+
+        // Issue another challenge for the same share (to bypass ChallengeAlreadyIssued)
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            node,
+            2, // Different share index
+        ));
+
+        let share_value: BoundedVec<u8, ConstU32<32>> = {
+            BoundedVec::try_from(vec![0u8; 32]).unwrap()
+        };
+        let proof = test_commitment();
+
+        // Second proof in same block should fail with ProofAlreadySubmitted
+        assert_noop!(
+            Storage::prove_holding_kzg(
+                RuntimeOrigin::signed(node),
+                content_hash,
+                2, // Different share but same block
+                share_value,
+                proof,
+            ),
+            Error::<Test>::ProofAlreadySubmitted
+        );
+    });
+}
+
+/// SEC-004: リプレイ攻撃シナリオ - 有効な証明を複数ブロックで再利用できない
+#[test]
+fn sec004_replay_attack_different_blocks_fails() {
+    new_test_ext().execute_with(|| {
+        let owner = 1u64;
+        let node = 2u64;
+        let content_hash = test_content_hash(1);
+        let commitment = test_commitment();
+
+        // Setup
+        assert_ok!(Storage::register_kzg_fragment(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            commitment,
+            1024,
+            5,
+            3,
+        ));
+
+        let peer_id = test_peer_id(1);
+        let http_url = test_http_url(3030);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node),
+            peer_id,
+            1_000_000,
+            1_000_000,
+            http_url,
+        ));
+
+        // Issue and consume first challenge
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            node,
+            1,
+        ));
+
+        // Simulate proof submission (manually update proof record)
+        // In real scenario, this would be a valid KZG proof
+        let current_block = frame_system::Pallet::<Test>::block_number();
+        crate::ProofRecords::<Test>::mutate(content_hash, node, |record| {
+            record.last_proved_at = current_block;
+            record.success_count = 1;
+        });
+        // Remove challenge (as prove_holding_kzg does on success)
+        crate::PendingChallenges::<Test>::remove(content_hash, 1u8);
+
+        // Advance to next block
+        System::set_block_number(current_block + 1);
+
+        // Try to replay the same proof (no challenge exists anymore)
+        let share_value: BoundedVec<u8, ConstU32<32>> = {
+            BoundedVec::try_from(vec![0u8; 32]).unwrap()
+        };
+        let proof = test_commitment();
+
+        // Should fail because challenge no longer exists
+        assert_noop!(
+            Storage::prove_holding_kzg(
+                RuntimeOrigin::signed(node),
+                content_hash,
+                1,
+                share_value,
+                proof,
+            ),
+            Error::<Test>::NotChallenged
+        );
+
+        // Initial rewards should still be 0 (only manual update, no actual reward accumulation)
+        let pending_reward = crate::PendingRewards::<Test>::get(node);
+        assert_eq!(pending_reward, 0, "No rewards should be accumulated without valid proofs");
     });
 }
