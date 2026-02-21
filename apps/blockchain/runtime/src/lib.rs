@@ -255,6 +255,8 @@ impl pallet_faucet::Config for Runtime {
 // Storage Pallet設定
 impl pallet_storage::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    /// ネイティブトークン: Balances (報酬ミント用)
+    type NativeToken = Balances;
     /// 断片最大サイズ: 1MB
     type MaxFragmentSize = ConstU32<1_048_576>;
     /// PeerID最大長: 64バイト
@@ -278,6 +280,17 @@ impl pallet_storage::Config for Runtime {
     type BasePowDifficulty = ConstU8<12>;
     /// HTTP URL最大長: 256バイト
     type MaxHttpUrlLen = ConstU32<256>;
+    /// バイトあたり基本報酬: 1 unit (12 decimals = 1e-12 MORAL/byte).
+    /// NOTE: This is a very conservative default intended primarily for testing.
+    ///       Production deployments should adjust this value based on network
+    ///       economics (token price, desired incentives) and storage costs.
+    type BaseRewardPerByte = ConstU128<1>;
+    /// 報酬対象スコア閾値: 100
+    type ScoreThreshold = ConstU64<100>;
+    /// スコアヒステリシスマージン: 20 (回復には閾値+20必要)
+    type ScoreHysteresisMargin = ConstU64<20>;
+    /// ブロックあたりの最大チャレンジ発行数: 10 (スパム防止)
+    type MaxChallengesPerBlock = ConstU32<10>;
 }
 
 // Runtime構築
@@ -526,6 +539,51 @@ impl_runtime_apis! {
                     }
                 })
                 .collect()
+        }
+
+        fn get_kzg_fragment(content_hash: pallet_storage::ContentHash) -> Option<pallet_storage::KzgFragmentInfoRpc> {
+            use sp_runtime::SaturatedConversion;
+            pallet_storage::KzgFragments::<Runtime>::get(content_hash).map(|fragment| {
+                let owner_bytes: [u8; 32] = fragment.owner.into();
+                pallet_storage::KzgFragmentInfoRpc {
+                    owner: owner_bytes,
+                    commitment: fragment.commitment.into_inner(),
+                    data_size: fragment.data_size,
+                    fragment_count: fragment.fragment_count,
+                    threshold: fragment.threshold,
+                    created_at: fragment.created_at.saturated_into::<u32>(),
+                }
+            })
+        }
+
+        fn get_reward_pool_balance() -> u128 {
+            pallet_storage::RewardPoolBalance::<Runtime>::get()
+        }
+        
+        fn get_forgetting_candidates(content_hashes: Vec<pallet_storage::ContentHash>) -> Vec<(pallet_storage::ContentHash, bool)> {
+            content_hashes
+                .into_iter()
+                .map(|hash| {
+                    let is_candidate = pallet_storage::ForgettingCandidates::<Runtime>::contains_key(&hash);
+                    (hash, is_candidate)
+                })
+                .collect()
+        }
+        
+        fn is_registered_storage_node(operator: [u8; 32], http_url: Vec<u8>) -> bool {
+            // Convert operator bytes to AccountId
+            let account_id: AccountId = operator.into();
+            
+            // Check if operator has a registered node
+            if let Some(peer_id) = pallet_storage::OperatorNodes::<Runtime>::get(&account_id) {
+                // Get the node info
+                if let Some(node_info) = pallet_storage::StorageNodes::<Runtime>::get(&peer_id) {
+                    // Verify the http_url matches
+                    return node_info.http_url.to_vec() == http_url;
+                }
+            }
+            
+            false
         }
     }
 }

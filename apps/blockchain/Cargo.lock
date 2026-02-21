@@ -115,6 +115,10 @@ name = "anarchy-node"
 version = "0.1.0"
 dependencies = [
  "anarchy-runtime",
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
  "async-trait",
  "base64 0.22.1",
  "blake2 0.10.6",
@@ -5518,9 +5522,15 @@ dependencies = [
 name = "pallet-storage"
 version = "0.1.0"
 dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "sp-api",

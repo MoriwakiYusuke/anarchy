@@ -159,6 +159,9 @@ fn testnet_genesis(
 ) -> serde_json::Value {
     // $moral = ネイティブトークン (12桁精度)
     const INITIAL_MORAL: Balance = 10_000_000_000_000_000; // 10,000 $moral
+    
+    // 報酬プール初期残高 (dev/testnet用: 1,000,000 MORAL)
+    const INITIAL_REWARD_POOL: u128 = 1_000_000_000_000_000_000; // 1,000,000 $moral
 
     serde_json::json!({
         "balances": {
@@ -172,6 +175,9 @@ fn testnet_genesis(
         },
         "sudo": {
             "key": Some(root_key)
+        },
+        "storage": {
+            "initialRewardPool": INITIAL_REWARD_POOL
         }
     })
 }

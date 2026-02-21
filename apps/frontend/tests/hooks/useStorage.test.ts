@@ -5,7 +5,7 @@
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { useStorage, type UseStorageResult, type UploadResult, type RecoverResult } from '@/hooks/useStorage'
+import { useStorage, type UseStorageResult, type UploadResult, type RecoverResult, type HybridMetadata } from '@/hooks/useStorage'
 
 // Web Worker モック
 class MockWorker {
@@ -21,19 +21,33 @@ class MockWorker {
       this.onmessage?.({ data: { type: 'ready' } } as MessageEvent)
     }, 0)
 
-    // メッセージハンドラを設定
-    this.messageHandlers.set('sss_split', (payload: unknown) => {
-      const { data, n } = payload as { data: Uint8Array; k: number; n: number }
-      // n個のダミー断片を生成
-      const shares: Uint8Array[] = []
+    // ハイブリッド分割モック
+    this.messageHandlers.set('hybrid_split', (payload: unknown) => {
+      const { data, k, n } = payload as { data: Uint8Array; k: number; n: number }
+      // n個のダミーシャードを生成
+      const shards: Uint8Array[] = []
+      const shardHashes: Uint8Array[] = []
       for (let i = 0; i < n; i++) {
-        // 各断片は元データ + インデックス（簡易的なモック）
-        const share = new Uint8Array(data.length + 1)
-        share.set(data)
-        share[data.length] = i
-        shares.push(share)
+        // 各シャードは元データ + インデックス（簡易的なモック）
+        const shard = new Uint8Array(data.length + 1)
+        shard.set(data)
+        shard[data.length] = i
+        shards.push(shard)
+        // ダミーハッシュ
+        const hash = new Uint8Array(32)
+        hash[0] = i
+        shardHashes.push(hash)
       }
-      return shares
+      return {
+        shards,
+        shardHashes,
+        originalLen: data.length,
+        ciphertextLen: data.length + 16, // 模擬
+        shardSize: data.length + 1,
+        compressed: false,
+        threshold: k,
+        totalShards: n,
+      }
     })
 
     this.messageHandlers.set('merkle_build', (payload: unknown) => {
@@ -71,15 +85,16 @@ class MockWorker {
       return hash
     })
 
-    this.messageHandlers.set('sss_recover', (payload: unknown) => {
-      const { shares } = payload as { shares: Uint8Array[]; k: number }
-      // 最初の断片から元データを復元（モック）
-      if (shares.length > 0) {
-        const original = new Uint8Array(shares[0].length - 1)
-        original.set(shares[0].subarray(0, original.length))
+    // ハイブリッド復元モック
+    this.messageHandlers.set('hybrid_recover', (payload: unknown) => {
+      const { shardBytes } = payload as { shardBytes: Uint8Array[]; k: number; n: number; originalLen: number }
+      // 最初のシャードから元データを復元（モック）
+      if (shardBytes.length > 0) {
+        const original = new Uint8Array(shardBytes[0].length - 1)
+        original.set(shardBytes[0].subarray(0, original.length))
         return original
       }
-      throw new Error('No shares provided')
+      throw new Error('No shards provided')
     })
   }
 
@@ -202,6 +217,9 @@ describe('useStorage', () => {
       expect(uploadResult!.merkleRoot.length).toBe(32)
       expect(uploadResult!.fragmentHashes.length).toBe(5) // n=5
       expect(uploadResult!.totalSize).toBe(testContent.length)
+      expect(uploadResult!.metadata).toBeDefined()
+      expect(uploadResult!.metadata.threshold).toBe(3)
+      expect(uploadResult!.metadata.totalShards).toBe(5)
 
       // RPCが5回呼ばれたことを確認（n=5断片）
       expect(global.fetch).toHaveBeenCalledTimes(5)
@@ -302,6 +320,16 @@ describe('useStorage', () => {
   })
 
   describe('recoverContent', () => {
+    // テスト用メタデータ
+    const testMetadata: HybridMetadata = {
+      originalLen: 5,
+      ciphertextLen: 21,
+      shardSize: 6,
+      compressed: false,
+      threshold: 3,
+      totalShards: 5,
+    }
+
     // T043: Frontend unit test for useStorage.getFragment
     it('should recover content from fragments', async () => {
       const rpcResponses = new Map<string, unknown>()
@@ -324,7 +352,7 @@ describe('useStorage', () => {
       let recoverResult: Awaited<ReturnType<typeof result.current.recoverContent>> | null = null
 
       await act(async () => {
-        recoverResult = await result.current.recoverContent(merkleRoot, 3, 5)
+        recoverResult = await result.current.recoverContent(merkleRoot, testMetadata)
       })
 
       expect(recoverResult).not.toBeNull()
@@ -353,7 +381,7 @@ describe('useStorage', () => {
       const merkleRoot = new Uint8Array(32).fill(1)
 
       await act(async () => {
-        await result.current.recoverContent(merkleRoot, 3, 5)
+        await result.current.recoverContent(merkleRoot, testMetadata)
       })
 
       // RPC呼び出しを検証
@@ -363,7 +391,7 @@ describe('useStorage', () => {
       expect(body.method).toBe('storage_getFragment')
     })
 
-    // T044: Frontend unit test for SSS recover (k fragments)
+    // T044: Frontend unit test for hybrid recover (k fragments)
     it('should successfully recover with exactly k fragments', async () => {
       const testData = new Uint8Array([65, 66, 67]) // "ABC"
       const rpcResponses = new Map<string, unknown>()
@@ -382,11 +410,10 @@ describe('useStorage', () => {
 
       const merkleRoot = new Uint8Array(32).fill(1)
       const k = 3
-      const n = 5
 
       let recoverResult: RecoverResult | null = null
       await act(async () => {
-        recoverResult = await result.current.recoverContent(merkleRoot, k, n)
+        recoverResult = await result.current.recoverContent(merkleRoot, testMetadata)
       })
 
       // k個の断片で復元成功
@@ -396,8 +423,8 @@ describe('useStorage', () => {
       expect(global.fetch).toHaveBeenCalledTimes(k)
     })
 
-    // T044補足: SSS recover の Worker メッセージ検証
-    it('should call sss_recover worker with correct k value', async () => {
+    // T044補足: hybrid_recover の Worker メッセージ検証
+    it('should call hybrid_recover worker with correct metadata', async () => {
       const testData = new Uint8Array([1, 2, 3, 0])
       const rpcResponses = new Map<string, unknown>()
       rpcResponses.set('storage_getFragment', {
@@ -414,13 +441,12 @@ describe('useStorage', () => {
       })
 
       const merkleRoot = new Uint8Array(32).fill(1)
-      const k = 3
 
       await act(async () => {
-        await result.current.recoverContent(merkleRoot, k, 5)
+        await result.current.recoverContent(merkleRoot, testMetadata)
       })
 
-      // Worker の sss_recover が呼ばれることを確認（Mockは自動的に成功）
+      // Worker の hybrid_recover が呼ばれることを確認（Mockは自動的に成功）
       expect(result.current.error).toBeNull()
     })
 
@@ -443,7 +469,7 @@ describe('useStorage', () => {
 
       await act(async () => {
         try {
-          await result.current.recoverContent(merkleRoot, 3, 5)
+          await result.current.recoverContent(merkleRoot, testMetadata)
         } catch (err) {
           expect((err as Error).message).toContain('Insufficient fragments')
         }
@@ -491,7 +517,7 @@ describe('useStorage', () => {
 
       await act(async () => {
         try {
-          await result.current.recoverContent(merkleRoot, k, 5)
+          await result.current.recoverContent(merkleRoot, testMetadata)
         } catch (err) {
           expect((err as Error).message).toContain('Insufficient fragments')
         }
@@ -533,7 +559,7 @@ describe('useStorage', () => {
       let recoverResult: RecoverResult | null = null
 
       await act(async () => {
-        recoverResult = await result.current.recoverContent(merkleRoot, k, 5)
+        recoverResult = await result.current.recoverContent(merkleRoot, testMetadata)
       })
 
       expect(recoverResult).not.toBeNull()

@@ -1,6 +1,6 @@
 # ストレージ戦略: 地図と宝の分離
 
-> **ステータス**: Phase 2 Multi-Node Storage 完了 (2026-02-14)  
+> **ステータス**: Phase 3 KZG Proof Rewards 完了 (2026-02-16)  
 > **関連ドキュメント**: [architecture.md](architecture.md), [memo.md](memo.md), [TODO.md](TODO.md)
 >
 > **実装済み**:
@@ -18,11 +18,18 @@
 >   - Storage Palletセキュリティ (PoW + レート制限)
 >   - チェーン間Storage Node情報共有 (Gossip)
 >   - Observability (構造化ログ + Prometheusメトリクス)
+> - + Phase 3 KZG Proof Rewards - 2026-02-16
+>   - KZG-VSSハイブリッド暗号化 (wasm-engine)
+>   - KZG多項式コミットメント・証明検証 (pallet-storage)
+>   - 報酬プール・分配ロジック (RewardPool, prove_holding_kzg)
+>   - GCライフサイクル (StateProposed → Active → ForgettingCandidate)
+>   - フロントエンド統合 (Reed-Solomon + SSS鍵分割)
 > - Faucetパレットのオンチェーンストレージ (`FaucetClaims`, `TotalClaims`) - 2026-02-09
 >
 > **詳細仕様**: 
 > - [specs/008-distributed-storage/](../specs/008-distributed-storage/)
 > - [specs/010-multi-node-storage/](../specs/010-multi-node-storage/)
+> - [specs/011-kzg-proof-rewards/](../specs/011-kzg-proof-rewards/)
 
 ---
 

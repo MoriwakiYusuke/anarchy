@@ -87,6 +87,25 @@ pub struct GetFragmentResult {
     pub hash: [u8; 32],
 }
 
+/// KZG shard upload request (FR-150)
+/// Note: KZG proof verification happens at blockchain node RPC before forwarding here
+#[derive(Debug, Deserialize)]
+pub struct StoreKzgShardParams {
+    /// Content hash identifying the post
+    pub content_hash: [u8; 32],
+    /// Shard index (1-based)
+    pub shard_index: u8,
+    /// Encrypted shard data (base64 encoded)
+    pub shard_data: String,
+}
+
+/// KZG shard upload response
+#[derive(Debug, Serialize)]
+pub struct StoreKzgShardResult {
+    pub success: bool,
+    pub shard_hash: [u8; 32],
+}
+
 /// Shared state for the RPC server
 #[derive(Clone)]
 pub struct RpcState {
@@ -139,6 +158,7 @@ async fn handle_rpc(
     let response = match request.method.as_str() {
         "storage_storeFragment" => handle_store_fragment(&state, request.params).await,
         "storage_getFragment" => handle_get_fragment(&state, request.params).await,
+        "storage_storeKzgShard" => handle_store_kzg_shard(&state, request.params).await,
         _ => Err(RpcError {
             code: -32601,
             message: format!("Method not found: {}", request.method),
@@ -289,6 +309,82 @@ async fn handle_get_fragment(
     }
 }
 
+/// Handle storage_storeKzgShard (FR-150)
+async fn handle_store_kzg_shard(
+    state: &RpcState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, RpcError> {
+    let params: StoreKzgShardParams = serde_json::from_value(params)
+        .map_err(|e| RpcError {
+            code: -32602,
+            message: format!("Invalid params: {}", e),
+        })?;
+
+    // Decode base64 data
+    let shard_data = b64_decode(&params.shard_data)
+        .map_err(|e| RpcError {
+            code: -32602,
+            message: format!("Invalid base64 shard_data: {}", e),
+        })?;
+
+    // Validate size
+    if shard_data.len() > MAX_FRAGMENT_SIZE {
+        return Err(RpcError {
+            code: -32000,
+            message: format!("Shard too large: {} > {}", shard_data.len(), MAX_FRAGMENT_SIZE),
+        });
+    }
+
+    // Validate shard_index (must be >= 1)
+    if params.shard_index == 0 {
+        return Err(RpcError {
+            code: -32602,
+            message: "shard_index must be >= 1".to_string(),
+        });
+    }
+
+    // Generate shard ID from content_hash and shard_index
+    // Use different domain separator than SSS fragments
+    let shard_id = create_kzg_shard_id(&params.content_hash, params.shard_index);
+
+    info!(
+        shard_id = %hex::encode(shard_id),
+        content_hash = %hex::encode(params.content_hash),
+        shard_index = params.shard_index,
+        size = shard_data.len(),
+        "Storing KZG shard"
+    );
+
+    // Store the shard
+    match state.store.store(shard_id, &shard_data) {
+        Ok(()) => {
+            // Calculate shard hash
+            use blake2::{Blake2b, Digest};
+            use blake2::digest::consts::U32;
+            let mut hasher = Blake2b::<U32>::new();
+            hasher.update(&shard_data);
+            let hash: [u8; 32] = hasher.finalize().into();
+
+            let result = StoreKzgShardResult {
+                success: true,
+                shard_hash: hash,
+            };
+
+            serde_json::to_value(result).map_err(|e| RpcError {
+                code: -32603,
+                message: format!("Internal serialization error: {}", e),
+            })
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to store KZG shard");
+            Err(RpcError {
+                code: -32001,
+                message: format!("Storage error: {}", e),
+            })
+        }
+    }
+}
+
 /// Create fragment ID from merkle_root and index
 /// Uses Blake2b-256(merkle_root || index) to generate a unique ID
 fn create_fragment_id(merkle_root: &[u8; 32], index: u32) -> [u8; 32] {
@@ -297,6 +393,25 @@ fn create_fragment_id(merkle_root: &[u8; 32], index: u32) -> [u8; 32] {
     let mut hasher = Blake2b::<U32>::new();
     hasher.update(merkle_root);
     hasher.update(index.to_le_bytes());
+    hasher.finalize().into()
+}
+
+/// Create KZG shard ID from content_hash and shard_index.
+///
+/// Uses Blake2b-256 with domain separator to avoid collision with SSS fragments.
+///
+/// # Domain Separator Stability
+/// The domain separator `"kzg-shard"` is a **permanent identifier** and MUST NOT
+/// be changed, as it would break lookup of all existing KZG shards in storage.
+/// If a new shard ID scheme is needed in the future, introduce a new function
+/// (e.g., `create_kzg_shard_id_v2`) with a different domain separator.
+fn create_kzg_shard_id(content_hash: &[u8; 32], shard_index: u8) -> [u8; 32] {
+    use blake2::{Blake2b, Digest};
+    use blake2::digest::consts::U32;
+    let mut hasher = Blake2b::<U32>::new();
+    hasher.update(b"kzg-shard");
+    hasher.update(content_hash);
+    hasher.update([shard_index]);
     hasher.finalize().into()
 }
 
@@ -425,5 +540,31 @@ mod tests {
         let hex_encoded = "0xdeadbeef";
         let decoded = b64_decode(hex_encoded).unwrap();
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_kzg_shard_id_generation() {
+        let content_hash = [1u8; 32];
+        let id1 = create_kzg_shard_id(&content_hash, 1);
+        let id2 = create_kzg_shard_id(&content_hash, 2);
+        
+        // Different indices should produce different IDs
+        assert_ne!(id1, id2);
+        
+        // Same inputs should produce same ID
+        let id1_again = create_kzg_shard_id(&content_hash, 1);
+        assert_eq!(id1, id1_again);
+    }
+
+    #[test]
+    fn test_kzg_shard_id_different_from_fragment_id() {
+        // KZG shard IDs and SSS fragment IDs should not collide
+        // even with same content_hash/merkle_root and index
+        let hash = [1u8; 32];
+        let kzg_id = create_kzg_shard_id(&hash, 1);
+        let fragment_id = create_fragment_id(&hash, 1);
+        
+        // Domain separator ensures they differ
+        assert_ne!(kzg_id, fragment_id);
     }
 }

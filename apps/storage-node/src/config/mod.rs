@@ -51,6 +51,20 @@ pub struct Config {
     /// Bootstrap peers for Gossipsub (multiaddr strings)
     #[serde(default = "default_bootstrap_peers")]
     pub bootstrap_peers: Vec<String>,
+
+    /// Path to SRS (Structured Reference String) file for KZG proofs
+    /// If empty and dev_mode is true, uses a test SRS
+    #[serde(default = "default_srs_path")]
+    pub srs_path: String,
+
+    /// Development mode - uses insecure test SRS if srs_path is empty
+    #[serde(default = "default_dev_mode")]
+    pub dev_mode: bool,
+
+    /// Sr25519 signer seed (hex 32 bytes) for signing extrinsics
+    /// REQUIRED: Must be configured explicitly for security reasons.
+    /// Generate with: openssl rand -hex 32
+    pub signer_seed: String,
 }
 
 fn default_data_dir() -> String {
@@ -85,6 +99,17 @@ fn default_bootstrap_peers() -> Vec<String> {
     Vec::new() // No default bootstrap peers (FR-505)
 }
 
+fn default_srs_path() -> String {
+    String::new() // Empty means use test SRS in dev mode
+}
+
+fn default_dev_mode() -> bool {
+    true // Development mode by default (uses test SRS)
+}
+
+// NOTE: signer_seed has no default - it MUST be configured explicitly.
+// This prevents accidental use of dev seeds in production.
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -96,23 +121,38 @@ impl Default for Config {
             rpc_port: default_rpc_port(),
             auth_enabled: default_auth_enabled(),
             bootstrap_peers: default_bootstrap_peers(),
+            srs_path: default_srs_path(),
+            dev_mode: default_dev_mode(),
+            // signer_seed is REQUIRED - must be set via config file
+            signer_seed: String::new(),
         }
     }
 }
 
 impl Config {
     /// Load configuration from file with CLI overrides
+    ///
+    /// NOTE: signer_seed is REQUIRED and must be specified in the config file.
+    /// The node will refuse to start without a valid 32-byte hex signer seed.
     pub fn load(config_path: &str, overrides: ConfigOverrides) -> Result<Self> {
         let path = Path::new(config_path);
 
-        let mut config = if path.exists() {
+        let mut config: Config = if path.exists() {
             let content = fs::read_to_string(path)
                 .context("Failed to read config file")?;
             toml::from_str(&content)
-                .context("Failed to parse config file")?
+                .context("Failed to parse config file (note: signer_seed is required)")?
         } else {
-            Config::default()
+            anyhow::bail!("Config file not found: {}. A config file with signer_seed is required.", config_path);
         };
+        
+        // Validate signer_seed is provided
+        if config.signer_seed.is_empty() {
+            anyhow::bail!("signer_seed is required in config. Generate with: openssl rand -hex 32");
+        }
+        if config.signer_seed.len() != 64 {
+            anyhow::bail!("signer_seed must be exactly 64 hex characters (32 bytes)");
+        }
 
         // Apply CLI overrides
         if let Some(data_dir) = overrides.data_dir {
@@ -160,6 +200,7 @@ mod tests {
             declare_rate_limit = 5
             rpc_port = 4040
             auth_enabled = false
+            signer_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         "#;
 
         let config: Config = toml::from_str(toml).unwrap();
@@ -168,5 +209,6 @@ mod tests {
         assert_eq!(config.declare_rate_limit, 5);
         assert_eq!(config.rpc_port, 4040);
         assert!(!config.auth_enabled);
+        assert_eq!(config.signer_seed.len(), 64);
     }
 }

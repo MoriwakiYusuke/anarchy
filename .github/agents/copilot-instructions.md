@@ -15,6 +15,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-07
 - Rust 1.87 (stable2503), TypeScript 5.x (Next.js 15) + Polkadot SDK (stable2503), PAPI (polkadot-api), libp2p 0.54, wasm-bindgen, subxt (009-post-storage-migration)
 - オンチェーン（MerkleRootのみ）、オフチェーン（Storage Node分散保存） (009-post-storage-migration)
 - Rust 1.75+ (stable2503 toolchain), TypeScript 5.x (010-multi-node-storage)
+- Rust (Polkadot SDK stable2503), TypeScript (Next.js 14) + arkworks (ark-bls12-381, ark-poly, ark-poly-commit), wasm-pack, PAPI (011-kzg-proof-rewards)
+- Substrate on-chain storage (`Fragments`, `RewardPoolBalance`) (011-kzg-proof-rewards)
 
 - Rust 1.75+ (Polkadot SDK stable2503) + frame-support, frame-system, sp-runtime, sp-core (001-identity-pallet)
 
@@ -34,9 +36,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust 1.75+ (Polkadot SDK stable2503): Follow standard conventions
 
 ## Recent Changes
+- 011-kzg-proof-rewards: Added Rust (Polkadot SDK stable2503), TypeScript (Next.js 14) + arkworks (ark-bls12-381, ark-poly, ark-poly-commit), wasm-pack, PAPI
 - 010-multi-node-storage: Added Rust 1.75+ (stable2503 toolchain), TypeScript 5.x
 - 009-post-storage-migration: Added Rust 1.87 (stable2503), TypeScript 5.x (Next.js 15) + Polkadot SDK (stable2503), PAPI (polkadot-api), libp2p 0.54, wasm-bindgen, subxt
-- 008-distributed-storage: Added Rust 1.75+ (Polkadot SDK stable2503), TypeScript 5.x (Frontend)
 
 
 <!-- MANUAL ADDITIONS START -->

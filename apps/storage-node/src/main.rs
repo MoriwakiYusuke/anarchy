@@ -3,7 +3,7 @@
 //! A distributed storage node for the Anarchy network.
 //! Stores fragments and communicates via libp2p.
 
-use anarchy_storage_node::{config, identity, storage, network, chain, rpc, metrics::Metrics};
+use anarchy_storage_node::{config, identity, storage, network, chain, rpc, metrics::Metrics, prover, gc};
 
 use clap::Parser;
 use std::sync::Arc;
@@ -85,6 +85,21 @@ async fn main() -> anyhow::Result<()> {
         "Fragment storage initialized"
     );
 
+    // Initialize KZG prover with SRS (T082)
+    let kzg_prover = Arc::new(prover::create_prover(&config.srs_path, config.dev_mode)?);
+    if kzg_prover.is_srs_loaded() {
+        info!(degree = kzg_prover.srs_degree(), "KZG prover initialized with SRS");
+    } else {
+        warn!("KZG prover initialized without SRS - proof generation will fail");
+    }
+
+    // Initialize garbage collector (T085)
+    let garbage_collector = Arc::new(tokio::sync::Mutex::new(gc::GarbageCollector::new(config.dev_mode)));
+    info!(dev_mode = config.dev_mode, "Garbage collector initialized");
+    
+    // GC store reference for deletion
+    let gc_store = Arc::clone(&store);
+
     // Initialize metrics (NFR-001, NFR-002, NFR-003)
     let metrics = Metrics::new();
     metrics.set_capacity_total(config.capacity);
@@ -107,6 +122,7 @@ async fn main() -> anyhow::Result<()> {
     let chain_client = Arc::new(chain::ChainClient::new(
         &config.chain_url,
         config.declare_rate_limit,
+        &config.signer_seed,
         Arc::clone(&failover_manager),
         Arc::clone(&endpoint_cache),
     ).await?);
@@ -154,6 +170,11 @@ async fn main() -> anyhow::Result<()> {
     let mut storage_node_broadcast_interval = tokio::time::interval(std::time::Duration::from_secs(60));
     storage_node_broadcast_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+    // Setup periodic GC check interval (T085)
+    // Check for fragments ready for garbage collection every 60 seconds
+    let mut gc_check_interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    gc_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     // Setup shutdown signal
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     
@@ -189,6 +210,64 @@ async fn main() -> anyhow::Result<()> {
                     match network.broadcast_storage_nodes(nodes.clone()) {
                         Ok(()) => debug!(count = nodes.len(), "Broadcast storage node update"),
                         Err(e) => debug!(error = %e, "Failed to broadcast storage nodes"),
+                    }
+                }
+            }
+            _ = gc_check_interval.tick() => {
+                // T085: Periodic garbage collection check (score-based)
+                let mut gc = garbage_collector.lock().await;
+                
+                // Score-based GC: Check which local fragments are forgetting candidates on-chain
+                // A fragment becomes a forgetting candidate when its score < threshold (reward = 0)
+                match gc_store.list_fragments() {
+                    Ok(local_fragments) if !local_fragments.is_empty() => {
+                        // Query chain for forgetting candidate status
+                        match chain_client.check_forgetting_candidates(local_fragments.clone()).await {
+                            Ok(candidates) => {
+                                for (content_hash, is_candidate) in candidates {
+                                    if is_candidate {
+                                        // Mark for GC with default score 0 (below threshold)
+                                        gc.mark_forgetting_candidate(content_hash, 0);
+                                    } else {
+                                        // Remove from candidates if score recovered
+                                        gc.unmark_forgetting_candidate(&content_hash);
+                                    }
+                                }
+                            }
+                            Err(e) => debug!(error = %e, "GC: Failed to check forgetting candidates"),
+                        }
+                    }
+                    Ok(_) => {
+                        // No local fragments, nothing to check
+                    }
+                    Err(e) => debug!(error = %e, "GC: Failed to list local fragments"),
+                }
+                
+                // Score-based GC: process fragments with expired grace period
+                let ready_for_gc = gc.get_gc_ready();
+                
+                if !ready_for_gc.is_empty() {
+                    info!(count = ready_for_gc.len(), "GC: Processing {} fragments ready for cleanup", ready_for_gc.len());
+                    
+                    for content_hash in ready_for_gc {
+                        if gc.execute_gc(&content_hash) {
+                            // Delete fragment from local storage
+                            match gc_store.delete(&content_hash) {
+                                Ok(true) => info!(
+                                    hash = %hex::encode(&content_hash[..8]),
+                                    "GC: Successfully deleted fragment"
+                                ),
+                                Ok(false) => debug!(
+                                    hash = %hex::encode(&content_hash[..8]),
+                                    "GC: Fragment not found (already deleted)"
+                                ),
+                                Err(e) => error!(
+                                    error = %e,
+                                    hash = %hex::encode(&content_hash[..8]),
+                                    "GC: Failed to delete fragment"
+                                ),
+                            }
+                        }
                     }
                 }
             }

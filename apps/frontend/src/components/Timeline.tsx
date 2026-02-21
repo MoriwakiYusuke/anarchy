@@ -110,7 +110,8 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
                     root: rootBytes,
                     k: Number(ref.k || 3),
                     n: Number(ref.n || 5),
-                    total_size: Number(ref.total_size || 0),
+                    // On-chain PostContent uses 'size' field, not 'total_size'
+                    total_size: Number(ref.size || 0),
                   })
                 } else {
                   console.warn(`[Timeline] Invalid root length for post ${postId}: ${rootBytes.length}`)

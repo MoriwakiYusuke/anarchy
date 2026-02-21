@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useStorage } from '@/hooks/useStorage'
+import { useStorage, type HybridMetadata } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n/context'
 import styles from './Timeline.module.css'
 
@@ -10,6 +10,10 @@ interface ContentRef {
   k: number
   n: number
   total_size: number
+  // Optional hybrid metadata fields (may not be present in older posts)
+  ciphertext_len?: number
+  shard_size?: number
+  compressed?: boolean
 }
 
 interface Props {
@@ -74,7 +78,27 @@ export function PostItem({
           
           console.log(`[PostItem] Recovering content for post ${postId}, merkle_root:`, Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join(''))
           
-          const result = await recoverContent(merkleRoot, contentRef.k, contentRef.n)
+          // Construct HybridMetadata from ContentRef
+          // Note: Posts created before hybrid migration cannot be recovered with this code path
+          // Reed-Solomon shard_size = ceil(ciphertext_len / k)
+          // AES-GCM overhead: 12 bytes nonce + 16 bytes auth tag
+          // TODO: Export AES_GCM_OVERHEAD from wasm-engine and import here to ensure consistency
+          // with backend encryption parameters. If encryption params change, this estimation
+          // could become incorrect.
+          const AES_GCM_OVERHEAD = 12 + 16 // nonce (12) + auth tag (16) = 28 bytes
+          const estimatedCiphertextLen = contentRef.total_size + AES_GCM_OVERHEAD
+          const metadata: HybridMetadata = {
+            originalLen: contentRef.total_size,
+            ciphertextLen: contentRef.ciphertext_len ?? estimatedCiphertextLen,
+            // shard_size must use k (threshold), not n (total shards)
+            shardSize: contentRef.shard_size ?? Math.ceil((contentRef.ciphertext_len ?? estimatedCiphertextLen) / contentRef.k),
+            // compressed flag from ContentRef, default false for older posts (may fail if mismatched)
+            compressed: contentRef.compressed ?? false,
+            threshold: contentRef.k,
+            totalShards: contentRef.n,
+          }
+          
+          const result = await recoverContent(merkleRoot, metadata)
           const text = new TextDecoder().decode(result.data)
           setContent(text)
         } catch (err) {
