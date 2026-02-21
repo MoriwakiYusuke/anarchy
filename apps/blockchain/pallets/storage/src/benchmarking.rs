@@ -204,6 +204,13 @@ mod benchmarks {
             threshold,
         );
         
+        // SECURITY FIX: Add caller as holder (PR #22 CRITICAL-2)
+        KzgFragments::<T>::mutate(content_hash, |maybe_fragment| {
+            if let Some(ref mut fragment) = maybe_fragment {
+                let _ = fragment.holders.try_push(caller.clone());
+            }
+        });
+        
         // SECURITY FIX: Must issue challenge before proving (PR #22 CRITICAL-1)
         let share_index: u8 = 1;
         let _ = Pallet::<T>::issue_challenge(
@@ -272,6 +279,13 @@ mod benchmarks {
             5,
             3,
         );
+        
+        // SECURITY FIX: Add caller as holder (PR #22 CRITICAL-2)
+        KzgFragments::<T>::mutate(content_hash, |maybe_fragment| {
+            if let Some(ref mut fragment) = maybe_fragment {
+                let _ = fragment.holders.try_push(caller.clone());
+            }
+        });
         
         // SECURITY FIX: Must issue challenge before proving (PR #22 CRITICAL-1)
         let share_index: u8 = 1;

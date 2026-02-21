@@ -628,6 +628,8 @@ pub mod pallet {
         InvalidChallengeIndex,
         /// KZG fragment not found
         KzgFragmentNotFound,
+        /// Prover is not a registered holder of this fragment
+        NotHolder,
 
         // === Reward errors (US3) ===
 
@@ -1018,6 +1020,10 @@ pub mod pallet {
             // Get KZG fragment
             let kzg_fragment = KzgFragments::<T>::get(content_hash)
                 .ok_or(Error::<T>::KzgFragmentNotFound)?;
+
+            // SECURITY: Verify the prover is a registered holder (PR #22 CRITICAL-2)
+            // Without this check, any account could submit proofs for others' fragments
+            ensure!(kzg_fragment.holders.contains(&prover), Error::<T>::NotHolder);
 
             // Validate share index
             ensure!(

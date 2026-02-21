@@ -769,6 +769,15 @@ fn test_commitment() -> BoundedVec<u8, ConstU32<48>> {
     BoundedVec::try_from(bytes).unwrap()
 }
 
+/// Helper: Add holder to KzgFragment (for tests)
+fn add_kzg_holder(content_hash: [u8; 32], holder: u64) {
+    crate::KzgFragments::<Test>::mutate(content_hash, |maybe_fragment| {
+        if let Some(ref mut fragment) = maybe_fragment {
+            let _ = fragment.holders.try_push(holder);
+        }
+    });
+}
+
 /// T017: register_kzg_fragment で90%報酬プール/10%バーン
 /// 注: 現在の実装では投稿費用は別パレット(post)で徴収。
 /// このテストはrewards.rsのpro_rataテストでカバーされている。報酬プール分配の動作確認。
@@ -850,6 +859,9 @@ fn t029_prove_holding_kzg_valid_proof_succeeds() {
             http_url,
         ));
 
+        // SECURITY FIX: Add node as holder (PR #22 CRITICAL-2)
+        add_kzg_holder(content_hash, node);
+
         // SECURITY FIX: Must issue challenge before proving (PR #22 CRITICAL-1)
         assert_ok!(Storage::issue_challenge(
             RuntimeOrigin::signed(owner),
@@ -916,6 +928,9 @@ fn t030_prove_holding_kzg_invalid_proof_fails() {
             1_000_000, // pow_nonce
             http_url,
         ));
+
+        // SECURITY FIX: Add node as holder (PR #22 CRITICAL-2)
+        add_kzg_holder(content_hash, node);
 
         // SECURITY FIX: Must issue challenge before proving (PR #22 CRITICAL-1)
         assert_ok!(Storage::issue_challenge(
@@ -1465,6 +1480,9 @@ fn sec003_prove_holding_kzg_duplicate_same_block_fails() {
             http_url,
         ));
 
+        // SECURITY FIX: Add node as holder (PR #22 CRITICAL-2)
+        add_kzg_holder(content_hash, node);
+
         // Issue first challenge
         assert_ok!(Storage::issue_challenge(
             RuntimeOrigin::signed(owner),
@@ -1537,6 +1555,9 @@ fn sec004_replay_attack_different_blocks_fails() {
             http_url,
         ));
 
+        // SECURITY FIX: Add node as holder (PR #22 CRITICAL-2)
+        add_kzg_holder(content_hash, node);
+
         // Issue and consume first challenge
         assert_ok!(Storage::issue_challenge(
             RuntimeOrigin::signed(owner),
@@ -1579,5 +1600,82 @@ fn sec004_replay_attack_different_blocks_fails() {
         // Initial rewards should still be 0 (only manual update, no actual reward accumulation)
         let pending_reward = crate::PendingRewards::<Test>::get(node);
         assert_eq!(pending_reward, 0, "No rewards should be accumulated without valid proofs");
+    });
+}
+
+/// SEC-005: ホルダーとして登録されていないノードが証明を提出すると NotHolder エラー (PR #22 CRITICAL-2)
+#[test]
+fn sec005_prove_holding_kzg_not_holder_fails() {
+    new_test_ext().execute_with(|| {
+        let owner = 1u64;
+        let node = 2u64;
+        let non_holder = 3u64;
+        let content_hash = test_content_hash(1);
+        let commitment = test_commitment();
+
+        // Setup: Register KzgFragment
+        assert_ok!(Storage::register_kzg_fragment(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            commitment,
+            1024,
+            5,
+            3,
+        ));
+
+        // Register both storage nodes
+        let peer_id = test_peer_id(1);
+        let http_url = test_http_url(3030);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node),
+            peer_id,
+            1_000_000,
+            1_000_000,
+            http_url,
+        ));
+
+        let peer_id_nh = test_peer_id(2);
+        let http_url_nh = test_http_url(3031);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(non_holder),
+            peer_id_nh,
+            1_000_000,
+            1_000_001,
+            http_url_nh,
+        ));
+
+        // Add only 'node' as holder, NOT 'non_holder'
+        add_kzg_holder(content_hash, node);
+
+        // Issue challenge to non_holder (attacker scenario:
+        // challenger mistakenly or maliciously challenges non-holder)
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            non_holder, // Challenge non-holder
+            1,
+        ));
+
+        // non_holder tries to submit proof for content they don't hold
+        let share_value: BoundedVec<u8, ConstU32<32>> = {
+            BoundedVec::try_from(vec![0u8; 32]).unwrap()
+        };
+        let proof = test_commitment();
+
+        // Should fail with NotHolder error
+        assert_noop!(
+            Storage::prove_holding_kzg(
+                RuntimeOrigin::signed(non_holder),
+                content_hash,
+                1,
+                share_value,
+                proof,
+            ),
+            Error::<Test>::NotHolder
+        );
+
+        // Verify no rewards accumulated for attacker
+        let pending_reward = crate::PendingRewards::<Test>::get(non_holder);
+        assert_eq!(pending_reward, 0, "Non-holder should not accumulate rewards");
     });
 }
