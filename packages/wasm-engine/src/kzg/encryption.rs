@@ -12,7 +12,10 @@ use getrandom::getrandom;
 /// AES-256-GCM鍵のバイト長
 pub const KEY_SIZE: usize = 32;
 
-/// AES-GCM NonceのバイトLength (96-bit)
+/// AES-GCM NonceのバイトLength (96-bit).
+///
+/// NIST SP 800-38Dでは、AES-GCMのNonceとして96ビット（12バイト）の長さを推奨している。
+/// 同じ鍵との組み合わせでNonceを再利用してはならない（各暗号化ごとに一意のNonceを使用すること）。
 pub const NONCE_SIZE: usize = 12;
 
 /// 暗号化エラー

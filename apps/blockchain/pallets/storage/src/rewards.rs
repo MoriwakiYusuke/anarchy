@@ -2,8 +2,12 @@
 //!
 //! Handles reward calculation based on data size and distribution to storage nodes.
 
-/// Minimum score threshold for rewards (FR-109)
-/// Content below this score receives 0 rewards
+/// Minimum score threshold for rewards (FR-109).
+/// Content below this score receives 0 rewards.
+///
+/// Note: This constant serves as the default fallback value. The pallet's `Config::ScoreThreshold`
+/// type should be used for runtime configuration. This constant is provided for use in tests
+/// and contexts where the runtime config is not available.
 pub const SCORE_THRESHOLD: u64 = 100;
 
 /// Calculate reward for a successful holding proof.

@@ -90,6 +90,9 @@ pub fn init_test_srs(max_degree: usize) -> Result<(), KzgError> {
     // This value is publicly known and allows anyone to forge proofs.
     // Production MUST use the Ethereum KZG Ceremony trusted setup.
     // ============================================================
+    #[cfg(not(any(test, debug_assertions)))]
+    compile_error!("init_test_srs must not be used in release builds. Use init_srs_from_ceremony_text instead.");
+
     let tau = Fr::from(12345u64);
 
     // Generate powers of tau in G1: [1]₁, [τ]₁, [τ²]₁, ...

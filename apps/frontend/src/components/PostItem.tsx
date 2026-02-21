@@ -82,6 +82,9 @@ export function PostItem({
           // Note: Posts created before hybrid migration cannot be recovered with this code path
           // Reed-Solomon shard_size = ceil(ciphertext_len / k)
           // AES-GCM overhead: 12 bytes nonce + 16 bytes auth tag
+          // TODO: Export AES_GCM_OVERHEAD from wasm-engine and import here to ensure consistency
+          // with backend encryption parameters. If encryption params change, this estimation
+          // could become incorrect.
           const AES_GCM_OVERHEAD = 12 + 16 // nonce (12) + auth tag (16) = 28 bytes
           const estimatedCiphertextLen = contentRef.total_size + AES_GCM_OVERHEAD
           const metadata: HybridMetadata = {

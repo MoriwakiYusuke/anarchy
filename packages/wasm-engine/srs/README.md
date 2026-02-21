@@ -28,9 +28,13 @@ We use G2[1] (second G2 point) as τ·G₂ for KZG verification.
 ### Binary Format (Alternative)
 
 A binary format can also be used:
-- First 4 bytes: number of G1 points (u32 LE)
-- G1 points: 48 bytes each (compressed BLS12-381 G1)
-- 96 bytes: G2 point (compressed BLS12-381 G2)
+- First 4 bytes: number of G1 points, encoded as a little-endian (`LE`) unsigned 32-bit integer (`u32`).
+- G1 points: `num_g1` points, 48 bytes each (compressed BLS12-381 G1), written consecutively in the same order as in the text format.
+- G2 point: 96 bytes (compressed BLS12-381 G2) for τ·G₂, immediately following the last G1 point.
+
+### Format Detection
+
+There is no automatic format detection in this crate. Callers must know which format they are loading and choose the corresponding loader (for example, by using different filenames or configuration flags). The binary format must only be used when the input is known to start with the 4-byte little-endian `num_g1` header described above; otherwise, treat the file as the text-based Ethereum KZG Ceremony format documented in the previous section.
 
 ### Usage
 

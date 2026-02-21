@@ -20,7 +20,10 @@ use tracing::{debug, info};
 /// - Time for content creators to react to dropping scores
 /// - Opportunity for organic score recovery via reactions
 /// - Buffer against temporary network/scorer issues
-pub const GC_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60;
+const GC_GRACE_PERIOD_DAYS: u64 = 7;
+/// Number of seconds in a day (24 * 60 * 60).
+const SECONDS_PER_DAY: u64 = 86_400;
+pub const GC_GRACE_PERIOD_SECS: u64 = GC_GRACE_PERIOD_DAYS * SECONDS_PER_DAY;
 
 /// Development mode grace period (10 minutes for testing)
 pub const GC_GRACE_PERIOD_DEV_SECS: u64 = 10 * 60;

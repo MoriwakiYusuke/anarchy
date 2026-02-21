@@ -67,22 +67,26 @@ check_prerequisites() {
 verify_score_cache_empty() {
     log_info "Verifying ScoreCache is empty..."
     
-    # NOTE:
-    #   Directly querying pallet storage via `state_getStorage` requires constructing
-    #   the correct Substrate storage key, which involves hashing the pallet name,
-    #   storage item name, and SCALE-encoded key with the configured hasher.
-    #   A plain hex-encoded string ('Storage:ScoreCache' + hash) does not produce
-    #   a valid Substrate storage key and cannot meaningfully verify the cache.
+    # NOTE (SECURITY LIMITATION):
+    #   This shell-based integration test does NOT actually verify the on-chain
+    #   contents of `Storage::ScoreCache`. Directly querying pallet storage via
+    #   `state_getStorage` requires constructing the correct Substrate storage key,
+    #   which involves hashing the pallet name, storage item name, and SCALE-encoded
+    #   key with the configured hasher. A plain hex-encoded string
+    #   ('Storage:ScoreCache' + hash) does not produce a valid Substrate storage key
+    #   and cannot meaningfully verify the cache.
     #
     #   To avoid making an invalid low-level query from this shell script, we skip
-    #   the direct storage inspection here. The rest of the test still verifies
-    #   the default score behavior when no external score provider is connected.
+    #   the direct storage inspection here. The rest of this test ONLY verifies the
+    #   functional behavior that the default score is applied when no external score
+    #   provider is connected; it does NOT prove that the on-chain ScoreCache is empty.
     #
-    #   For proper runtime storage queries, use:
-    #   - PAPI with getUnsafeApi().query.Storage.ScoreCache()
-    #   - Substrate storage RPC with correctly constructed twox_128 hashed keys
-    
-    log_warn "Skipping direct on-chain ScoreCache inspection (requires proper Substrate storage key construction)"
+    #   For proper runtime storage queries and full verification of the ScoreCache
+    #   security property, use for example:
+    #     - A PAPI-based TypeScript test with getUnsafeApi().query.Storage.ScoreCache()
+    #     - Substrate storage RPC with correctly constructed twox_128 hashed keys
+
+    log_warn "SECURITY NOTICE: skipping direct on-chain ScoreCache inspection; this test does NOT verify ScoreCache contents. Use a PAPI-based or proper Substrate storage-key test for full verification."
     return 0
 }
 

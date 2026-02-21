@@ -108,10 +108,32 @@ fn default_dev_mode() -> bool {
     true // Development mode by default (uses test SRS)
 }
 
+/// Default signer seed for development builds.
+///
+/// In debug builds, we use the Alice dev account seed for convenience.
+/// In non-debug (release) builds, this function is redefined below to
+/// return a safe, empty default instead. Production deployments must
+/// provide a unique, securely generated signer seed via configuration.
+// Alice dev account seed (//Alice)
+// WARNING: DEVELOPMENT ONLY.
+// This dev seed must NEVER be used in production or non-debug builds.
+#[cfg(debug_assertions)]
+const ALICE_DEV_SIGNER_SEED: &str =
+    "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
+
+#[cfg(debug_assertions)]
 fn default_signer_seed() -> String {
-    // Alice dev account seed (//Alice)
-    // WARNING: For development only! Replace with unique seed in production.
-    "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string()
+    ALICE_DEV_SIGNER_SEED.to_string()
+}
+
+/// Default signer seed for non-debug (typically release) builds.
+///
+/// This intentionally does NOT use the Alice dev seed to avoid
+/// accidentally running a production node with a known private key.
+/// A production configuration MUST override this with a unique seed.
+#[cfg(not(debug_assertions))]
+fn default_signer_seed() -> String {
+    String::new()
 }
 
 impl Default for Config {
