@@ -1389,7 +1389,18 @@ where
     /// 忘却候補をチェック
     ///
     /// 与えられたcontent_hashのリストに対して、ForgettingCandidatesに含まれるかを返す。
+    /// 最大1000件まで受け付ける (DoS対策)
     async fn check_forgetting_candidates(&self, content_hashes: Vec<[u8; 32]>) -> RpcResult<Vec<([u8; 32], bool)>> {
+        const MAX_CONTENT_HASHES: usize = 1000;
+        
+        if content_hashes.len() > MAX_CONTENT_HASHES {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!("Too many content hashes: {} (max {})", content_hashes.len(), MAX_CONTENT_HASHES),
+                None::<()>,
+            ));
+        }
+        
         let best_hash = self.client.info().best_hash;
         let api = self.client.runtime_api();
         

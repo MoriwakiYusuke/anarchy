@@ -246,12 +246,12 @@ mod tests {
         let k = 3;
         let n = 5;
 
-        let result = key_split(&key, k, n).unwrap();
+        let result = key_split(&*key, k, n).unwrap();
         assert_eq!(result.shares.len(), n as usize);
 
         // 全シェアで復元
         let recovered = key_recover(&result.shares, k).unwrap();
-        assert_eq!(recovered, key);
+        assert_eq!(recovered, *key);
     }
 
     #[test]
@@ -260,12 +260,12 @@ mod tests {
         let k = 3;
         let n = 5;
 
-        let result = key_split(&key, k, n).unwrap();
+        let result = key_split(&*key, k, n).unwrap();
 
         // k個のシェアのみで復元
         let subset: Vec<KeyShare> = result.shares[0..k as usize].to_vec();
         let recovered = key_recover(&subset, k).unwrap();
-        assert_eq!(recovered, key);
+        assert_eq!(recovered, *key);
     }
 
     #[test]
@@ -274,7 +274,7 @@ mod tests {
         let k = 2;
         let n = 4;
 
-        let result = key_split(&key, k, n).unwrap();
+        let result = key_split(&*key, k, n).unwrap();
 
         // シェア0と3のみで復元
         let subset = vec![
@@ -282,7 +282,7 @@ mod tests {
             result.shares[3].clone(),
         ];
         let recovered = key_recover(&subset, k).unwrap();
-        assert_eq!(recovered, key);
+        assert_eq!(recovered, *key);
     }
 
     #[test]
@@ -291,7 +291,7 @@ mod tests {
         let k = 3;
         let n = 5;
 
-        let result = key_split(&key, k, n).unwrap();
+        let result = key_split(&*key, k, n).unwrap();
 
         // k-1個のシェアでは復元不可
         let subset: Vec<KeyShare> = result.shares[0..(k - 1) as usize].to_vec();
@@ -311,9 +311,9 @@ mod tests {
         let key = generate_key().unwrap();
 
         // k = 1 は不可（SSSの意味がない）
-        assert_eq!(key_split(&key, 1, 3), Err(KeySssError::InvalidThreshold));
+        assert_eq!(key_split(&*key, 1, 3), Err(KeySssError::InvalidThreshold));
         // k > n
-        assert_eq!(key_split(&key, 5, 3), Err(KeySssError::InvalidThreshold));
+        assert_eq!(key_split(&*key, 5, 3), Err(KeySssError::InvalidThreshold));
     }
 
     #[test]
@@ -322,7 +322,7 @@ mod tests {
         let k = 2;
         let n = 3;
 
-        let result = key_split(&key, k, n).unwrap();
+        let result = key_split(&*key, k, n).unwrap();
 
         // 各ペアで復元可能か確認
         let pairs = [(0, 1), (0, 2), (1, 2)];
@@ -332,14 +332,14 @@ mod tests {
                 result.shares[b].clone(),
             ];
             let recovered = key_recover(&subset, k).unwrap();
-            assert_eq!(recovered, key, "Failed with shares {} and {}", a, b);
+            assert_eq!(recovered, *key, "Failed with shares {} and {}", a, b);
         }
     }
 
     #[test]
     fn test_duplicate_index_rejected() {
         let key = generate_key().unwrap();
-        let result = key_split(&key, 3, 5).unwrap();
+        let result = key_split(&*key, 3, 5).unwrap();
 
         // 同じシェアを重複して渡す（重複インデックス）
         let duplicate_shares = vec![

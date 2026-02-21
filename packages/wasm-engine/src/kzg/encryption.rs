@@ -8,6 +8,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use getrandom::getrandom;
+use zeroize::Zeroizing;
 
 /// AES-256-GCM鍵のバイト長
 pub const KEY_SIZE: usize = 32;
@@ -55,6 +56,7 @@ impl core::fmt::Display for EncryptionError {
 /// - Uses the platform's CSPRNG via `getrandom` crate
 /// - Produces 256 bits of entropy suitable for AES-256-GCM
 /// - Each call generates an independent, unpredictable key
+/// - Key is wrapped in `Zeroizing` for automatic zeroing on drop
 ///
 /// # Usage Guidelines
 /// - Generate a **unique key for each post**
@@ -63,10 +65,10 @@ impl core::fmt::Display for EncryptionError {
 /// - The key is used with [`encrypt`] for AES-256-GCM authenticated encryption
 ///
 /// # Returns
-/// 32-byte cryptographically secure random key
-pub fn generate_key() -> Result<[u8; KEY_SIZE], EncryptionError> {
-    let mut key = [0u8; KEY_SIZE];
-    getrandom(&mut key).map_err(|_| EncryptionError::RandomGenerationFailed)?;
+/// 32-byte cryptographically secure random key wrapped in Zeroizing
+pub fn generate_key() -> Result<Zeroizing<[u8; KEY_SIZE]>, EncryptionError> {
+    let mut key = Zeroizing::new([0u8; KEY_SIZE]);
+    getrandom(&mut *key).map_err(|_| EncryptionError::RandomGenerationFailed)?;
     Ok(key)
 }
 
@@ -155,8 +157,8 @@ mod tests {
         let key = generate_key().unwrap();
         let plaintext = b"Hello, Anarchy!";
 
-        let ciphertext = encrypt(plaintext, &key).unwrap();
-        let decrypted = decrypt(&ciphertext, &key).unwrap();
+        let ciphertext = encrypt(plaintext, &*key).unwrap();
+        let decrypted = decrypt(&ciphertext, &*key).unwrap();
 
         assert_eq!(decrypted, plaintext);
     }
@@ -166,8 +168,8 @@ mod tests {
         let key = generate_key().unwrap();
         let plaintext = b"";
 
-        let ciphertext = encrypt(plaintext, &key).unwrap();
-        let decrypted = decrypt(&ciphertext, &key).unwrap();
+        let ciphertext = encrypt(plaintext, &*key).unwrap();
+        let decrypted = decrypt(&ciphertext, &*key).unwrap();
 
         assert_eq!(decrypted, plaintext);
     }
@@ -177,8 +179,8 @@ mod tests {
         let key = generate_key().unwrap();
         let plaintext: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
 
-        let ciphertext = encrypt(&plaintext, &key).unwrap();
-        let decrypted = decrypt(&ciphertext, &key).unwrap();
+        let ciphertext = encrypt(&plaintext, &*key).unwrap();
+        let decrypted = decrypt(&ciphertext, &*key).unwrap();
 
         assert_eq!(decrypted, plaintext);
     }
@@ -198,8 +200,8 @@ mod tests {
         let key2 = generate_key().unwrap();
         let plaintext = b"secret message";
 
-        let ciphertext = encrypt(plaintext, &key1).unwrap();
-        let result = decrypt(&ciphertext, &key2);
+        let ciphertext = encrypt(plaintext, &*key1).unwrap();
+        let result = decrypt(&ciphertext, &*key2);
 
         assert_eq!(result, Err(EncryptionError::DecryptionFailed));
     }
@@ -209,7 +211,7 @@ mod tests {
         let key = generate_key().unwrap();
         let short_ciphertext = [0u8; 5]; // < NONCE_SIZE
 
-        let result = decrypt(&short_ciphertext, &key);
+        let result = decrypt(&short_ciphertext, &*key);
         assert_eq!(result, Err(EncryptionError::CiphertextTooShort));
     }
 
@@ -218,13 +220,13 @@ mod tests {
         let key = generate_key().unwrap();
         let plaintext = b"sensitive data";
 
-        let mut ciphertext = encrypt(plaintext, &key).unwrap();
+        let mut ciphertext = encrypt(plaintext, &*key).unwrap();
         // タンパリング: 最後のバイトを変更
         if let Some(last) = ciphertext.last_mut() {
             *last ^= 0xFF;
         }
 
-        let result = decrypt(&ciphertext, &key);
+        let result = decrypt(&ciphertext, &*key);
         assert_eq!(result, Err(EncryptionError::DecryptionFailed));
     }
 
@@ -233,7 +235,7 @@ mod tests {
         let key = generate_key().unwrap();
         let plaintext = b"test";
 
-        let ciphertext = encrypt(plaintext, &key).unwrap();
+        let ciphertext = encrypt(plaintext, &*key).unwrap();
         // nonce (12) + plaintext (4) + tag (16) = 32
         assert_eq!(ciphertext.len(), NONCE_SIZE + plaintext.len() + 16);
     }

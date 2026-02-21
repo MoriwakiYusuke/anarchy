@@ -62,9 +62,8 @@ pub struct Config {
     pub dev_mode: bool,
 
     /// Sr25519 signer seed (hex 32 bytes) for signing extrinsics
-    /// Default: Alice dev account seed
-    /// WARNING: Do not use dev seeds in production!
-    #[serde(default = "default_signer_seed")]
+    /// REQUIRED: Must be configured explicitly for security reasons.
+    /// Generate with: openssl rand -hex 32
     pub signer_seed: String,
 }
 
@@ -108,33 +107,8 @@ fn default_dev_mode() -> bool {
     true // Development mode by default (uses test SRS)
 }
 
-/// Default signer seed for development builds.
-///
-/// In debug builds, we use the Alice dev account seed for convenience.
-/// In non-debug (release) builds, this function is redefined below to
-/// return a safe, empty default instead. Production deployments must
-/// provide a unique, securely generated signer seed via configuration.
-// Alice dev account seed (//Alice)
-// WARNING: DEVELOPMENT ONLY.
-// This dev seed must NEVER be used in production or non-debug builds.
-#[cfg(debug_assertions)]
-const ALICE_DEV_SIGNER_SEED: &str =
-    "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
-
-#[cfg(debug_assertions)]
-fn default_signer_seed() -> String {
-    ALICE_DEV_SIGNER_SEED.to_string()
-}
-
-/// Default signer seed for non-debug (typically release) builds.
-///
-/// This intentionally does NOT use the Alice dev seed to avoid
-/// accidentally running a production node with a known private key.
-/// A production configuration MUST override this with a unique seed.
-#[cfg(not(debug_assertions))]
-fn default_signer_seed() -> String {
-    String::new()
-}
+// NOTE: signer_seed has no default - it MUST be configured explicitly.
+// This prevents accidental use of dev seeds in production.
 
 impl Default for Config {
     fn default() -> Self {
@@ -149,24 +123,36 @@ impl Default for Config {
             bootstrap_peers: default_bootstrap_peers(),
             srs_path: default_srs_path(),
             dev_mode: default_dev_mode(),
-            signer_seed: default_signer_seed(),
+            // signer_seed is REQUIRED - must be set via config file
+            signer_seed: String::new(),
         }
     }
 }
 
 impl Config {
     /// Load configuration from file with CLI overrides
+    ///
+    /// NOTE: signer_seed is REQUIRED and must be specified in the config file.
+    /// The node will refuse to start without a valid 32-byte hex signer seed.
     pub fn load(config_path: &str, overrides: ConfigOverrides) -> Result<Self> {
         let path = Path::new(config_path);
 
-        let mut config = if path.exists() {
+        let mut config: Config = if path.exists() {
             let content = fs::read_to_string(path)
                 .context("Failed to read config file")?;
             toml::from_str(&content)
-                .context("Failed to parse config file")?
+                .context("Failed to parse config file (note: signer_seed is required)")?
         } else {
-            Config::default()
+            anyhow::bail!("Config file not found: {}. A config file with signer_seed is required.", config_path);
         };
+        
+        // Validate signer_seed is provided
+        if config.signer_seed.is_empty() {
+            anyhow::bail!("signer_seed is required in config. Generate with: openssl rand -hex 32");
+        }
+        if config.signer_seed.len() != 64 {
+            anyhow::bail!("signer_seed must be exactly 64 hex characters (32 bytes)");
+        }
 
         // Apply CLI overrides
         if let Some(data_dir) = overrides.data_dir {
@@ -214,6 +200,7 @@ mod tests {
             declare_rate_limit = 5
             rpc_port = 4040
             auth_enabled = false
+            signer_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         "#;
 
         let config: Config = toml::from_str(toml).unwrap();
@@ -222,5 +209,6 @@ mod tests {
         assert_eq!(config.declare_rate_limit, 5);
         assert_eq!(config.rpc_port, 4040);
         assert!(!config.auth_enabled);
+        assert_eq!(config.signer_seed.len(), 64);
     }
 }

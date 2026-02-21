@@ -158,15 +158,16 @@ pub fn hybrid_split(data: &[u8], k: u8, n: u8) -> Result<HybridSplitResult, Hybr
     let (processed_data, compressed) = compress(data);
 
     // Step 2: ランダム鍵を生成してAES-256-GCM暗号化
+    // Key is automatically zeroed when dropped (Zeroizing wrapper)
     let key = generate_key()?;
-    let ciphertext = encrypt(&processed_data, &key)?;
+    let ciphertext = encrypt(&processed_data, &*key)?;
     let ciphertext_len = ciphertext.len();
 
     // Step 3: Reed-Solomon k-of-n エンコード
     let rs_result = rs_encode(&ciphertext, k as usize, n as usize)?;
 
     // Step 4: 鍵をSSS k-of-n 分割
-    let key_result = key_split(&key, k, n)?;
+    let key_result = key_split(&*key, k, n)?;
 
     // Step 5: 各シェアのハッシュを計算してシェアを構築
     let shards: Vec<HybridShard> = rs_result

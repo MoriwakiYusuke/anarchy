@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use schnorrkel::{
     signing_context, ExpansionMode, MiniSecretKey, PublicKey, SecretKey, Signature,
 };
+use zeroize::Zeroize;
 
 /// Signing context for Substrate extrinsics
 const SIGNING_CTX: &[u8] = b"substrate";
@@ -22,18 +23,24 @@ pub struct Signer {
 impl Signer {
     /// Create signer from hex-encoded seed (32 bytes)
     pub fn from_seed_hex(seed_hex: &str) -> Result<Self> {
-        let seed_bytes = hex::decode(seed_hex)
+        let mut seed_bytes = hex::decode(seed_hex)
             .context("Invalid hex in signer_seed")?;
         
         if seed_bytes.len() != 32 {
+            seed_bytes.zeroize();
             bail!("signer_seed must be exactly 32 bytes (64 hex chars), got {}", seed_bytes.len());
         }
         
         let mut seed_arr = [0u8; 32];
         seed_arr.copy_from_slice(&seed_bytes);
+        seed_bytes.zeroize(); // Clear immediately after copy
         
         let mini_secret = MiniSecretKey::from_bytes(&seed_arr)
-            .map_err(|e| anyhow::anyhow!("Invalid MiniSecretKey: {:?}", e))?;
+            .map_err(|e| {
+                seed_arr.zeroize();
+                anyhow::anyhow!("Invalid MiniSecretKey: {:?}", e)
+            })?;
+        seed_arr.zeroize(); // Clear after use
         
         let secret = mini_secret.expand(ExpansionMode::Ed25519);
         let public = secret.to_public();
