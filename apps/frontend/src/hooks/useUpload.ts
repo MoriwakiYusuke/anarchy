@@ -116,6 +116,11 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
     return pool.execute<T>(type, payload)
   }, [pool])
 
+  const sendToSpecificWorker = useCallback(<T,>(workerIndex: number, type: string, payload: unknown): Promise<T> => {
+    if (!pool) return Promise.reject(new Error('WorkerPool not available'))
+    return pool.executeOnWorker<T>(workerIndex, type, payload)
+  }, [pool])
+
   const rpcCall = useCallback(async <T,>(method: string, params: unknown[]): Promise<T> => {
     const response = await fetch(RPC_ENDPOINT, {
       method: 'POST',
@@ -150,16 +155,21 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
       const { shards, shardHashes, originalLen, ciphertextLen, shardSize, compressed, threshold, totalShards } = splitResult
 
       setProgress(20)
-      const merkleResult = await sendToWorker<{ root: Uint8Array; rootHex: string }>('merkle_build', {
-        fragments: shards,
-      })
+      // Merkle操作には同じワーカーを使用（キャッシュ依存のため）
+      const merkleWorkerIndex = pool?.acquireWorker() ?? 0
+      const merkleResult = await sendToSpecificWorker<{ root: Uint8Array; rootHex: string }>(
+        merkleWorkerIndex, 'merkle_build', { fragments: shards }
+      )
       const { root: merkleRoot, rootHex: merkleRootHex } = merkleResult
 
       const fragmentHashes: Uint8Array[] = []
       const progressPerFragment = 70 / SSS_N
 
       const uploadPromises = shards.map(async (share, index) => {
-        const proof = await sendToWorker<Uint8Array>('merkle_generate_proof', { merkleRootHex, index })
+        // 同じワーカーでProof生成（merkleキャッシュが必要）
+        const proof = await sendToSpecificWorker<Uint8Array>(
+          merkleWorkerIndex, 'merkle_generate_proof', { merkleRootHex, index }
+        )
         const dataB64 = btoa(String.fromCharCode.apply(null, Array.from(share)))
         const proofB64 = btoa(String.fromCharCode.apply(null, Array.from(proof)))
         const baseParams = { merkle_root: Array.from(merkleRoot), index, data: dataB64, proof: proofB64, total_leaves: SSS_N }

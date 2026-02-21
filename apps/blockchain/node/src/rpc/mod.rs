@@ -44,6 +44,7 @@ impl StorageNodeRegistry {
     }
 
     /// Create registry with custom max size (for testing)
+    #[allow(dead_code)]
     pub fn with_max_size(max_size: usize) -> Self {
         Self {
             nodes: Vec::new(),

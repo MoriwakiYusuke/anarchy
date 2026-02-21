@@ -146,18 +146,54 @@ export class WorkerPool {
     const workerIndex = this.currentWorkerIndex;
     this.currentWorkerIndex = (this.currentWorkerIndex + 1) % this.workers.length;
 
+    return this.executeOnWorker<T>(workerIndex, type, payload, id);
+  }
+
+  /**
+   * 特定のワーカーでタスクを実行（セッションベースの操作用）
+   * merkle_build と merkle_generate_proof など、
+   * ワーカーローカルキャッシュに依存する操作で使用
+   */
+  async executeOnWorker<T = unknown>(
+    workerIndex: number, 
+    type: string, 
+    payload: unknown,
+    id?: string
+  ): Promise<T> {
+    if (this.workers.length === 0) {
+      throw new Error('WorkerPool not initialized (no workers available)');
+    }
+
+    if (workerIndex < 0 || workerIndex >= this.workers.length) {
+      throw new Error(`Invalid worker index: ${workerIndex}`);
+    }
+
+    await this.waitUntilReady();
+
+    const taskId = id ?? `pool-${++this.idCounter}`;
+
     return new Promise<T>((resolve, reject) => {
-      this.pendingTasks.set(id, {
+      this.pendingTasks.set(taskId, {
         resolve: resolve as (value: unknown) => void,
         reject,
       });
 
       this.workers[workerIndex].postMessage({
-        id,
+        id: taskId,
         type,
         payload,
       });
     });
+  }
+
+  /**
+   * Round-robinでワーカーを選択し、インデックスを返す
+   * 後続の操作で同じワーカーを使用するため
+   */
+  acquireWorker(): number {
+    const index = this.currentWorkerIndex;
+    this.currentWorkerIndex = (this.currentWorkerIndex + 1) % this.workers.length;
+    return index;
   }
 
   /**
