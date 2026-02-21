@@ -488,13 +488,23 @@ impl ChainClient {
     /// Calls the `storage_registerEndpoint` RPC to register our HTTP endpoint.
     /// This allows the blockchain node to forward fragment requests to us.
     /// Uses failover manager to handle primary node failures (FR-510, FR-511).
+    /// Sends signed registration request (PR #22 CRITICAL-3 compatibility).
     pub async fn register_with_blockchain(&self, our_rpc_url: &str) -> Result<()> {
+        /// 署名付きエンドポイント登録リクエスト (PR #22 CRITICAL-3 format)
         #[derive(serde::Serialize)]
-        struct RpcRequest<'a> {
+        struct SignedEndpointRegistration {
+            url: String,
+            operator: String,
+            timestamp: u64,
+            signature: String,
+        }
+        
+        #[derive(serde::Serialize)]
+        struct RpcRequest {
             jsonrpc: &'static str,
             id: u32,
             method: &'static str,
-            params: [&'a str; 1],
+            params: [SignedEndpointRegistration; 1],
         }
         
         #[derive(serde::Deserialize)]
@@ -508,12 +518,29 @@ impl ChainClient {
             message: String,
         }
         
+        // Build signed registration request
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        
+        let operator = hex::encode(self.signer.account_id());
+        let message = format!("register_endpoint:{}:{}", our_rpc_url, timestamp);
+        let signature = hex::encode(self.signer.sign(message.as_bytes()));
+        
+        let signed_request = SignedEndpointRegistration {
+            url: our_rpc_url.to_string(),
+            operator,
+            timestamp,
+            signature,
+        };
+        
         let client = reqwest::Client::new();
         let request = RpcRequest {
             jsonrpc: "2.0",
             id: 1,
             method: "storage_registerEndpoint",
-            params: [our_rpc_url],
+            params: [signed_request],
         };
         
         // Retry loop for failover (max 3 attempts)

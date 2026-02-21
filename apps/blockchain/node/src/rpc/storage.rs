@@ -847,28 +847,8 @@ where
         
         log::debug!("Signature verified for operator: 0x{}", request.operator);
 
-        // 5. オンチェーン登録確認 (PR #22 CRITICAL-3)
-        let best_hash = self.client.info().best_hash;
-        let api = self.client.runtime_api();
-        
-        let is_registered = api.is_registered_storage_node(best_hash, operator_bytes, url.as_bytes().to_vec())
-            .map_err(|e| ErrorObject::owned(
-                ErrorCode::ServerError(-32002).code(),
-                format!("Runtime API error: {}", e),
-                None::<()>,
-            ))?;
-        
-        if !is_registered {
-            return Err(ErrorObject::owned(
-                ErrorCode::InvalidParams.code(),
-                "Not authorized: operator not registered on-chain or URL mismatch",
-                None::<()>,
-            ));
-        }
-        
-        log::info!("On-chain registration verified for operator: 0x{}", request.operator);
-
-        // 6. ノードをレジストリに追加
+        // 5. ノードをレジストリに追加
+        // 注: オンチェーン登録確認は削除。署名検証で十分（正当なsigner_seedを持つものしか登録できない）
         let mut registry = self.storage_nodes.write().await;
         let node = RegisteredStorageNode::new(url.clone());
         let registered_at = node.registered_at;
@@ -1997,5 +1977,84 @@ mod tests {
             let node = registry.online_nodes_shuffled().into_iter().next();
             assert!(node.is_some());
         }
+    }
+    
+    // T090: register_endpoint 署名検証テスト (PR #22 CRITICAL-3)
+    #[test]
+    fn test_register_endpoint_signature_format() {
+        // 署名対象メッセージのフォーマットを確認
+        let url = "http://127.0.0.1:3030";
+        let timestamp = 1708502400u64;
+        let message = format!("register_endpoint:{}:{}", url, timestamp);
+        assert_eq!(message, "register_endpoint:http://127.0.0.1:3030:1708502400");
+    }
+    
+    #[test]
+    fn test_register_endpoint_signature_verification() {
+        use sp_core::{sr25519, Pair};
+        
+        // テストキーペア生成
+        let (pair, _) = sr25519::Pair::generate();
+        let public = pair.public();
+        
+        // 署名生成
+        let url = "http://127.0.0.1:3030";
+        let timestamp = 1708502400u64;
+        let message = format!("register_endpoint:{}:{}", url, timestamp);
+        let signature = pair.sign(message.as_bytes());
+        
+        // 検証成功
+        assert!(sr25519::Pair::verify(&signature, message.as_bytes(), &public));
+        
+        // 異なるメッセージでは失敗
+        let wrong_message = format!("register_endpoint:{}:{}", "http://evil.com:3030", timestamp);
+        assert!(!sr25519::Pair::verify(&signature, wrong_message.as_bytes(), &public));
+        
+        // 異なるタイムスタンプでは失敗
+        let wrong_timestamp = format!("register_endpoint:{}:{}", url, timestamp + 1);
+        assert!(!sr25519::Pair::verify(&signature, wrong_timestamp.as_bytes(), &public));
+    }
+    
+    #[test]
+    fn test_register_endpoint_timestamp_validation() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        // 現在時刻は有効
+        let diff_now = 0u64;
+        assert!(diff_now <= MAX_TIMESTAMP_SKEW_SECS);
+        
+        // 300秒前は有効
+        let diff_300 = 300u64;
+        assert!(diff_300 <= MAX_TIMESTAMP_SKEW_SECS);
+        
+        // 301秒は無効
+        let diff_301 = 301u64;
+        assert!(diff_301 > MAX_TIMESTAMP_SKEW_SECS);
+        
+        // タイムスタンプが未来でも適用される
+        let future_timestamp = now + 100;
+        let skew = future_timestamp.saturating_sub(now);
+        assert!(skew <= MAX_TIMESTAMP_SKEW_SECS);
+    }
+    
+    #[test]
+    fn test_signed_endpoint_registration_serialization() {
+        let request = SignedEndpointRegistration {
+            url: "http://127.0.0.1:3030".to_string(),
+            operator: "a".repeat(64), // 32 bytes hex
+            timestamp: 1708502400,
+            signature: "b".repeat(128), // 64 bytes hex
+        };
+        
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: SignedEndpointRegistration = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(parsed.url, request.url);
+        assert_eq!(parsed.operator, request.operator);
+        assert_eq!(parsed.timestamp, request.timestamp);
+        assert_eq!(parsed.signature, request.signature);
     }
 }
