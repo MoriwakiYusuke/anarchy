@@ -4,7 +4,7 @@
 
 use ark_bls12_381::{Fr, G1Projective};
 use ark_ec::CurveGroup;
-use ark_ff::Field;
+use ark_ff::{Field, PrimeField};
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
 use ark_std::vec::Vec;
 use ark_std::Zero;
@@ -198,13 +198,79 @@ pub fn vss_recover(
 
 // === Internal Helper Functions ===
 
-/// Construct polynomial f(x) = Σ(scalars[i] * x^i).
-pub(crate) fn construct_polynomial(scalars: &[Fr], _threshold: usize) -> Result<DensePolynomial<Fr>, KzgError> {
+/// Construct polynomial f(x) with guaranteed threshold security.
+///
+/// For k-of-n threshold secret sharing, the polynomial must have degree k-1.
+/// This ensures that k shares are required for Lagrange interpolation.
+///
+/// The polynomial is constructed as:
+///   f(x) = data_0 + data_1*x + ... + data_{m-1}*x^{m-1} + r_m*x^m + ... + r_{k-2}*x^{k-2}
+/// where:
+///   - data_i are the encoded data scalars
+///   - r_i are random coefficients (if needed to reach degree k-1)
+///
+/// # Arguments
+/// * `scalars` - Encoded data as field scalars
+/// * `threshold` - Minimum shares needed for recovery (k)
+///
+/// # Returns
+/// * Polynomial of degree max(m-1, k-1) where m = len(scalars)
+pub(crate) fn construct_polynomial(scalars: &[Fr], threshold: usize) -> Result<DensePolynomial<Fr>, KzgError> {
     if scalars.is_empty() {
         return Err(KzgError::EncodingError("No scalars for polynomial".into()));
     }
+    if threshold < 1 {
+        return Err(KzgError::InvalidThreshold);
+    }
 
-    Ok(DensePolynomial::from_coefficients_vec(scalars.to_vec()))
+    let data_count = scalars.len();
+    // Polynomial degree must be at least threshold - 1
+    let required_coeffs = threshold;
+    
+    if data_count >= required_coeffs {
+        // Data is large enough, threshold security is inherent
+        Ok(DensePolynomial::from_coefficients_vec(scalars.to_vec()))
+    } else {
+        // Data is smaller than threshold, need to pad with random coefficients
+        // This ensures exactly k shares are needed for interpolation
+        let mut coeffs = scalars.to_vec();
+        
+        // Generate random padding coefficients
+        let padding_count = required_coeffs - data_count;
+        let random_coeffs = generate_random_scalars(padding_count)?;
+        coeffs.extend(random_coeffs);
+        
+        Ok(DensePolynomial::from_coefficients_vec(coeffs))
+    }
+}
+
+/// Generate cryptographically secure random field scalars.
+fn generate_random_scalars(count: usize) -> Result<Vec<Fr>, KzgError> {
+    let mut scalars = Vec::with_capacity(count);
+    
+    for _ in 0..count {
+        // Generate 32 random bytes
+        let mut bytes = [0u8; 32];
+        getrandom::getrandom(&mut bytes)
+            .map_err(|e| KzgError::EncodingError(format!("RNG error: {}", e)))?;
+        
+        // Convert to field element (mod field order)
+        let scalar = Fr::from_le_bytes_mod_order(&bytes);
+        
+        // Ensure non-zero for security (extremely unlikely to be zero, but check anyway)
+        if scalar.is_zero() {
+            // Retry with different random bytes
+            let mut retry_bytes = [0u8; 32];
+            retry_bytes[0] = 1; // Set non-zero
+            getrandom::getrandom(&mut retry_bytes[1..])
+                .map_err(|e| KzgError::EncodingError(format!("RNG error: {}", e)))?;
+            scalars.push(Fr::from_le_bytes_mod_order(&retry_bytes));
+        } else {
+            scalars.push(scalar);
+        }
+    }
+    
+    Ok(scalars)
 }
 
 /// Compute KZG commitment C = [f(τ)]₁ = Σ(a_i * [τ^i]₁).
@@ -459,6 +525,107 @@ fn calculate_processed_len(original_len: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kzg::srs::init_test_srs;
 
-    // Tests will be implemented in tasks.md T012-T016
+    /// Test that threshold parameter actually controls polynomial degree.
+    /// With k=3 threshold, polynomial should have degree >= 2.
+    #[test]
+    fn test_construct_polynomial_respects_threshold() {
+        init_test_srs(16).unwrap();
+        
+        // Small data: 5 bytes = 1 scalar
+        let data = b"Hello";
+        let scalars = crate::kzg::encoding::encode_to_scalars(data).unwrap();
+        assert_eq!(scalars.len(), 1, "Should encode to 1 scalar");
+        
+        // Construct polynomial with threshold=3
+        let poly = construct_polynomial(&scalars, 3).unwrap();
+        
+        // Polynomial should have degree >= 2 (threshold - 1)
+        assert!(
+            poly.degree() >= 2,
+            "Polynomial degree {} should be >= 2 for threshold=3",
+            poly.degree()
+        );
+        
+        // Verify we have 3 coefficients
+        assert_eq!(
+            poly.coeffs().len(),
+            3,
+            "Should have {} coefficients for threshold=3",
+            3
+        );
+    }
+
+    /// Test that threshold security is enforced:
+    /// k-1 shares should NOT be able to recover the data.
+    #[test]
+    fn test_threshold_security_enforced() {
+        init_test_srs(16).unwrap();
+        
+        // Small data that fits in 1 scalar
+        let original_data = b"Secret!";
+        
+        // 3-of-5 split
+        let result = vss_split(original_data, 3, 5).unwrap();
+        
+        // Verify 5 shares were generated
+        assert_eq!(result.shares.len(), 5);
+        
+        // Try to recover with only 2 shares (less than threshold=3)
+        // This should fail or return wrong data
+        let insufficient_shares = vec![result.shares[0].clone(), result.shares[1].clone()];
+        
+        let recover_result = vss_recover(
+            &insufficient_shares,
+            3, // threshold
+            result.compressed,
+            result.original_len,
+            result.processed_len,
+        );
+        
+        // Should fail with InsufficientShares error
+        assert!(
+            recover_result.is_err(),
+            "Should fail with insufficient shares"
+        );
+        
+        // Verify recovery works with exactly 3 shares
+        let sufficient_shares = vec![
+            result.shares[0].clone(),
+            result.shares[1].clone(),
+            result.shares[2].clone(),
+        ];
+        
+        let recovered = vss_recover(
+            &sufficient_shares,
+            3,
+            result.compressed,
+            result.original_len,
+            result.processed_len,
+        ).unwrap();
+        
+        assert_eq!(recovered, original_data, "Should recover original data with k shares");
+    }
+
+    /// Test polynomial construction with large data (many scalars)
+    #[test]
+    fn test_construct_polynomial_large_data_inherent_threshold() {
+        init_test_srs(16).unwrap();
+        
+        // Large data: 100 bytes = 4 scalars (100 / 31 = 3.2 -> 4)
+        let data = vec![0xABu8; 100];
+        let scalars = crate::kzg::encoding::encode_to_scalars(&data).unwrap();
+        assert!(scalars.len() >= 3, "Should encode to at least 3 scalars");
+        
+        // With threshold=3 and 4 data scalars, no padding needed
+        let poly = construct_polynomial(&scalars, 3).unwrap();
+        
+        // Degree should be data_count - 1
+        assert_eq!(
+            poly.degree(),
+            scalars.len() - 1,
+            "Degree should match data scalars when data > threshold"
+        );
+    }
 }
