@@ -394,7 +394,7 @@ fn test_compression_roundtrip() {
 
 #[test]
 fn t027_vss_prove_generates_valid_proof() {
-    use anarchy_wasm_engine::kzg::proof::{vss_prove, verify_kzg_proof};
+    use anarchy_wasm_engine::kzg::proof::verify_kzg_proof;
     
     setup_test_srs();
     
@@ -415,21 +415,12 @@ fn t027_vss_prove_generates_valid_proof() {
     
     assert!(is_valid.is_ok(), "verify_kzg_proof should return Ok");
     assert!(is_valid.unwrap(), "vss_split proofs should be valid");
-    
-    // For vss_prove (regenerating proof), we need polynomial coefficients
-    // This API is for storage nodes that need to re-prove
-    // Placeholder - T034 will implement full vss_prove
-    let polynomial_coeffs = vec![0u8; 32]; // Placeholder coefficients
-    let regenerated_proof = vss_prove(commitment, share, &polynomial_coeffs);
-    
-    // T034 will make vss_prove work properly
-    // For now, just verify it returns Ok (placeholder)
-    assert!(regenerated_proof.is_ok(), "vss_prove API should not error");
 }
 
 #[test]
-fn t027_vss_prove_with_different_shares() {
+fn t027_vss_prove_with_wrong_coeffs_fails() {
     use anarchy_wasm_engine::kzg::proof::vss_prove;
+    use anarchy_wasm_engine::kzg::KzgError;
     
     setup_test_srs();
     
@@ -438,13 +429,16 @@ fn t027_vss_prove_with_different_shares() {
     // Split data
     let split_result = vss_split(data, 2, 4).expect("vss_split should succeed");
     
-    let polynomial_coeffs = vec![0u8; 32]; // Placeholder
+    // Use invalid polynomial coefficients (all zeros - won't match the commitment)
+    let polynomial_coeffs = vec![0u8; 32]; // Wrong coefficients
     
-    // Generate proofs for all shares
-    for share in &split_result.shares {
-        let proof = vss_prove(&split_result.commitment, share, &polynomial_coeffs);
-        assert!(proof.is_ok(), "vss_prove should succeed for share {}", share.index);
-    }
+    // vss_prove should fail with CommitmentMismatch when coefficients don't match
+    let share = &split_result.shares[0];
+    let result = vss_prove(&split_result.commitment, share, &polynomial_coeffs);
+    
+    assert!(result.is_err(), "vss_prove should fail with wrong coefficients");
+    assert_eq!(result.unwrap_err(), KzgError::CommitmentMismatch, 
+               "Error should be CommitmentMismatch");
 }
 
 // ============================================================================
@@ -510,7 +504,6 @@ fn t028_verify_with_wrong_index_fails() {
 #[test]
 fn t028_verify_with_invalid_proof_fails() {
     use anarchy_wasm_engine::kzg::proof::verify_kzg_proof;
-    use anarchy_wasm_engine::kzg::vss::KzgProof;
     
     setup_test_srs();
     

@@ -55,6 +55,8 @@ pub enum KzgError {
     InvalidCommitment,
     /// 無効なproof
     InvalidProof,
+    /// コミットメント不一致（多項式から再計算したコミットメントが一致しない）
+    CommitmentMismatch,
     /// エンコーディングエラー
     EncodingError(String),
 }
@@ -70,6 +72,9 @@ impl core::fmt::Display for KzgError {
             KzgError::DecompressionFailed => write!(f, "Decompression failed"),
             KzgError::InvalidCommitment => write!(f, "Invalid KZG commitment"),
             KzgError::InvalidProof => write!(f, "Invalid KZG proof"),
+            KzgError::CommitmentMismatch => {
+                write!(f, "Commitment mismatch: computed commitment does not match expected")
+            }
             KzgError::EncodingError(msg) => write!(f, "Encoding error: {}", msg),
         }
     }

@@ -69,17 +69,17 @@ fn poly_eval(coeffs: &[u8], x: u8) -> u8 {
 }
 
 /// 単一バイトをk-of-nでSSS分割
-fn sss_split_byte(secret: u8, k: u8, n: u8) -> Vec<(u8, u8)> {
+fn sss_split_byte(secret: u8, k: u8, n: u8) -> Result<Vec<(u8, u8)>, KeySssError> {
     // k-1個のランダム係数を生成（秘密が定数項）
     let mut coeffs = vec![secret];
     let mut random_bytes = vec![0u8; (k - 1) as usize];
-    getrandom::getrandom(&mut random_bytes).expect("RNG failure");
+    getrandom::getrandom(&mut random_bytes).map_err(|_| KeySssError::RngFailed)?;
     coeffs.extend(random_bytes);
 
     // x=1,2,...,n で評価
-    (1..=n)
+    Ok((1..=n)
         .map(|x| (x, poly_eval(&coeffs, x)))
-        .collect()
+        .collect())
 }
 
 /// ラグランジュ補間でx=0の値を復元
@@ -108,6 +108,8 @@ fn lagrange_interpolate_at_zero(shares: &[(u8, u8)]) -> u8 {
 /// 鍵SSS エラー
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeySssError {
+    /// 乱数生成失敗
+    RngFailed,
     /// 無効な鍵サイズ（32バイトでない）
     InvalidKeySize,
     /// 無効な閾値
@@ -123,6 +125,7 @@ pub enum KeySssError {
 impl core::fmt::Display for KeySssError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            KeySssError::RngFailed => write!(f, "Random number generation failed"),
             KeySssError::InvalidKeySize => {
                 write!(f, "Invalid key size: expected {} bytes", KEY_SIZE)
             }
@@ -179,7 +182,7 @@ pub fn key_split(key: &[u8], k: u8, n: u8) -> Result<KeySplitResult, KeySssError
         .collect();
 
     for &byte in key {
-        let byte_shares = sss_split_byte(byte, k, n);
+        let byte_shares = sss_split_byte(byte, k, n)?;
         for (i, (_, y)) in byte_shares.into_iter().enumerate() {
             shares[i].data.push(y);
         }

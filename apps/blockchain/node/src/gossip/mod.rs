@@ -23,11 +23,17 @@ use parity_scale_codec::{Decode, Encode};
 use sc_network::{
     config::SetConfig,
     peer_store::PeerStoreProvider,
-    service::{traits::{NotificationEvent, NotificationService}, NotificationMetrics},
+    service::{traits::{NotificationEvent, NotificationService, ValidationResult}, NotificationMetrics},
     NetworkBackend, ProtocolName,
 };
 use sp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
+
+/// Maximum number of concurrent connections (Issue 6 fix - DoS prevention)
+pub const MAX_CONNECTIONS: usize = 128;
+
+/// Maximum registry size (Issue 7 fix - memory exhaustion prevention)
+pub const MAX_REGISTRY_SIZE: usize = 10_000;
 
 /// ストレージノードGossipプロトコル名
 pub const STORAGE_NODE_PROTOCOL: &str = "/anarchy/storage-nodes/1";
@@ -138,8 +144,15 @@ impl StorageNodeGossip {
                             self.handle_notification(peer, notification).await;
                         }
                         Some(NotificationEvent::ValidateInboundSubstream { result_tx, .. }) => {
-                            // 全ての受信接続を許可
-                            let _ = result_tx.send(sc_network::service::traits::ValidationResult::Accept);
+                            // Issue 6 fix: Check connection limit to prevent DoS
+                            if self.connected_peers.len() >= MAX_CONNECTIONS {
+                                warn!("Connection limit reached ({}/{}), rejecting inbound connection",
+                                    self.connected_peers.len(), MAX_CONNECTIONS);
+                                let _ = result_tx.send(ValidationResult::Reject);
+                            } else {
+                                // Accept connection if under limit
+                                let _ = result_tx.send(ValidationResult::Accept);
+                            }
                         }
                         Some(NotificationEvent::NotificationStreamOpened { peer, .. }) => {
                             debug!("Gossip stream opened with peer: {:?}", peer);
@@ -213,8 +226,12 @@ impl StorageNodeGossip {
             } => {
                 debug!("Received node registration from {:?}: {}", peer, endpoint);
                 
-                // レジストリに追加（重複チェック付き）
+                // Issue 7 fix: Registry has built-in size limit with LRU eviction
                 let mut registry = self.storage_nodes.write().await;
+                
+                // Check if registry is at capacity before registering
+                let was_at_capacity = registry.nodes.len() >= MAX_REGISTRY_SIZE;
+                
                 let node = RegisteredStorageNode {
                     endpoint: endpoint.clone(),
                     node_id: None,
@@ -225,7 +242,12 @@ impl StorageNodeGossip {
                 };
                 
                 if registry.register(node) {
-                    info!("Added storage node from gossip: {} (total: {})", endpoint, registry.nodes.len());
+                    if was_at_capacity {
+                        info!("Added storage node from gossip (LRU eviction triggered): {} (total: {})", 
+                            endpoint, registry.nodes.len());
+                    } else {
+                        info!("Added storage node from gossip: {} (total: {})", endpoint, registry.nodes.len());
+                    }
                 }
             }
             StorageNodeGossipMessage::SyncRequest => {

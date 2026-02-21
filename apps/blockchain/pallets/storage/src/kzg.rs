@@ -8,6 +8,9 @@ use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalDeserialize;
 
+// Import TAU_G2_BYTES from the shared kzg-constants crate
+use kzg_constants::TAU_G2_BYTES;
+
 /// BLS12-381 G1 generator (compressed form, 48 bytes)
 /// Use this for benchmark test vectors instead of all-zero bytes.
 #[cfg(feature = "runtime-benchmarks")]
@@ -31,39 +34,6 @@ pub enum KzgVerifyError {
     /// Proof verification failed
     VerificationFailed,
 }
-
-/// Embedded tau_g2 for KZG verification: [τ]₂ where τ is from the trusted setup.
-/// Compressed G2 point (96 bytes).
-///
-/// This is KZG_SETUP_G2[1] from the Ethereum KZG Ceremony (EIP-4844).
-/// Source: https://github.com/ethereum/c-kzg-4844/blob/main/src/trusted_setup.txt
-///
-/// # Verification
-/// To verify this constant matches the official ceremony output:
-/// 1. Download trusted_setup.txt from the official c-kzg-4844 repository
-/// 2. Line 4098 is G2[1] (second G2 point, after 4096 G1 points + G2[0])
-/// 3. Convert the hex string to bytes and compare
-///
-/// The test `test_tau_g2_validity` ensures this deserializes to a valid G2 point.
-///
-/// # IMPORTANT
-/// This value MUST match the SRS used by the storage nodes and wasm-engine.
-/// For production, both must use the same Ethereum KZG Ceremony trusted setup.
-const TAU_G2_BYTES: [u8; 96] = [
-    // KZG_SETUP_G2[1] from Ethereum KZG Ceremony (EIP-4844 trusted setup)
-    0xb5, 0xbf, 0xd7, 0xdd, 0x8c, 0xde, 0xb1, 0x28,
-    0x84, 0x3b, 0xc2, 0x87, 0x23, 0x0a, 0xf3, 0x89,
-    0x26, 0x18, 0x70, 0x75, 0xcb, 0xfb, 0xef, 0xa8,
-    0x10, 0x09, 0xa2, 0xce, 0x61, 0x5a, 0xc5, 0x3d,
-    0x29, 0x14, 0xe5, 0x87, 0x0c, 0xb4, 0x52, 0xd2,
-    0xaf, 0xaa, 0xab, 0x24, 0xf3, 0x49, 0x9f, 0x72,
-    0x18, 0x5c, 0xbf, 0xee, 0x53, 0x49, 0x27, 0x14,
-    0x73, 0x44, 0x29, 0xb7, 0xb3, 0x86, 0x08, 0xe2,
-    0x39, 0x26, 0xc9, 0x11, 0xcc, 0xec, 0xea, 0xc9,
-    0xa3, 0x68, 0x51, 0x47, 0x7b, 0xa4, 0xc6, 0x0b,
-    0x08, 0x70, 0x41, 0xde, 0x62, 0x10, 0x00, 0xed,
-    0xc9, 0x8e, 0xda, 0xda, 0x20, 0xc1, 0xde, 0xf2,
-];
 
 /// Verify a KZG opening proof on-chain.
 ///

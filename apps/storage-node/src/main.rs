@@ -3,7 +3,7 @@
 //! A distributed storage node for the Anarchy network.
 //! Stores fragments and communicates via libp2p.
 
-use anarchy_storage_node::{config, identity, storage, network, chain, rpc, metrics::Metrics, prover, gc};
+use anarchy_storage_node::{config, identity, storage, network, chain, rpc, metrics::Metrics, prover, gc, challenge};
 
 use clap::Parser;
 use std::sync::Arc;
@@ -175,6 +175,21 @@ async fn main() -> anyhow::Result<()> {
     let mut gc_check_interval = tokio::time::interval(std::time::Duration::from_secs(60));
     gc_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+    // Initialize ChallengeMonitor (T047, Issue 11 fix)
+    // Monitors blockchain for ChallengeIssued events and auto-submits proofs
+    let challenge_monitor = Arc::new(challenge::ChallengeMonitor::with_chain_client(
+        chain_client.signer_account_id(),
+        Arc::clone(&kzg_prover),
+        Arc::clone(&chain_client),
+    ));
+    info!("ChallengeMonitor initialized for automatic proof submission");
+    
+    // Setup challenge polling interval (T047)
+    // Poll for new challenges every 3 seconds
+    let mut challenge_poll_interval = tokio::time::interval(std::time::Duration::from_secs(3));
+    challenge_poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let challenge_chain_client = Arc::clone(&chain_client);
+
     // Setup shutdown signal
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     
@@ -269,6 +284,28 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                     }
+                }
+            }
+            // T047/T048: ChallengeMonitor polling (Issue 11 fix)
+            _ = challenge_poll_interval.tick() => {
+                // Poll blockchain for new challenges targeting our account
+                match challenge_chain_client.poll_challenges().await {
+                    Ok(challenges) => {
+                        for challenge in challenges {
+                            // Process each challenge via ChallengeMonitor
+                            if let Err(e) = challenge_monitor.on_challenge_issued(challenge).await {
+                                warn!(error = %e, "Failed to process challenge");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!(error = %e, "Failed to poll challenges (chain may be unavailable)");
+                    }
+                }
+                
+                // Process any pending retries
+                if let Err(e) = challenge_monitor.process_pending().await {
+                    debug!(error = %e, "Failed to process pending challenges");
                 }
             }
             event = network.handle_event(store.as_ref()) => {

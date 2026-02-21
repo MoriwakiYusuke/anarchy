@@ -174,7 +174,7 @@ main() {
     log_info "  - 1000 >= threshold (100) → rewards distributed"
     log_info "  - All posts receive rewards by default"
     
-    return 0
+    exit 0
 }
 
 main "$@"

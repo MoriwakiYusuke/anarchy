@@ -22,25 +22,62 @@ pub type SharedStorageNodes = Arc<RwLock<StorageNodeRegistry>>;
 /// 
 /// - ノードリスト取得時はランダム順（プライバシー保護）
 /// - 断片配置はmerkle_rootベースでPost毎にランダム化（分散と追跡防止）
+/// - Issue 7 fix: Maximum registry size enforced with LRU eviction
 #[derive(Debug, Default)]
 pub struct StorageNodeRegistry {
     /// 登録されたノード一覧
     pub nodes: Vec<RegisteredStorageNode>,
+    /// Maximum registry size (Issue 7 fix)
+    pub max_size: usize,
 }
+
+/// Default maximum registry size (Issue 7 fix - DoS prevention)
+pub const DEFAULT_MAX_REGISTRY_SIZE: usize = 10_000;
 
 impl StorageNodeRegistry {
     /// 新しいレジストリを作成
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
+            max_size: DEFAULT_MAX_REGISTRY_SIZE,
+        }
+    }
+
+    /// Create registry with custom max size (for testing)
+    #[allow(dead_code)]
+    pub fn with_max_size(max_size: usize) -> Self {
+        Self {
+            nodes: Vec::new(),
+            max_size,
         }
     }
     
     /// ノードを登録（重複チェック付き）
+    /// Issue 7 fix: Evicts oldest node if registry is full
     pub fn register(&mut self, node: RegisteredStorageNode) -> bool {
         if self.nodes.iter().any(|n| n.endpoint == node.endpoint) {
             return false;
         }
+        
+        // Issue 7 fix: Check registry size and evict oldest if full
+        if self.nodes.len() >= self.max_size {
+            // Find oldest node (by registered_at)
+            if let Some(oldest_idx) = self.nodes
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, n)| n.registered_at)
+                .map(|(idx, _)| idx)
+            {
+                log::debug!(
+                    "Registry full ({}/{}), evicting oldest node: {}",
+                    self.nodes.len(),
+                    self.max_size,
+                    self.nodes[oldest_idx].endpoint
+                );
+                self.nodes.remove(oldest_idx);
+            }
+        }
+        
         self.nodes.push(node);
         true
     }
@@ -132,4 +169,96 @@ where
     module.merge(Storage::new(client, storage_nodes, gossip_handle).into_rpc())?;
 
     Ok(module)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T031: test_registry_size_limit
+    /// Verifies that registry enforces max size with LRU eviction
+    #[test]
+    fn test_registry_size_limit() {
+        // Create registry with small max size for testing
+        let mut registry = StorageNodeRegistry::with_max_size(3);
+
+        // Register 3 nodes (at capacity)
+        for i in 0..3 {
+            let node = RegisteredStorageNode {
+                endpoint: format!("http://node{}:3030", i),
+                node_id: None,
+                registered_at: 1000 + i as u64, // Increasing timestamps
+                is_online: true,
+                last_health_check: 1000 + i as u64,
+                latency_ms: None,
+            };
+            assert!(registry.register(node), "Node {} should register", i);
+        }
+        assert_eq!(registry.nodes.len(), 3);
+
+        // Register 4th node - should trigger LRU eviction
+        let new_node = RegisteredStorageNode {
+            endpoint: "http://node3:3030".to_string(),
+            node_id: None,
+            registered_at: 2000, // Newest
+            is_online: true,
+            last_health_check: 2000,
+            latency_ms: None,
+        };
+        assert!(registry.register(new_node));
+
+        // Should still be at max size
+        assert_eq!(registry.nodes.len(), 3);
+
+        // Oldest node (node0) should be evicted
+        assert!(!registry.nodes.iter().any(|n| n.endpoint == "http://node0:3030"),
+            "Oldest node should be evicted");
+
+        // Newest node should be present
+        assert!(registry.nodes.iter().any(|n| n.endpoint == "http://node3:3030"),
+            "New node should be registered");
+    }
+
+    /// T030: test_connection_limit_constant
+    /// Verifies that MAX_CONNECTIONS constant is defined correctly
+    #[test]
+    fn test_connection_limit_constant() {
+        // This test verifies the constant exists and has expected value
+        // Actual connection limiting is tested in integration tests
+        use crate::gossip::MAX_CONNECTIONS;
+        assert_eq!(MAX_CONNECTIONS, 128);
+    }
+
+    /// Test duplicate node rejection
+    #[test]
+    fn test_duplicate_node_rejected() {
+        let mut registry = StorageNodeRegistry::new();
+
+        let node = RegisteredStorageNode {
+            endpoint: "http://node1:3030".to_string(),
+            node_id: None,
+            registered_at: 1000,
+            is_online: true,
+            last_health_check: 1000,
+            latency_ms: None,
+        };
+
+        // First registration should succeed
+        assert!(registry.register(node.clone()));
+        
+        // Duplicate should be rejected
+        assert!(!registry.register(node));
+        
+        // Still only one node
+        assert_eq!(registry.nodes.len(), 1);
+    }
+
+    /// Test default max size
+    #[test]
+    fn test_default_max_registry_size() {
+        assert_eq!(DEFAULT_MAX_REGISTRY_SIZE, 10_000);
+        
+        let registry = StorageNodeRegistry::new();
+        assert_eq!(registry.max_size, DEFAULT_MAX_REGISTRY_SIZE);
+    }
 }

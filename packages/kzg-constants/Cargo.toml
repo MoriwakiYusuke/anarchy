@@ -1,0 +1,19 @@
+[package]
+name = "kzg-constants"
+version = "0.1.0"
+edition = "2021"
+description = "Shared KZG cryptographic constants for Anarchy blockchain"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+# No dependencies - pure constants only
+
+[dev-dependencies]
+# For validating TAU_G2_BYTES deserializes to a valid BLS12-381 G2 point
+ark-bls12-381 = "0.5"
+ark-ec = "0.5"
+ark-serialize = "0.5"

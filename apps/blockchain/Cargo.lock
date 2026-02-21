@@ -126,6 +126,7 @@ dependencies = [
  "futures",
  "hex",
  "jsonrpsee",
+ "kzg-constants",
  "log",
  "pallet-post",
  "pallet-storage",
@@ -3960,6 +3961,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kzg-constants"
+version = "0.1.0"
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5530,6 +5535,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "kzg-constants",
  "pallet-balances",
  "parity-scale-codec",
  "scale-info",

@@ -38,7 +38,6 @@ Rust 1.75+ (Polkadot SDK stable2503): Follow standard conventions
 ## Recent Changes
 - 011-kzg-proof-rewards: Added Rust (Polkadot SDK stable2503), TypeScript (Next.js 14) + arkworks (ark-bls12-381, ark-poly, ark-poly-commit), wasm-pack, PAPI
 - 010-multi-node-storage: Added Rust 1.75+ (stable2503 toolchain), TypeScript 5.x
-- 009-post-storage-migration: Added Rust 1.87 (stable2503), TypeScript 5.x (Next.js 15) + Polkadot SDK (stable2503), PAPI (polkadot-api), libp2p 0.54, wasm-bindgen, subxt
 
 
 <!-- MANUAL ADDITIONS START -->

@@ -1,8 +1,26 @@
 #!/bin/bash
 # 全統合テスト実行スクリプト
-# 使用方法: ./run_all_tests.sh [--quick] [--scalability N]
-#   --quick: スケーラビリティテストをスキップ
-#   --scalability N: スケーラビリティテストのノード数（デフォルト: 10）
+# 使用方法: ./run_all_tests.sh [OPTIONS]
+#
+# オプション:
+#   --quick           スケーラビリティテストをスキップ
+#   --scalability N   スケーラビリティテストのノード数（デフォルト: 10）
+#   --full            外部ノードテストを含む（testnet起動必要）
+#
+# テストカテゴリ:
+#   基本テスト (常に実行):
+#     - Block Synchronization
+#     - Consensus & Fork Resolution  
+#     - Invalid Data Rejection
+#     - Node Recovery
+#     - Scalability (--quick でスキップ)
+#     - Fee Distribution (静的検証)
+#
+#   外部ノードテスト (--full のみ):
+#     - Multi-node Storage
+#     - P2P Gossip
+#     - Failover
+#     要件: pnpm testnet:start で testnet 起動後に実行
 
 set -e
 
@@ -18,6 +36,7 @@ NC='\033[0m'
 
 # オプション解析
 QUICK_MODE=false
+FULL_MODE=false
 SCALABILITY_NODES=10
 
 while [[ $# -gt 0 ]]; do
@@ -26,9 +45,21 @@ while [[ $# -gt 0 ]]; do
             QUICK_MODE=true
             shift
             ;;
+        --full)
+            FULL_MODE=true
+            shift
+            ;;
         --scalability)
             SCALABILITY_NODES="$2"
             shift 2
+            ;;
+        -h|--help)
+            head -25 "$0" | tail -23
+            exit 0
+            ;;
+        --)
+            # pnpmからの引数セパレータ、無視
+            shift
             ;;
         *)
             echo "Unknown option: $1"
@@ -70,7 +101,14 @@ TOTAL_FAILED=0
 
 run_test() {
     local name=$1
-    local script=$2
+    local script_with_args=$2
+    
+    # スクリプト名と引数を分離
+    local script_name="${script_with_args%% *}"
+    local script_args="${script_with_args#* }"
+    if [ "$script_args" = "$script_with_args" ]; then
+        script_args=""
+    fi
     
     TEST_NAMES+=("$name")
     
@@ -81,14 +119,14 @@ run_test() {
     echo ""
     
     # テスト実行
-    chmod +x "$SCRIPT_DIR/$script"
+    chmod +x "$SCRIPT_DIR/$script_name"
     
-    if "$SCRIPT_DIR/$script"; then
+    if "$SCRIPT_DIR/$script_name" $script_args; then
         TEST_RESULTS+=("PASS")
-        ((TOTAL_PASSED++))
+        ((++TOTAL_PASSED)) || true
     else
         TEST_RESULTS+=("FAIL")
-        ((TOTAL_FAILED++))
+        ((++TOTAL_FAILED)) || true
     fi
     
     # クリーンアップ
@@ -98,6 +136,14 @@ run_test() {
 
 # テスト実行
 START_TIME=$(date +%s)
+
+# ============================================================
+# 基本テスト（ブロックチェーンノードのみ、自己起動）
+# ============================================================
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}  Phase 1: Core Infrastructure Tests${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 run_test "Block Synchronization" "test_block_sync.sh"
 run_test "Consensus & Fork Resolution" "test_consensus.sh"
@@ -109,6 +155,50 @@ if [ "$QUICK_MODE" = false ]; then
 else
     echo ""
     echo -e "${YELLOW}Skipping scalability test (--quick mode)${NC}"
+fi
+
+# ============================================================
+# 静的検証テスト（ノード不要）
+# ============================================================
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}  Phase 2: Static Verification Tests${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+run_test "Fee Distribution Logic" "test_fee_distribution.sh"
+
+# ============================================================
+# 外部ノードテスト（--full モードのみ）
+# ============================================================
+if [ "$FULL_MODE" = true ]; then
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}  Phase 3: External Node Tests (testnet required)${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    # testnetが起動しているか確認
+    if curl -s "http://127.0.0.1:9944" > /dev/null 2>&1; then
+        # Multi-node & P2P tests
+        run_test "Multi-node Storage" "test_multi_node.sh"
+        run_test "P2P Gossip" "test_p2p_gossip.sh"
+        run_test "Failover" "test_failover.sh"
+        
+        # KZG/Storage tests (from specs 009-011)
+        run_test "KZG-VSS E2E (T018)" "test_kzg_vss_e2e.sh"
+        run_test "KZG Proof E2E (T033)" "test_kzg_proof_e2e.sh"
+        run_test "Forgetting Flow (T053/T054)" "test_forgetting_flow.sh"
+        run_test "Score Default (T062)" "test_score_default.sh"
+        run_test "Proof Success Rate (SC-004)" "test_proof_success_rate.sh"
+        run_test "GC Timing (SC-005)" "test_gc_timing.sh"
+    else
+        echo ""
+        echo -e "${YELLOW}Warning: Testnet not running at http://127.0.0.1:9944${NC}"
+        echo -e "${YELLOW}Skipping external node tests.${NC}"
+        echo -e "${YELLOW}Start testnet with: pnpm testnet:start${NC}"
+    fi
+else
+    echo ""
+    echo -e "${YELLOW}Skipping external node tests (use --full to include)${NC}"
 fi
 
 END_TIME=$(date +%s)

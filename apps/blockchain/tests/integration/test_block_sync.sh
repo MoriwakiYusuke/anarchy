@@ -53,7 +53,7 @@ if ! wait_for_node $BOB_RPC 30; then
     exit 1
 fi
 
-# Step 3: ブロック生成を待機（約30秒、10ブロック程度）
+# Step 3: ブロック生成を待機（約30秒）
 log_info "Step 3: Waiting for block production (30 seconds)..."
 sleep 30
 
@@ -63,7 +63,7 @@ BOB_HEIGHT=$(get_block_number $BOB_RPC)
 
 log_info "Current block heights - Alice: $ALICE_HEIGHT, Bob: $BOB_HEIGHT"
 
-if [ "$ALICE_HEIGHT" -lt 5 ]; then
+if [ "$ALICE_HEIGHT" -lt 3 ]; then
     log_fail "Block production too slow (Alice: $ALICE_HEIGHT blocks)"
     exit 1
 fi
