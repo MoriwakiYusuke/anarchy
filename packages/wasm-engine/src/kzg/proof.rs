@@ -104,12 +104,14 @@ pub fn vss_prove(
     // Construct polynomial from coefficients
     let polynomial = DensePolynomial::from_coefficients_vec(coeffs);
 
+    // Verify commitment matches polynomial (Issue 9 fix)
+    let computed_commitment = super::vss::compute_commitment(&polynomial, srs)?;
+    if computed_commitment.bytes != commitment.bytes {
+        return Err(KzgError::CommitmentMismatch);
+    }
+
     // Generate proof for this share
     let proof = super::vss::generate_single_proof(&polynomial, share.index, srs)?;
-
-    // Optional: verify the proof matches the commitment
-    // This is a sanity check to ensure polynomial_coeffs are correct
-    let _ = commitment; // We trust the caller
 
     Ok(proof)
 }

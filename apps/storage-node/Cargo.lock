@@ -83,6 +83,7 @@ dependencies = [
  "clap",
  "futures",
  "hex",
+ "kzg-constants",
  "libp2p",
  "parking_lot",
  "rand 0.8.5",
@@ -2433,6 +2434,10 @@ dependencies = [
  "primitive-types",
  "tiny-keccak",
 ]
+
+[[package]]
+name = "kzg-constants"
+version = "0.1.0"
 
 [[package]]
 name = "lazy_static"

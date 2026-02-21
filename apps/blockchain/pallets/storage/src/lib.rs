@@ -128,6 +128,27 @@ pub trait StorageInterface<AccountId, BlockNumber> {
         created_at: BlockNumber,
     ) -> DispatchResult;
 
+    /// Register a KZG fragment internally (Issue 4 fix).
+    ///
+    /// Called by Post Pallet during create_post_v2 to atomically
+    /// register KZG commitment on-chain for proof-of-holding.
+    ///
+    /// # Arguments
+    /// * `owner` - The owner account (verified by calling pallet)
+    /// * `content_hash` - Blake2-256 hash of the content
+    /// * `commitment` - KZG commitment (48 bytes)
+    /// * `data_size` - Original data size in bytes
+    /// * `fragment_count` - Total number of shares (n)
+    /// * `threshold` - Recovery threshold (k)
+    fn do_register_kzg_fragment(
+        owner: AccountId,
+        content_hash: ContentHash,
+        commitment: sp_std::vec::Vec<u8>,
+        data_size: u32,
+        fragment_count: u8,
+        threshold: u8,
+    ) -> DispatchResult;
+
     /// Deposit tokens to the reward pool (FR-113).
     ///
     /// Called by Post Pallet during create_post_v2 to deposit 90% of post fee
@@ -226,8 +247,8 @@ pub mod pallet {
         pub success_count: u32,
         /// Consecutive failure count
         pub failure_count: u32,
-        /// Pending reward (unclaimed)
-        pub pending_reward: u128,
+        // Note: pending_reward field removed (Issue 3 fix)
+        // Rewards are now tracked ONLY in PendingRewards storage to prevent double-counting
     }
 
     #[pallet::pallet]
@@ -254,7 +275,7 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        /// Clear per-block rate limiting counters at block finalization (FR-406, FR-410).
+        /// Clear per-block rate limiting counters and process expired challenges (FR-406, FR-410, Issue 2).
         fn on_finalize(block: BlockNumberFor<T>) {
             // Clear registration count for this block
             RegistrationCountPerBlock::<T>::remove(block);
@@ -265,6 +286,24 @@ pub mod pallet {
 
             // Clear challenge counts for this block (rate limiting)
             let _ = ChallengeCountPerBlock::<T>::clear_prefix(block, u32::MAX, None);
+
+            // Process expired challenges (Issue 2, T011)
+            let expired_challenges = ChallengesByDeadline::<T>::take(block);
+            for (content_hash, share_index) in expired_challenges.into_iter() {
+                if let Some(challenge) = PendingChallenges::<T>::take(content_hash, share_index) {
+                    // Increment failure count for the challenged node
+                    ProofRecords::<T>::mutate(content_hash, &challenge.challenged_node, |record| {
+                        record.failure_count = record.failure_count.saturating_add(1);
+                    });
+
+                    // Emit ChallengeExpired event
+                    Self::deposit_event(Event::ChallengeExpired {
+                        content_hash,
+                        share_index,
+                        challenged_node: challenge.challenged_node,
+                    });
+                }
+            }
         }
     }
 
@@ -487,6 +526,18 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// Challenge deadline index (block_number -> list of (content_hash, share_index))
+    /// Used for efficient expired challenge cleanup in on_finalize (Issue 2)
+    #[pallet::storage]
+    #[pallet::getter(fn challenges_by_deadline)]
+    pub type ChallengesByDeadline<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        BlockNumberFor<T>,
+        BoundedVec<(super::ContentHash, u8), ConstU32<1000>>,
+        ValueQuery,
+    >;
+
     // ============ Events ============
 
     #[pallet::event]
@@ -570,6 +621,13 @@ pub mod pallet {
         /// Content recovered from forgetting candidate (T054)
         ScoreRecovered {
             content_hash: super::ContentHash,
+        },
+
+        /// Challenge expired without proof submission (Issue 2)
+        ChallengeExpired {
+            content_hash: super::ContentHash,
+            share_index: u8,
+            challenged_node: T::AccountId,
         },
     }
 
@@ -671,6 +729,8 @@ pub mod pallet {
         NotHolderOfFragment,
         /// Challenge rate limit exceeded for this block
         ChallengeLimitExceeded,
+        /// Challenge issuer is not a registered storage node (Issue 1)
+        IssuerNotRegisteredNode,
     }
 
     // ============ Extrinsics ============
@@ -933,77 +993,6 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Register a KZG fragment for proof-of-holding (FR-102).
-        ///
-        /// Records KZG commitment on-chain for later challenge/proof verification.
-        /// This should be called atomically during post creation.
-        ///
-        /// # Arguments
-        /// * `content_hash` - Blake2-256 hash of the content
-        /// * `commitment` - KZG commitment (48 bytes, compressed G1 point)
-        /// * `data_size` - Original data size in bytes
-        /// * `fragment_count` - Total number of shares (n)
-        /// * `threshold` - Recovery threshold (k)
-        #[pallet::call_index(6)]
-        #[pallet::weight(Weight::from_parts(20_000, 0) + T::DbWeight::get().writes(1))]
-        pub fn register_kzg_fragment(
-            origin: OriginFor<T>,
-            content_hash: super::ContentHash,
-            commitment: BoundedVec<u8, ConstU32<48>>,
-            data_size: u32,
-            fragment_count: u8,
-            threshold: u8,
-        ) -> DispatchResult {
-            let owner = ensure_signed(origin)?;
-
-            // Validate commitment length (must be exactly 48 bytes)
-            ensure!(commitment.len() == 48, Error::<T>::InvalidCommitmentLength);
-
-            // Validate fragment count (minimum 2)
-            ensure!(fragment_count >= 2, Error::<T>::FragmentCountTooSmall);
-
-            // Validate threshold (1 <= k <= n)
-            ensure!(
-                threshold >= 1 && threshold <= fragment_count,
-                Error::<T>::InvalidKzgThreshold
-            );
-
-            // Validate data size
-            ensure!(data_size > 0, Error::<T>::FragmentTooSmall);
-
-            // Check for duplicates
-            ensure!(
-                !KzgFragments::<T>::contains_key(content_hash),
-                Error::<T>::KzgFragmentAlreadyExists
-            );
-
-            // Create KZG fragment metadata
-            let kzg_fragment = KzgFragment::<T> {
-                owner: owner.clone(),
-                commitment: commitment.clone(),
-                data_size,
-                fragment_count,
-                threshold,
-                created_at: frame_system::Pallet::<T>::block_number(),
-                holders: BoundedVec::default(),
-            };
-
-            // Store
-            KzgFragments::<T>::insert(content_hash, kzg_fragment);
-
-            // Emit event
-            Self::deposit_event(Event::KzgFragmentRegistered {
-                content_hash,
-                owner,
-                commitment,
-                data_size,
-                fragment_count,
-                threshold,
-            });
-
-            Ok(())
-        }
-
         /// Submit KZG proof of holding (US2).
         ///
         /// Storage nodes submit proof in response to a challenge.
@@ -1101,11 +1090,12 @@ pub mod pallet {
             );
 
             // Update proof record (FR-104, FR-109, T042)
+            // Note: Reward is accumulated ONLY in PendingRewards (not in ProofRecord.pending_reward)
+            // to prevent double-counting (Issue 3 fix)
             ProofRecords::<T>::mutate(content_hash, &prover, |record| {
                 record.last_proved_at = current_block;
                 record.success_count = record.success_count.saturating_add(1);
                 record.failure_count = 0; // Reset failures on success
-                record.pending_reward = record.pending_reward.saturating_add(reward);
             });
 
             // Accumulate reward in PendingRewards for efficient claim (T048)
@@ -1167,6 +1157,12 @@ pub mod pallet {
         ) -> DispatchResult {
             let issuer = ensure_signed(origin)?;
 
+            // Security: Only registered storage nodes can issue challenges (Issue 1)
+            ensure!(
+                OperatorNodes::<T>::contains_key(&issuer),
+                Error::<T>::IssuerNotRegisteredNode
+            );
+
             let current_block = <frame_system::Pallet<T>>::block_number();
 
             // Rate limiting: check per-block challenge count for this issuer
@@ -1211,6 +1207,11 @@ pub mod pallet {
             };
 
             PendingChallenges::<T>::insert(content_hash, challenge_index, challenge);
+
+            // Index challenge by deadline for efficient expiration cleanup (Issue 2, T010)
+            ChallengesByDeadline::<T>::try_mutate(deadline, |challenges| {
+                challenges.try_push((content_hash, challenge_index))
+            }).map_err(|_| Error::<T>::ChallengeLimitExceeded)?;
 
             // Increment challenge count for rate limiting
             ChallengeCountPerBlock::<T>::insert(
@@ -1354,6 +1355,74 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Register a KZG fragment for proof-of-holding (FR-102, Issue 4 fix).
+        ///
+        /// Internal function - NOT callable as extrinsic.
+        /// Called by Post pallet via StorageInterface during create_post_v2.
+        ///
+        /// # Arguments
+        /// * `owner` - The owner account (verified by calling pallet)
+        /// * `content_hash` - Blake2-256 hash of the content
+        /// * `commitment` - KZG commitment (48 bytes, compressed G1 point)
+        /// * `data_size` - Original data size in bytes
+        /// * `fragment_count` - Total number of shares (n)
+        /// * `threshold` - Recovery threshold (k)
+        pub fn do_register_kzg_fragment(
+            owner: T::AccountId,
+            content_hash: super::ContentHash,
+            commitment: BoundedVec<u8, ConstU32<48>>,
+            data_size: u32,
+            fragment_count: u8,
+            threshold: u8,
+        ) -> DispatchResult {
+            // Validate commitment length (must be exactly 48 bytes)
+            ensure!(commitment.len() == 48, Error::<T>::InvalidCommitmentLength);
+
+            // Validate fragment count (minimum 2)
+            ensure!(fragment_count >= 2, Error::<T>::FragmentCountTooSmall);
+
+            // Validate threshold (1 <= k <= n)
+            ensure!(
+                threshold >= 1 && threshold <= fragment_count,
+                Error::<T>::InvalidKzgThreshold
+            );
+
+            // Validate data size
+            ensure!(data_size > 0, Error::<T>::FragmentTooSmall);
+
+            // Check for duplicates
+            ensure!(
+                !KzgFragments::<T>::contains_key(content_hash),
+                Error::<T>::KzgFragmentAlreadyExists
+            );
+
+            // Create KZG fragment metadata
+            let kzg_fragment = KzgFragment::<T> {
+                owner: owner.clone(),
+                commitment: commitment.clone(),
+                data_size,
+                fragment_count,
+                threshold,
+                created_at: frame_system::Pallet::<T>::block_number(),
+                holders: BoundedVec::default(),
+            };
+
+            // Store
+            KzgFragments::<T>::insert(content_hash, kzg_fragment);
+
+            // Emit event
+            Self::deposit_event(Event::KzgFragmentRegistered {
+                content_hash,
+                owner,
+                commitment,
+                data_size,
+                fragment_count,
+                threshold,
+            });
+
+            Ok(())
+        }
     }
 }
 
@@ -1367,6 +1436,20 @@ impl<T: Config> StorageInterface<T::AccountId, BlockNumberFor<T>> for Pallet<T> 
         created_at: BlockNumberFor<T>,
     ) -> DispatchResult {
         Self::do_register_fragment_internal(fragment_id, size, creator, created_at)
+    }
+
+    fn do_register_kzg_fragment(
+        owner: T::AccountId,
+        content_hash: ContentHash,
+        commitment: sp_std::vec::Vec<u8>,
+        data_size: u32,
+        fragment_count: u8,
+        threshold: u8,
+    ) -> DispatchResult {
+        // Convert Vec<u8> to BoundedVec<u8, ConstU32<48>>
+        let bounded_commitment = frame_support::BoundedVec::try_from(commitment)
+            .map_err(|_| pallet::Error::<T>::InvalidCommitmentLength)?;
+        Self::do_register_kzg_fragment(owner, content_hash, bounded_commitment, data_size, fragment_count, threshold)
     }
 
     fn do_deposit_to_reward_pool(amount: u128) {

@@ -6,7 +6,7 @@
 use crate::{self as pallet_storage, Error, Event, FragmentId, ForgettingCandidates, ScoreCache};
 use frame_support::{
     assert_noop, assert_ok,
-    traits::{ConstU128, ConstU32, ConstU64, ConstU8},
+    traits::{ConstU128, ConstU32, ConstU64, ConstU8, Hooks},
     BoundedVec,
 };
 use sp_core::H256;
@@ -133,6 +133,24 @@ fn test_peer_id(n: u8) -> BoundedVec<u8, ConstU32<64>> {
 fn test_http_url(port: u16) -> BoundedVec<u8, ConstU32<256>> {
     let url = format!("http://127.0.0.1:{}", port);
     BoundedVec::try_from(url.into_bytes()).unwrap()
+}
+
+/// Helper: Create a test KZG commitment (48 bytes)
+fn test_kzg_commitment() -> BoundedVec<u8, ConstU32<48>> {
+    BoundedVec::try_from(vec![0u8; 48]).unwrap()
+}
+
+/// Helper: Register KZG fragment via internal function (Issue 4 fix)
+/// This replaces Storage::register_kzg_fragment extrinsic calls in tests
+fn register_kzg_fragment_internal(
+    owner: u64,
+    content_hash: [u8; 32],
+    commitment: BoundedVec<u8, ConstU32<48>>,
+    data_size: u32,
+    fragment_count: u8,
+    threshold: u8,
+) -> frame_support::dispatch::DispatchResult {
+    Storage::do_register_kzg_fragment(owner, content_hash, commitment, data_size, fragment_count, threshold)
 }
 
 // ============ User Story 1: 断片メタデータの登録 ============
@@ -793,9 +811,7 @@ fn t017_register_kzg_fragment_90_10_split() {
         let threshold = 3u8;
 
         // Register KZG fragment (no fee in current implementation)
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment.clone(),
             data_size,
             fragment_count,
@@ -840,9 +856,7 @@ fn t029_prove_holding_kzg_valid_proof_succeeds() {
         let commitment = test_commitment();
 
         // Setup: Register KzgFragment first
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment.clone(),
             1024, // data_size
             5,    // fragment_count
@@ -858,6 +872,17 @@ fn t029_prove_holding_kzg_valid_proof_succeeds() {
             1_000_000, // capacity
             1_000_000, // pow_nonce
             http_url,
+        ));
+
+        // Issue 1 fix: Register owner as storage node (required for issue_challenge)
+        let owner_peer_id = test_peer_id(98);
+        let owner_http_url = test_http_url(3098);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id,
+            1_000_000,
+            1_000_002,
+            owner_http_url,
         ));
 
         // SECURITY FIX: Add node as holder (PR #22 CRITICAL-2)
@@ -910,9 +935,7 @@ fn t030_prove_holding_kzg_invalid_proof_fails() {
         let commitment = test_commitment();
 
         // Setup: Register KzgFragment
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment,
             1024,
             5,
@@ -928,6 +951,17 @@ fn t030_prove_holding_kzg_invalid_proof_fails() {
             1_000_000, // capacity
             1_000_000, // pow_nonce
             http_url,
+        ));
+
+        // Issue 1 fix: Register owner as storage node (required for issue_challenge)
+        let owner_peer_id_30 = test_peer_id(97);
+        let owner_http_url_30 = test_http_url(3097);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id_30,
+            1_000_000,
+            1_000_003,
+            owner_http_url_30,
         ));
 
         // SECURITY FIX: Add node as holder (PR #22 CRITICAL-2)
@@ -973,9 +1007,7 @@ fn t031_challenge_generation_random() {
         let commitment = test_commitment();
 
         // Setup: Register KzgFragment
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment,
             1024,
             5,
@@ -991,6 +1023,17 @@ fn t031_challenge_generation_random() {
             1_000_000, // capacity
             1_000_000, // pow_nonce
             http_url,
+        ));
+
+        // Issue 1 fix: Register owner as storage node (required for issue_challenge)
+        let owner_peer_id = test_peer_id(99);
+        let owner_http_url = test_http_url(3099);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id,
+            1_000_000,
+            1_000_001,
+            owner_http_url,
         ));
 
         // Add node as holder (required for issue_challenge)
@@ -1032,9 +1075,7 @@ fn t032_unanswered_count_increments() {
         let commitment = test_commitment();
 
         // Setup: Register KzgFragment
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment,
             1024,
             5,
@@ -1050,6 +1091,17 @@ fn t032_unanswered_count_increments() {
             1_000_000, // capacity
             1_000_000, // pow_nonce
             http_url,
+        ));
+
+        // Issue 1 fix: Register owner as storage node (required for issue_challenge)
+        let owner_peer_id = test_peer_id(99);
+        let owner_http_url = test_http_url(3099);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id,
+            1_000_000,
+            1_000_001,
+            owner_http_url,
         ));
 
         // Add node as holder (required for issue_challenge)
@@ -1069,6 +1121,218 @@ fn t032_unanswered_count_increments() {
         
         // Note: Challenge expiry and failure counting is handled in on_finalize
         // which is not triggered in unit tests. Integration tests verify this.
+    });
+}
+
+// ============================================================
+// Phase 3: User Story 1 - チャレンジ応答セキュリティ Tests (Issue 1, 2)
+// ============================================================
+
+/// T012: issue_challenge requires registered issuer (Issue 1)
+#[test]
+fn t012_issue_challenge_requires_registered_issuer() {
+    new_test_ext().execute_with(|| {
+        let unregistered_issuer = 100u64;
+        let node = 2u64;
+        let content_hash = test_content_hash(1);
+        let commitment = test_commitment();
+
+        // Setup: Register KzgFragment
+        assert_ok!(register_kzg_fragment_internal(1, content_hash,
+            commitment,
+            1024,
+            5,
+            3,
+        ));
+
+        // Register storage node (target of challenge)
+        let peer_id = test_peer_id(1);
+        let http_url = test_http_url(3030);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node),
+            peer_id,
+            1_000_000,
+            1_000_000,
+            http_url,
+        ));
+
+        add_kzg_holder(content_hash, node);
+
+        // Unregistered issuer tries to issue challenge - should fail
+        assert_noop!(
+            Storage::issue_challenge(
+                RuntimeOrigin::signed(unregistered_issuer),
+                content_hash,
+                node,
+                1,
+            ),
+            Error::<Test>::IssuerNotRegisteredNode
+        );
+
+        // Now register the issuer
+        let issuer_peer_id = test_peer_id(50);
+        let issuer_http_url = test_http_url(3050);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(unregistered_issuer),
+            issuer_peer_id,
+            1_000_000,
+            1_000_010,
+            issuer_http_url,
+        ));
+
+        // Now issue_challenge should succeed
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(unregistered_issuer),
+            content_hash,
+            node,
+            1,
+        ));
+    });
+}
+
+/// T013: Challenge expiration cleans pending challenges (Issue 2)
+#[test]
+fn t013_challenge_expiration_cleans_pending() {
+    new_test_ext().execute_with(|| {
+        let owner = 1u64;
+        let node = 2u64;
+        let content_hash = test_content_hash(1);
+        let commitment = test_commitment();
+
+        // Setup: Register KzgFragment
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
+            commitment,
+            1024,
+            5,
+            3,
+        ));
+
+        // Register both owner and node as storage nodes
+        let owner_peer_id = test_peer_id(51);
+        let owner_http_url = test_http_url(3051);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id,
+            1_000_000,
+            1_000_011,
+            owner_http_url,
+        ));
+
+        let peer_id = test_peer_id(1);
+        let http_url = test_http_url(3030);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node),
+            peer_id,
+            1_000_000,
+            1_000_000,
+            http_url,
+        ));
+
+        add_kzg_holder(content_hash, node);
+
+        let start_block = frame_system::Pallet::<Test>::block_number();
+
+        // Issue challenge
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            node,
+            1,
+        ));
+
+        // Verify challenge exists
+        assert!(Storage::pending_challenges(content_hash, 1u8).is_some());
+
+        // Verify ChallengesByDeadline contains the challenge
+        let deadline = start_block + 100;
+        let challenges_at_deadline = crate::ChallengesByDeadline::<Test>::get(deadline);
+        assert_eq!(challenges_at_deadline.len(), 1);
+        assert_eq!(challenges_at_deadline[0], (content_hash, 1u8));
+
+        // Advance to deadline block and run on_finalize
+        System::set_block_number(deadline);
+        Storage::on_finalize(deadline);
+
+        // Verify challenge was removed
+        assert!(Storage::pending_challenges(content_hash, 1u8).is_none());
+
+        // Verify ChallengesByDeadline was cleared
+        let challenges_after = crate::ChallengesByDeadline::<Test>::get(deadline);
+        assert!(challenges_after.is_empty());
+    });
+}
+
+/// T014: Challenge expiration increments failure count (Issue 2)
+#[test]
+fn t014_challenge_expiration_increments_failure_count() {
+    new_test_ext().execute_with(|| {
+        let owner = 1u64;
+        let node = 2u64;
+        let content_hash = test_content_hash(1);
+        let commitment = test_commitment();
+
+        // Setup
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
+            commitment,
+            1024,
+            5,
+            3,
+        ));
+
+        let owner_peer_id = test_peer_id(52);
+        let owner_http_url = test_http_url(3052);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id,
+            1_000_000,
+            1_000_012,
+            owner_http_url,
+        ));
+
+        let peer_id = test_peer_id(1);
+        let http_url = test_http_url(3030);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node),
+            peer_id,
+            1_000_000,
+            1_000_000,
+            http_url,
+        ));
+
+        add_kzg_holder(content_hash, node);
+
+        let start_block = frame_system::Pallet::<Test>::block_number();
+
+        // Verify initial failure count is 0
+        let initial_record = crate::ProofRecords::<Test>::get(content_hash, node);
+        assert_eq!(initial_record.failure_count, 0);
+
+        // Issue challenge
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(owner),
+            content_hash,
+            node,
+            1,
+        ));
+
+        // Don't submit proof, let challenge expire
+        let deadline = start_block + 100;
+        System::set_block_number(deadline);
+        Storage::on_finalize(deadline);
+
+        // Verify failure count increased
+        let final_record = crate::ProofRecords::<Test>::get(content_hash, node);
+        assert_eq!(final_record.failure_count, 1);
+
+        // Verify ChallengeExpired event was emitted
+        System::assert_has_event(
+            Event::ChallengeExpired {
+                content_hash,
+                share_index: 1,
+                challenged_node: node,
+            }
+            .into(),
+        );
     });
 }
 
@@ -1349,9 +1613,7 @@ fn sec001_prove_holding_kzg_without_challenge_fails() {
         let commitment = test_commitment();
 
         // Setup: Register KzgFragment
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment,
             1024,
             5,
@@ -1400,9 +1662,7 @@ fn sec002_prove_holding_kzg_wrong_node_fails() {
         let commitment = test_commitment();
 
         // Setup: Register KzgFragment
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment,
             1024,
             5,
@@ -1428,6 +1688,17 @@ fn sec002_prove_holding_kzg_wrong_node_fails() {
             1_000_000,
             1_000_001, // Different nonce
             http_url_b,
+        ));
+
+        // Issue 1 fix: Register owner as storage node (required for issue_challenge)
+        let owner_peer_id_sec2 = test_peer_id(96);
+        let owner_http_url_sec2 = test_http_url(3096);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id_sec2,
+            1_000_000,
+            1_000_004,
+            owner_http_url_sec2,
         ));
 
         // Add node_a and node_b as holders (required for issue_challenge)
@@ -1471,9 +1742,7 @@ fn sec003_prove_holding_kzg_duplicate_same_block_fails() {
         let commitment = test_commitment();
 
         // Setup: Register KzgFragment
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment,
             1024,
             5,
@@ -1489,6 +1758,17 @@ fn sec003_prove_holding_kzg_duplicate_same_block_fails() {
             1_000_000,
             1_000_000,
             http_url,
+        ));
+
+        // Issue 1 fix: Register owner as storage node (required for issue_challenge)
+        let owner_peer_id_sec3 = test_peer_id(95);
+        let owner_http_url_sec3 = test_http_url(3095);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id_sec3,
+            1_000_000,
+            1_000_005,
+            owner_http_url_sec3,
         ));
 
         // SECURITY FIX: Add node as holder (PR #22 CRITICAL-2)
@@ -1547,9 +1827,7 @@ fn sec004_replay_attack_different_blocks_fails() {
         let commitment = test_commitment();
 
         // Setup
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment,
             1024,
             5,
@@ -1564,6 +1842,17 @@ fn sec004_replay_attack_different_blocks_fails() {
             1_000_000,
             1_000_000,
             http_url,
+        ));
+
+        // Issue 1 fix: Register owner as storage node (required for issue_challenge)
+        let owner_peer_id_sec4 = test_peer_id(94);
+        let owner_http_url_sec4 = test_http_url(3094);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id_sec4,
+            1_000_000,
+            1_000_006,
+            owner_http_url_sec4,
         ));
 
         // SECURITY FIX: Add node as holder (PR #22 CRITICAL-2)
@@ -1626,9 +1915,7 @@ fn sec005_prove_holding_kzg_not_holder_fails() {
         let commitment = test_commitment();
 
         // Setup: Register KzgFragment
-        assert_ok!(Storage::register_kzg_fragment(
-            RuntimeOrigin::signed(owner),
-            content_hash,
+        assert_ok!(register_kzg_fragment_internal(owner, content_hash,
             commitment,
             1024,
             5,
@@ -1654,6 +1941,17 @@ fn sec005_prove_holding_kzg_not_holder_fails() {
             1_000_000,
             1_000_001,
             http_url_nh,
+        ));
+
+        // Issue 1 fix: Register owner as storage node (required for issue_challenge)
+        let owner_peer_id_sec5 = test_peer_id(93);
+        let owner_http_url_sec5 = test_http_url(3093);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id_sec5,
+            1_000_000,
+            1_000_007,
+            owner_http_url_sec5,
         ));
 
         // Add only 'node' as holder, NOT 'non_holder'
@@ -1691,9 +1989,7 @@ fn sec006_challenge_rate_limit_exceeded() {
             let content_hash = test_content_hash(i);
             content_hashes.push(content_hash);
             
-            assert_ok!(Storage::register_kzg_fragment(
-                RuntimeOrigin::signed(owner),
-                content_hash,
+            assert_ok!(register_kzg_fragment_internal(owner, content_hash,
                 commitment.clone(),
                 1024,
                 5,
@@ -1712,6 +2008,28 @@ fn sec006_challenge_rate_limit_exceeded() {
             1_000_000,
             1_000_000,
             http_url,
+        ));
+
+        // Issue 1 fix: Register owner and other_issuer as storage nodes (required for issue_challenge)
+        let owner_peer_id_sec6 = test_peer_id(92);
+        let owner_http_url_sec6 = test_http_url(3092);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(owner),
+            owner_peer_id_sec6,
+            1_000_000,
+            1_000_008,
+            owner_http_url_sec6,
+        ));
+
+        let other_issuer = 99u64;
+        let other_peer_id = test_peer_id(91);
+        let other_http_url = test_http_url(3091);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(other_issuer),
+            other_peer_id,
+            1_000_000,
+            1_000_009,
+            other_http_url,
         ));
 
         // Issue challenges up to the limit (10)
@@ -1735,13 +2053,107 @@ fn sec006_challenge_rate_limit_exceeded() {
             Error::<Test>::ChallengeLimitExceeded
         );
 
-        // Different issuer can still issue challenges
-        let other_issuer = 99u64;
+        // Different issuer can still issue challenges (already registered above)
         assert_ok!(Storage::issue_challenge(
             RuntimeOrigin::signed(other_issuer),
             content_hashes[10],
             node,
             1,
         ));
+    });
+}
+
+// ============ US2: 報酬システム一貫性テスト (Issue 3, 4 fix) ============
+
+/// T021: test_reward_single_accounting
+/// Verifies that rewards are accumulated ONLY in PendingRewards storage,
+/// not in ProofRecord.pending_reward (which has been removed).
+/// Note: KZG proof verification requires valid proofs, so we test the storage
+/// structure and accumulation logic separately.
+#[test]
+fn test_reward_single_accounting() {
+    new_test_ext().execute_with(|| {
+        let node = 1u64;
+        let content_hash = test_content_hash(201);
+
+        // Verify ProofRecord struct no longer has pending_reward field
+        // by checking that ProofRecords can be created and modified correctly
+        crate::ProofRecords::<Test>::mutate(content_hash, node, |record| {
+            record.success_count = 5;
+            record.failure_count = 0;
+            record.last_proved_at = 10;
+            // Note: No pending_reward field to set (Issue 3 fix)
+        });
+
+        // Verify record was stored correctly
+        let record = crate::ProofRecords::<Test>::get(content_hash, node);
+        assert_eq!(record.success_count, 5);
+        assert_eq!(record.failure_count, 0);
+        assert_eq!(record.last_proved_at, 10);
+
+        // Verify PendingRewards is the sole source of reward accumulation
+        let initial = crate::PendingRewards::<Test>::get(node);
+        assert_eq!(initial, 0);
+
+        // Simulate reward accumulation (same logic as in prove_holding_kzg)
+        let reward = 1000u128;
+        crate::PendingRewards::<Test>::mutate(node, |pending| {
+            *pending = pending.saturating_add(reward);
+        });
+
+        let final_pending = crate::PendingRewards::<Test>::get(node);
+        assert_eq!(final_pending, 1000);
+
+        // Verify that ProofRecords is not used for reward tracking
+        // (The struct no longer has a pending_reward field)
+        let record_after = crate::ProofRecords::<Test>::get(content_hash, node);
+        assert_eq!(record_after.success_count, 5); // Unchanged
+    });
+}
+
+/// T022: test_register_kzg_fragment_internal_only
+/// Verifies that register_kzg_fragment is only accessible via internal function,
+/// not as an extrinsic. Since the extrinsic has been removed, we verify the
+/// internal function works correctly via StorageInterface trait.
+#[test]
+fn test_register_kzg_fragment_internal_only() {
+    new_test_ext().execute_with(|| {
+        let owner = 1u64;
+        let content_hash = test_content_hash(211);
+        let commitment = test_kzg_commitment();
+        let data_size = 500u32;
+        let fragment_count = 3u8;
+        let threshold = 2u8;
+
+        // Register via internal function (the only way now)
+        assert_ok!(register_kzg_fragment_internal(
+            owner,
+            content_hash,
+            commitment.clone(),
+            data_size,
+            fragment_count,
+            threshold,
+        ));
+
+        // Verify KzgFragment was stored
+        let fragment = Storage::kzg_fragments(content_hash).expect("Fragment should exist");
+        assert_eq!(fragment.owner, owner);
+        assert_eq!(fragment.data_size, data_size);
+        assert_eq!(fragment.fragment_count, fragment_count);
+        assert_eq!(fragment.threshold, threshold);
+        assert_eq!(fragment.commitment.to_vec(), commitment.to_vec());
+
+        // Verify duplicate registration fails
+        assert_noop!(
+            register_kzg_fragment_internal(
+                owner,
+                content_hash,
+                commitment,
+                data_size,
+                fragment_count,
+                threshold,
+            ),
+            Error::<Test>::KzgFragmentAlreadyExists
+        );
     });
 }

@@ -274,7 +274,7 @@ fn generate_random_scalars(count: usize) -> Result<Vec<Fr>, KzgError> {
 }
 
 /// Compute KZG commitment C = [f(τ)]₁ = Σ(a_i * [τ^i]₁).
-fn compute_commitment(
+pub(super) fn compute_commitment(
     polynomial: &DensePolynomial<Fr>,
     srs: &super::srs::Srs,
 ) -> Result<KzgCommitment, KzgError> {

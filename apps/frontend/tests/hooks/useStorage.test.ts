@@ -8,16 +8,20 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { useStorage, type UseStorageResult, type UploadResult, type RecoverResult, type HybridMetadata } from '@/hooks/useStorage'
 
 // Web Worker モック
+// 全インスタンス間で共有するMerkleキャッシュ（WorkerPool使用時の複数Worker問題に対応）
+const sharedMerkleCache = new Map<string, { root: Uint8Array; leafCount: number }>()
+
 class MockWorker {
   onmessage: ((event: MessageEvent) => void) | null = null
   onerror: ((event: ErrorEvent) => void) | null = null
   private messageHandlers: Map<string, (payload: unknown) => unknown> = new Map()
-  // MerkleResult キャッシュ（merkle_generate_proof用）
-  private merkleCache: Map<string, { root: Uint8Array; leafCount: number }> = new Map()
+  private eventListeners: Map<string, ((event: MessageEvent) => void)[]> = new Map()
 
   constructor() {
     // Worker初期化完了を模擬
     setTimeout(() => {
+      const readyEvent = { data: { type: 'ready' } } as MessageEvent
+      this.eventListeners.get('message')?.forEach(handler => handler(readyEvent))
       this.onmessage?.({ data: { type: 'ready' } } as MessageEvent)
     }, 0)
 
@@ -57,15 +61,15 @@ class MockWorker {
       for (let i = 0; i < Math.min(fragments.length, 32); i++) {
         root[i] = fragments[i]?.[0] ?? 0
       }
-      // rootHexを生成してキャッシュ
+      // rootHexを生成して共有キャッシュに保存
       const rootHex = Array.from(root).map(b => b.toString(16).padStart(2, '0')).join('')
-      this.merkleCache.set(rootHex, { root, leafCount: fragments.length })
+      sharedMerkleCache.set(rootHex, { root, leafCount: fragments.length })
       return { root, rootHex, leafCount: fragments.length }
     })
 
     this.messageHandlers.set('merkle_generate_proof', (payload: unknown) => {
       const { merkleRootHex, index } = payload as { merkleRootHex: string; index: number }
-      const cached = this.merkleCache.get(merkleRootHex)
+      const cached = sharedMerkleCache.get(merkleRootHex)
       if (!cached) {
         throw new Error(`MerkleResult not found for root: ${merkleRootHex}`)
       }
@@ -116,6 +120,21 @@ class MockWorker {
     }, 10)
   }
 
+  addEventListener(type: string, handler: (event: MessageEvent) => void) {
+    const handlers = this.eventListeners.get(type) || []
+    handlers.push(handler)
+    this.eventListeners.set(type, handlers)
+  }
+
+  removeEventListener(type: string, handler: (event: MessageEvent) => void) {
+    const handlers = this.eventListeners.get(type) || []
+    const index = handlers.indexOf(handler)
+    if (index !== -1) {
+      handlers.splice(index, 1)
+      this.eventListeners.set(type, handlers)
+    }
+  }
+
   terminate() {
     // Cleanup
   }
@@ -154,6 +173,14 @@ beforeAll(() => {
     global.TextEncoder = TextEncoder
     global.TextDecoder = TextDecoder
   }
+})
+
+// 各テスト後にシングルトンWorkerPoolをリセット
+afterEach(async () => {
+  const { resetSharedWorkerPool } = await import('@/workers/WorkerPool')
+  resetSharedWorkerPool()
+  // 共有MerkleキャッシュもクリアA
+  sharedMerkleCache.clear()
 })
 
 describe('useStorage', () => {

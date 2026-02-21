@@ -29,6 +29,18 @@ impl StorageInterface<u64, u64> for MockStorage {
         Ok(())
     }
 
+    fn do_register_kzg_fragment(
+        _owner: u64,
+        _content_hash: [u8; 32],
+        _commitment: sp_std::vec::Vec<u8>,
+        _data_size: u32,
+        _fragment_count: u8,
+        _threshold: u8,
+    ) -> DispatchResult {
+        // Always succeed in tests (KZG registration tested in pallet-storage)
+        Ok(())
+    }
+
     fn do_deposit_to_reward_pool(_amount: u128) {
         // No-op in pallet-post tests; reward pool logic tested in pallet-storage
     }

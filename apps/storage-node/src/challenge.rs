@@ -228,6 +228,35 @@ impl ChallengeMonitor {
             !pc.submitted && pc.challenge.deadline > current_block
         });
     }
+
+    /// Process pending challenges that haven't been submitted yet (T047)
+    /// 
+    /// Retries proof generation and submission for any pending challenges
+    /// that haven't exceeded max_attempts.
+    pub async fn process_pending(&self) -> Result<()> {
+        // Get list of pending challenges that need retry
+        let pending_keys: Vec<([u8; 32], u8)> = {
+            let pending = self.pending.lock().await;
+            pending.iter()
+                .filter(|(_, pc)| !pc.submitted && pc.attempts < self.max_attempts)
+                .map(|(key, _)| key.clone())
+                .collect()
+        };
+
+        // Retry each pending challenge
+        for (content_hash, share_index) in pending_keys {
+            if let Err(e) = self.try_submit_proof(content_hash, share_index).await {
+                debug!(
+                    content_hash = hex::encode(content_hash),
+                    share_index = share_index,
+                    error = %e,
+                    "Retry proof submission failed"
+                );
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

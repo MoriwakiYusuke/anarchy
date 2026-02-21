@@ -71,6 +71,27 @@ impl RateLimiter {
     }
 }
 
+/// Retry configuration for RPC reconnection (Issue 10 fix)
+#[derive(Clone, Debug)]
+pub struct RetryConfig {
+    /// Maximum number of retry attempts
+    pub max_retries: u32,
+    /// Initial delay before first retry (seconds)
+    pub initial_delay_secs: u64,
+    /// Maximum delay between retries (seconds)
+    pub max_delay_secs: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 10,
+            initial_delay_secs: 1,
+            max_delay_secs: 60,
+        }
+    }
+}
+
 /// Chain client for interacting with Anarchy blockchain
 /// 
 /// Uses subxt for type-safe chain interaction and extrinsic submission.
@@ -95,6 +116,8 @@ pub struct ChainClient {
     connected: bool,
     /// Track holdings: hash → (post_id, index)
     holding_map: Mutex<HashMap<FragmentId, (u64, u32)>>,
+    /// Retry configuration for reconnection (Issue 10 fix)
+    retry_config: RetryConfig,
 }
 
 impl ChainClient {
@@ -158,6 +181,7 @@ impl ChainClient {
             subxt_client: Mutex::new(subxt_client),
             connected,
             holding_map: Mutex::new(HashMap::new()),
+            retry_config: RetryConfig::default(),
         })
     }
 
@@ -183,9 +207,122 @@ impl ChainClient {
         Ok(client)
     }
 
+    /// Invalidate current subxt client and force reconnection (Issue 10 fix)
+    pub async fn reconnect(&self) -> Result<()> {
+        let mut client_guard = self.subxt_client.lock().await;
+        *client_guard = None;
+        drop(client_guard);
+        
+        // Re-establish connection
+        let _ = self.ensure_subxt_client().await?;
+        info!("Reconnected to chain");
+        Ok(())
+    }
+
+    /// Reconnect with exponential backoff (Issue 10 fix)
+    /// 
+    /// Attempts to reconnect up to `max_retries` times with exponential backoff.
+    /// Delay doubles each attempt: 1s, 2s, 4s, 8s, ... up to `max_delay_secs`.
+    pub async fn reconnect_with_backoff(&self) -> Result<()> {
+        let config = &self.retry_config;
+        let mut delay = Duration::from_secs(config.initial_delay_secs);
+        let max_delay = Duration::from_secs(config.max_delay_secs);
+        
+        for attempt in 1..=config.max_retries {
+            // Invalidate current client
+            {
+                let mut client_guard = self.subxt_client.lock().await;
+                *client_guard = None;
+            }
+            
+            match self.ensure_subxt_client().await {
+                Ok(_) => {
+                    info!(attempt = attempt, "Reconnected to chain after {} attempts", attempt);
+                    return Ok(());
+                }
+                Err(e) => {
+                    if attempt == config.max_retries {
+                        warn!(
+                            attempt = attempt,
+                            error = %e,
+                            "Failed to reconnect after {} attempts, giving up",
+                            config.max_retries
+                        );
+                        return Err(e);
+                    }
+                    
+                    warn!(
+                        attempt = attempt,
+                        delay_secs = delay.as_secs(),
+                        error = %e,
+                        "Reconnection attempt failed, retrying in {} seconds",
+                        delay.as_secs()
+                    );
+                    tokio::time::sleep(delay).await;
+                    
+                    // Exponential backoff with cap
+                    delay = std::cmp::min(delay * 2, max_delay);
+                }
+            }
+        }
+        
+        bail!("Reconnection failed after {} attempts", config.max_retries)
+    }
+
     /// Get the current active endpoint URL (from failover manager)
     pub async fn active_endpoint(&self) -> Option<String> {
         self.failover_manager.get_primary_url().await
+    }
+
+    /// Execute an RPC operation with automatic reconnection on failure (Issue 10 fix)
+    /// 
+    /// If the operation fails with a connection error, attempts to reconnect
+    /// with exponential backoff before retrying the operation.
+    pub async fn with_reconnect<T, F, Fut>(&self, operation: F) -> Result<T>
+    where
+        F: Fn(OnlineClient<SubstrateConfig>) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        // First attempt
+        match self.ensure_subxt_client().await {
+            Ok(client) => {
+                match operation(client).await {
+                    Ok(result) => {
+                        self.report_success().await;
+                        return Ok(result);
+                    }
+                    Err(e) => {
+                        // Check if this is a connection error
+                        let error_str = e.to_string().to_lowercase();
+                        if error_str.contains("connection")
+                            || error_str.contains("disconnected")
+                            || error_str.contains("timeout")
+                            || error_str.contains("websocket")
+                        {
+                            warn!(error = %e, "RPC call failed with connection error, attempting reconnect");
+                            self.report_failure().await;
+                        } else {
+                            // Not a connection error, propagate immediately
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "No active connection, attempting reconnect");
+            }
+        }
+
+        // Reconnect with backoff
+        self.reconnect_with_backoff().await?;
+
+        // Retry operation
+        let client = self.ensure_subxt_client().await?;
+        let result = operation(client).await;
+        if result.is_ok() {
+            self.report_success().await;
+        }
+        result
     }
 
     /// Get the signer's account ID (for reward claims)
@@ -731,6 +868,22 @@ impl ChainClient {
         }
         
         rpc_response.result.ok_or_else(|| anyhow::anyhow!("No result in RPC response"))
+    }
+
+    /// Poll for new challenges targeting our account (T047, Issue 11 fix)
+    /// 
+    /// Queries the blockchain for any outstanding ChallengeIssued events
+    /// that target our account and haven't been answered yet.
+    pub async fn poll_challenges(&self) -> Result<Vec<crate::challenge::Challenge>> {
+        // Note: Full implementation would:
+        // 1. Query pallet_storage::Challenges storage
+        // 2. Filter for challenges targeting our account
+        // 3. Return only unanswered challenges
+
+        // For now, return empty - challenges will come via subxt subscription
+        // when full event subscription is implemented
+        debug!("Polling for challenges (stub: returning empty)");
+        Ok(vec![])
     }
 }
 

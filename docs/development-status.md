@@ -237,6 +237,16 @@ Polkadot SDK stable2503 は v16 を使用するため、PAPI が必須
 - 理由: 外部ウォレットとの紐付けによるプライバシーリスク回避、実装の簡素化
 - WASMランタイムサイズ: 388K → 360K (7.2%削減)
 
+**クリティカルバグ修正（2026-02, spec:012-critical-bug-fixes）**:
+- [US1] `prove_holding_kzg`で未登録ノードからの証明を拒否するバリデーション追加
+- [US2] 報酬クレーム時のオーバーフロー防止（`checked_sub`/`saturating_add`使用）
+- [US3] Gossipsub購読ロジックに1秒遅延追加（タイミング問題修正）
+- [US4] WebAssembly: 96バイト固定KZG仕様、32バイトスカラー検証
+- [US5] Storage Node起動時の自己登録失敗ハンドリング追加
+- [US6] WorkerPool: 1024個→8個 + 動的リサイズ、メモリリーク防止
+- [US7] フロントエンドファイルサイズ200行以内（useStorage.ts分割）
+- [US8] TAU_G2_BYTES定数の単一ソース化（kzg-constants crate）
+
 ### Phase 2: プライバシー・レイヤー
 
 - シャミアの秘密分散（SSS）

@@ -1,11 +1,12 @@
 /**
- * useScore Hook (T066-T067)
+ * useScore Hook (T061-T067, Issue 13 Fix)
  *
- * Fetches content score from on-chain ScoreCache storage.
+ * Fetches content score from on-chain ScoreCache storage using PAPI.
  * Returns default score when ScoreProvider is unavailable.
  *
  * FR-303: Display score in frontend when connected
  * FR-305: Skip score display when unavailable
+ * FR-022: useScoreは実際のブロックチェーンからスコアデータを取得MUST
  */
 
 'use client';
@@ -19,12 +20,12 @@ const DEFAULT_SCORE = 1000;
 const SCORE_THRESHOLD = 100;
 
 export interface UseScoreOptions {
-  /** Content hash (hex string, 0x prefixed) */
-  contentHash: string;
+  /** Content hash (Uint8Array[32] or number[32]) */
+  contentHash: Uint8Array | number[];
+  /** Polkadot API instance (from useApi hook) */
+  unsafeApi?: unknown;
   /** Polling interval in ms (0 to disable) */
   pollInterval?: number;
-  /** Custom RPC endpoint */
-  rpcEndpoint?: string;
 }
 
 export interface UseScoreResult {
@@ -47,16 +48,18 @@ export interface UseScoreResult {
  *
  * @example
  * ```tsx
+ * const { unsafeApi } = useApi();
  * const { score, isLoading, isProviderAvailable } = useScore({
- *   contentHash: '0x1234...',
+ *   contentHash: new Uint8Array(32),
+ *   unsafeApi,
  *   pollInterval: 30000, // Poll every 30s
  * });
  * ```
  */
 export function useScore({
   contentHash,
+  unsafeApi,
   pollInterval = 0,
-  rpcEndpoint = 'ws://127.0.0.1:9944',
 }: UseScoreOptions): UseScoreResult {
   const [score, setScore] = useState<number | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,8 +67,16 @@ export function useScore({
   const [isProviderAvailable, setIsProviderAvailable] = useState(true);
 
   const fetchScore = useCallback(async () => {
-    if (!contentHash) {
+    if (!contentHash || contentHash.length !== 32) {
       setScore(undefined);
+      setIsLoading(false);
+      return;
+    }
+
+    if (!unsafeApi) {
+      // API not available - return default
+      setScore(DEFAULT_SCORE);
+      setIsProviderAvailable(false);
       setIsLoading(false);
       return;
     }
@@ -74,19 +85,41 @@ export function useScore({
     setError(null);
 
     try {
-      // TODO: Replace with actual PAPI chain query
-      // const client = createClient(getWsProvider(rpcEndpoint));
-      // const api = client.getUnsafeApi();
-      // const scoreEntry = await api.query.storage.scoreCache(contentHash);
+      // Query ScoreCache from pallet-storage via PAPI
+      const api = unsafeApi as {
+        query: {
+          Storage?: {
+            ScoreCache?: {
+              getValue: (hash: Uint8Array | number[]) => Promise<number | undefined>;
+            };
+          };
+        };
+      };
+
+      // Check if Storage pallet and ScoreCache are available
+      if (!api.query?.Storage?.ScoreCache) {
+        // ScoreCache not available in runtime - use default
+        setScore(DEFAULT_SCORE);
+        setIsProviderAvailable(false);
+        setIsLoading(false);
+        return;
+      }
+
+      // Convert to Uint8Array if needed
+      const hashBytes = contentHash instanceof Uint8Array 
+        ? contentHash 
+        : new Uint8Array(contentHash);
+
+      // Fetch score from chain
+      const chainScore = await api.query.Storage.ScoreCache.getValue(hashBytes);
       
-      // For now, simulate checking if score provider is available
-      const mockResponse = await simulateScoreFetch(contentHash, rpcEndpoint);
-      
-      if (mockResponse.available) {
-        setScore(mockResponse.score);
+      if (chainScore !== undefined && chainScore !== null) {
+        // Score exists on-chain
+        const scoreValue = typeof chainScore === 'number' ? chainScore : Number(chainScore);
+        setScore(scoreValue);
         setIsProviderAvailable(true);
       } else {
-        // ScoreProvider not available - use default
+        // No score cached - return default (ScoreProvider may not have run yet)
         setScore(DEFAULT_SCORE);
         setIsProviderAvailable(false);
       }
@@ -99,7 +132,7 @@ export function useScore({
     } finally {
       setIsLoading(false);
     }
-  }, [contentHash, rpcEndpoint]);
+  }, [contentHash, unsafeApi]);
 
   // Initial fetch
   useEffect(() => {
@@ -122,35 +155,6 @@ export function useScore({
     isEligibleForReward: (score ?? DEFAULT_SCORE) >= SCORE_THRESHOLD,
     refresh: fetchScore,
   };
-}
-
-/**
- * Simulate score fetch (placeholder for actual chain query)
- */
-async function simulateScoreFetch(
-  contentHash: string,
-  _rpcEndpoint: string
-): Promise<{ available: boolean; score: number }> {
-  // Simulate network delay
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  // In production, this would query the chain:
-  // const scoreEntry = await api.query.storage.scoreCache(contentHash);
-  // if (scoreEntry.isSome) {
-  //   return { available: true, score: scoreEntry.unwrap().toNumber() };
-  // }
-  // return { available: false, score: DEFAULT_SCORE };
-
-  // For development, return mock data based on content hash
-  const hashNum = parseInt(contentHash.slice(2, 6), 16);
-  if (hashNum % 10 === 0) {
-    // 10% chance of unavailable
-    return { available: false, score: DEFAULT_SCORE };
-  }
-  
-  // Return a "random" score based on hash
-  const mockScore = 50 + (hashNum % 950);
-  return { available: true, score: mockScore };
 }
 
 export default useScore;
