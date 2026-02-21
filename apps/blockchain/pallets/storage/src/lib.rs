@@ -96,6 +96,10 @@ sp_api::decl_runtime_apis! {
         /// Check which content hashes are forgetting candidates (GC-ready)
         /// Returns a list of (content_hash, is_forgetting_candidate) pairs
         fn get_forgetting_candidates(content_hashes: Vec<ContentHash>) -> Vec<(ContentHash, bool)>;
+        
+        /// Verify a storage node registration (PR #22 CRITICAL-3)
+        /// Returns true if the operator is registered and the http_url matches
+        fn is_registered_storage_node(operator: [u8; 32], http_url: Vec<u8>) -> bool;
     }
 }
 
@@ -258,6 +262,9 @@ pub mod pallet {
             // Clear declaration counts for this block
             // Note: We clear by block number, not iterating over nodes
             let _ = DeclareHoldingCountPerBlock::<T>::clear_prefix(block, u32::MAX, None);
+
+            // Clear challenge counts for this block (rate limiting)
+            let _ = ChallengeCountPerBlock::<T>::clear_prefix(block, u32::MAX, None);
         }
     }
 
@@ -329,6 +336,12 @@ pub mod pallet {
         /// Default: 20 (20% of threshold=100)
         #[pallet::constant]
         type ScoreHysteresisMargin: Get<u64>;
+
+        /// Maximum challenges per block per issuer (rate limiting)
+        /// Prevents challenge spam attacks
+        /// Default: 10
+        #[pallet::constant]
+        type MaxChallengesPerBlock: Get<u32>;
 
         /// Native token for reward distribution (T084)
         /// Used to mint rewards when claim_reward is called
@@ -460,6 +473,19 @@ pub mod pallet {
     #[pallet::getter(fn forgetting_candidates)]
     pub type ForgettingCandidates<T: Config> =
         StorageMap<_, Blake2_128Concat, super::ContentHash, BlockNumberFor<T>, OptionQuery>;
+
+    /// Challenge count per block per issuer (rate limiting)
+    #[pallet::storage]
+    #[pallet::getter(fn challenge_count_per_block)]
+    pub type ChallengeCountPerBlock<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        BlockNumberFor<T>,
+        Blake2_128Concat,
+        T::AccountId,
+        u32,
+        ValueQuery,
+    >;
 
     // ============ Events ============
 
@@ -641,6 +667,10 @@ pub mod pallet {
         ArithmeticOverflow,
         /// Failed to mint reward tokens (T084)
         RewardMintFailed,
+        /// Target node is not a holder of the challenged fragment
+        NotHolderOfFragment,
+        /// Challenge rate limit exceeded for this block
+        ChallengeLimitExceeded,
     }
 
     // ============ Extrinsics ============
@@ -1121,23 +1151,40 @@ pub mod pallet {
         /// Challenges are issued to verify storage nodes still hold data.
         /// Nodes must respond with valid KZG proofs within a time window.
         ///
+        /// # Security: Rate-limited per block and validates node is actual holder
+        ///
         /// # Arguments
         /// * `content_hash` - The content to challenge
-        /// * `node_account` - The storage node operator account
-        /// * `challenge_index` - Random share index to prove
+        /// * `node_account` - The storage node operator account (must be in holders list)
+        /// * `challenge_index` - Random share index to prove (1..=fragment_count)
         #[pallet::call_index(8)]
-        #[pallet::weight(Weight::from_parts(30_000, 0) + T::DbWeight::get().reads_writes(2, 1))]
+        #[pallet::weight(Weight::from_parts(30_000, 0) + T::DbWeight::get().reads_writes(3, 2))]
         pub fn issue_challenge(
             origin: OriginFor<T>,
             content_hash: super::ContentHash,
             node_account: T::AccountId,
             challenge_index: u8,
         ) -> DispatchResult {
-            ensure_signed(origin)?; // Anyone can issue challenges (spam-limited by fees)
+            let issuer = ensure_signed(origin)?;
+
+            let current_block = <frame_system::Pallet<T>>::block_number();
+
+            // Rate limiting: check per-block challenge count for this issuer
+            let current_count = ChallengeCountPerBlock::<T>::get(current_block, &issuer);
+            ensure!(
+                current_count < T::MaxChallengesPerBlock::get(),
+                Error::<T>::ChallengeLimitExceeded
+            );
 
             // Get KZG fragment
             let kzg_fragment = KzgFragments::<T>::get(content_hash)
                 .ok_or(Error::<T>::KzgFragmentNotFound)?;
+
+            // Security: Verify target node is actually a holder of this fragment
+            ensure!(
+                kzg_fragment.holders.contains(&node_account),
+                Error::<T>::NotHolderOfFragment
+            );
 
             // Validate challenge index
             ensure!(
@@ -1152,7 +1199,6 @@ pub mod pallet {
             );
 
             // Calculate deadline (100 blocks from now)
-            let current_block = <frame_system::Pallet<T>>::block_number();
             let deadline = current_block.saturating_add(100u32.into());
 
             // Create and store challenge
@@ -1165,6 +1211,13 @@ pub mod pallet {
             };
 
             PendingChallenges::<T>::insert(content_hash, challenge_index, challenge);
+
+            // Increment challenge count for rate limiting
+            ChallengeCountPerBlock::<T>::insert(
+                current_block,
+                &issuer,
+                current_count.saturating_add(1),
+            );
 
             // Emit event
             Self::deposit_event(Event::ChallengeIssued {

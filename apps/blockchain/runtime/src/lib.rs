@@ -289,6 +289,8 @@ impl pallet_storage::Config for Runtime {
     type ScoreThreshold = ConstU64<100>;
     /// スコアヒステリシスマージン: 20 (回復には閾値+20必要)
     type ScoreHysteresisMargin = ConstU64<20>;
+    /// ブロックあたりの最大チャレンジ発行数: 10 (スパム防止)
+    type MaxChallengesPerBlock = ConstU32<10>;
 }
 
 // Runtime構築
@@ -566,6 +568,24 @@ impl_runtime_apis! {
                     (hash, is_candidate)
                 })
                 .collect()
+        }
+        
+        fn is_registered_storage_node(operator: [u8; 32], http_url: Vec<u8>) -> bool {
+            use frame_support::BoundedVec;
+            
+            // Convert operator bytes to AccountId
+            let account_id: AccountId = operator.into();
+            
+            // Check if operator has a registered node
+            if let Some(peer_id) = pallet_storage::OperatorNodes::<Runtime>::get(&account_id) {
+                // Get the node info
+                if let Some(node_info) = pallet_storage::StorageNodes::<Runtime>::get(&peer_id) {
+                    // Verify the http_url matches
+                    return node_info.http_url.to_vec() == http_url;
+                }
+            }
+            
+            false
         }
     }
 }

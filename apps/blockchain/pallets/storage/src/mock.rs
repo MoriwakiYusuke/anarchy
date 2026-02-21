@@ -85,6 +85,7 @@ impl pallet_storage::Config for Test {
     type BaseRewardPerByte = ConstU128<1>;           // 1 unit per byte for tests
     type ScoreThreshold = ConstU64<100>;             // Score threshold for tests
     type ScoreHysteresisMargin = ConstU64<20>;       // 20% margin for hysteresis (T072)
+    type MaxChallengesPerBlock = ConstU32<10>;       // Rate limit challenges
     type NativeToken = Balances;                     // T084: Use Balances for rewards
 }
 

@@ -45,6 +45,9 @@ pub const MAX_TOTAL_LEAVES: u32 = 255;
 /// Maximum proof size: 8KB (proofはlog2(n)に比例)
 pub const MAX_PROOF_SIZE: usize = 8 * 1024;
 
+/// Maximum timestamp skew allowed (5 minutes in seconds)
+pub const MAX_TIMESTAMP_SKEW_SECS: u64 = 300;
+
 /// 署名付きリクエスト（認証用）
 /// Storage Nodeの認証ミドルウェアが検証するJSON構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -58,6 +61,21 @@ pub struct SignedAuth {
     /// リクエストボディのBlake2bハッシュ（hex 32バイト）
     pub payload_hash: String,
     /// Sr25519署名（hex 64バイト）
+    pub signature: String,
+}
+
+/// 署名付きエンドポイント登録リクエスト (PR #22 CRITICAL-3)
+/// Storage Nodeが起動時に送信する認証付き登録リクエスト
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SignedEndpointRegistration {
+    /// 登録するHTTP URL
+    pub url: String,
+    /// オペレーターAccountId（hex 32バイト）
+    pub operator: String,
+    /// Unixタイムスタンプ（秒）
+    pub timestamp: u64,
+    /// Sr25519署名（hex 64バイト）
+    /// 署名対象: "register_endpoint:{url}:{timestamp}"
     pub signature: String,
 }
 
@@ -228,12 +246,16 @@ impl RegisteredStorageNode {
 /// Storage RPC API定義
 #[rpc(server, client, namespace = "storage")]
 pub trait StorageApi {
-    /// Storage Nodeエンドポイントを登録
+    /// Storage Nodeエンドポイントを登録 (PR #22 CRITICAL-3: 認証必須)
     ///
     /// Storage Nodeが起動時にこのRPCを呼び出して自分を登録する。
-    /// これにより環境変数なしで自動接続が可能になる。
+    /// 
+    /// SECURITY: このエンドポイントは署名検証とオンチェーン登録確認を行う。
+    /// - オペレーターの署名検証
+    /// - オンチェーンでストレージノードとして登録済みか確認
+    /// - URLがオンチェーン登録のhttp_urlと一致するか確認
     #[method(name = "registerEndpoint")]
-    async fn register_endpoint(&self, url: String) -> RpcResult<bool>;
+    async fn register_endpoint(&self, request: SignedEndpointRegistration) -> RpcResult<bool>;
 
     /// 断片をアップロード
     ///
@@ -748,8 +770,12 @@ where
     C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
     C::Api: PostRuntimeApi<Block> + StorageRuntimeApi<Block>,
 {
-    async fn register_endpoint(&self, url: String) -> RpcResult<bool> {
-        // URLの基本的な検証
+    async fn register_endpoint(&self, request: SignedEndpointRegistration) -> RpcResult<bool> {
+        use sp_core::{sr25519, Pair, crypto::Ss58Codec};
+        
+        let url = &request.url;
+        
+        // 1. URL基本検証
         if !url.starts_with("http://") && !url.starts_with("https://") {
             return Err(ErrorObject::owned(
                 ErrorCode::InvalidParams.code(),
@@ -758,7 +784,91 @@ where
             ));
         }
 
-        // マルチノード対応：ノードをレジストリに追加
+        // 2. タイムスタンプ検証 (リプレイ攻撃防止)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        
+        let timestamp_diff = if now > request.timestamp {
+            now - request.timestamp
+        } else {
+            request.timestamp - now
+        };
+        
+        if timestamp_diff > MAX_TIMESTAMP_SKEW_SECS {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!("Timestamp too old or in future: {} seconds skew (max {})", 
+                    timestamp_diff, MAX_TIMESTAMP_SKEW_SECS),
+                None::<()>,
+            ));
+        }
+
+        // 3. オペレーターAccountIdをパース
+        let operator_bytes: [u8; 32] = hex::decode(&request.operator)
+            .map_err(|e| ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!("Invalid operator hex: {}", e),
+                None::<()>,
+            ))?
+            .try_into()
+            .map_err(|_| ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                "Invalid operator: must be 32 bytes",
+                None::<()>,
+            ))?;
+
+        // 4. 署名検証
+        let signature_bytes: [u8; 64] = hex::decode(&request.signature)
+            .map_err(|e| ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!("Invalid signature hex: {}", e),
+                None::<()>,
+            ))?
+            .try_into()
+            .map_err(|_| ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                "Invalid signature: must be 64 bytes",
+                None::<()>,
+            ))?;
+
+        let message = format!("register_endpoint:{}:{}", url, request.timestamp);
+        let public_key = sr25519::Public::from_raw(operator_bytes);
+        let signature = sr25519::Signature::from_raw(signature_bytes);
+        
+        if !sr25519::Pair::verify(&signature, message.as_bytes(), &public_key) {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                "Invalid signature: verification failed",
+                None::<()>,
+            ));
+        }
+        
+        log::debug!("Signature verified for operator: 0x{}", request.operator);
+
+        // 5. オンチェーン登録確認 (PR #22 CRITICAL-3)
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        let is_registered = api.is_registered_storage_node(best_hash, operator_bytes, url.as_bytes().to_vec())
+            .map_err(|e| ErrorObject::owned(
+                ErrorCode::ServerError(-32002).code(),
+                format!("Runtime API error: {}", e),
+                None::<()>,
+            ))?;
+        
+        if !is_registered {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                "Not authorized: operator not registered on-chain or URL mismatch",
+                None::<()>,
+            ));
+        }
+        
+        log::info!("On-chain registration verified for operator: 0x{}", request.operator);
+
+        // 6. ノードをレジストリに追加
         let mut registry = self.storage_nodes.write().await;
         let node = RegisteredStorageNode::new(url.clone());
         let registered_at = node.registered_at;

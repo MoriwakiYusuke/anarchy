@@ -98,6 +98,7 @@ impl pallet_storage::Config for Test {
     type BaseRewardPerByte = ConstU128<1>;           // 1 unit per byte for tests
     type ScoreThreshold = ConstU64<100>;             // Score threshold for tests
     type ScoreHysteresisMargin = ConstU64<20>;       // 20% margin for hysteresis (T072)
+    type MaxChallengesPerBlock = ConstU32<10>;       // Rate limit challenges
     type NativeToken = Balances;                     // T084: Use Balances for rewards
 }
 
@@ -992,6 +993,9 @@ fn t031_challenge_generation_random() {
             http_url,
         ));
 
+        // Add node as holder (required for issue_challenge)
+        add_kzg_holder(content_hash, node);
+
         // Issue challenge
         let challenge_result = Storage::issue_challenge(
             RuntimeOrigin::signed(owner), // Anyone can issue
@@ -1047,6 +1051,9 @@ fn t032_unanswered_count_increments() {
             1_000_000, // pow_nonce
             http_url,
         ));
+
+        // Add node as holder (required for issue_challenge)
+        add_kzg_holder(content_hash, node);
 
         // Issue challenge
         assert_ok!(Storage::issue_challenge(
@@ -1423,6 +1430,10 @@ fn sec002_prove_holding_kzg_wrong_node_fails() {
             http_url_b,
         ));
 
+        // Add node_a and node_b as holders (required for issue_challenge)
+        add_kzg_holder(content_hash, node_a);
+        add_kzg_holder(content_hash, node_b);
+
         // Issue challenge to node_a
         assert_ok!(Storage::issue_challenge(
             RuntimeOrigin::signed(owner),
@@ -1603,7 +1614,8 @@ fn sec004_replay_attack_different_blocks_fails() {
     });
 }
 
-/// SEC-005: ホルダーとして登録されていないノードが証明を提出すると NotHolder エラー (PR #22 CRITICAL-2)
+/// SEC-005: ホルダーとして登録されていないノードへのチャレンジは NotHolderOfFragment エラー (PR #22 CRITICAL-2 + CRITICAL-4)
+/// 注: CRITICAL-4修正によりissue_challengeでもホルダー検証が行われるようになった
 #[test]
 fn sec005_prove_holding_kzg_not_holder_fails() {
     new_test_ext().execute_with(|| {
@@ -1647,35 +1659,89 @@ fn sec005_prove_holding_kzg_not_holder_fails() {
         // Add only 'node' as holder, NOT 'non_holder'
         add_kzg_holder(content_hash, node);
 
-        // Issue challenge to non_holder (attacker scenario:
-        // challenger mistakenly or maliciously challenges non-holder)
-        assert_ok!(Storage::issue_challenge(
-            RuntimeOrigin::signed(owner),
-            content_hash,
-            non_holder, // Challenge non-holder
-            1,
-        ));
-
-        // non_holder tries to submit proof for content they don't hold
-        let share_value: BoundedVec<u8, ConstU32<32>> = {
-            BoundedVec::try_from(vec![0u8; 32]).unwrap()
-        };
-        let proof = test_commitment();
-
-        // Should fail with NotHolder error
+        // CRITICAL-4 fix: issue_challenge now validates holder status
+        // Attempting to challenge a non-holder should fail immediately
         assert_noop!(
-            Storage::prove_holding_kzg(
-                RuntimeOrigin::signed(non_holder),
+            Storage::issue_challenge(
+                RuntimeOrigin::signed(owner),
                 content_hash,
+                non_holder, // Challenge non-holder
                 1,
-                share_value,
-                proof,
             ),
-            Error::<Test>::NotHolder
+            Error::<Test>::NotHolderOfFragment
         );
 
         // Verify no rewards accumulated for attacker
         let pending_reward = crate::PendingRewards::<Test>::get(non_holder);
         assert_eq!(pending_reward, 0, "Non-holder should not accumulate rewards");
+    });
+}
+
+/// SEC-006: チャレンジ発行のレート制限テスト (PR #22 CRITICAL-4修正)
+#[test]
+fn sec006_challenge_rate_limit_exceeded() {
+    new_test_ext().execute_with(|| {
+        let owner = 1u64;
+        let node = 2u64;
+        let commitment = test_commitment();
+
+        // Create multiple KZG fragments with the same holder
+        let mut content_hashes = Vec::new();
+        for i in 0..15u8 { // More than MaxChallengesPerBlock (10)
+            let content_hash = test_content_hash(i);
+            content_hashes.push(content_hash);
+            
+            assert_ok!(Storage::register_kzg_fragment(
+                RuntimeOrigin::signed(owner),
+                content_hash,
+                commitment.clone(),
+                1024,
+                5,
+                3,
+            ));
+            
+            add_kzg_holder(content_hash, node);
+        }
+
+        // Register storage node
+        let peer_id = test_peer_id(1);
+        let http_url = test_http_url(3030);
+        assert_ok!(Storage::register_node(
+            RuntimeOrigin::signed(node),
+            peer_id,
+            1_000_000,
+            1_000_000,
+            http_url,
+        ));
+
+        // Issue challenges up to the limit (10)
+        for i in 0..10u8 {
+            assert_ok!(Storage::issue_challenge(
+                RuntimeOrigin::signed(owner),
+                content_hashes[i as usize],
+                node,
+                1,
+            ));
+        }
+
+        // 11th challenge should fail with ChallengeLimitExceeded
+        assert_noop!(
+            Storage::issue_challenge(
+                RuntimeOrigin::signed(owner),
+                content_hashes[10],
+                node,
+                1,
+            ),
+            Error::<Test>::ChallengeLimitExceeded
+        );
+
+        // Different issuer can still issue challenges
+        let other_issuer = 99u64;
+        assert_ok!(Storage::issue_challenge(
+            RuntimeOrigin::signed(other_issuer),
+            content_hashes[10],
+            node,
+            1,
+        ));
     });
 }
