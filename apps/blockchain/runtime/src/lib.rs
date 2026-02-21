@@ -571,8 +571,6 @@ impl_runtime_apis! {
         }
         
         fn is_registered_storage_node(operator: [u8; 32], http_url: Vec<u8>) -> bool {
-            use frame_support::BoundedVec;
-            
             // Convert operator bytes to AccountId
             let account_id: AccountId = operator.into();
             

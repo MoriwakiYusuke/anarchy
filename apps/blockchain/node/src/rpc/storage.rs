@@ -771,7 +771,7 @@ where
     C::Api: PostRuntimeApi<Block> + StorageRuntimeApi<Block>,
 {
     async fn register_endpoint(&self, request: SignedEndpointRegistration) -> RpcResult<bool> {
-        use sp_core::{sr25519, Pair, crypto::Ss58Codec};
+        use sp_core::{sr25519, Pair};
         
         let url = &request.url;
         
