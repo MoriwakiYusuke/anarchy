@@ -70,7 +70,14 @@ TOTAL_FAILED=0
 
 run_test() {
     local name=$1
-    local script=$2
+    local script_with_args=$2
+    
+    # スクリプト名と引数を分離
+    local script_name="${script_with_args%% *}"
+    local script_args="${script_with_args#* }"
+    if [ "$script_args" = "$script_with_args" ]; then
+        script_args=""
+    fi
     
     TEST_NAMES+=("$name")
     
@@ -81,14 +88,14 @@ run_test() {
     echo ""
     
     # テスト実行
-    chmod +x "$SCRIPT_DIR/$script"
+    chmod +x "$SCRIPT_DIR/$script_name"
     
-    if "$SCRIPT_DIR/$script"; then
+    if "$SCRIPT_DIR/$script_name" $script_args; then
         TEST_RESULTS+=("PASS")
-        ((TOTAL_PASSED++))
+        ((++TOTAL_PASSED)) || true
     else
         TEST_RESULTS+=("FAIL")
-        ((TOTAL_FAILED++))
+        ((++TOTAL_FAILED)) || true
     fi
     
     # クリーンアップ
