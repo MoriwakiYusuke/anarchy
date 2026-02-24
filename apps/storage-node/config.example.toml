@@ -113,3 +113,35 @@ srs_path = ""
 # WARNING: Test SRS uses known tau=12345, NOT cryptographically secure!
 # Set to false and provide srs_path for production
 dev_mode = true
+
+# ============================================================
+# Repair Protocol Configuration (013-slashing-repair)
+# ============================================================
+
+# Repair scheduler check interval in seconds
+# How often to poll for AtRisk fragments that need repair
+# Default: 30
+repair_check_interval_secs = 30
+
+# Repair timeout in seconds
+# Maximum time a fragment can stay in Repairing state before timeout
+# Default: 3600 (60 minutes)
+repair_timeout_secs = 3600
+
+# Maximum concurrent repairs
+# Number of fragments that can be repaired simultaneously
+# Default: 5
+repair_max_concurrent = 5
+
+# Threshold k for share regeneration (k-of-n scheme)
+# Default: 3 (need 3 shares to regenerate)
+repair_threshold_k = 3
+
+# Total shares n (k-of-n scheme)
+# Default: 5 (5 shares total per fragment)
+repair_total_shares_n = 5
+
+# Share collection timeout in seconds
+# How long to wait for donor nodes to respond with shares
+# Default: 30
+repair_share_collect_timeout_secs = 30

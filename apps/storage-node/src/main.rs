@@ -97,6 +97,11 @@ async fn main() -> anyhow::Result<()> {
     let garbage_collector = Arc::new(tokio::sync::Mutex::new(gc::GarbageCollector::new(config.dev_mode)));
     info!(dev_mode = config.dev_mode, "Garbage collector initialized");
     
+    // Initialize stale holder GC (T059, T060 - 013-slashing-repair)
+    let stale_holder_gc_config = gc::StaleHolderGcConfig::default();
+    let stale_holder_gc_enabled = stale_holder_gc_config.enabled;
+    let stale_holder_gc_interval_secs = stale_holder_gc_config.check_interval_secs;
+    
     // GC store reference for deletion
     let gc_store = Arc::clone(&store);
 
@@ -127,6 +132,15 @@ async fn main() -> anyhow::Result<()> {
         Arc::clone(&endpoint_cache),
     ).await?);
     info!(endpoint = %config.chain_url, "Chain client initialized with failover support");
+
+    // Initialize stale holder GC instance (T060 - 013-slashing-repair)
+    let stale_holder_gc = Arc::new(gc::StaleHolderGc::new(
+        gc::StaleHolderGcConfig::default(),
+        Arc::clone(&chain_client),
+    ));
+    if stale_holder_gc_enabled {
+        info!(interval_secs = stale_holder_gc_interval_secs, "Stale holder GC initialized");
+    }
 
     // Initialize network
     let mut network = network::Network::new(identity.keypair().clone(), &config.listen_addr)?;
@@ -174,6 +188,12 @@ async fn main() -> anyhow::Result<()> {
     // Check for fragments ready for garbage collection every 60 seconds
     let mut gc_check_interval = tokio::time::interval(std::time::Duration::from_secs(60));
     gc_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    // Setup periodic stale holder GC check interval (T060 - 013-slashing-repair)
+    // Check for fragments with excess holders every 5 minutes
+    let mut stale_holder_gc_interval = tokio::time::interval(std::time::Duration::from_secs(stale_holder_gc_interval_secs));
+    stale_holder_gc_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let stale_holder_gc_handle = Arc::clone(&stale_holder_gc);
 
     // Initialize ChallengeMonitor (T047, Issue 11 fix)
     // Monitors blockchain for ChallengeIssued events and auto-submits proofs
@@ -282,6 +302,22 @@ async fn main() -> anyhow::Result<()> {
                                     "GC: Failed to delete fragment"
                                 ),
                             }
+                        }
+                    }
+                }
+            }
+            // T060: Stale holder GC polling (013-slashing-repair)
+            _ = stale_holder_gc_interval.tick() => {
+                if stale_holder_gc_enabled {
+                    match stale_holder_gc_handle.run_cycle().await {
+                        Ok(evicted) if evicted > 0 => {
+                            info!(count = evicted, "Stale holder GC: evicted {} excess holders", evicted);
+                        }
+                        Ok(_) => {
+                            debug!("Stale holder GC: no excess holders to evict");
+                        }
+                        Err(e) => {
+                            debug!(error = %e, "Stale holder GC: failed to run cycle");
                         }
                     }
                 }

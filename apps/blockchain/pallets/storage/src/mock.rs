@@ -86,6 +86,7 @@ impl pallet_storage::Config for Test {
     type ScoreThreshold = ConstU64<100>;             // Score threshold for tests
     type ScoreHysteresisMargin = ConstU64<20>;       // 20% margin for hysteresis (T072)
     type MaxChallengesPerBlock = ConstU32<10>;       // Rate limit challenges
+    type MinWithdrawalAmount = ConstU128<500_000_000_000_000>; // 500 MORAL withdrawal minimum
     type NativeToken = Balances;                     // T084: Use Balances for rewards
 }
 

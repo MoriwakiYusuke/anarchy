@@ -431,7 +431,9 @@ fn divide_polynomials(
 }
 
 /// Lagrange interpolation to recover polynomial from points.
-fn lagrange_interpolate(points: &[(Fr, Fr)]) -> Result<DensePolynomial<Fr>, KzgError> {
+/// 
+/// Exposed as pub(crate) for regenerate_share (013-slashing-repair)
+pub(crate) fn lagrange_interpolate(points: &[(Fr, Fr)]) -> Result<DensePolynomial<Fr>, KzgError> {
     if points.is_empty() {
         return Err(KzgError::InsufficientShares);
     }
@@ -513,6 +515,89 @@ fn add_polynomials(
     }
 
     DensePolynomial::from_coefficients_vec(result)
+}
+
+/// Regenerate a share at a new index from existing k shares (013-slashing-repair)
+///
+/// Used by the self-repair protocol to create new shares for replacement nodes
+/// using Lagrange interpolation. The new share comes with a KZG proof for
+/// on-chain verification.
+///
+/// # Arguments
+/// * `shares` - k or more existing shares from donor nodes
+/// * `threshold` - The k value (minimum shares for recovery)
+/// * `new_index` - Index for the new share (should be > n, typically 6+)
+/// * `commitment` - KZG commitment for proof verification
+///
+/// # Returns
+/// * (VssShare, KzgProof) - The regenerated share and its proof
+///
+/// # Errors
+/// * `InsufficientShares` - Less than threshold shares provided
+/// * `InvalidIndex` - new_index conflicts with existing share index
+pub fn regenerate_share(
+    shares: &[VssShare],
+    threshold: u8,
+    new_index: u8,
+    _commitment: &KzgCommitment,
+) -> Result<(VssShare, KzgProof), KzgError> {
+    // Validate inputs
+    if shares.len() < threshold as usize {
+        return Err(KzgError::InsufficientShares);
+    }
+    if new_index == 0 {
+        return Err(KzgError::InvalidThreshold);
+    }
+    
+    // Check that new_index doesn't conflict with existing share indices
+    for share in shares {
+        if share.index == new_index {
+            return Err(KzgError::InvalidThreshold);
+        }
+    }
+
+    // Get SRS for proof generation
+    let srs = super::srs::get_srs()?;
+
+    // Convert shares to points for Lagrange interpolation
+    // Use exactly k shares (first k if more provided)
+    let points: Vec<(Fr, Fr)> = shares
+        .iter()
+        .take(threshold as usize)
+        .map(|share| {
+            let x = Fr::from(share.index as u64);
+            let y = Fr::from_le_bytes_mod_order(&share.value);
+            (x, y)
+        })
+        .collect();
+
+    // Recover polynomial via Lagrange interpolation
+    let polynomial = lagrange_interpolate(&points)?;
+
+    // Evaluate at new_index to get new share value
+    let new_x = Fr::from(new_index as u64);
+    let new_y = polynomial.evaluate(&new_x);
+
+    // Convert Fr to [u8; 32]
+    let mut value = [0u8; 32];
+    {
+        use ark_ff::biginteger::BigInteger256;
+        let bigint: BigInteger256 = new_y.into();
+        for (i, limb) in bigint.0.iter().enumerate() {
+            let bytes = limb.to_le_bytes();
+            value[i * 8..(i + 1) * 8].copy_from_slice(&bytes);
+        }
+    }
+
+    let new_share = VssShare {
+        index: new_index,
+        value,
+    };
+
+    // Generate KZG proof for the new share
+    let proof = generate_single_proof(&polynomial, new_index, srs)?;
+
+    Ok((new_share, proof))
 }
 
 /// Calculate processed data length from original length.
@@ -627,5 +712,139 @@ mod tests {
             scalars.len() - 1,
             "Degree should match data scalars when data > threshold"
         );
+    }
+
+    // ============ Tests for regenerate_share (013-slashing-repair T012) ============
+
+    /// Test regenerate_share creates valid share at new index
+    #[test]
+    fn test_regenerate_share_creates_valid_share() {
+        init_test_srs(16).unwrap();
+        
+        // Create 3-of-5 split
+        let original_data = b"Self-repair test data";
+        let result = vss_split(original_data, 3, 5).unwrap();
+        
+        // Take first 3 shares (enough to regenerate)
+        let donor_shares = vec![
+            result.shares[0].clone(),
+            result.shares[1].clone(),
+            result.shares[2].clone(),
+        ];
+        
+        // Regenerate share at index 6 (beyond original 5)
+        let (new_share, _proof) = regenerate_share(
+            &donor_shares,
+            3,
+            6,
+            &result.commitment,
+        ).unwrap();
+        
+        assert_eq!(new_share.index, 6, "New share should have index 6");
+        
+        // Verify the new share works for recovery
+        // Use new share + 2 original shares
+        let recovery_shares = vec![
+            result.shares[0].clone(),
+            result.shares[1].clone(),
+            new_share.clone(),
+        ];
+        
+        let recovered = vss_recover(
+            &recovery_shares,
+            3,
+            result.compressed,
+            result.original_len,
+            result.processed_len,
+        ).unwrap();
+        
+        assert_eq!(recovered, original_data, "Should recover with regenerated share");
+    }
+
+    /// Test regenerate_share fails with insufficient shares
+    #[test]
+    fn test_regenerate_share_fails_with_insufficient_shares() {
+        init_test_srs(16).unwrap();
+        
+        let original_data = b"Test";
+        let result = vss_split(original_data, 3, 5).unwrap();
+        
+        // Only 2 shares (less than threshold 3)
+        let insufficient_shares = vec![
+            result.shares[0].clone(),
+            result.shares[1].clone(),
+        ];
+        
+        let regenerate_result = regenerate_share(
+            &insufficient_shares,
+            3,
+            6,
+            &result.commitment,
+        );
+        
+        assert!(regenerate_result.is_err(), "Should fail with insufficient shares");
+    }
+
+    /// Test regenerate_share fails when new_index conflicts with existing
+    #[test]
+    fn test_regenerate_share_fails_on_index_conflict() {
+        init_test_srs(16).unwrap();
+        
+        let original_data = b"Conflict test";
+        let result = vss_split(original_data, 3, 5).unwrap();
+        
+        let donor_shares = vec![
+            result.shares[0].clone(),
+            result.shares[1].clone(),
+            result.shares[2].clone(),
+        ];
+        
+        // Try to regenerate at index 1 (conflicts with shares[0])
+        let regenerate_result = regenerate_share(
+            &donor_shares,
+            3,
+            1,
+            &result.commitment,
+        );
+        
+        assert!(regenerate_result.is_err(), "Should fail on index conflict");
+    }
+
+    /// Test regenerate_share works with more than k shares
+    #[test]
+    fn test_regenerate_share_with_extra_shares() {
+        init_test_srs(16).unwrap();
+        
+        let original_data = b"Extra shares test";
+        let result = vss_split(original_data, 3, 5).unwrap();
+        
+        // Provide all 5 shares (more than threshold 3)
+        let all_shares = result.shares.clone();
+        
+        let (new_share, _proof) = regenerate_share(
+            &all_shares,
+            3,
+            7,
+            &result.commitment,
+        ).unwrap();
+        
+        assert_eq!(new_share.index, 7, "Should create share at index 7");
+        
+        // Verify recovery works
+        let recovery_shares = vec![
+            result.shares[3].clone(),
+            result.shares[4].clone(),
+            new_share.clone(),
+        ];
+        
+        let recovered = vss_recover(
+            &recovery_shares,
+            3,
+            result.compressed,
+            result.original_len,
+            result.processed_len,
+        ).unwrap();
+        
+        assert_eq!(recovered, original_data, "Should recover with new share");
     }
 }

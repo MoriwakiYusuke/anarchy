@@ -1,6 +1,14 @@
 //! P2P network layer using libp2p
 //!
 //! Implements the fragment exchange protocol using libp2p request-response.
+//!
+//! ## Protocols
+//!
+//! - **Fragment Protocol** (`/anarchy/fragment/1.0.0`): Fragment get/put operations
+//! - **Repair Protocol** (`/anarchy/repair/1.0.0`): Self-repair share collection (013-slashing-repair)
+//!
+//! The repair protocol is defined in `crate::repair::protocol` and uses the same
+//! request-response pattern as the fragment protocol.
 
 pub mod endpoint_cache;
 pub mod gossip;

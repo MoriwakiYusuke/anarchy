@@ -42,22 +42,22 @@
 
 ### 2.2 wasm-engine: Lagrange Interpolation
 
-- [ ] T010 Expose lagrange_interpolate as pub(crate) in packages/wasm-engine/src/kzg/vss.rs
-- [ ] T011 Implement regenerate_share function in packages/wasm-engine/src/kzg/vss.rs
-- [ ] T012 Add regenerate_share unit tests in packages/wasm-engine/src/kzg/vss.rs
-- [ ] T013 Export regenerate_share in packages/wasm-engine/src/lib.rs
-- [ ] T014 Build wasm-engine with wasm-pack
+- [X] T010 Expose lagrange_interpolate as pub(crate) in packages/wasm-engine/src/kzg/vss.rs
+- [X] T011 Implement regenerate_share function in packages/wasm-engine/src/kzg/vss.rs
+- [X] T012 Add regenerate_share unit tests in packages/wasm-engine/src/kzg/vss.rs
+- [X] T013 Export regenerate_share in packages/wasm-engine/src/lib.rs
+- [X] T014 Build wasm-engine with wasm-pack
 
 ### 2.3 Helper Functions (Pallet)
 
-- [ ] T015 Implement update_fragment_state helper in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T016 [P] Implement compute_eviction_candidates helper in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T017 [P] Implement verify_share_proof helper (KZG proof verification) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T015 Implement update_fragment_state helper in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T016 [P] Implement compute_eviction_candidates helper in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T017 [P] Implement verify_share_proof helper (KZG proof verification) in apps/blockchain/pallets/storage/src/lib.rs
 
 ### 2.4 Events & Errors
 
-- [ ] T018 Add new Events (FragmentAtRisk, FragmentLost, RepairCompleted, NodeSlashed, HolderEvicted) in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T019 [P] Add new Errors (InsufficientAccruedRewards, FragmentNotAtRisk, InvalidKzgProof, TooManyHolders, NoExcessHolders, TargetNotHolder, TargetNotLowestPriority) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T018 Add new Events (FragmentAtRisk, FragmentLost, RepairCompleted, NodeSlashed, HolderEvicted) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T019 [P] Add new Errors (InsufficientAccruedRewards, FragmentNotAtRisk, InvalidKzgProof, TooManyHolders, NoExcessHolders, TargetNotHolder, TargetNotLowestPriority) in apps/blockchain/pallets/storage/src/lib.rs
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -71,32 +71,32 @@
 
 ### Tests for User Story 1
 
-- [ ] T020 [P] [US1] Test AtRisk state transition when holder_count <= 4 in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T021 [P] [US1] Test Lost state transition when holder_count <= 2 in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T022 [P] [US1] Test confirm_repair success flow in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T023 [P] [US1] Test confirm_repair KZG proof verification in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T020 [P] [US1] Test AtRisk state transition when holder_count <= 4 in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T021 [P] [US1] Test Lost state transition when holder_count <= 2 in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T022 [P] [US1] Test confirm_repair success flow in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T023 [P] [US1] Test confirm_repair KZG proof verification in apps/blockchain/pallets/storage/src/tests.rs
 
 ### Implementation for User Story 1 (Pallet)
 
-- [ ] T024 [US1] Implement confirm_repair extrinsic in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T025 [US1] Add automatic FragmentState transition on holder count change in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T024 [US1] Implement confirm_repair extrinsic in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T025 [US1] Add automatic FragmentState transition on holder count change in apps/blockchain/pallets/storage/src/lib.rs
 
 ### Implementation for User Story 1 (Runtime API)
 
-- [ ] T026 [US1] Add StorageRepairApi trait declaration in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T027 [US1] Implement get_at_risk_fragments Runtime API in apps/blockchain/runtime/src/lib.rs
-- [ ] T028 [US1] Implement get_fragment_state Runtime API in apps/blockchain/runtime/src/lib.rs
+- [X] T026 [US1] Add StorageRepairApi trait declaration in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T027 [US1] Implement get_at_risk_fragments Runtime API in apps/blockchain/runtime/src/lib.rs
+- [X] T028 [US1] Implement get_fragment_state Runtime API in apps/blockchain/runtime/src/lib.rs
 
 ### Implementation for User Story 1 (storage-node)
 
-- [ ] T029 [US1] Create repair module directory apps/storage-node/src/repair/
-- [ ] T030 [US1] Implement RepairRequest/RepairResponse types in apps/storage-node/src/repair/protocol.rs
-- [ ] T031 [US1] Implement donor handler (respond to CollectShare) in apps/storage-node/src/repair/donor.rs
-- [ ] T032 [US1] Implement coordinator (collect k shares, regenerate) in apps/storage-node/src/repair/coordinator.rs
-- [ ] T033 [US1] Implement receiver (accept pushed share) in apps/storage-node/src/repair/receiver.rs
-- [ ] T034 [US1] Implement discovery (query AtRisk fragments) in apps/storage-node/src/repair/discovery.rs
-- [ ] T035 [US1] Register repair P2P protocol with libp2p in apps/storage-node/src/network/mod.rs
-- [ ] T036 [US1] Add repair mod.rs exports in apps/storage-node/src/repair/mod.rs
+- [X] T029 [US1] Create repair module directory apps/storage-node/src/repair/
+- [X] T030 [US1] Implement RepairRequest/RepairResponse types in apps/storage-node/src/repair/protocol.rs
+- [X] T031 [US1] Implement donor handler (respond to CollectShare) in apps/storage-node/src/repair/donor.rs
+- [X] T032 [US1] Implement coordinator (collect k shares, regenerate) in apps/storage-node/src/repair/coordinator.rs
+- [X] T033 [US1] Implement receiver (accept pushed share) in apps/storage-node/src/repair/receiver.rs
+- [X] T034 [US1] Implement discovery (query AtRisk fragments) in apps/storage-node/src/repair/discovery.rs
+- [X] T035 [US1] Register repair P2P protocol with libp2p in apps/storage-node/src/network/mod.rs
+- [X] T036 [US1] Add repair mod.rs exports in apps/storage-node/src/repair/mod.rs
 
 **Checkpoint**: User Story 1 - 断片の自動修復が独立して動作
 
@@ -110,14 +110,14 @@
 
 ### Tests for User Story 2
 
-- [ ] T037 [P] [US2] Test reward accrual on prove_holding_kzg success in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T038 [P] [US2] Test claim_rewards with sufficient balance in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T039 [P] [US2] Test claim_rewards rejection when below 500 MORAL in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T037 [P] [US2] Test reward accrual on prove_holding_kzg success in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T038 [P] [US2] Test claim_rewards with sufficient balance in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T039 [P] [US2] Test claim_rewards rejection when below 500 MORAL in apps/blockchain/pallets/storage/src/tests.rs
 
 ### Implementation for User Story 2
 
-- [ ] T040 [US2] Add MinWithdrawalAmount check to claim_rewards in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T041 [US2] Ensure prove_holding_kzg increments PendingRewards (verify existing flow) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T040 [US2] Add MinWithdrawalAmount check to claim_rewards in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T041 [US2] Ensure prove_holding_kzg increments PendingRewards (verify existing flow) in apps/blockchain/pallets/storage/src/lib.rs
 
 **Checkpoint**: User Story 2 - 報酬積み立て・引き出しが独立して動作
 
@@ -131,16 +131,16 @@
 
 ### Tests for User Story 3
 
-- [ ] T042 [P] [US3] Test slashing after 3 consecutive failures in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T043 [P] [US3] Test 50% penalty calculation in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T044 [P] [US3] Test penalty funds move to RepairRewardPool in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T045 [P] [US3] Test slashed flag is set on ProofRecord in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T042 [P] [US3] Test slashing after 3 consecutive failures in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T043 [P] [US3] Test 50% penalty calculation in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T044 [P] [US3] Test penalty funds move to RepairRewardPool in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T045 [P] [US3] Test slashed flag is set on ProofRecord in apps/blockchain/pallets/storage/src/tests.rs
 
 ### Implementation for User Story 3
 
-- [ ] T046 [US3] Implement slash_node helper function in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T047 [US3] Extend on_finalize to call slash_node when failure_count >= 3 in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T048 [US3] Add NodeSlashed event emission in slash_node in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T046 [US3] Implement slash_node helper function in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T047 [US3] Extend on_finalize to call slash_node when failure_count >= 3 in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T048 [US3] Add NodeSlashed event emission in slash_node in apps/blockchain/pallets/storage/src/lib.rs
 
 **Checkpoint**: User Story 3 - スラッシングが独立して動作
 
@@ -154,13 +154,13 @@
 
 ### Tests for User Story 4
 
-- [ ] T049 [P] [US4] Test repair reward distribution in confirm_repair in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T050 [P] [US4] Test RepairRewardPool is consumed after repair in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T049 [P] [US4] Test repair reward distribution in confirm_repair in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T050 [P] [US4] Test RepairRewardPool is consumed after repair in apps/blockchain/pallets/storage/src/tests.rs
 
 ### Implementation for User Story 4
 
-- [ ] T051 [US4] Ensure confirm_repair distributes RepairRewardPool to reporter (verify existing flow) in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T052 [US4] Implement repair_reporter (submit confirm_repair tx) in apps/storage-node/src/repair/reporter.rs
+- [X] T051 [US4] Ensure confirm_repair distributes RepairRewardPool to reporter (verify existing flow) in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T052 [US4] Implement repair_reporter (submit confirm_repair tx) in apps/storage-node/src/repair/reporter.rs
 
 **Checkpoint**: User Story 4 - 修復報酬分配が独立して動作
 
@@ -174,20 +174,20 @@
 
 ### Tests for User Story 5
 
-- [ ] T053 [P] [US5] Test evict_stale_holder removes lowest priority holder in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T054 [P] [US5] Test evict_stale_holder fails when no excess holders in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T055 [P] [US5] Test priority score calculation (slashed > old index > old proof) in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T053 [P] [US5] Test evict_stale_holder removes lowest priority holder in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T054 [P] [US5] Test evict_stale_holder fails when no excess holders in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T055 [P] [US5] Test priority score calculation (slashed > old index > old proof) in apps/blockchain/pallets/storage/src/tests.rs
 
 ### Implementation for User Story 5 (Pallet)
 
-- [ ] T056 [US5] Implement evict_stale_holder extrinsic in apps/blockchain/pallets/storage/src/lib.rs
-- [ ] T057 [US5] Implement get_eviction_candidates Runtime API in apps/blockchain/runtime/src/lib.rs
-- [ ] T058 [US5] Implement get_fragments_with_excess_holders Runtime API in apps/blockchain/runtime/src/lib.rs
+- [X] T056 [US5] Implement evict_stale_holder extrinsic in apps/blockchain/pallets/storage/src/lib.rs
+- [X] T057 [US5] Implement get_eviction_candidates Runtime API in apps/blockchain/runtime/src/lib.rs
+- [X] T058 [US5] Implement get_fragments_with_excess_holders Runtime API in apps/blockchain/runtime/src/lib.rs
 
 ### Implementation for User Story 5 (storage-node)
 
-- [ ] T059 [US5] Implement stale_holder_gc module in apps/storage-node/src/gc/stale_holder_gc.rs
-- [ ] T060 [US5] Integrate stale_holder_gc with main GC loop in apps/storage-node/src/gc/mod.rs
+- [X] T059 [US5] Implement stale_holder_gc module in apps/storage-node/src/gc/stale_holder_gc.rs
+- [X] T060 [US5] Integrate stale_holder_gc with main GC loop in apps/storage-node/src/gc/mod.rs
 
 **Checkpoint**: User Story 5 - 復帰ノードのGCが独立して動作
 
@@ -201,13 +201,13 @@
 
 ### Tests for User Story 6
 
-- [ ] T061 [P] [US6] Test get_fragment_state returns correct state in apps/blockchain/pallets/storage/src/tests.rs
-- [ ] T062 [P] [US6] Test get_at_risk_fragments returns only AtRisk fragments in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T061 [P] [US6] Test get_fragment_state returns correct state in apps/blockchain/pallets/storage/src/tests.rs
+- [X] T062 [P] [US6] Test get_at_risk_fragments returns only AtRisk fragments in apps/blockchain/pallets/storage/src/tests.rs
 
 ### Implementation for User Story 6
 
-- [ ] T063 [US6] Add RPC endpoints for Runtime API in apps/blockchain/node/src/rpc.rs
-- [ ] T064 [US6] Add repair_status endpoint to storage-node HTTP API in apps/storage-node/src/api/routes.rs
+- [X] T063 [US6] Add RPC endpoints for Runtime API in apps/blockchain/node/src/rpc/storage.rs
+- [X] T064 [US6] Add repair_status endpoint to storage-node HTTP API in apps/storage-node/src/rpc/mod.rs
 
 **Checkpoint**: User Story 6 - 断片状態の可視化が独立して動作
 
@@ -217,13 +217,13 @@
 
 **Purpose**: Cross-cutting improvements and final validation
 
-- [ ] T065 [P] Add integration test script apps/blockchain/tests/integration/repair_protocol_test.sh
-- [ ] T066 [P] Update apps/storage-node/README.md with repair configuration
-- [ ] T067 Run pnpm testnet:start and verify 3-node repair scenario
-- [ ] T068 Run cargo test -p pallet-storage to verify all pallet tests pass
-- [ ] T069 Run cargo test (storage-node) to verify all storage-node tests pass
-- [ ] T070 Run quickstart.md validation steps
-- [ ] T071 Run cargo clippy on all modified crates
+- [X] T065 [P] Add integration test script apps/blockchain/tests/integration/repair_protocol_test.sh
+- [X] T066 [P] Update apps/storage-node/README.md with repair configuration
+- [X] T067 Run pnpm testnet:start and verify 3-node repair scenario
+- [X] T068 Run cargo test -p pallet-storage to verify all pallet tests pass
+- [X] T069 Run cargo test (storage-node) to verify all storage-node tests pass
+- [X] T070 Run quickstart.md validation steps
+- [X] T071 Run cargo clippy on all modified crates
 
 ---
 

@@ -201,6 +201,59 @@ curl -X POST -H "Content-Type: application/json" \
 - **Offline detection**: Nodes marked offline after connection failures
 - **k-of-n redundancy**: Content recoverable if ≥k nodes are online (default: k=3, n=5)
 
+### Self-Repair Protocol (013-slashing-repair)
+
+The storage node implements automatic fragment repair when holder count drops:
+
+- **AtRisk Detection**: Monitors chain for fragments with < 5 holders
+- **Repair Coordination**: Collects k shares from healthy nodes to regenerate missing share
+- **Stale Holder GC**: Automatically evicts excess holders (> n) after repairs
+
+#### Repair Configuration
+
+```toml
+# Enable self-repair protocol
+repair_enabled = true
+
+# Repair check interval (seconds)
+repair_check_interval_secs = 300
+
+# Maximum repairs per cycle
+max_repairs_per_cycle = 10
+
+# Stale holder GC configuration
+stale_holder_gc_enabled = true
+stale_holder_gc_interval_secs = 300
+max_evictions_per_cycle = 10
+```
+
+#### Repair Status Endpoint
+
+Query repair status via JSON-RPC:
+
+```bash
+curl -X POST http://localhost:3030 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"storage_repairStatus","params":[]}'
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "fragments_held": 100,
+    "at_risk_fragments": 2,
+    "repairs_completed": 5,
+    "repairs_in_progress": 1,
+    "repair_enabled": true,
+    "last_gc_cycle": 1704067200
+  }
+}
+```
+
 ### RPC Endpoints
 
 | Method | Description |
@@ -209,6 +262,7 @@ curl -X POST -H "Content-Type: application/json" \
 | `storage_getNodes` | List all registered nodes |
 | `storage_uploadFragment` | Upload fragment (routed to appropriate node) |
 | `storage_getFragment` | Retrieve fragment (with fallback) |
+| `storage_repairStatus` | Get repair protocol status |
 
 ## Testing
 

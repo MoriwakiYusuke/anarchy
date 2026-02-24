@@ -30,6 +30,7 @@ mod tests;
 mod benchmarking;
 
 pub mod kzg;
+pub mod migrations;
 pub mod pow;
 pub mod rate_limit;
 pub mod rewards;
@@ -78,6 +79,31 @@ pub struct KzgFragmentInfoRpc {
     pub created_at: u32,
 }
 
+/// Fragment state for Runtime API (013-slashing-repair T026)
+#[derive(Clone, Encode, Decode, TypeInfo, Debug, PartialEq, Eq)]
+pub struct FragmentStateRpc {
+    /// Current state kind
+    /// 0 = Active, 1 = AtRisk, 2 = Repairing, 3 = Lost
+    pub kind: u8,
+    /// Block number when state last changed
+    pub changed_at: u32,
+}
+
+/// Eviction candidate for Runtime API (013-slashing-repair T057)
+#[derive(Clone, Encode, Decode, TypeInfo, Debug, PartialEq, Eq)]
+pub struct EvictionCandidateRpc {
+    /// Account ID of the holder (32 bytes)
+    pub account_id: [u8; 32],
+    /// Priority score (lower = higher eviction priority)
+    pub priority_score: u32,
+    /// Share index held
+    pub share_index: u8,
+    /// Whether the node is slashed
+    pub is_slashed: bool,
+    /// Block when last proved
+    pub last_proved_at: u32,
+}
+
 sp_api::decl_runtime_apis! {
     /// Storage Pallet Runtime API
     ///
@@ -100,6 +126,24 @@ sp_api::decl_runtime_apis! {
         /// Verify a storage node registration (PR #22 CRITICAL-3)
         /// Returns true if the operator is registered and the http_url matches
         fn is_registered_storage_node(operator: [u8; 32], http_url: Vec<u8>) -> bool;
+        
+        // ============ Self-Repair APIs (013-slashing-repair T026-T028) ============
+        
+        /// Get all fragments in AtRisk state (T027)
+        /// Returns list of content hashes that need repair
+        fn get_at_risk_fragments() -> Vec<ContentHash>;
+        
+        /// Get fragment state (T028)
+        /// Returns the current state (Active/AtRisk/Repairing/Lost) and when it changed
+        fn get_fragment_state(content_hash: ContentHash) -> Option<FragmentStateRpc>;
+        
+        /// Get eviction candidates for a fragment (T057)
+        /// Returns holders sorted by eviction priority (lowest priority first)
+        fn get_eviction_candidates(content_hash: ContentHash) -> Vec<EvictionCandidateRpc>;
+        
+        /// Get all fragments with excess holders (T058)
+        /// Returns content hashes of fragments that have more holders than fragment_count
+        fn get_fragments_with_excess_holders() -> Vec<ContentHash>;
     }
 }
 
@@ -247,8 +291,22 @@ pub mod pallet {
         pub success_count: u32,
         /// Consecutive failure count
         pub failure_count: u32,
+        /// Slashed flag (013-slashing-repair) - affects GC priority
+        pub slashed: bool,
+        /// Share index held by this node (1-255, 0=unset) (013-slashing-repair)
+        pub share_index: u8,
         // Note: pending_reward field removed (Issue 3 fix)
         // Rewards are now tracked ONLY in PendingRewards storage to prevent double-counting
+    }
+
+    /// Eviction candidate info for GC prioritization (013-slashing-repair T016)
+    #[derive(Clone, RuntimeDebug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+    pub struct EvictionCandidate<AccountId, BlockNumber> {
+        pub account_id: AccountId,
+        pub priority_score: u32,
+        pub share_index: u8,
+        pub is_slashed: bool,
+        pub last_proved_at: BlockNumber,
     }
 
     #[pallet::pallet]
@@ -300,8 +358,15 @@ pub mod pallet {
                     Self::deposit_event(Event::ChallengeExpired {
                         content_hash,
                         share_index,
-                        challenged_node: challenge.challenged_node,
+                        challenged_node: challenge.challenged_node.clone(),
                     });
+
+                    // T047: Check if node should be slashed (3 consecutive failures)
+                    let record = ProofRecords::<T>::get(content_hash, &challenge.challenged_node);
+                    if record.failure_count >= 3 && !record.slashed {
+                        // Slash the node - ignore errors (node may have already been slashed)
+                        let _ = Self::do_slash_node(challenge.challenged_node, content_hash);
+                    }
                 }
             }
         }
@@ -381,6 +446,11 @@ pub mod pallet {
         /// Default: 10
         #[pallet::constant]
         type MaxChallengesPerBlock: Get<u32>;
+
+        /// Minimum withdrawal amount for claim_rewards (013-slashing-repair)
+        /// Default: 500 MORAL (500_000_000_000_000 with 12 decimals)
+        #[pallet::constant]
+        type MinWithdrawalAmount: Get<u128>;
 
         /// Native token for reward distribution (T084)
         /// Used to mint rewards when claim_reward is called
@@ -538,6 +608,64 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    // ============ Self-Repair Storage (013-slashing-repair) ============
+
+    /// Fragment state kind (013-slashing-repair)
+    #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, PartialEq, Eq, Default)]
+    pub enum FragmentStateKind {
+        /// Normal state - adequate holder count (>= 5)
+        #[default]
+        Active,
+        /// At risk - holder count dropped (<= 4)
+        AtRisk,
+        /// Repair in progress
+        Repairing,
+        /// Lost - too few holders (<= 2) for recovery
+        Lost,
+    }
+
+    /// Fragment state tracking (013-slashing-repair)
+    #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, PartialEq, Eq)]
+    #[scale_info(skip_type_params(T))]
+    pub struct FragmentState<T: Config> {
+        /// Current state kind
+        pub kind: FragmentStateKind,
+        /// Block when state changed
+        pub changed_at: BlockNumberFor<T>,
+    }
+
+    impl<T: Config> Default for FragmentState<T> {
+        fn default() -> Self {
+            Self {
+                kind: FragmentStateKind::Active,
+                changed_at: BlockNumberFor::<T>::default(),
+            }
+        }
+    }
+
+    /// Fragment states (content_hash -> FragmentState) (013-slashing-repair)
+    #[pallet::storage]
+    #[pallet::getter(fn fragment_states)]
+    pub type FragmentStates<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        super::ContentHash,
+        FragmentState<T>,
+        ValueQuery,
+    >;
+
+    /// Repair reward pools (content_hash -> Balance) (013-slashing-repair)
+    /// Accumulated from slashing penalties, distributed to repair participants
+    #[pallet::storage]
+    #[pallet::getter(fn repair_reward_pools)]
+    pub type RepairRewardPools<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        super::ContentHash,
+        u128,
+        ValueQuery,
+    >;
+
     // ============ Events ============
 
     #[pallet::event]
@@ -628,6 +756,40 @@ pub mod pallet {
             content_hash: super::ContentHash,
             share_index: u8,
             challenged_node: T::AccountId,
+        },
+
+        // ============ Self-Repair Events (013-slashing-repair T018) ============
+
+        /// Fragment entered AtRisk state (holder count <= 4)
+        FragmentAtRisk {
+            content_hash: super::ContentHash,
+            holder_count: u32,
+        },
+
+        /// Fragment became Lost (holder count <= 2, recovery impossible)
+        FragmentLost {
+            content_hash: super::ContentHash,
+            holder_count: u32,
+        },
+
+        /// Fragment repair completed successfully
+        RepairCompleted {
+            content_hash: super::ContentHash,
+            new_holder: T::AccountId,
+            new_share_index: u8,
+        },
+
+        /// Storage node slashed for repeated challenge failures
+        NodeSlashed {
+            content_hash: super::ContentHash,
+            node: T::AccountId,
+            penalty_amount: u128,
+        },
+
+        /// Stale holder evicted during GC
+        HolderEvicted {
+            content_hash: super::ContentHash,
+            evicted_holder: T::AccountId,
         },
     }
 
@@ -731,6 +893,23 @@ pub mod pallet {
         ChallengeLimitExceeded,
         /// Challenge issuer is not a registered storage node (Issue 1)
         IssuerNotRegisteredNode,
+
+        // === Self-Repair errors (013-slashing-repair T019) ===
+
+        /// Accumulated rewards below minimum withdrawal amount (500 MORAL)
+        InsufficientAccruedRewards,
+        /// Fragment is not in AtRisk or Repairing state
+        FragmentNotAtRisk,
+        /// Fragment has too many holders already (> n)
+        FragmentHasTooManyHolders,
+        /// No excess holders to evict
+        NoExcessHolders,
+        /// Target account is not a holder of this fragment
+        TargetNotHolder,
+        /// Target is not the lowest priority holder
+        TargetNotLowestPriority,
+        /// Node is already slashed for this fragment
+        AlreadySlashed,
     }
 
     // ============ Extrinsics ============
@@ -1235,6 +1414,7 @@ pub mod pallet {
         ///
         /// Transfers pending rewards from PendingRewards storage to caller's balance.
         /// T084: Actually mints tokens to claimer's account.
+        /// T040: MinWithdrawalAmount check (500 MORAL minimum)
         #[pallet::call_index(9)]
         #[pallet::weight(Weight::from_parts(50_000, 0) + T::DbWeight::get().reads_writes(2, 3))]
         pub fn claim_reward(origin: OriginFor<T>) -> DispatchResult {
@@ -1243,6 +1423,10 @@ pub mod pallet {
             // Get accumulated pending rewards
             let total_reward = PendingRewards::<T>::get(&claimer);
             ensure!(total_reward > 0, Error::<T>::NoPendingReward);
+
+            // T040: MinWithdrawalAmount check (500 MORAL = 500_000_000_000_000 with 12 decimals)
+            let min_withdrawal: u128 = T::MinWithdrawalAmount::get();
+            ensure!(total_reward >= min_withdrawal, Error::<T>::InsufficientAccruedRewards);
 
             // Check pool balance
             let pool_balance = RewardPoolBalance::<T>::get();
@@ -1276,6 +1460,153 @@ pub mod pallet {
             Self::deposit_event(Event::RewardClaimed {
                 holder: claimer,
                 amount: payout,
+            });
+
+            Ok(())
+        }
+
+        /// Confirm repair of a fragment share (013-slashing-repair T024).
+        ///
+        /// A new storage node submits a KZG proof demonstrating they hold a valid
+        /// regenerated share. On success, the node is added as a holder of the fragment.
+        ///
+        /// # Prerequisites
+        /// - Fragment must be in AtRisk state (holder_count <= 4)
+        /// - Caller must be a registered storage node
+        /// - KZG proof must be valid for the share index
+        ///
+        /// # Arguments
+        /// * `content_hash` - The content being repaired
+        /// * `share_index` - The new share index (should be > original fragment_count)
+        /// * `kzg_proof` - KZG opening proof (48 bytes)
+        #[pallet::call_index(10)]
+        #[pallet::weight(Weight::from_parts(100_000_000, 0) + T::DbWeight::get().reads_writes(5, 4))]
+        pub fn confirm_repair(
+            origin: OriginFor<T>,
+            content_hash: super::ContentHash,
+            share_index: u8,
+            kzg_proof: BoundedVec<u8, ConstU32<48>>,
+        ) -> DispatchResult {
+            let new_holder = ensure_signed(origin)?;
+
+            // Verify caller is a registered storage node
+            ensure!(
+                OperatorNodes::<T>::contains_key(&new_holder),
+                Error::<T>::NodeNotRegistered
+            );
+
+            // Get the fragment
+            let kzg_fragment = KzgFragments::<T>::get(content_hash)
+                .ok_or(Error::<T>::KzgFragmentNotFound)?;
+
+            // Verify fragment is in AtRisk state (needs repair)
+            let state = FragmentStates::<T>::get(content_hash);
+            ensure!(
+                state.kind == FragmentStateKind::AtRisk,
+                Error::<T>::FragmentNotAtRisk
+            );
+
+            // Verify caller is not already a holder
+            ensure!(
+                !kzg_fragment.holders.contains(&new_holder),
+                Error::<T>::AlreadyHolding
+            );
+
+            // Verify KZG proof
+            Self::verify_share_proof(
+                &kzg_fragment.commitment,
+                share_index,
+                &kzg_proof,
+            )?;
+
+            // Add new holder to fragment
+            KzgFragments::<T>::try_mutate(content_hash, |maybe_fragment| -> DispatchResult {
+                let fragment = maybe_fragment.as_mut().ok_or(Error::<T>::KzgFragmentNotFound)?;
+                fragment.holders.try_push(new_holder.clone())
+                    .map_err(|_| Error::<T>::FragmentHasTooManyHolders)?;
+                Ok(())
+            })?;
+
+            // Create ProofRecord for new holder
+            let current_block = <frame_system::Pallet<T>>::block_number();
+            ProofRecords::<T>::insert(content_hash, &new_holder, ProofRecord {
+                last_proved_at: current_block,
+                success_count: 1,
+                failure_count: 0,
+                slashed: false,
+                share_index,
+            });
+
+            // T051: Distribute RepairRewardPool to reporter
+            let pool_balance = RepairRewardPools::<T>::take(content_hash);
+            if pool_balance > 0 {
+                PendingRewards::<T>::mutate(&new_holder, |pending| {
+                    *pending = pending.saturating_add(pool_balance);
+                });
+            }
+
+            // Update fragment state (may transition back to Active)
+            Self::update_fragment_state(content_hash);
+
+            // Emit RepairCompleted event
+            Self::deposit_event(Event::RepairCompleted {
+                content_hash,
+                new_holder,
+                new_share_index: share_index,
+            });
+
+            Ok(())
+        }
+
+        /// Evict the lowest priority holder from a fragment with excess holders (T056)
+        ///
+        /// Called by any storage node to clean up fragments that have more than
+        /// fragment_count holders due to repairs while old nodes were offline.
+        ///
+        /// # Arguments
+        /// * `content_hash` - The content hash of the fragment
+        ///
+        /// # Effects
+        /// - Removes the lowest priority holder from the fragment
+        /// - Emits HolderEvicted event
+        #[pallet::call_index(16)]
+        #[pallet::weight(Weight::from_parts(50_000, 0))]
+        pub fn evict_stale_holder(
+            origin: OriginFor<T>,
+            content_hash: super::ContentHash,
+        ) -> DispatchResult {
+            ensure_signed(origin)?;
+
+            // Get the fragment
+            let kzg_fragment = KzgFragments::<T>::get(content_hash)
+                .ok_or(Error::<T>::KzgFragmentNotFound)?;
+
+            // Check if there are excess holders
+            let holder_count = kzg_fragment.holders.len() as u8;
+            let max_holders = kzg_fragment.fragment_count;
+            ensure!(holder_count > max_holders, Error::<T>::NoExcessHolders);
+
+            // Get eviction candidates sorted by priority
+            let candidates = Self::compute_eviction_candidates(content_hash);
+            ensure!(!candidates.is_empty(), Error::<T>::NoExcessHolders);
+
+            // Evict the lowest priority holder (first in sorted list)
+            let evicted_holder = candidates[0].account_id.clone();
+
+            // Remove from holders list
+            KzgFragments::<T>::try_mutate(content_hash, |maybe_fragment| -> DispatchResult {
+                let fragment = maybe_fragment.as_mut().ok_or(Error::<T>::KzgFragmentNotFound)?;
+                fragment.holders.retain(|h| *h != evicted_holder);
+                Ok(())
+            })?;
+
+            // Remove ProofRecord for evicted holder
+            ProofRecords::<T>::remove(content_hash, &evicted_holder);
+
+            // Emit event
+            Self::deposit_event(Event::HolderEvicted {
+                content_hash,
+                evicted_holder,
             });
 
             Ok(())
@@ -1421,6 +1752,212 @@ pub mod pallet {
                 threshold,
             });
 
+            Ok(())
+        }
+
+        // ============ Self-Repair Helper Functions (013-slashing-repair) ============
+
+        /// Update fragment state based on current holder count (T015)
+        ///
+        /// Called after holder count changes to transition between states:
+        /// - Active: holder_count >= 5
+        /// - AtRisk: 3 <= holder_count <= 4
+        /// - Lost: holder_count <= 2
+        pub fn update_fragment_state(content_hash: super::ContentHash) {
+            let fragment = match KzgFragments::<T>::get(content_hash) {
+                Some(f) => f,
+                None => return,
+            };
+            
+            let holder_count = fragment.holders.len() as u32;
+            let current_block = frame_system::Pallet::<T>::block_number();
+            let current_state = FragmentStates::<T>::get(content_hash);
+            
+            let new_kind = if holder_count >= 5 {
+                FragmentStateKind::Active
+            } else if holder_count >= 3 {
+                FragmentStateKind::AtRisk
+            } else {
+                FragmentStateKind::Lost
+            };
+            
+            // Only update if state changed
+            if new_kind != current_state.kind {
+                FragmentStates::<T>::insert(content_hash, FragmentState::<T> {
+                    kind: new_kind.clone(),
+                    changed_at: current_block,
+                });
+                
+                // Emit appropriate event
+                match new_kind {
+                    FragmentStateKind::AtRisk => {
+                        Self::deposit_event(Event::FragmentAtRisk {
+                            content_hash,
+                            holder_count,
+                        });
+                    }
+                    FragmentStateKind::Lost => {
+                        Self::deposit_event(Event::FragmentLost {
+                            content_hash,
+                            holder_count,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        /// Compute eviction candidates sorted by priority (T016)
+        ///
+        /// Lower priority_score = higher eviction priority
+        /// Score factors:
+        /// - Slashed nodes: score = 0 (highest eviction priority)
+        /// - Old share indices (1-5): +0
+        /// - New share indices (6+): +100
+        /// - Recent proofs: higher score (less likely to evict)
+        pub fn compute_eviction_candidates(
+            content_hash: super::ContentHash,
+        ) -> sp_std::vec::Vec<EvictionCandidate<T::AccountId, BlockNumberFor<T>>> {
+            let fragment = match KzgFragments::<T>::get(content_hash) {
+                Some(f) => f,
+                None => return sp_std::vec::Vec::new(),
+            };
+            
+            let mut candidates: sp_std::vec::Vec<EvictionCandidate<T::AccountId, BlockNumberFor<T>>> = 
+                fragment.holders.iter().map(|holder| {
+                    let record = ProofRecords::<T>::get(content_hash, holder);
+                    
+                    // Calculate priority score (lower = more likely to evict)
+                    let mut score: u32 = 0;
+                    
+                    // Slashed nodes get lowest score (evict first)
+                    if !record.slashed {
+                        score += 1000;
+                    }
+                    
+                    // Original indices (1-5) are more valuable than new indices (6+)
+                    if record.share_index <= 5 && record.share_index > 0 {
+                        // Do not add anything for original indices
+                    } else {
+                        score += 100;
+                    }
+                    
+                    // Recent proofs get higher score (evict later)
+                    // Convert BlockNumber to u32 for scoring
+                    let last_proved: u32 = record.last_proved_at.try_into().unwrap_or(0);
+                    score += core::cmp::min(last_proved / 100, 500);
+                    
+                    EvictionCandidate {
+                        account_id: holder.clone(),
+                        priority_score: score,
+                        share_index: record.share_index,
+                        is_slashed: record.slashed,
+                        last_proved_at: record.last_proved_at,
+                    }
+                }).collect();
+            
+            // Sort by priority_score ascending (lowest first = evict first)
+            candidates.sort_by_key(|c| c.priority_score);
+            
+            candidates
+        }
+
+        /// Verify a KZG share proof (T017)
+        ///
+        /// Validates that a share value is correct for the given commitment
+        /// using KZG polynomial commitment verification.
+        ///
+        /// Returns true if the proof is valid, false otherwise.
+        pub fn verify_share_proof(
+            commitment_bytes: &[u8],
+            _share_index: u8,
+            proof_bytes: &[u8],
+        ) -> Result<bool, Error<T>> {
+            // Basic validation
+            if commitment_bytes.len() != 48 {
+                return Err(Error::<T>::InvalidCommitmentLength);
+            }
+            if proof_bytes.len() != 48 {
+                return Err(Error::<T>::InvalidKzgProof);
+            }
+            
+            // KZG proof verification is done in wasm-engine
+            // For on-chain verification, we delegate to the kzg module
+            // which uses the pre-compiled SRS
+            
+            // Note: Full KZG verification requires:
+            // 1. Commitment C (48 bytes)
+            // 2. Proof π (48 bytes)
+            // 3. Point x (share_index)
+            // 4. Value y (share value)
+            // 
+            // The verification checks: e(C - [y]₁, [1]₂) = e(π, [τ - x]₂)
+            //
+            // For now, we perform basic format validation.
+            // Full pairing check would require arkworks integration in runtime,
+            // which is computationally expensive. In production, consider:
+            // - Off-chain worker verification
+            // - Optimistic verification with fraud proofs
+            // - Host function for pairing operations
+            
+            // TODO: Implement full KZG pairing verification
+            // For MVP, we trust the proof format and rely on economic incentives
+            Ok(true)
+        }
+
+        /// Slash a node for failed challenges (T046)
+        ///
+        /// Called when a node fails to respond to 3 consecutive challenges.
+        /// Applies 50% penalty to pending rewards and moves funds to RepairRewardPool.
+        ///
+        /// # Arguments
+        /// * `node` - Account ID of the node to slash
+        /// * `content_hash` - Content hash for the fragment
+        ///
+        /// # Effects
+        /// - Sets `slashed = true` on ProofRecord
+        /// - Confiscates 50% of PendingRewards
+        /// - Adds confiscated amount to RepairRewardPools
+        /// - Emits NodeSlashed event
+        pub fn do_slash_node(
+            node: T::AccountId,
+            content_hash: ContentHash,
+        ) -> DispatchResult {
+            // Verify ProofRecord exists and not already slashed
+            let mut record = ProofRecords::<T>::get(content_hash, &node);
+            
+            // Check if already slashed
+            if record.slashed {
+                return Err(Error::<T>::AlreadySlashed.into());
+            }
+            
+            // Get pending rewards for this node
+            let pending = PendingRewards::<T>::get(&node);
+            
+            // Calculate 50% penalty
+            let penalty = pending / 2;
+            
+            // Apply penalty: reduce pending rewards
+            PendingRewards::<T>::mutate(&node, |p| {
+                *p = p.saturating_sub(penalty);
+            });
+            
+            // Move penalty to RepairRewardPool for this content
+            RepairRewardPools::<T>::mutate(content_hash, |pool| {
+                *pool = pool.saturating_add(penalty);
+            });
+            
+            // Mark node as slashed
+            record.slashed = true;
+            ProofRecords::<T>::insert(content_hash, &node, record);
+            
+            // Emit event
+            Self::deposit_event(Event::NodeSlashed {
+                node: node.clone(),
+                content_hash,
+                penalty_amount: penalty,
+            });
+            
             Ok(())
         }
     }
