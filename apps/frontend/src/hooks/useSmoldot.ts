@@ -13,6 +13,7 @@ import { PolkadotClient } from 'polkadot-api'
 import {
   initSmoldotClient,
   destroySmoldotClient,
+  isSmoldotInitialized,
 } from '@/lib/smoldot-provider'
 import type { ConnectionState, ConnectionStatus } from '@/types/connection'
 
@@ -51,25 +52,78 @@ export function useSmoldot(): UseSmoldotResult {
   // Refs for cleanup
   const mountedRef = useRef(true)
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const blockUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const hasInitializedRef = useRef(false)
 
   useEffect(() => {
     mountedRef.current = true
-    let subscription: { unsubscribe: () => void } | null = null
+    
+    // Prevent double initialization (React StrictMode / hot reload)
+    if (hasInitializedRef.current) {
+      console.log('[useSmoldot] Already initialized, skipping...')
+      return
+    }
+    hasInitializedRef.current = true
 
     const init = async () => {
+      // Function to periodically update block number after connected
+      // (defined at top to allow hoisting for early use)
+      const startBlockUpdates = (apiInstance: any) => {
+        // Clear any existing interval
+        if (blockUpdateIntervalRef.current) {
+          clearInterval(blockUpdateIntervalRef.current)
+        }
+        
+        blockUpdateIntervalRef.current = setInterval(async () => {
+          if (!mountedRef.current) {
+            if (blockUpdateIntervalRef.current) {
+              clearInterval(blockUpdateIntervalRef.current)
+              blockUpdateIntervalRef.current = null
+            }
+            return
+          }
+          try {
+            const currentBlock = await apiInstance.query.System.Number.getValue()
+            setBlockNumber(currentBlock)
+          } catch (err) {
+            console.warn('[useSmoldot] Failed to update block number:', err)
+          }
+        }, 6000) // Update every 6 seconds (block time)
+      }
+      
       try {
-        // Phase 1: Initialize smoldot
-        console.log('[useSmoldot] Starting initialization...')
+        // Check if already connected (singleton pattern)
+        const alreadyInitialized = isSmoldotInitialized()
+        console.log('[useSmoldot] Starting initialization...', { alreadyInitialized })
         
         const clientInstance = await initSmoldotClient()
         if (!mountedRef.current) return
         
         setClient(clientInstance)
+        const api = clientInstance.getUnsafeApi()
+        
+        // If already initialized, skip sync timeout - just verify connection
+        if (alreadyInitialized) {
+          console.log('[useSmoldot] Reusing existing connection...')
+          try {
+            const currentBlock = await api.query.System.Number.getValue()
+            if (!mountedRef.current) return
+            
+            setUnsafeApi(api)
+            setStatus('connected')
+            setBlockNumber(currentBlock)
+            startBlockUpdates(api)
+            return
+          } catch (err) {
+            console.warn('[useSmoldot] Existing connection check failed, falling back to sync...')
+          }
+        }
+        
         setStatus('syncing')
         console.log('[useSmoldot] Smoldot initialized, waiting for chain sync...')
         
-        // Phase 2: Wait for sync by polling System.Number
-        // Set timeout for sync
+        // Set timeout for sync (only for fresh connections)
+        // The timeout is cleared when polling succeeds
         syncTimeoutRef.current = setTimeout(() => {
           if (mountedRef.current) {
             console.error('[useSmoldot] Sync timeout')
@@ -80,8 +134,6 @@ export function useSmoldot(): UseSmoldotResult {
         
         // Poll for block number - this is more reliable for light clients
         // that may take time to load metadata
-        const api = clientInstance.getUnsafeApi()
-        
         const pollForSync = async () => {
           const pollInterval = 2000 // 2 seconds between polls
           let retries = 0
@@ -117,25 +169,6 @@ export function useSmoldot(): UseSmoldotResult {
           }
         }
         
-        // Function to periodically update block number after connected
-        const startBlockUpdates = (api: any) => {
-          const updateInterval = setInterval(async () => {
-            if (!mountedRef.current) {
-              clearInterval(updateInterval)
-              return
-            }
-            try {
-              const currentBlock = await api.query.System.Number.getValue()
-              setBlockNumber(currentBlock)
-            } catch (err) {
-              console.warn('[useSmoldot] Failed to update block number:', err)
-            }
-          }, 6000) // Update every 6 seconds (block time)
-          
-          // Store interval for cleanup
-          subscription = { unsubscribe: () => clearInterval(updateInterval) }
-        }
-        
         pollForSync()
         
       } catch (err) {
@@ -155,8 +188,9 @@ export function useSmoldot(): UseSmoldotResult {
     return () => {
       mountedRef.current = false
       
-      if (subscription) {
-        subscription.unsubscribe()
+      if (blockUpdateIntervalRef.current) {
+        clearInterval(blockUpdateIntervalRef.current)
+        blockUpdateIntervalRef.current = null
       }
       
       if (syncTimeoutRef.current) {
@@ -167,6 +201,7 @@ export function useSmoldot(): UseSmoldotResult {
       // Note: We don't destroy smoldot on unmount because it's a singleton
       // that may be used by multiple components. It will be cleaned up
       // when the page unloads.
+      // Also, we don't reset hasInitializedRef to allow reconnection reuse.
     }
   }, [])
 

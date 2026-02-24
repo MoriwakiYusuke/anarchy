@@ -57,6 +57,11 @@
   color: #ff4444;
 }
 
+.button.error:hover {
+  background: rgba(255, 0, 0, 0.2);
+  border-color: rgba(255, 0, 0, 0.5);
+}
+
 .spinner {
   width: 16px;
   height: 16px;

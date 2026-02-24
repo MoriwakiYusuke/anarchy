@@ -49,18 +49,23 @@ const mockClient = {
   destroy: jest.fn(),
 }
 
+// Track whether smoldot is "initialized" for test purposes
+let mockIsSmoldotInitialized = false
+
 // Mock smoldot-provider
 jest.mock('@/lib/smoldot-provider', () => ({
   initSmoldotClient: jest.fn(),
   destroySmoldotClient: jest.fn(),
+  isSmoldotInitialized: jest.fn(() => mockIsSmoldotInitialized),
 }))
 
 // Import mocked module
-import { initSmoldotClient, destroySmoldotClient } from '@/lib/smoldot-provider'
+import { initSmoldotClient, destroySmoldotClient, isSmoldotInitialized } from '@/lib/smoldot-provider'
 import { useSmoldot } from '@/hooks/useSmoldot'
 
 const mockInitSmoldotClient = initSmoldotClient as jest.MockedFunction<typeof initSmoldotClient>
 const mockDestroySmoldotClient = destroySmoldotClient as jest.MockedFunction<typeof destroySmoldotClient>
+const mockIsSmoldotInitializedFn = isSmoldotInitialized as jest.MockedFunction<typeof isSmoldotInitialized>
 
 describe('useSmoldot Hook', () => {
   beforeEach(() => {
@@ -69,6 +74,7 @@ describe('useSmoldot Hook', () => {
     currentBlockNumber = 100
     getValueShouldFail = false
     getValueFailCount = 0
+    mockIsSmoldotInitialized = false
     mockGetValue.mockClear()
     mockGetValue.mockImplementation(() => {
       if (getValueShouldFail && getValueFailCount > 0) {
