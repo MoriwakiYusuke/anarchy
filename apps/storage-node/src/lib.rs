@@ -11,5 +11,6 @@ pub mod identity;
 pub mod metrics;
 pub mod network;
 pub mod prover;
+pub mod repair;
 pub mod rpc;
 pub mod storage;

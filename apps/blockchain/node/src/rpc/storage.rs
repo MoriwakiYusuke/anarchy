@@ -244,6 +244,28 @@ impl RegisteredStorageNode {
     }
 }
 
+// ============ Self-Repair Protocol Response Types (013-slashing-repair T063) ============
+
+/// 断片状態レスポンス (T063)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FragmentStateRpcResponse {
+    /// 状態種別 ("Active", "AtRisk", "Repairing", "Lost")
+    pub kind: String,
+    /// 状態変更ブロック番号
+    pub changed_at: u32,
+}
+
+/// 退去候補レスポンス (T063)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EvictionCandidateRpcResponse {
+    /// ホルダーアカウント (hex)
+    pub holder: String,
+    /// 優先度スコア (低いほど優先的に退去)
+    pub priority_score: u32,
+    /// スラッシュ済みフラグ
+    pub is_slashed: bool,
+}
+
 /// Storage RPC API定義
 #[rpc(server, client, namespace = "storage")]
 pub trait StorageApi {
@@ -311,6 +333,33 @@ pub trait StorageApi {
     /// Storage NodeのスコアベースGC判定に使用。
     #[method(name = "checkForgettingCandidates")]
     async fn check_forgetting_candidates(&self, content_hashes: Vec<[u8; 32]>) -> RpcResult<Vec<([u8; 32], bool)>>;
+
+    // ============ Self-Repair Protocol Visualization (013-slashing-repair T063) ============
+
+    /// AtRisk状態の断片を取得
+    ///
+    /// 修復が必要な断片のリストを返す。Storage Nodeの自動修復に使用。
+    #[method(name = "getAtRiskFragments")]
+    async fn get_at_risk_fragments(&self) -> RpcResult<Vec<[u8; 32]>>;
+
+    /// 断片の状態を取得
+    ///
+    /// 指定された断片の状態（Active, AtRisk, Repairing, Lost）を返す。
+    #[method(name = "getFragmentState")]
+    async fn get_fragment_state(&self, content_hash: [u8; 32]) -> RpcResult<FragmentStateRpcResponse>;
+
+    /// 退去候補を取得 (T063)
+    ///
+    /// 指定された断片について、退去優先度順にホルダーを返す。
+    /// Storage Nodeの過剰ホルダー削除GCに使用。
+    #[method(name = "getEvictionCandidates")]
+    async fn get_eviction_candidates(&self, content_hash: [u8; 32]) -> RpcResult<Vec<EvictionCandidateRpcResponse>>;
+
+    /// 過剰ホルダーを持つ断片を取得 (T063)
+    ///
+    /// ホルダー数が fragment_count を超える断片のリストを返す。
+    #[method(name = "getFragmentsWithExcessHolders")]
+    async fn get_fragments_with_excess_holders(&self) -> RpcResult<Vec<[u8; 32]>>;
 }
 
 /// Storage Node HTTPクライアント
@@ -1370,6 +1419,94 @@ where
         let api = self.client.runtime_api();
         
         api.get_forgetting_candidates(best_hash, content_hashes)
+            .map_err(|e| {
+                ErrorObject::owned(
+                    ErrorCode::InternalError.code(),
+                    format!("Failed to call Runtime API: {:?}", e),
+                    None::<()>,
+                )
+            })
+    }
+
+    // ============ Self-Repair Protocol Visualization (013-slashing-repair T063) ============
+
+    /// AtRisk状態の断片を取得
+    async fn get_at_risk_fragments(&self) -> RpcResult<Vec<[u8; 32]>> {
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        api.get_at_risk_fragments(best_hash)
+            .map_err(|e| {
+                ErrorObject::owned(
+                    ErrorCode::InternalError.code(),
+                    format!("Failed to call Runtime API: {:?}", e),
+                    None::<()>,
+                )
+            })
+    }
+
+    /// 断片の状態を取得
+    async fn get_fragment_state(&self, content_hash: [u8; 32]) -> RpcResult<FragmentStateRpcResponse> {
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        let state_rpc = api.get_fragment_state(best_hash, content_hash)
+            .map_err(|e| {
+                ErrorObject::owned(
+                    ErrorCode::InternalError.code(),
+                    format!("Failed to call Runtime API: {:?}", e),
+                    None::<()>,
+                )
+            })?;
+        
+        match state_rpc {
+            Some(state) => {
+                let kind_str = match state.kind {
+                    0 => "Active",
+                    1 => "AtRisk",
+                    2 => "Repairing",
+                    3 => "Lost",
+                    _ => "Unknown",
+                };
+                Ok(FragmentStateRpcResponse {
+                    kind: kind_str.to_string(),
+                    changed_at: state.changed_at,
+                })
+            },
+            None => Ok(FragmentStateRpcResponse {
+                kind: "Active".to_string(),
+                changed_at: 0,
+            }),
+        }
+    }
+
+    /// 退去候補を取得
+    async fn get_eviction_candidates(&self, content_hash: [u8; 32]) -> RpcResult<Vec<EvictionCandidateRpcResponse>> {
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        let candidates = api.get_eviction_candidates(best_hash, content_hash)
+            .map_err(|e| {
+                ErrorObject::owned(
+                    ErrorCode::InternalError.code(),
+                    format!("Failed to call Runtime API: {:?}", e),
+                    None::<()>,
+                )
+            })?;
+        
+        Ok(candidates.into_iter().map(|c| EvictionCandidateRpcResponse {
+            holder: hex::encode(c.account_id),
+            priority_score: c.priority_score,
+            is_slashed: c.is_slashed,
+        }).collect())
+    }
+
+    /// 過剰ホルダーを持つ断片を取得
+    async fn get_fragments_with_excess_holders(&self) -> RpcResult<Vec<[u8; 32]>> {
+        let best_hash = self.client.info().best_hash;
+        let api = self.client.runtime_api();
+        
+        api.get_fragments_with_excess_holders(best_hash)
             .map_err(|e| {
                 ErrorObject::owned(
                     ErrorCode::InternalError.code(),

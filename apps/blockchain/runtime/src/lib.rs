@@ -291,6 +291,8 @@ impl pallet_storage::Config for Runtime {
     type ScoreHysteresisMargin = ConstU64<20>;
     /// ブロックあたりの最大チャレンジ発行数: 10 (スパム防止)
     type MaxChallengesPerBlock = ConstU32<10>;
+    /// 報酬引き出し下限: 500 MORAL (500_000_000_000_000 with 12 decimals)
+    type MinWithdrawalAmount = ConstU128<500_000_000_000_000>;
 }
 
 // Runtime構築
@@ -584,6 +586,66 @@ impl_runtime_apis! {
             }
             
             false
+        }
+        
+        // ============ Self-Repair APIs (013-slashing-repair T027-T028) ============
+        
+        fn get_at_risk_fragments() -> Vec<pallet_storage::ContentHash> {
+            pallet_storage::FragmentStates::<Runtime>::iter()
+                .filter(|(_, state)| state.kind == pallet_storage::pallet::FragmentStateKind::AtRisk)
+                .map(|(content_hash, _)| content_hash)
+                .collect()
+        }
+        
+        fn get_fragment_state(content_hash: pallet_storage::ContentHash) -> Option<pallet_storage::FragmentStateRpc> {
+            use sp_runtime::SaturatedConversion;
+            
+            // Check if fragment exists
+            if !pallet_storage::KzgFragments::<Runtime>::contains_key(content_hash) {
+                return None;
+            }
+            
+            let state = pallet_storage::FragmentStates::<Runtime>::get(content_hash);
+            let kind_u8 = match state.kind {
+                pallet_storage::pallet::FragmentStateKind::Active => 0u8,
+                pallet_storage::pallet::FragmentStateKind::AtRisk => 1u8,
+                pallet_storage::pallet::FragmentStateKind::Repairing => 2u8,
+                pallet_storage::pallet::FragmentStateKind::Lost => 3u8,
+            };
+            
+            Some(pallet_storage::FragmentStateRpc {
+                kind: kind_u8,
+                changed_at: state.changed_at.saturated_into::<u32>(),
+            })
+        }
+        
+        // T057: Get eviction candidates for a fragment
+        fn get_eviction_candidates(content_hash: pallet_storage::ContentHash) -> Vec<pallet_storage::EvictionCandidateRpc> {
+            use sp_runtime::SaturatedConversion;
+            
+            let candidates = Storage::compute_eviction_candidates(content_hash);
+            candidates.into_iter().map(|c| {
+                // Convert AccountId32 to [u8; 32]
+                let account_bytes: [u8; 32] = c.account_id.into();
+                
+                pallet_storage::EvictionCandidateRpc {
+                    account_id: account_bytes,
+                    priority_score: c.priority_score,
+                    share_index: c.share_index,
+                    is_slashed: c.is_slashed,
+                    last_proved_at: c.last_proved_at.saturated_into::<u32>(),
+                }
+            }).collect()
+        }
+        
+        // T058: Get fragments with excess holders
+        fn get_fragments_with_excess_holders() -> Vec<pallet_storage::ContentHash> {
+            pallet_storage::KzgFragments::<Runtime>::iter()
+                .filter(|(_, fragment)| {
+                    fragment.holders.len() as u8 > fragment.fragment_count
+                })
+                .map(|(content_hash, _)| content_hash)
+                .collect()
         }
     }
 }

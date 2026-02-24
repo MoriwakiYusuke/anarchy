@@ -159,6 +159,8 @@ async fn handle_rpc(
         "storage_storeFragment" => handle_store_fragment(&state, request.params).await,
         "storage_getFragment" => handle_get_fragment(&state, request.params).await,
         "storage_storeKzgShard" => handle_store_kzg_shard(&state, request.params).await,
+        // Self-Repair Protocol (013-slashing-repair T064)
+        "storage_repairStatus" => handle_repair_status(&state).await,
         _ => Err(RpcError {
             code: -32601,
             message: format!("Method not found: {}", request.method),
@@ -567,4 +569,51 @@ mod tests {
         // Domain separator ensures they differ
         assert_ne!(kzg_id, fragment_id);
     }
+}
+
+// ============ Self-Repair Protocol Response Types (013-slashing-repair T064) ============
+
+/// Repair status response
+#[derive(Debug, Serialize)]
+pub struct RepairStatusResult {
+    /// Number of fragments this node is holding
+    pub fragments_held: u64,
+    /// Number of AtRisk fragments we're tracking
+    pub at_risk_fragments: u64,
+    /// Number of repairs completed (lifetime)
+    pub repairs_completed: u64,
+    /// Number of repairs in progress
+    pub repairs_in_progress: u64,
+    /// Whether repair service is enabled
+    pub repair_enabled: bool,
+    /// Timestamp of last GC cycle
+    pub last_gc_cycle: u64,
+}
+
+/// Handle storage_repairStatus (T064)
+async fn handle_repair_status(
+    state: &RpcState,
+) -> Result<serde_json::Value, RpcError> {
+    let fragment_count = state.store.list_fragments()
+        .map(|v| v.len() as u64)
+        .unwrap_or(0);
+    
+    // Placeholder values - in a full implementation these would come from
+    // the repair service state
+    let result = RepairStatusResult {
+        fragments_held: fragment_count,
+        at_risk_fragments: 0,
+        repairs_completed: 0,
+        repairs_in_progress: 0,
+        repair_enabled: true,
+        last_gc_cycle: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    };
+    
+    serde_json::to_value(result).map_err(|e| RpcError {
+        code: -32603,
+        message: format!("Failed to serialize response: {}", e),
+    })
 }

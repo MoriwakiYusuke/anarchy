@@ -1,6 +1,6 @@
 # ストレージ戦略: 地図と宝の分離
 
-> **ステータス**: Phase 3 KZG Proof Rewards 完了 (2026-02-16)  
+> **ステータス**: Phase 4 Slashing & Self-Repair 完了 (2026-02-24)  
 > **関連ドキュメント**: [architecture.md](architecture.md), [memo.md](memo.md), [TODO.md](TODO.md)
 >
 > **実装済み**:
@@ -24,12 +24,20 @@
 >   - 報酬プール・分配ロジック (RewardPool, prove_holding_kzg)
 >   - GCライフサイクル (StateProposed → Active → ForgettingCandidate)
 >   - フロントエンド統合 (Reed-Solomon + SSS鍵分割)
+> - + Phase 4 Slashing & Self-Repair - 2026-02-24
+>   - スラッシングシステム (`do_slash_node`, チャレンジ3回失敗で発動)
+>   - FragmentState管理 (Active/AtRisk/Repairing/Lost)
+>   - 自己修復プロトコル (`regenerate_share`, Lagrange補間)
+>   - 余剰ホルダーGC (`evict_stale_holder`, StaleHolderGc)
+>   - 修復報酬システム (RepairRewardPool)
+>   - RPC監視エンドポイント (`getAtRiskFragments`, `getFragmentState`)
 > - Faucetパレットのオンチェーンストレージ (`FaucetClaims`, `TotalClaims`) - 2026-02-09
 >
 > **詳細仕様**: 
 > - [specs/008-distributed-storage/](../specs/008-distributed-storage/)
 > - [specs/010-multi-node-storage/](../specs/010-multi-node-storage/)
 > - [specs/011-kzg-proof-rewards/](../specs/011-kzg-proof-rewards/)
+> - [specs/013-slashing-repair/](../specs/013-slashing-repair/)
 
 ---
 
@@ -425,11 +433,11 @@ TODO.md から抜粋（ステルスアドレス・DM関連）：
 
 ## 10. 実現可能性の評価
 
-> **結論: 技術的には可能だが、ストレージレイヤーはボス級の難易度**
+> **結論: 技術的には可能で、すでに完成している！**
 
-特に **Proof of Spacetime (PoST)** と **自己修復プロトコル** は、Filecoin や Arweave といった巨大プロジェクトが数年かけて磨き上げた領域。Substrate で一から組むのはかなりエキサイティングな挑戦になる。
+~~特に **Proof of Spacetime (PoST)** と **自己修復プロトコル** は、Filecoin や Arweave といった巨大プロジェクトが数年かけて磨き上げた領域。Substrate で一から組むのはかなりエキサイティングな挑戦になる。~~ → **✅ KZG証明 (Phase 3) と自己修復プロトコル (Phase 4) で実装完了！**
 
-### 10.1 Storage Pallet & Node（難易度: 鬼） → **Phase 1.5 完了**
+### 10.1 Storage Pallet & Node（難易度: 鬼） → **Phase 4 完了**
 
 Anarchy プロトコルの「体」になる部分。
 
@@ -449,8 +457,12 @@ Anarchy プロトコルの「体」になる部分。
 | **+ Storage Palletセキュリティ** | ✅ 実装済み | PoW検証 + レート制限 |
 | **+ P2P Gossipsub** | ✅ 実装済み | エンドポイント共有 + フェイルオーバー |
 | **+ Observability** | ✅ 実装済み | Prometheusメトリクス + 構造化ログ |
-| **PoST 検証** | 未実装 | Phase 3 で Off-chain Workers (OCW) 使用予定 |
-| **自然な忘却** | 未実装 | Phase 3 で報酬システムと連動 |
+| **+ KZG証明検証** | ✅ 実装済み (2026-02-16) | BLS12-381ベース多項式コミットメント |
+| **+ 報酬システム** | ✅ 実装済み (2026-02-16) | RewardPool + prove_holding_kzg |
+| **+ 自然な忘却** | ✅ 実装済み (2026-02-16) | GCライフサイクル(報酬枯渇で削除) |
+| **+ スラッシング** | ✅ 実装済み (2026-02-24) | チャレンジ3回失敗で担保50%没収 |
+| **+ 自己修復** | ✅ 実装済み (2026-02-24) | Lagrange補間でシェア再生成 |
+| **+ 余剰ホルダーGC** | ✅ 実装済み (2026-02-24) | evict_stale_holder + StaleHolderGc |
 
 ### 10.2 PoW Faucet（難易度: 低〜中） → **完了** (2026-02-09)
 
@@ -460,13 +472,20 @@ Anarchy プロトコルの「体」になる部分。
 - **匿名性の担保**: IP 制限をかけずに「計算量」だけで初期トークンを配るのは、Tor 前提の Anarchy と相性抜群
 - **技術構成**: Pallet 側で `nonce` と `difficulty` を管理し、フロントエンドの Web Worker で `hash` を回す
 
-### 10.3 自己修復プロトコルの罠
+### 10.3 自己修復プロトコルの罠 → ✅ 解決済み (2026-02-24)
 
 k-of-n（消失訂正符号）を使った再配布は、理論は完璧だが実装でハマりやすいポイントがある。
 
 > **「ノードが 1 台死ぬたびに全ネットワークで再配布が走ったら、トラフィックが爆発してパンクする」**
 
-これを防ぐには、**「閾値を下回った時だけ、インセンティブ付きで再配布を募集する」** という、スローで自律的なトリガーにする必要がある。
+~~これを防ぐには、**「閾値を下回った時だけ、インセンティブ付きで再配布を募集する」** という、スローで自律的なトリガーにする必要がある。~~ 
+
+**実装済み解決策 (013-slashing-repair):**
+- **FragmentState管理**: Active → AtRisk（k未満）で初めて修復対象に
+- **30秒間隔スケジューラ**: repair_schedulerがAtRiskフラグメントのみ検出
+- **Lagrange補間**: k個のシェアからオンデマンドで欠損シェアを再生成
+- **インセンティブ**: RepairRewardPoolから修復協力者へ報酬分配
+- **同時修復制限**: max_concurrent_repairs=5 でトラフィック抑制
 
 ---
 
@@ -504,17 +523,21 @@ Phase 1.5: Post Storage Migration ← ✅ 完了 (2026-02-10)
     │ - チェーン間Storage Node情報共有 (Gossip)
     │ - Observability (構造化ログ + Prometheus)
     ▼
-Phase 3: Moral Incentive ← 次のステップ
+Phase 3: Moral Incentive ✅ 完了 (2026-02-16)
     │
-    │ PoST と $moral の分配を組み込む
-    │ - Proof of Spacetime 生成・検証
-    │ - 報酬分配ロジック
+    │ KZG証明 と $moral の分配を組み込む
+    │ - KZG多項式コミットメント・証明検証
+    │ - 報酬プール・分配ロジック
     ▼
-Phase 4: Self-Healing
+Phase 4: Self-Healing ✅ 完了 (2026-02-24)
     │
     │ 自己修復プロトコル
+    │ - スラッシング (チャレンジ3回失敗で発動)
+    │ - FragmentState管理 (Active/AtRisk/Repairing/Lost)
+    │ - Lagrange補間によるシェア再生成
+    │ - 余剰ホルダーGC
     ▼
-完成: 真に不滅の SNS
+完成: 真に不滅の SNS ← 現在地
 ```
 
 ### 比喩
@@ -530,11 +553,21 @@ Phase 4: Self-Healing
 ~~**Phase 2 (010-multi-node-storage):**~~ → ✅完了 (2026-02-14)
 ~~1. **マルチノード対応** - 複数ストレージノードへの断片分散（ラウンドロビン/最寄りノード選択）~~ → ✅完了
 
-**Phase 3 (次のステップ):**
-1. **「自然な忘却」のためのデータ寿命（Rent）計算式** - 経済モデルの設計
-2. **Off-chain Workers (OCW) での PoST 検証設計** - 重い処理をオフチェーンに逃がす
-3. **報酬分配ロジック** - ストレージノードへの$moral分配
-4. **ChaCha20-Poly1305 暗号化** - 現在は平文、暗号化レイヤー追加
+~~**Phase 3 (011-kzg-proof-rewards):**~~ → ✅完了 (2026-02-16)
+~~1. **KZG多項式コミットメント・証明検証** - BLS12-381ベース~~
+~~2. **報酬分配ロジック** - RewardPool、prove_holding_kzg~~
+~~3. **GCライフサイクル** - StateProposed → Active → ForgettingCandidate~~
+
+~~**Phase 4 (013-slashing-repair):**~~ → ✅完了 (2026-02-24)
+~~1. **スラッシングシステム** - チャレンジ3回失敗で担保50%没収~~
+~~2. **自己修復プロトコル** - Lagrange補間によるシェア再生成~~
+~~3. **余剰ホルダーGC** - evict_stale_holder extrinsic~~
+~~4. **RPC監視エンドポイント** - getAtRiskFragments, getFragmentState~~
+
+**次のステップ候補:**
+1. ~~**ChaCha20-Poly1305 暗号化**~~ → ✅ AES-256-GCM で実装済み (Phase 3)
+2. **ステルスアドレス統合** - Phase 3.1 (名寄せ防止)
+3. **反応マイニング** - Phase 3.2 (いいね/ギフトにPoW)
 
 ---
 

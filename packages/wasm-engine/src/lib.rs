@@ -27,9 +27,9 @@ pub use merkle::*;
 
 // Re-export KZG-VSS APIs
 pub use kzg::{
-    compress, decompress, init_srs, is_srs_initialized, verify_kzg_proof, vss_prove,
-    vss_recover, vss_split, KzgCommitment, KzgError, KzgProof, VssShare, VssSplitResult,
-    BYTES_PER_SCALAR,
+    compress, decompress, init_srs, is_srs_initialized, regenerate_share, verify_kzg_proof,
+    vss_prove, vss_recover, vss_split, KzgCommitment, KzgError, KzgProof, VssShare,
+    VssSplitResult, BYTES_PER_SCALAR,
 };
 
 // Re-export Wasm bindings

@@ -9,6 +9,11 @@
 //! Implements:
 //! - FR-203: Score-based GC logic
 //! - FR-204: 7-day grace period before GC
+//! - T059: Stale holder GC for excess holder cleanup
+
+pub mod stale_holder_gc;
+
+pub use stale_holder_gc::{StaleHolderGc, StaleHolderGcConfig};
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
