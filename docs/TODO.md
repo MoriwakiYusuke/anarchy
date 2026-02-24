@@ -274,13 +274,42 @@
   - [x] + Reed-Solomon k-of-nエンコード/デコード
   - [x] + HybridShard構造: chunk + key_share + chunk_hash
 
-#### Phase 4: Slashing & Repair (未実装)
+#### Phase 4: Slashing & Repair → **完了** (2026-02-24)
 
-- [ ] **自己修復プロトコル**
+> **実装内容**: 013-slashing-repair仕様に基づく自己修復プロトコル
+
+- [x] + **スラッシングシステム** (pallet-storage)
+  - [x] + ProofRecord拡張: `slashed: bool`, `share_index: u8`
+  - [x] + `do_slash_node()`: チャレンジ3回失敗でスラッシュ発動
+  - [x] + 担保50%没収 → RepairRewardPool へ
+
+- [x] + **FragmentState管理**
+  - [x] + FragmentStateKind enum: Active/AtRisk/Repairing/Lost
+  - [x] + `update_fragment_state()`: 保持者数に応じた状態遷移
+  - [x] + Runtime API: `get_at_risk_fragments()`, `get_fragment_state()`
+
+- [x] + **自己修復プロトコル**
   > ストレージノードがオフライン時、自動的に断片を再配布
-  - [ ] 健全性モニタリング（k-of-nのうちm個以下で警告）
-  - [ ] 新規ストレージノードへの自動再分散
-  - [ ] インセンティブ設計（再分散協力者に報酬）
+  - [x] + 健全性モニタリング（k=3未満で AtRisk 状態へ遷移）
+  - [x] + `regenerate_share()`: Lagrange補間でシェア再生成 (wasm-engine)
+  - [x] + repair coordinator/scheduler (storage-node)
+  - [x] + `confirm_repair` extrinsic: 修復完了確認
+
+- [x] + **余剰ホルダー排除 (Stale Holder GC)**
+  - [x] + `evict_stale_holder` extrinsic: 最低優先度ホルダー排除
+  - [x] + `compute_eviction_candidates()`: 優先度スコア計算
+  - [x] + StaleHolderGc (storage-node): 自動GCサイクル
+
+- [x] + **インセンティブ設計**
+  - [x] + 修復報酬: スラッシュプールから修復協力者へ分配
+  - [x] + MinWithdrawalAmount: 500 MORAL (引き出し下限)
+
+- [x] + **RPC/監視エンドポイント**
+  - [x] + `storage_getAtRiskFragments`
+  - [x] + `storage_getFragmentState`
+  - [x] + `storage_getEvictionCandidates`
+  - [x] + `storage_getFragmentsWithExcessHolders`
+  - [x] + `storage_repairStatus` (storage-node)
 
 ### 2.3 PoW Faucet（アカウント初期化） → **完了** (2026-02-09)
 
@@ -490,7 +519,7 @@
 | **3** | + **Post Storage Migration** | 投稿コンテンツの分散ストレージ移行 | - | ✅完了 |
 | **4** | + **010-multi-node-storage** | マルチノード対応 & セキュリティ強化 | [spec.md](../specs/010-multi-node-storage/spec.md) | ✅完了 (2026-02-14) |
 | **5** | + **011-kzg-proof-rewards** | KZG証明 & 報酬システム | [spec.md](../specs/011-kzg-proof-rewards/spec.md) | ✅完了 (2026-02-16) |
-| **6** | 008-distributed-storage **Phase 4** | Slashing & Repair | - | 未着手 |
+| **6** | + **013-slashing-repair** | Slashing & 自己修復プロトコル | [spec.md](../specs/013-slashing-repair/spec.md) | ✅完了 (2026-02-24) |
 
 ### Phase 1 スコープ（まず繋がるだけ） → ✅完了 (2026-02-10)
 
@@ -498,10 +527,10 @@
 - ✅ Storage Daemon: libp2p断片送受信、ディスク保存
 - ✅ + HTTP JSON-RPC API: フロントエンド連携
 - ✅ + 自動登録 + heartbeat: ブロックチェーンノードへの登録
-- ❌ ~~PoST~~ → Phase 3 (KZG)
-- ❌ ~~報酬~~ → Phase 3 (KZG)
-- ❌ ~~スラッシング~~ → Phase 4
-- ❌ ~~自己修復~~ → Phase 4
+- ~~❌ PoST~~ → ✅ Phase 3 (KZG証明)
+- ~~❌ 報酬~~ → ✅ Phase 3 (KZG報酬システム)
+- ~~❌ スラッシング~~ → ✅ Phase 4 (013-slashing-repair)
+- ~~❌ 自己修復~~ → ✅ Phase 4 (013-slashing-repair)
 
 ### + Phase 2 スコープ（010-multi-node-storage） → ✅完了 (2026-02-14)
 
@@ -529,7 +558,9 @@ Phase 2.1 (SSS/Wasm) ✅ ──── Phase 2.2 (Storage) ✅ ─┬─ + Phase 
                                                      │
                                                      ├─ + 010-multi-node-storage ✅ (2026-02-14)
                                                      │
-                                                     └─ + 011-kzg-proof-rewards ✅ (2026-02-16)
+                                                     ├─ + 011-kzg-proof-rewards ✅ (2026-02-16)
+                                                     │
+                                                     └─ + 013-slashing-repair ✅ (2026-02-24)
 
 Phase 3.1 (Stealth) ─── Phase 3.2 (Reaction) ─── Phase 3.3 (DM)
 
@@ -556,9 +587,10 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | + **Post Storage統合** | 高 | 中 | **10** | ✅完了 |
 | + **マルチノード対応** | 高 | 高 | **11** | ✅完了 (2026-02-14) |
 | + **KZG Proof & Rewards** | 高 | 高 | **12** | ✅完了 (2026-02-16) |
-| ステルスアドレス | 中 | 中 | 13 | 未着手 |
-| 反応マイニング | 低 | 中 | 14 | 未着手 |
-| ~~ZKP回路~~ | ~~低~~ | ~~高~~ | ~~13~~ | →構想移動 |
+| + **Slashing & Self-Repair** | 高 | 高 | **13** | ✅完了 (2026-02-24) |
+| ステルスアドレス | 中 | 中 | 14 | 未着手 |
+| 反応マイニング | 低 | 中 | 15 | 未着手 |
+| ~~ZKP回路~~ | ~~低~~ | ~~高~~ | ~~16~~ | →構想移動 |
 
 ---
 
@@ -678,3 +710,32 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 - [x] + **フロントエンド統合**
   - [x] + HybridShard構造対応
   - [x] + Reed-Solomon復元ロジック
+
+### + M9: Slashing & Self-Repair ✅完了 (2026-02-24)
+
+> **実装内容**: 013-slashing-repair仕様に基づく自己修復プロトコル
+
+- [x] + **スラッシングシステム**
+  - [x] + ProofRecord拡張: `slashed: bool`, `share_index: u8`
+  - [x] + `do_slash_node()`: チャレンジ3回失敗でスラッシュ
+  - [x] + 担保50%没収 → RepairRewardPool
+
+- [x] + **FragmentState管理**
+  - [x] + FragmentStateKind: Active/AtRisk/Repairing/Lost
+  - [x] + `update_fragment_state()`: 状態遷移ロジック
+  - [x] + Runtime API: `get_at_risk_fragments()`, `get_fragment_state()`
+
+- [x] + **自己修復プロトコル**
+  - [x] + `regenerate_share()`: Lagrange補間でシェア再生成 (wasm-engine)
+  - [x] + repair coordinator/scheduler (storage-node)
+  - [x] + `confirm_repair` extrinsic: 修復完了確認
+
+- [x] + **余剰ホルダーGC**
+  - [x] + `evict_stale_holder` extrinsic
+  - [x] + `compute_eviction_candidates()`: 優先度計算
+  - [x] + StaleHolderGc (storage-node): 自動GCサイクル
+
+- [x] + **RPC監視エンドポイント**
+  - [x] + `storage_getAtRiskFragments`, `storage_getFragmentState`
+  - [x] + `storage_getEvictionCandidates`, `storage_getFragmentsWithExcessHolders`
+  - [x] + `storage_repairStatus` (storage-node)
