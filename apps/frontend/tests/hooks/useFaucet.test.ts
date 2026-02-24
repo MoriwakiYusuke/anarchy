@@ -8,6 +8,9 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
+/** Timeout for async test operations in milliseconds */
+const TEST_TIMEOUT_MS = 5000
+
 // Mock Worker
 class MockWorker {
   onmessage: ((event: MessageEvent) => void) | null = null
@@ -256,7 +259,7 @@ describe('useFaucet Hook', () => {
       // Wait for mining to complete and transaction to be submitted
       await waitFor(() => {
         return result.current.status === 'success' || result.current.status === 'error'
-      }, { timeout: 10000 })
+      }, { timeout: TEST_TIMEOUT_MS * 2 }) // Longer timeout for full submit flow
 
       // Verify the unsigned transaction was submitted
       expect(mockClient._request).toHaveBeenCalledWith(
@@ -378,7 +381,7 @@ describe('useFaucet Hook', () => {
 
       await waitFor(() => {
         return result.current.status === 'error'
-      }, { timeout: 5000 })
+      }, { timeout: TEST_TIMEOUT_MS })
 
       expect(result.current.error?.code).toBe('AlreadyClaimed')
     })
@@ -417,7 +420,7 @@ describe('useFaucet Hook', () => {
 
       await waitFor(() => {
         return result.current.status === 'error'
-      }, { timeout: 5000 })
+      }, { timeout: TEST_TIMEOUT_MS })
 
       expect(result.current.error?.code).toBe('AlreadyClaimed')
     })
@@ -460,7 +463,7 @@ describe('useFaucet Hook', () => {
 
       await waitFor(() => {
         return result.current.status === 'error'
-      }, { timeout: 5000 })
+      }, { timeout: TEST_TIMEOUT_MS })
 
       expect(result.current.error?.code).toBe('AlreadyClaimed')
     })
@@ -497,7 +500,7 @@ describe('useFaucet Hook', () => {
 
       await waitFor(() => {
         return result.current.status === 'error'
-      }, { timeout: 5000 })
+      }, { timeout: TEST_TIMEOUT_MS })
 
       expect(result.current.error?.code).toBe('AlreadyClaimed')
     })

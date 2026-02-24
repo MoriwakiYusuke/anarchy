@@ -5,7 +5,7 @@ import { PolkadotSigner } from 'polkadot-api/signer'
 import { computeChallenge, hexToBytes } from '@/lib/faucet/challenge'
 import type { WorkerMessage, MineRequest } from '@/lib/faucet/worker'
 
-/** Timeout for initial sync in milliseconds (60 seconds per spec) */
+/** Timeout for RPC calls in milliseconds (30 seconds) */
 const RPC_TIMEOUT_MS = 30_000
 
 /**

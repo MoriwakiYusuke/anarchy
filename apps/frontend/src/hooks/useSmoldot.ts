@@ -17,7 +17,7 @@ import {
 } from '@/lib/smoldot-provider'
 import type { ConnectionState, ConnectionStatus } from '@/types/connection'
 
-/** Timeout for initial sync in milliseconds (60 seconds per spec) */
+/** Spec-defined timeout for initial sync in milliseconds (60 seconds) */
 const SYNC_TIMEOUT_MS = 60_000
 
 export interface UseSmoldotResult {

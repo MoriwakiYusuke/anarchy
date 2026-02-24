@@ -129,9 +129,7 @@ export function destroySmoldotClient(): void {
     }
     smoldotClient = null
   }
-  
 
-  
   initPromise = null
   console.log('[smoldot] Client destroyed')
 }

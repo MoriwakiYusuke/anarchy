@@ -10,11 +10,14 @@
 ```json
 {
   "dependencies": {
-    "polkadot-api": "^1.23.3",  // Already installed in the project
-    "smoldot": "^2.0.40"        // Core smoldot light client
+    "polkadot-api": "^1.23.3",
+    "smoldot": "^2.0.40"
   }
 }
 ```
+
+- `polkadot-api`: Already installed in the project
+- `smoldot`: Core smoldot light client
 
 **Note**: `@polkadot-api/smoldot` and `@polkadot-api/sm-provider` are internal PAPI packages already bundled with `polkadot-api`. No need to install them separately.
 
