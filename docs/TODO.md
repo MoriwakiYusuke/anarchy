@@ -336,19 +336,33 @@
 > **設計方針**: Tor統合を断念したため、smoldotによるLight Client接続でRPC依存を排除し検閲耐性を確保。
 > ブラウザ内でブロックを自分で検証するTrustlessな構成を実現。
 
-- [ ] **smoldot導入** (`apps/frontend/`)
-  - [ ] `polkadot-api/smoldot` パッケージ追加
-  - [ ] `getWsProvider` → `getSmProvider` への切り替え
-  - [ ] Web Worker でのsmoldot実行
+- [x] **smoldot導入** (`apps/frontend/`)
+  - [x] `smoldot` パッケージ追加（v2.0.40）
+  - [x] + シングルトン管理 (`lib/smoldot-provider.ts`)
+  - [x] + `useSmoldot` フック (`hooks/useSmoldot.ts`)
+  - [x] + 接続状態型定義 (`types/connection.ts`)
 
-- [ ] **チェーンスペック生成・配布**
-  - [ ] ジェネシス情報を含むchain spec生成
-  - [ ] ブートノードリスト設定
-  - [ ] フロントエンドへのchain spec同梱
+- [x] **チェーンスペック生成・配布**
+  - [x] + chain spec生成スクリプト (`scripts/export-chainspec.sh`)
+  - [x] + ブートノードリスト設定（P2P WebSocket: 30833-30835）
+  - [x] + フロントエンドへのchain spec同梱 (`lib/chainspec.json`)
 
-- [ ] **接続フォールバック戦略**
-  - [ ] Light Client優先 → WsProvider フォールバック
-  - [ ] 接続状態インジケーターUI
+- [x] **接続フロー**
+  - [x] + 同期タイムアウト（60秒）
+  - [x] + ブロック番号自動更新（6秒間隔）
+  - [x] + 接続状態表示（initializing/syncing/connected/error）
+
+- [x] **Faucet改善**
+  - [x] + RPCタイムアウト追加（30秒）- ネットワークエラー時のハング防止
+  - [x] + AlreadyClaimed事前検証 - 2回目Claim即時検出
+  - [x] + 送信後ストレージ検証 - smoldot非同期バリデーション対応
+  - [x] + エラーボタンhover色修正（緑→赤）
+
+- [x] **テスト**
+  - [x] + useSmoldot: 15件
+  - [x] + smoldot-provider: 12件  
+  - [x] + connection types: 7件
+  - [x] + useFaucet拡張: 4件追加（計16件）
 
 ---
 
