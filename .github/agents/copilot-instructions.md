@@ -18,6 +18,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-07
 - Rust (Polkadot SDK stable2503), TypeScript (Next.js 14) + arkworks (ark-bls12-381, ark-poly, ark-poly-commit), wasm-pack, PAPI (011-kzg-proof-rewards)
 - Substrate on-chain storage (`Fragments`, `RewardPoolBalance`) (011-kzg-proof-rewards)
 - Rust 1.75+ (stable channel with wasm32v1-none target) (013-slashing-repair)
+- TypeScript 5.3.3, Rust (stable) for blockchain + polkadot-api ^1.23.3, @polkadot-api/smoldot, smoldot, Next.js 14 (014-smoldot-integration)
+- N/A (ブラウザ内ライトクライアント) (014-smoldot-integration)
 
 - Rust 1.75+ (Polkadot SDK stable2503) + frame-support, frame-system, sp-runtime, sp-core (001-identity-pallet)
 
@@ -37,9 +39,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust 1.75+ (Polkadot SDK stable2503): Follow standard conventions
 
 ## Recent Changes
+- 014-smoldot-integration: Added TypeScript 5.3.3, Rust (stable) for blockchain + polkadot-api ^1.23.3, @polkadot-api/smoldot, smoldot, Next.js 14
 - 013-slashing-repair: Added Rust 1.75+ (stable channel with wasm32v1-none target)
 - 011-kzg-proof-rewards: Added Rust (Polkadot SDK stable2503), TypeScript (Next.js 14) + arkworks (ark-bls12-381, ark-poly, ark-poly-commit), wasm-pack, PAPI
-- 010-multi-node-storage: Added Rust 1.75+ (stable2503 toolchain), TypeScript 5.x
 
 
 <!-- MANUAL ADDITIONS START -->
