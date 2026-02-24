@@ -19,9 +19,9 @@
 
 **Purpose**: プロジェクト初期化とパッケージ追加
 
-- [ ] T001 Add smoldot dependency in apps/frontend/package.json
-- [ ] T002 [P] Create ConnectionState types in apps/frontend/src/types/connection.ts
-- [ ] T003 [P] Create export-chainspec.sh script in apps/blockchain/scripts/export-chainspec.sh
+- [X] T001 Add smoldot dependency in apps/frontend/package.json
+- [X] T002 [P] Create ConnectionState types in apps/frontend/src/types/connection.ts
+- [X] T003 [P] Create export-chainspec.sh script in apps/blockchain/scripts/export-chainspec.sh
 
 ---
 
@@ -31,8 +31,8 @@
 
 **⚠️ CRITICAL**: このフェーズが完了するまでユーザーストーリー作業は開始不可
 
-- [ ] T004 Export chainspec.json via export-chainspec.sh to apps/frontend/src/lib/chainspec.json
-- [ ] T005 Create smoldot-provider.ts with Web Worker support in apps/frontend/src/lib/smoldot-provider.ts
+- [X] T004 Export chainspec.json via export-chainspec.sh to apps/frontend/src/lib/chainspec.json
+- [X] T005 Create smoldot-provider.ts with Web Worker support in apps/frontend/src/lib/smoldot-provider.ts
 
 **Checkpoint**: Foundational完了 - ユーザーストーリー実装開始可能
 
@@ -46,8 +46,8 @@
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Create useSmoldot.ts hook with ConnectionState management in apps/frontend/src/hooks/useSmoldot.ts
-- [ ] T007 [US1] Update useApi.ts to use smoldot provider instead of WebSocket in apps/frontend/src/hooks/useApi.ts
+- [X] T006 [US1] Create useSmoldot.ts hook with ConnectionState management in apps/frontend/src/hooks/useSmoldot.ts
+- [X] T007 [US1] Update useApi.ts to use smoldot provider instead of WebSocket in apps/frontend/src/hooks/useApi.ts
 
 **Checkpoint**: smoldot接続でブロック番号取得可能
 
@@ -77,8 +77,8 @@
 
 ### Implementation for User Story 3
 
-- [ ] T011 [US3] Update connection status display text in components using useApi hook
-- [ ] T012 [US3] Add syncing state handling to disable operations during sync
+- [X] T011 [US3] Update connection status display text in components using useApi hook
+- [X] T012 [US3] Add syncing state handling to disable operations during sync
 
 **Checkpoint**: 同期状態が正しく表示される
 
@@ -92,10 +92,10 @@
 
 ### Implementation for User Story 4
 
-- [ ] T013 [US4] Remove getWsProvider import from apps/frontend/src/hooks/useApi.ts
-- [ ] T014 [US4] Remove WS_ENDPOINT constant and NEXT_PUBLIC_WS_ENDPOINT usage from apps/frontend/src/hooks/useApi.ts
-- [ ] T015 [US4] Remove NEXT_PUBLIC_WS_ENDPOINT from apps/frontend/.env.local (if exists)
-- [ ] T016 [US4] Verify no WebSocket RPC references remain in codebase with grep search
+- [X] T013 [US4] Remove getWsProvider import from apps/frontend/src/hooks/useApi.ts
+- [X] T014 [US4] Remove WS_ENDPOINT constant and NEXT_PUBLIC_WS_ENDPOINT usage from apps/frontend/src/hooks/useApi.ts
+- [X] T015 [US4] Remove NEXT_PUBLIC_WS_ENDPOINT from apps/frontend/.env.local (if exists)
+- [X] T016 [US4] Verify no WebSocket RPC references remain in codebase with grep search
 
 **Checkpoint**: レガシーコードが完全に削除
 
@@ -105,12 +105,12 @@
 
 **Purpose**: 最終検証と品質向上
 
-- [ ] T017 [P] Verify bundle size increase is under 2MB (NFR-003)
-- [ ] T018 [P] Run existing frontend unit tests with smoldot connection
-- [ ] T019 [P] Verify smoldot initialization completes within 5 seconds (NFR-001)
-- [ ] T020 [P] Verify initial sync completes within 60 seconds under typical network (NFR-002)
-- [ ] T021 [P] Verify main thread is not blocked during smoldot operation (NFR-004) via DevTools Performance tab
-- [ ] T022 [P] Update quickstart.md with final verification steps
+- [X] T017 [P] Verify bundle size increase is under 2MB (NFR-003)
+- [X] T018 [P] Run existing frontend unit tests with smoldot connection
+- [X] T019 [P] Verify smoldot initialization completes within 5 seconds (NFR-001)
+- [X] T020 [P] Verify initial sync completes within 60 seconds under typical network (NFR-002)
+- [X] T021 [P] Verify main thread is not blocked during smoldot operation (NFR-004) via DevTools Performance tab
+- [X] T022 [P] Update quickstart.md with final verification steps
 - [ ] T023 Run manual E2E verification following quickstart.md (SC-003)
 
 ---

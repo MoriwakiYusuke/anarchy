@@ -85,10 +85,6 @@ pnpm test -- --testPathPattern=useSmoldot
 [smoldot] Connected - Block #123
 ```
 
-### Web Workerの確認
-
-DevTools > Sources > Workersに`smoldot`ワーカーが表示されること。
-
 ### ネットワークタブ
 
 WebSocketの接続ではなく、P2Pトラフィック（表示されない）を使用していることを確認。
@@ -113,13 +109,13 @@ Error: Failed to connect to any bootnode
 1. ブロックチェーンノードが起動していることを確認
 2. `chainspec.json`の`bootNodes`にノードのアドレスが含まれていることを確認
 
-### Web Workerエラー
+### WebAssemblyエラー
 
 ```
-Error: Worker not supported
+Error: WebAssembly not supported
 ```
 
-**解決**: ブラウザがWeb Workerをサポートしていることを確認（Safari, Chrome, Firefox最新版）
+**解決**: ブラウザがWebAssemblyをサポートしていることを確認（Chrome, Firefox, Safari最新版）
 
 ## ファイル構成
 

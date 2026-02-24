@@ -2,6 +2,8 @@
   "app.subtitle": "无统治的秩序",
   "app.connected": "已连接",
   "app.disconnected": "未连接",
+  "app.syncing": "同步中...",
+  "app.connecting": "连接中...",
   "nav.home": "首页",
   "nav.about": "关于",
   "wallet.title": "钱包",

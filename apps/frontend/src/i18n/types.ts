@@ -99,6 +99,8 @@ export type TranslationKey =
   | 'app.subtitle'
   | 'app.connected'
   | 'app.disconnected'
+  | 'app.syncing'
+  | 'app.connecting'
   // Faucet
   | 'faucet.button'
   | 'faucet.mining'

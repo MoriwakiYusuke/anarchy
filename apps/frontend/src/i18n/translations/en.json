@@ -2,6 +2,8 @@
   "app.subtitle": "Order Without Rulers",
   "app.connected": "Connected",
   "app.disconnected": "Disconnected",
+  "app.syncing": "Syncing...",
+  "app.connecting": "Connecting...",
   "nav.home": "Home",
   "nav.about": "About",
   "wallet.title": "Wallet",

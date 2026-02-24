@@ -1,89 +1,35 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { createClient, PolkadotClient, Binary } from 'polkadot-api'
-import { getWsProvider } from 'polkadot-api/ws-provider/web'
+import { useCallback } from 'react'
+import { PolkadotClient } from 'polkadot-api'
 import { getPolkadotSigner, PolkadotSigner } from 'polkadot-api/signer'
 import { DEV_PHRASE } from '@polkadot-labs/hdkd-helpers'
-// Dynamic import for @polkadot/keyring to avoid SSR issues with octal escape sequences
-// import { Keyring } from '@polkadot/keyring'
+import { useSmoldot } from './useSmoldot'
+import type { ConnectionState } from '@/types/connection'
 
-const WS_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT || 'ws://127.0.0.1:9944'
+// Re-export connection helpers for backward compatibility
+export { isConnected, isSyncing, canPerformOperations } from '@/types/connection'
 
 export interface UseApiResult {
   client: PolkadotClient | null
   unsafeApi: any
+  /** Connection state with status, blockNumber, and errorMessage */
+  connectionState: ConnectionState
+  /** @deprecated Use connectionState.status === 'connected' instead */
   isConnected: boolean
   error: string | null
   createSigner: (seedPhrase: string) => Promise<PolkadotSigner | null>
 }
 
+/**
+ * React hook for blockchain API access via smoldot light client
+ * 
+ * This hook uses smoldot to connect directly to the P2P network
+ * without requiring a WebSocket RPC endpoint.
+ */
 export function useApi(): UseApiResult {
-  const [client, setClient] = useState<PolkadotClient | null>(null)
-  const [unsafeApi, setUnsafeApi] = useState<any>(null)
-  const [isConnected, setIsConnected] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let mounted = true
-    let clientInstance: PolkadotClient | null = null
-    let healthCheckInterval: NodeJS.Timeout | null = null
-
-    const connect = async () => {
-      try {
-        // Create PAPI client
-        const provider = getWsProvider(WS_ENDPOINT)
-        clientInstance = createClient(provider)
-        const api = clientInstance.getUnsafeApi()
-
-        if (mounted) {
-          setClient(clientInstance)
-          setUnsafeApi(api)
-        }
-
-        // Verify actual connection by calling RPC
-        const checkConnection = async () => {
-          if (!mounted) return
-          try {
-            // Use System.Number query to verify connection
-            await api.query.System.Number.getValue()
-            if (mounted) {
-              setIsConnected(true)
-              setError(null)
-            }
-          } catch {
-            if (mounted) {
-              setIsConnected(false)
-            }
-          }
-        }
-
-        // Initial check
-        await checkConnection()
-
-        // Periodic health check (every 5 seconds)
-        healthCheckInterval = setInterval(checkConnection, 5000)
-
-      } catch (err) {
-        if (mounted) {
-          setError(err instanceof Error ? err.message : 'API接続に失敗しました')
-          setIsConnected(false)
-        }
-      }
-    }
-
-    connect()
-
-    return () => {
-      mounted = false
-      if (healthCheckInterval) {
-        clearInterval(healthCheckInterval)
-      }
-      if (clientInstance) {
-        clientInstance.destroy()
-      }
-    }
-  }, [])
+  // Use smoldot for connection
+  const { client, unsafeApi, connectionState } = useSmoldot()
 
   // Create signer from seed phrase or derivation path
   // If seedPhrase starts with //, treat it as a derivation path from DEV_PHRASE
@@ -116,5 +62,18 @@ export function useApi(): UseApiResult {
     }
   }, [])
 
-  return { client, unsafeApi, isConnected, error, createSigner }
+  // Derive backward-compatible values
+  const isConnectedFlag = connectionState.status === 'connected'
+  const error = connectionState.status === 'error' 
+    ? (connectionState.errorMessage ?? 'エラーが発生しました') 
+    : null
+
+  return { 
+    client, 
+    unsafeApi, 
+    connectionState,
+    isConnected: isConnectedFlag, 
+    error, 
+    createSigner 
+  }
 }
