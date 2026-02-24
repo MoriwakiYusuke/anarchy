@@ -383,7 +383,7 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
         setError(null)
       }, 5000)
     }
-  }, [unsafeApi, account, signer, status, onSuccess])
+  }, [client, unsafeApi, account, status, onSuccess])
 
   return {
     status,
