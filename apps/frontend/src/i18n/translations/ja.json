@@ -2,6 +2,8 @@
   "app.subtitle": "支配なき秩序",
   "app.connected": "接続済み",
   "app.disconnected": "未接続",
+  "app.syncing": "同期中...",
+  "app.connecting": "接続中...",
   "nav.home": "ホーム",
   "nav.about": "概要",
   "wallet.title": "ウォレット",

@@ -11,7 +11,7 @@ import styles from './page.module.css'
 import type { PolkadotSigner } from 'polkadot-api/signer'
 
 export default function Home() {
-  const { client, unsafeApi, isConnected, error, createSigner } = useApi()
+  const { client, unsafeApi, connectionState, error, createSigner } = useApi()
   const { t } = useLocale()
   const [account, setAccount] = useState<string | null>(null)
   const [accountSeed, setAccountSeed] = useState<string | null>(null)
@@ -40,6 +40,22 @@ export default function Home() {
     setRefreshTrigger(prev => prev + 1)
   }, [])
 
+  // Connection status display helper
+  const renderConnectionStatus = () => {
+    switch (connectionState.status) {
+      case 'connected':
+        return <span className={styles.connected}>● {t('app.connected')}</span>
+      case 'syncing':
+        return <span className={styles.syncing}>◐ {t('app.syncing')}</span>
+      case 'initializing':
+        return <span className={styles.disconnected}>○ {t('app.connecting')}</span>
+      case 'error':
+        return <span className={styles.disconnected}>○ {t('app.disconnected')}</span>
+      default:
+        return <span className={styles.disconnected}>○ {t('app.disconnected')}</span>
+    }
+  }
+
   return (
     <main className={styles.main}>
       <div className={styles.headerBg}>
@@ -52,11 +68,7 @@ export default function Home() {
           </h1>
           <p className={styles.subtitle}>{t('app.subtitle')}</p>
           <div className={styles.status}>
-            {isConnected ? (
-              <span className={styles.connected}>● {t('app.connected')}</span>
-            ) : (
-              <span className={styles.disconnected}>○ {t('app.disconnected')}</span>
-            )}
+            {renderConnectionStatus()}
           </div>
         </header>
       </div>

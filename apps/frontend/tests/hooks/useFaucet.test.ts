@@ -8,6 +8,9 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
+/** Timeout for async test operations in milliseconds */
+const TEST_TIMEOUT_MS = 5000
+
 // Mock Worker
 class MockWorker {
   onmessage: ((event: MessageEvent) => void) | null = null
@@ -85,6 +88,7 @@ describe('useFaucet Hook', () => {
     query: {
       Faucet: {
         TotalClaims: { getValue: jest.fn().mockResolvedValue(BigInt(0)) },
+        Claims: { getValue: jest.fn().mockResolvedValue(null) }, // Not claimed by default
       },
       System: {
         Number: { getValue: jest.fn().mockResolvedValue(100) },
@@ -110,7 +114,18 @@ describe('useFaucet Hook', () => {
   }
 
   const mockClient = {
-    _request: jest.fn().mockResolvedValue('0x' + '00'.repeat(32)),
+    _request: jest.fn().mockImplementation((method: string, params: any[]) => {
+      if (method === 'chain_getFinalizedHead') {
+        return Promise.resolve('0x' + '00'.repeat(32))
+      }
+      if (method === 'chain_getHeader') {
+        return Promise.resolve({ number: '0x64' }) // hex for 100
+      }
+      if (method === 'author_submitExtrinsic') {
+        return Promise.resolve('0x' + '00'.repeat(32))
+      }
+      return Promise.resolve(null)
+    }),
   }
 
   beforeAll(() => {
@@ -207,10 +222,30 @@ describe('useFaucet Hook', () => {
     })
 
     it('should submit unsigned transaction via author_submitExtrinsic', async () => {
+      // Create a mock that simulates claim being recorded after submission
+      let claimCallCount = 0
+      const mockUnsafeApiWithClaim = {
+        ...mockUnsafeApi,
+        query: {
+          ...mockUnsafeApi.query,
+          Faucet: {
+            ...mockUnsafeApi.query.Faucet,
+            Claims: { 
+              getValue: jest.fn().mockImplementation(() => {
+                // First call (pre-check): not claimed
+                // Second call (verification): claimed
+                claimCallCount++
+                return Promise.resolve(claimCallCount > 1 ? 100 : null)
+              })
+            },
+          },
+        },
+      }
+
       const { result } = renderHook(() =>
         useFaucet({
           client: mockClient,
-          unsafeApi: mockUnsafeApi,
+          unsafeApi: mockUnsafeApiWithClaim,
           account: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
           signer: mockSigner,
         })
@@ -224,13 +259,16 @@ describe('useFaucet Hook', () => {
       // Wait for mining to complete and transaction to be submitted
       await waitFor(() => {
         return result.current.status === 'success' || result.current.status === 'error'
-      }, { timeout: 5000 })
+      }, { timeout: TEST_TIMEOUT_MS * 2 }) // Longer timeout for full submit flow
 
       // Verify the unsigned transaction was submitted
       expect(mockClient._request).toHaveBeenCalledWith(
         'author_submitExtrinsic',
         expect.arrayContaining([expect.stringMatching(/^0x/)])
       )
+      
+      // Should succeed
+      expect(result.current.status).toBe('success')
     })
 
     // Note: Full transaction flow test requires real worker execution
@@ -315,12 +353,56 @@ describe('useFaucet Hook', () => {
       expect(result.current.error).toBeTruthy()
     })
 
+    it('should detect AlreadyClaimed from pre-check before submission', async () => {
+      // When Claims storage already has a value for this account
+      const mockUnsafeApiAlreadyClaimed = {
+        ...mockUnsafeApi,
+        query: {
+          ...mockUnsafeApi.query,
+          Faucet: {
+            ...mockUnsafeApi.query.Faucet,
+            Claims: { getValue: jest.fn().mockResolvedValue(100) }, // Already claimed
+          },
+        },
+      }
+
+      const { result } = renderHook(() =>
+        useFaucet({
+          client: mockClient,
+          unsafeApi: mockUnsafeApiAlreadyClaimed,
+          account: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          signer: mockSigner,
+        })
+      )
+
+      await act(async () => {
+        await result.current.startMining()
+      })
+
+      await waitFor(() => {
+        return result.current.status === 'error'
+      }, { timeout: TEST_TIMEOUT_MS })
+
+      expect(result.current.error?.code).toBe('AlreadyClaimed')
+    })
+
     it('should map Invalid Transaction to AlreadyClaimed', async () => {
       // Simulate RPC rejection for second claim
+      // Flow: getFinalizedHead -> getHeader -> submitExtrinsic (error here)
       const mockClientWithError = {
-        _request: jest.fn()
-          .mockResolvedValueOnce('0x' + '00'.repeat(32)) // First call: getBlockHash
-          .mockRejectedValueOnce(new Error('RpcError: Invalid Transaction')), // Second call: submitExtrinsic
+        _request: jest.fn().mockImplementation((method: string) => {
+          if (method === 'chain_getFinalizedHead') {
+            return Promise.resolve('0x' + '00'.repeat(32))
+          }
+          if (method === 'chain_getHeader') {
+            return Promise.resolve({ number: '0x64' }) // hex for 100
+          }
+          if (method === 'author_submitExtrinsic') {
+            // smoldot returns Custom(1) = AlreadyClaimed
+            return Promise.reject(new Error('RpcError: 1010: Invalid Transaction: Transaction dispatch is invalid'))
+          }
+          return Promise.resolve(null)
+        }),
       }
 
       const { result } = renderHook(() =>
@@ -338,7 +420,87 @@ describe('useFaucet Hook', () => {
 
       await waitFor(() => {
         return result.current.status === 'error'
-      }, { timeout: 5000 })
+      }, { timeout: TEST_TIMEOUT_MS })
+
+      expect(result.current.error?.code).toBe('AlreadyClaimed')
+    })
+
+    it('should detect AlreadyClaimed from error result object (non-throwing RPC)', async () => {
+      // Some RPC implementations return error in result instead of throwing
+      const mockClientWithErrorResult = {
+        _request: jest.fn().mockImplementation((method: string) => {
+          if (method === 'chain_getFinalizedHead') {
+            return Promise.resolve('0x' + '00'.repeat(32))
+          }
+          if (method === 'chain_getHeader') {
+            return Promise.resolve({ number: '0x64' })
+          }
+          if (method === 'author_submitExtrinsic') {
+            // Return error in result object format
+            return Promise.resolve({
+              error: {
+                code: 1010,
+                message: 'Invalid Transaction: Custom error: 1'
+              }
+            })
+          }
+          return Promise.resolve(null)
+        }),
+      }
+
+      const { result } = renderHook(() =>
+        useFaucet({
+          client: mockClientWithErrorResult,
+          unsafeApi: mockUnsafeApi,
+          account: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          signer: mockSigner,
+        })
+      )
+
+      await act(async () => {
+        await result.current.startMining()
+      })
+
+      await waitFor(() => {
+        return result.current.status === 'error'
+      }, { timeout: TEST_TIMEOUT_MS })
+
+      expect(result.current.error?.code).toBe('AlreadyClaimed')
+    })
+
+    it('should detect AlreadyClaimed from numeric 1010 error code', async () => {
+      // smoldot may return just the numeric code
+      const mockClientWith1010 = {
+        _request: jest.fn().mockImplementation((method: string) => {
+          if (method === 'chain_getFinalizedHead') {
+            return Promise.resolve('0x' + '00'.repeat(32))
+          }
+          if (method === 'chain_getHeader') {
+            return Promise.resolve({ number: '0x64' })
+          }
+          if (method === 'author_submitExtrinsic') {
+            return Promise.reject(new Error('1010: Transaction dispatch is mandatory but invalid'))
+          }
+          return Promise.resolve(null)
+        }),
+      }
+
+      const { result } = renderHook(() =>
+        useFaucet({
+          client: mockClientWith1010,
+          unsafeApi: mockUnsafeApi,
+          account: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          signer: mockSigner,
+        })
+      )
+
+      await act(async () => {
+        await result.current.startMining()
+      })
+
+      await waitFor(() => {
+        return result.current.status === 'error'
+      }, { timeout: TEST_TIMEOUT_MS })
 
       expect(result.current.error?.code).toBe('AlreadyClaimed')
     })
@@ -361,6 +523,32 @@ describe('useFaucet Hook', () => {
       // Hook should accept callback without errors
       expect(result.current.startMining).toBeDefined()
       // Full callback test requires integration test with real worker
+    })
+  })
+
+  describe('RPC Timeout Handling', () => {
+    it('should timeout if RPC call takes too long', async () => {
+      // Create a slow client that never resolves
+      const slowClient = {
+        _request: jest.fn().mockImplementation(() => new Promise(() => {})), // Never resolves
+      }
+
+      const { result } = renderHook(() =>
+        useFaucet({
+          client: slowClient,
+          unsafeApi: mockUnsafeApi,
+          account: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          signer: mockSigner,
+        })
+      )
+
+      await act(async () => {
+        result.current.startMining()
+      })
+
+      // Wait for timeout (30 seconds in prod, but test will fail faster due to Jest timeout)
+      // We can't easily test the full 30s timeout, so verify the setup is correct
+      expect(slowClient._request).toHaveBeenCalledWith('chain_getFinalizedHead', [])
     })
   })
 })

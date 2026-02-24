@@ -26,6 +26,7 @@
     "polkadot-api": "^1.23.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "smoldot": "^2.0.40",
     "socks-proxy-agent": "^8.0.5"
   },
   "devDependencies": {

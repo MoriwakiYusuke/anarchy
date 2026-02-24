@@ -85,6 +85,7 @@ start_node() {
     local bootnode="$4"
     
     local p2p_port=$((BASE_P2P_PORT + index))
+    local ws_p2p_port=$((BASE_P2P_PORT + index + 500))  # WebSocket P2P for smoldot (30833, 30834, ...)
     local rpc_port=$((BASE_RPC_PORT + index))
     local prom_port=$((BASE_PROM_PORT + index))
     
@@ -131,7 +132,8 @@ start_node() {
         --chain local \
         --"$name" \
         --base-path "$DATA_DIR/$name" \
-        --port $p2p_port \
+        --listen-addr /ip4/0.0.0.0/tcp/$p2p_port \
+        --listen-addr /ip4/0.0.0.0/tcp/$ws_p2p_port/ws \
         --rpc-port $rpc_port \
         --prometheus-port $prom_port \
         --rpc-cors all \
@@ -144,7 +146,7 @@ start_node() {
     
     echo $! > "$DATA_DIR/$name.pid"
     log_info "$name started (PID: $(cat $DATA_DIR/$name.pid))"
-    log_info "  P2P: $p2p_port, RPC: $rpc_port"
+    log_info "  P2P: $p2p_port (TCP), $ws_p2p_port (WS), RPC: $rpc_port"
 }
 
 start_all() {

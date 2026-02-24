@@ -58,6 +58,10 @@
   color: #4ade80;
 }
 
+.syncing {
+  color: #fbbf24;
+}
+
 .disconnected {
   color: var(--text-secondary);
 }
