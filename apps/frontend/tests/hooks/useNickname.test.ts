@@ -15,7 +15,7 @@ const TEST_TIMEOUT_MS = 5000
 const mockSignAndSubmit = jest.fn()
 
 // Mock PAPI query
-const mockQueryNickname = jest.fn()
+const mockQueryNicknameGetValue = jest.fn()
 
 // Mock unsafeApi
 const mockUnsafeApi = {
@@ -31,7 +31,9 @@ const mockUnsafeApi = {
   },
   query: {
     Nickname: {
-      Nicknames: mockQueryNickname,
+      Nicknames: {
+        getValue: mockQueryNicknameGetValue,
+      },
     },
   },
 }
@@ -72,7 +74,7 @@ describe('useNickname Hook', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockSignAndSubmit.mockReset()
-    mockQueryNickname.mockReset()
+    mockQueryNicknameGetValue.mockReset()
   })
 
   // ============================================================================
@@ -82,7 +84,7 @@ describe('useNickname Hook', () => {
   describe('Query Nickname', () => {
     it('should fetch nickname on mount', async () => {
       const encodedNickname = new TextEncoder().encode(TEST_NICKNAME)
-      mockQueryNickname.mockResolvedValue(encodedNickname)
+      mockQueryNicknameGetValue.mockResolvedValue(encodedNickname)
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -96,7 +98,7 @@ describe('useNickname Hook', () => {
     })
 
     it('should return null when no nickname is set', async () => {
-      mockQueryNickname.mockResolvedValue(null)
+      mockQueryNicknameGetValue.mockResolvedValue(null)
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -112,7 +114,7 @@ describe('useNickname Hook', () => {
     })
 
     it('should handle query error gracefully', async () => {
-      mockQueryNickname.mockRejectedValue(new Error('Query failed'))
+      mockQueryNicknameGetValue.mockRejectedValue(new Error('Query failed'))
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -129,7 +131,7 @@ describe('useNickname Hook', () => {
 
     it('should refetch on accountId change', async () => {
       const encodedNickname = new TextEncoder().encode(TEST_NICKNAME)
-      mockQueryNickname.mockResolvedValue(encodedNickname)
+      mockQueryNicknameGetValue.mockResolvedValue(encodedNickname)
 
       const { result, rerender } = renderHook(
         ({ accountId }) => useNickname({
@@ -147,7 +149,7 @@ describe('useNickname Hook', () => {
       // Change account
       const newAddress = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty'
       const newNickname = 'bob_builder'
-      mockQueryNickname.mockResolvedValue(new TextEncoder().encode(newNickname))
+      mockQueryNicknameGetValue.mockResolvedValue(new TextEncoder().encode(newNickname))
 
       rerender({ accountId: newAddress })
 
@@ -164,7 +166,7 @@ describe('useNickname Hook', () => {
   describe('Set Nickname', () => {
     it('should set nickname successfully', async () => {
       mockSignAndSubmit.mockResolvedValue({ txHash: '0x1234' })
-      mockQueryNickname.mockResolvedValue(null)
+      mockQueryNicknameGetValue.mockResolvedValue(null)
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -223,7 +225,7 @@ describe('useNickname Hook', () => {
 
     it('should handle transaction failure', async () => {
       mockSignAndSubmit.mockRejectedValue(new Error('Transaction rejected'))
-      mockQueryNickname.mockResolvedValue(null)
+      mockQueryNicknameGetValue.mockResolvedValue(null)
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -267,7 +269,7 @@ describe('useNickname Hook', () => {
   describe('Clear Nickname', () => {
     it('should clear nickname successfully', async () => {
       mockSignAndSubmit.mockResolvedValue({ txHash: '0x1234' })
-      mockQueryNickname.mockResolvedValue(new TextEncoder().encode(TEST_NICKNAME))
+      mockQueryNicknameGetValue.mockResolvedValue(new TextEncoder().encode(TEST_NICKNAME))
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -290,7 +292,7 @@ describe('useNickname Hook', () => {
 
     it('should handle clear failure', async () => {
       mockSignAndSubmit.mockRejectedValue(new Error('Transaction failed'))
-      mockQueryNickname.mockResolvedValue(new TextEncoder().encode(TEST_NICKNAME))
+      mockQueryNicknameGetValue.mockResolvedValue(new TextEncoder().encode(TEST_NICKNAME))
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -317,7 +319,7 @@ describe('useNickname Hook', () => {
 
   describe('State Machine', () => {
     it('should start in idle state', async () => {
-      mockQueryNickname.mockResolvedValue(null)
+      mockQueryNicknameGetValue.mockResolvedValue(null)
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -338,7 +340,7 @@ describe('useNickname Hook', () => {
       mockSignAndSubmit.mockImplementation(() => new Promise(resolve => {
         resolveSetNickname = () => resolve({ txHash: '0x1234' })
       }))
-      mockQueryNickname.mockResolvedValue(null)
+      mockQueryNicknameGetValue.mockResolvedValue(null)
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -373,7 +375,7 @@ describe('useNickname Hook', () => {
 
     it('should transition to error on failure', async () => {
       mockSignAndSubmit.mockRejectedValue(new Error('Failed'))
-      mockQueryNickname.mockResolvedValue(null)
+      mockQueryNicknameGetValue.mockResolvedValue(null)
 
       const { result } = renderHook(() => useNickname({
         client: mockClient,
@@ -401,7 +403,7 @@ describe('useNickname Hook', () => {
   describe('Callbacks', () => {
     it('should call onSuccess after successful set', async () => {
       mockSignAndSubmit.mockResolvedValue({ txHash: '0x1234' })
-      mockQueryNickname.mockResolvedValue(null)
+      mockQueryNicknameGetValue.mockResolvedValue(null)
       const onSuccess = jest.fn()
 
       const { result } = renderHook(() => useNickname({
@@ -425,7 +427,7 @@ describe('useNickname Hook', () => {
 
     it('should call onError on failure', async () => {
       mockSignAndSubmit.mockRejectedValue(new Error('Transaction failed'))
-      mockQueryNickname.mockResolvedValue(null)
+      mockQueryNicknameGetValue.mockResolvedValue(null)
       const onError = jest.fn()
 
       const { result } = renderHook(() => useNickname({

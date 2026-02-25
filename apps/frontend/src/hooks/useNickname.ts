@@ -92,12 +92,14 @@ export function useNickname({
       const api = unsafeApi as {
         query: {
           Nickname: {
-            Nicknames: (accountId: string) => Promise<Uint8Array | null>
+            Nicknames: {
+              getValue: (accountId: string) => Promise<Uint8Array | null>
+            }
           }
         }
       }
 
-      const result = await api.query.Nickname.Nicknames(accountId)
+      const result = await api.query.Nickname.Nicknames.getValue(accountId)
       
       if (result) {
         // Handle PAPI Binary type or raw Uint8Array
