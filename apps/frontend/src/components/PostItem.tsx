@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useStorage, type HybridMetadata } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n/context'
-import MediaDisplay, { type MediaItem } from '@/components/MediaDisplay'
+import { decodePostContent, mediaToDataUrl } from '@/lib/postCodec'
+import type { MediaItem as PostMediaItem } from '@/lib/postCodec'
 import { CopyIcon, CheckIcon, ReplyIcon } from '@/components/Icons'
 import styles from './Timeline.module.css'
 
@@ -20,10 +21,10 @@ interface ContentRef {
   k: number
   n: number
   total_size: number
-  // Optional hybrid metadata fields (may not be present in older posts)
-  ciphertext_len?: number
-  shard_size?: number
-  compressed?: boolean
+  // Hybrid metadata fields (now stored on-chain)
+  ciphertext_len: number
+  shard_size: number
+  compressed: boolean
 }
 
 interface Props {
@@ -38,8 +39,6 @@ interface Props {
   contentRef?: ContentRef
   /** Optional nickname for the author */
   nickname?: string
-  /** Optional media attachments */
-  media?: MediaItem[]
 }
 
 /**
@@ -53,11 +52,11 @@ export function PostItem({
   inlineContent,
   contentRef,
   nickname,
-  media = [],
 }: Props) {
   const { t } = useLocale()
   const { recoverContent, isReady } = useStorage()
   const [content, setContent] = useState<string | null>(null)
+  const [decodedMedia, setDecodedMedia] = useState<PostMediaItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -90,28 +89,22 @@ export function PostItem({
           }
           
           // Construct HybridMetadata from ContentRef
-          // Note: Posts created before hybrid migration cannot be recovered with this code path
-          // Reed-Solomon shard_size = ceil(ciphertext_len / k)
-          // AES-GCM overhead: 12 bytes nonce + 16 bytes auth tag
-          // TODO: Export AES_GCM_OVERHEAD from wasm-engine and import here to ensure consistency
-          // with backend encryption parameters. If encryption params change, this estimation
-          // could become incorrect.
-          const AES_GCM_OVERHEAD = 12 + 16 // nonce (12) + auth tag (16) = 28 bytes
-          const estimatedCiphertextLen = contentRef.total_size + AES_GCM_OVERHEAD
+          // All metadata fields are now stored on-chain
           const metadata: HybridMetadata = {
             originalLen: contentRef.total_size,
-            ciphertextLen: contentRef.ciphertext_len ?? estimatedCiphertextLen,
-            // shard_size must use k (threshold), not n (total shards)
-            shardSize: contentRef.shard_size ?? Math.ceil((contentRef.ciphertext_len ?? estimatedCiphertextLen) / contentRef.k),
-            // compressed flag from ContentRef, default false for older posts (may fail if mismatched)
-            compressed: contentRef.compressed ?? false,
+            ciphertextLen: contentRef.ciphertext_len,
+            shardSize: contentRef.shard_size,
+            compressed: contentRef.compressed,
             threshold: contentRef.k,
             totalShards: contentRef.n,
           }
           
           const result = await recoverContent(merkleRoot, metadata)
-          const text = new TextDecoder().decode(result.data)
-          setContent(text)
+          
+          // Decode binary content (text + media)
+          const decoded = decodePostContent(result.data)
+          setContent(decoded.text)
+          setDecodedMedia(decoded.media)
         } catch (err) {
           console.error(`[PostItem] Failed to recover content for post ${postId}:`, err)
           setError(err instanceof Error ? err.message : String(err))
@@ -172,8 +165,18 @@ export function PostItem({
       </header>
       <div className={styles.content}>
         <p className={styles.text}>{displayContent}</p>
-        {media.length > 0 && (
-          <MediaDisplay media={media} />
+        {decodedMedia.length > 0 && (
+          <div className={styles.mediaGrid}>
+            {decodedMedia.map((item, idx) => (
+              <img
+                key={idx}
+                src={mediaToDataUrl(item)}
+                alt={`Media ${idx + 1}`}
+                className={styles.mediaImage}
+                style={{ maxWidth: '100%', maxHeight: 400 }}
+              />
+            ))}
+          </div>
         )}
       </div>
       <footer className={styles.postFooter}>

@@ -139,6 +139,9 @@ describe('PostItem', () => {
       k: 3,
       n: 5,
       total_size: 100,
+      ciphertext_len: 128,
+      shard_size: 43,
+      compressed: false,
     }
 
     it('test_post_item_uses_shared_pool - recovers content using shared WorkerPool via useStorage', async () => {

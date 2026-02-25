@@ -27,9 +27,6 @@ const TEST_ACCOUNTS = [
   { name: 'Charlie', seed: '//Charlie' },
 ]
 
-// AliceのアドレスプレフィックスまたはSeed
-const ALICE_SEED = '//Alice'
-
 type AuthMode = 'dev' | 'seedphrase'
 
 export function WalletConnect({ account, setAccount, setAccountSeed, client, unsafeApi, signer, accountSeed, refreshTrigger, onBalanceChange }: Props) {
@@ -42,8 +39,6 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
   const [showCopied, setShowCopied] = useState(false)
   const [showAddressCopied, setShowAddressCopied] = useState(false)
   const { balance, isLoading: balanceLoading, refetch: refetchBalance } = useMoralBalance(unsafeApi, account, refreshTrigger)
-
-  const isAlice = accountSeed === ALICE_SEED
 
   // Expose refetchBalance to parent
   if (onBalanceChange) {
@@ -137,7 +132,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
       {account ? (
         <div className={styles.connected}>
           <div className={styles.address}>
-            <span className={styles.label}><ConnectedDot size={8} /> {t('wallet.connected')} {isAlice && <span className={styles.adminBadge}>Admin</span>}</span>
+            <span className={styles.label}><ConnectedDot size={8} /> {t('wallet.connected')}</span>
             <div className={styles.addressRow}>
               <code className={styles.fullAddress}>{account}</code>
               <button

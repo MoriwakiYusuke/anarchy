@@ -79,6 +79,12 @@ pub mod pallet {
         pub n: u32,
         /// 元データサイズ（バイト）
         pub size: u64,
+        /// 暗号文の長さ（AES-GCM暗号化後のサイズ）
+        pub ciphertext_len: u64,
+        /// シャードサイズ（Reed-Solomonエンコード後の各シャードのサイズ）
+        pub shard_size: u32,
+        /// 圧縮フラグ（データが圧縮されているかどうか）
+        pub compressed: bool,
     }
 
     #[pallet::pallet]
@@ -184,6 +190,9 @@ pub mod pallet {
         /// * `k` - 復元に必要な最小断片数（SSS threshold）
         /// * `n` - 総断片数
         /// * `total_size` - 元データサイズ（バイト）
+        /// * `ciphertext_len` - 暗号文の長さ（AES-GCM暗号化後のサイズ）
+        /// * `shard_size` - シャードサイズ（Reed-Solomonエンコード後の各シャードのサイズ）
+        /// * `compressed` - 圧縮フラグ（データが圧縮されているかどうか）
         /// * `parent_id` - 親投稿ID（リプライの場合）
         ///
         /// # Cost
@@ -196,6 +205,9 @@ pub mod pallet {
             k: u32,
             n: u32,
             total_size: u64,
+            ciphertext_len: u64,
+            shard_size: u32,
+            compressed: bool,
             parent_id: Option<u64>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -271,6 +283,9 @@ pub mod pallet {
                 k,
                 n,
                 size: total_size,
+                ciphertext_len,
+                shard_size,
+                compressed,
             };
             ContentRefs::<T>::insert(post_id, content_ref);
 

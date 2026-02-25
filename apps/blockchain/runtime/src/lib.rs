@@ -230,7 +230,7 @@ impl pallet_sudo::Config for Runtime {
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
     type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
-    type MaxContentLength = ConstU32<10000>; // 約10KB
+    type MaxContentLength = ConstU32<1_073_741_824>; // 1GB (画像含むコンテンツ対応)
     /// 基本コスト: 10 MORAL
     type PostBaseCost = ConstU128<10_000_000_000_000>;
     /// バイト単価: 0.1 MORAL/byte

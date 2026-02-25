@@ -39,7 +39,7 @@
   "post.defaultCostNote": "无法从链上获取，使用默认值",
   "post.cost": "消耗: {cost} MORAL",
   "post.empty": "请输入内容",
-  "error.contentTooLong": "内容过长（最大10,000字节）",
+  "error.contentTooLong": "内容过长（最大1GB）",
   "error.tooManyPosts": "已达到帖子数量上限",
   "error.parentPostNotFound": "找不到回复目标帖子",
   "error.insufficientMoralBalance": "$moral余额不足",

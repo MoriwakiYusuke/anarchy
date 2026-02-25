@@ -2,7 +2,7 @@
   "name": "anarchy",
   "private": true,
   "scripts": {
-    "dev:frontend": "pnpm --filter @anarchy/frontend dev",
+    "dev:frontend": "cd apps/frontend && ./scripts/update-chainspec.sh && pnpm dev",
     "build:frontend": "pnpm --filter @anarchy/frontend build",
     "build:blockchain": "cd apps/blockchain && cargo build --release",
     "dev:node": "cd apps/blockchain && cargo run -- --dev",

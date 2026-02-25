@@ -11,6 +11,9 @@ interface ContentRef {
   k: number
   n: number
   total_size: number
+  ciphertext_len: number
+  shard_size: number
+  compressed: boolean
 }
 
 interface Post {
@@ -112,6 +115,10 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
                     n: Number(ref.n || 5),
                     // On-chain PostContent uses 'size' field, not 'total_size'
                     total_size: Number(ref.size || 0),
+                    // Hybrid metadata fields from on-chain storage
+                    ciphertext_len: Number(ref.ciphertext_len || 0),
+                    shard_size: Number(ref.shard_size || 0),
+                    compressed: Boolean(ref.compressed),
                   })
                 }
               }
@@ -124,7 +131,7 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
         // 著者のニックネームを取得
         const nicknameMap = new Map<string, string>()
         try {
-          if (unsafeApi.query.Nickname?.Nicknames) {
+          if (unsafeApi.query.Nickname?.Nicknames?.getValue) {
             // 全著者アドレスを収集
             const authors = new Set<string>()
             for (const entry of postEntries) {
@@ -136,7 +143,7 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
             // 各著者のニックネームを取得
             for (const author of authors) {
               try {
-                const result = await unsafeApi.query.Nickname.Nicknames(author)
+                const result = await unsafeApi.query.Nickname.Nicknames.getValue(author)
                 if (result) {
                   let bytes: Uint8Array
                   if (typeof result?.asBytes === 'function') {

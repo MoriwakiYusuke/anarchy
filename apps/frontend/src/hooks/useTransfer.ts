@@ -243,8 +243,9 @@ export function useTransfer({
     try {
       // Build the transfer transaction
       // Using Balances.transferKeepAlive to prevent account deletion
+      // dest must be a MultiAddress with type 'Id' for PAPI
       const tx = unsafeApi.tx.Balances.transfer_keep_alive({
-        dest: state.recipient, // SS58 address will be auto-converted
+        dest: { type: 'Id', value: state.recipient },
         value: state.amount,
       })
 

@@ -1,6 +1,7 @@
 #!/bin/bash
-# フロントエンド起動前にchainspec.jsonのbootNodesを自動更新するスクリプト
-# aliceノードのログからPeer IDを取得し、WebSocketエンドポイントに更新
+# フロントエンド起動前にchainspec.jsonを自動更新するスクリプト
+# 1. ノードから最新のchainspecを生成
+# 2. Peer IDを取得してbootNodesを設定
 
 set -e
 
@@ -8,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="$(dirname "$SCRIPT_DIR")"
 BLOCKCHAIN_DIR="$FRONTEND_DIR/../blockchain"
 CHAINSPEC_FILE="$FRONTEND_DIR/src/lib/chainspec.json"
-ALICE_LOG="$BLOCKCHAIN_DIR/logs/alice.log"
+NODE_BINARY="$BLOCKCHAIN_DIR/target/release/anarchy-node"
 
 # カラー出力
 RED='\033[0;31m'
@@ -20,21 +21,33 @@ log_info() { echo -e "${GREEN}[chainspec]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[chainspec]${NC} $1"; }
 log_error() { echo -e "${RED}[chainspec]${NC} $1"; }
 
-# aliceノードが起動しているか確認
-if ! pgrep -f "anarchy-node.*--alice" > /dev/null 2>&1; then
-    log_warn "aliceノードが起動していません。bootNodesの更新をスキップします。"
-    log_warn "起動するには: cd apps/blockchain && ./scripts/run-multi-node.sh start"
+# anarchy-nodeバイナリが存在するか確認
+if [ ! -f "$NODE_BINARY" ]; then
+    log_warn "anarchy-nodeバイナリが見つかりません: $NODE_BINARY"
+    log_warn "ビルドするには: pnpm build:blockchain"
     exit 0
 fi
 
-# ログファイルが存在するか確認
-if [ ! -f "$ALICE_LOG" ]; then
-    log_warn "aliceのログファイルが見つかりません: $ALICE_LOG"
+# anarchy-nodeが起動しているか確認
+if ! pgrep -f "anarchy-node" > /dev/null 2>&1; then
+    log_warn "anarchy-nodeが起動していません。bootNodesの更新をスキップします。"
+    log_warn "起動するには: pnpm testnet:start"
     exit 0
 fi
 
-# Peer IDを取得
-PEER_ID=$(grep -m1 "Local node identity" "$ALICE_LOG" | grep -oP '12D3KooW[A-Za-z0-9]+' || true)
+# Peer IDを取得（優先順位: ログファイル → psコマンドのbootnodes）
+PEER_ID=""
+ALICE_LOG="$BLOCKCHAIN_DIR/logs/alice.log"
+
+# 1. ログファイルから取得を試みる
+if [ -f "$ALICE_LOG" ]; then
+    PEER_ID=$(grep -m1 "Local node identity" "$ALICE_LOG" | grep -oP '12D3KooW[A-Za-z0-9]+' || true)
+fi
+
+# 2. ログから取得できない場合、psコマンドのbootnodesアーグメントから取得
+if [ -z "$PEER_ID" ]; then
+    PEER_ID=$(ps aux | grep "anarchy-node" | grep -oP '12D3KooW[A-Za-z0-9]+' | head -1 || true)
+fi
 
 if [ -z "$PEER_ID" ]; then
     log_warn "Peer IDを取得できませんでした。bootNodesの更新をスキップします。"
@@ -43,30 +56,29 @@ fi
 
 log_info "検出されたPeer ID: $PEER_ID"
 
-# WebSocketポート（aliceのWSポート: 30833）
-WS_PORT=30833
+# 新しいchainspecを生成（最新のgenesisを含む）
+log_info "最新のchainspecを生成中..."
+TMP_CHAINSPEC="/tmp/anarchy_chainspec_$$.json"
+"$NODE_BINARY" build-spec --chain local --raw 2>/dev/null > "$TMP_CHAINSPEC"
 
-# 新しいbootNodesエントリ
+if [ ! -s "$TMP_CHAINSPEC" ]; then
+    log_error "chainspec生成に失敗しました"
+    rm -f "$TMP_CHAINSPEC"
+    exit 1
+fi
+
+# bootNodesを設定
+WS_PORT=30833
 NEW_BOOTNODE="/ip4/127.0.0.1/tcp/${WS_PORT}/ws/p2p/${PEER_ID}"
 
-# 現在のbootNodesを確認（jqで正確に取得）
 if command -v jq &> /dev/null; then
-    CURRENT_BOOTNODE=$(jq -r '.bootNodes[0] // ""' "$CHAINSPEC_FILE")
+    jq --arg bootnode "$NEW_BOOTNODE" '.bootNodes = [$bootnode]' "$TMP_CHAINSPEC" > "$CHAINSPEC_FILE"
 else
-    CURRENT_BOOTNODE=$(grep -oP '"bootNodes":\s*\[\s*"\K[^"]+' "$CHAINSPEC_FILE" || true)
+    # jqがない場合はsedで置換
+    sed "s|\"bootNodes\": \[[^]]*\]|\"bootNodes\": [\"${NEW_BOOTNODE}\"]|" "$TMP_CHAINSPEC" > "$CHAINSPEC_FILE"
 fi
 
-if [ "$CURRENT_BOOTNODE" = "$NEW_BOOTNODE" ]; then
-    log_info "bootNodesは最新です。更新の必要はありません。"
-    exit 0
-fi
+rm -f "$TMP_CHAINSPEC"
 
-# chainspec.jsonを更新（jqを使用してJSON形式を維持）
-if command -v jq &> /dev/null; then
-    jq --arg bootnode "$NEW_BOOTNODE" '.bootNodes = [$bootnode]' "$CHAINSPEC_FILE" > "$CHAINSPEC_FILE.tmp" && mv "$CHAINSPEC_FILE.tmp" "$CHAINSPEC_FILE"
-else
-    # jqがない場合はsedで置換（一行で）
-    sed -i "s|\"bootNodes\": \[[^]]*\]|\"bootNodes\": [\"${NEW_BOOTNODE}\"]|" "$CHAINSPEC_FILE"
-fi
-
-log_info "bootNodesを更新しました: $NEW_BOOTNODE"
+log_info "chainspec.jsonを更新しました（genesis + bootNodes）"
+log_info "bootNodes: $NEW_BOOTNODE"

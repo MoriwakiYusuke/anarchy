@@ -149,3 +149,18 @@
   color: #ef4444;
   font-size: 0.875rem;
 }
+
+/* Media grid for inline images */
+.mediaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.mediaImage {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  object-fit: cover;
+}

@@ -12,15 +12,17 @@
 
 'use client'
 
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useRef, useState, useEffect } from 'react'
 import { useLocale } from '@/i18n'
 import { useMediaUpload } from '@/hooks/useMediaUpload'
 import { getAcceptString } from '@/lib/mediaValidator'
 import { MAX_FILES_PER_POST } from '@/types/media'
-import type { MediaUploadResult } from '@/types/media'
+import type { MediaUploadResult, MediaFile } from '@/types/media'
 import MediaPreview from './MediaPreview'
 import ProgressBar from './ProgressBar'
 import styles from './MediaUpload.module.css'
+
+export { type MediaFile } from '@/types/media'
 
 export interface MediaUploadProps {
   /** Storage node URL (optional, uses default) */
@@ -33,6 +35,8 @@ export interface MediaUploadProps {
   disabled?: boolean
   /** Called when all uploads complete */
   onUploadComplete?: (results: MediaUploadResult[]) => void
+  /** Called when file list changes (for external handling) */
+  onFilesChange?: (files: MediaFile[]) => void
   /** Called on error */
   onError?: (error: string) => void
   /** Custom class name */
@@ -45,6 +49,7 @@ export default function MediaUpload({
   maxFiles = MAX_FILES_PER_POST,
   disabled = false,
   onUploadComplete,
+  onFilesChange,
   onError,
   className,
 }: MediaUploadProps): React.ReactElement {
@@ -70,6 +75,11 @@ export default function MediaUpload({
   const isUploading = state === 'processing'
   const isDisabled = disabled || isUploading
   const canAddMore = files.length < maxFiles
+
+  // Notify parent when files change
+  useEffect(() => {
+    onFilesChange?.(files)
+  }, [files, onFilesChange])
 
   // Handle file input change
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
