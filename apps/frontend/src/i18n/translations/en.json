@@ -117,6 +117,7 @@
   "nickname.error": "Failed to set nickname",
   "error.nicknameTooLong": "Nickname is too long (max 128 bytes)",
   "error.nicknameEmpty": "Please enter a nickname",
+  "error.nicknameSetFailed": "Failed to set nickname",
   "media.upload": "Upload",
   "media.uploading": "Uploading...",
   "media.dropzone": "Drop files or click to select",

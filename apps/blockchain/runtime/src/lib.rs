@@ -297,7 +297,6 @@ impl pallet_storage::Config for Runtime {
 
 // Nickname Pallet設定
 impl pallet_nickname::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
     /// ニックネーム最大長: 128バイト
     type MaxNicknameLength = ConstU32<128>;
 }

@@ -175,6 +175,7 @@ export type TranslationKey =
   | 'nickname.error'
   | 'error.nicknameTooLong'
   | 'error.nicknameEmpty'
+  | 'error.nicknameSetFailed'
   // Media
   | 'media.upload'
   | 'media.uploading'

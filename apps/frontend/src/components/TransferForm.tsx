@@ -220,8 +220,7 @@ export function TransferForm({
 
       {state.status === 'error' && (
         <div className={`${styles.status} ${styles.error}`}>
-          {t('transfer.error')}
-          {state.error && <div>{t(state.error as TranslationKey)}</div>}
+          {state.error ? t(state.error as TranslationKey) : t('transfer.error')}
         </div>
       )}
 

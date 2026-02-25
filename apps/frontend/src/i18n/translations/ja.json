@@ -119,6 +119,7 @@
   "nickname.error": "ニックネームの設定に失敗しました",
   "error.nicknameTooLong": "ニックネームが長すぎます（最大128バイト）",
   "error.nicknameEmpty": "ニックネームを入力してください",
+  "error.nicknameSetFailed": "ニックネームの設定に失敗しました",
   "media.upload": "アップロード",
   "media.uploading": "アップロード中...",
   "media.dropzone": "ファイルをドロップまたはクリックで選択",

@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import type { PolkadotSigner, PolkadotClient } from 'polkadot-api'
 import { useNickname } from '@/hooks/useNickname'
-import { useLocale } from '@/i18n'
+import { useLocale, type TranslationKey } from '@/i18n'
 import styles from './NicknameSettings.module.css'
 
 /** Maximum nickname length in bytes */
@@ -190,7 +190,7 @@ export default function NicknameSettings({
           {/* Status messages */}
           {isError && error && (
             <p className={`${styles.message} ${styles.error}`}>
-              {error}
+              {t(error as TranslationKey)}
             </p>
           )}
 

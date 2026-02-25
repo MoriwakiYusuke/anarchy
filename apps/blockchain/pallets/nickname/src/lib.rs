@@ -11,6 +11,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
+
 pub use pallet::*;
 
 #[cfg(test)]
@@ -18,6 +20,7 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use alloc::vec::Vec;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
 
@@ -25,10 +28,7 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
-        /// The overarching event type.
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-
+    pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
         /// Maximum nickname length in bytes (UTF-8)
         #[pallet::constant]
         type MaxNicknameLength: Get<u32>;

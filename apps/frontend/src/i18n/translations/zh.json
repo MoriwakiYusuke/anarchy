@@ -117,6 +117,7 @@
   "nickname.error": "设置昵称失败",
   "error.nicknameTooLong": "昵称太长（最大128字节）",
   "error.nicknameEmpty": "请输入昵称",
+  "error.nicknameSetFailed": "设置昵称失败",
   "media.upload": "上传",
   "media.uploading": "上传中...",
   "media.dropzone": "拖放文件或点击选择",

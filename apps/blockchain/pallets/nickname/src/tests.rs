@@ -59,7 +59,6 @@ impl frame_system::Config for Test {
 
 // MaxNicknameLength = 128 bytes
 impl pallet_nickname::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
     type MaxNicknameLength = ConstU32<128>;
 }
 

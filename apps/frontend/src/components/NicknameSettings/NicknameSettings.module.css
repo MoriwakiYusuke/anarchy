@@ -144,10 +144,6 @@
   border-color: var(--accent, #e53935);
 }
 
-.setButton:hover:not(:disabled) {
-  background: #c62828;
-}
-
 .setButton:disabled {
   opacity: 0.5;
   cursor: not-allowed;

@@ -61,6 +61,7 @@ jest.mock('@/i18n', () => ({
         'error.invalidAmount': 'Invalid amount',
         'error.amountTooSmall': 'Amount is too small',
         'error.amountExceedsBalance': 'Amount exceeds balance',
+        'error.transferFailed': 'Transfer failed',
       }
       return translations[key] || key
     },
@@ -106,10 +107,12 @@ describe('TransferForm Component', () => {
   // ============================================================================
 
   describe('Render', () => {
-    it('should render transfer form with title', () => {
+    it('should render transfer form with fields', () => {
       render(<TransferForm {...defaultProps} />)
       
-      expect(screen.getByText('Transfer')).toBeInTheDocument()
+      // TransferForm doesn't include its own title - title is shown externally
+      expect(screen.getByLabelText(/recipient/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/amount/i)).toBeInTheDocument()
     })
 
     it('should render recipient input field', () => {
@@ -314,11 +317,12 @@ describe('TransferForm Component', () => {
       const useTransferMock = require('@/hooks/useTransfer').useTransfer
       useTransferMock.mockReturnValue({
         ...defaultMockHook,
-        state: { status: 'error', error: 'Something went wrong' },
+        state: { status: 'error', error: 'error.transferFailed' },
       })
       
       render(<TransferForm {...defaultProps} />)
       
+      // error.transferFailed is the key, displays "Transfer failed" when translated
       expect(screen.getByText('Transfer failed')).toBeInTheDocument()
     })
   })
