@@ -295,6 +295,13 @@ impl pallet_storage::Config for Runtime {
     type MinWithdrawalAmount = ConstU128<500_000_000_000_000>;
 }
 
+// Nickname Pallet設定
+impl pallet_nickname::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    /// ニックネーム最大長: 128バイト
+    type MaxNicknameLength = ConstU32<128>;
+}
+
 // Runtime構築
 construct_runtime!(
     pub struct Runtime {
@@ -309,6 +316,7 @@ construct_runtime!(
         Storage: pallet_storage,
         Post: pallet_post,
         Faucet: pallet_faucet,
+        Nickname: pallet_nickname,
     }
 );
 

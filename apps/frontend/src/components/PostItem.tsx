@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useStorage, type HybridMetadata } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n/context'
+import AddressDisplay from '@/components/AddressDisplay'
 import styles from './Timeline.module.css'
 
 interface ContentRef {
@@ -26,7 +27,8 @@ interface Props {
   inlineContent?: string
   /** V2: content reference from ContentRefs storage */  
   contentRef?: ContentRef
-  shortenAddress: (addr: string) => string
+  /** Optional nickname for the author */
+  nickname?: string
 }
 
 /**
@@ -39,7 +41,7 @@ export function PostItem({
   parentId,
   inlineContent,
   contentRef,
-  shortenAddress,
+  nickname,
 }: Props) {
   const { t } = useLocale()
   const { recoverContent, isReady } = useStorage()
@@ -129,9 +131,12 @@ export function PostItem({
   return (
     <article className={styles.post}>
       <header className={styles.postHeader}>
-        <span className={styles.author}>
-          {shortenAddress(author)}
-        </span>
+        <AddressDisplay 
+          address={author} 
+          nickname={nickname}
+          size="compact"
+          className={styles.author}
+        />
         <span className={styles.block}>
           Block #{createdAt}
         </span>

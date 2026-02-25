@@ -26,11 +26,11 @@
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Create TypeScript types directory structure at apps/frontend/src/types/
-- [ ] T002 [P] Create TransferRequest type in apps/frontend/src/types/transfer.ts
-- [ ] T003 [P] Create AddressDisplay type in apps/frontend/src/types/address.ts
-- [ ] T004 [P] Create MediaFile and MediaRef types in apps/frontend/src/types/media.ts
-- [ ] T005 [P] Create Nickname Pallet Cargo.toml at apps/blockchain/pallets/nickname/Cargo.toml
+- [X] T001 Create TypeScript types directory structure at apps/frontend/src/types/
+- [X] T002 [P] Create TransferRequest type in apps/frontend/src/types/transfer.ts
+- [X] T003 [P] Create AddressDisplay type in apps/frontend/src/types/address.ts
+- [X] T004 [P] Create MediaFile and MediaRef types in apps/frontend/src/types/media.ts
+- [X] T005 [P] Create Nickname Pallet Cargo.toml at apps/blockchain/pallets/nickname/Cargo.toml
 
 ---
 
@@ -42,25 +42,25 @@
 
 ### Nickname Pallet (Blockchain)
 
-- [ ] T006 Write tests for Nickname Pallet in apps/blockchain/pallets/nickname/src/tests.rs
-- [ ] T007 Implement Nickname Pallet storage and config in apps/blockchain/pallets/nickname/src/lib.rs
-- [ ] T008 Implement set_nickname extrinsic in apps/blockchain/pallets/nickname/src/lib.rs
-- [ ] T009 Implement clear_nickname extrinsic in apps/blockchain/pallets/nickname/src/lib.rs
-- [ ] T010 Add Nickname Pallet to runtime in apps/blockchain/runtime/src/lib.rs
-- [ ] T011 Run `cargo test -p pallet-nickname` to verify all tests pass
+- [X] T006 Write tests for Nickname Pallet in apps/blockchain/pallets/nickname/src/tests.rs
+- [X] T007 Implement Nickname Pallet storage and config in apps/blockchain/pallets/nickname/src/lib.rs
+- [X] T008 Implement set_nickname extrinsic in apps/blockchain/pallets/nickname/src/lib.rs
+- [X] T009 Implement clear_nickname extrinsic in apps/blockchain/pallets/nickname/src/lib.rs
+- [X] T010 Add Nickname Pallet to runtime in apps/blockchain/runtime/src/lib.rs
+- [X] T011 Run `cargo test -p pallet-nickname` to verify all tests pass
 
 ### i18n (Shared)
 
-- [ ] T012 [P] Add transfer i18n keys to apps/frontend/src/i18n/ja.json
-- [ ] T013 [P] Add transfer i18n keys to apps/frontend/src/i18n/en.json
-- [ ] T014 [P] Add transfer i18n keys to apps/frontend/src/i18n/zh.json
-- [ ] T015 [P] Add address/nickname i18n keys to apps/frontend/src/i18n/ja.json
-- [ ] T016 [P] Add address/nickname i18n keys to apps/frontend/src/i18n/en.json
-- [ ] T017 [P] Add address/nickname i18n keys to apps/frontend/src/i18n/zh.json
-- [ ] T018 [P] Add media upload i18n keys to apps/frontend/src/i18n/ja.json
-- [ ] T019 [P] Add media upload i18n keys to apps/frontend/src/i18n/en.json
-- [ ] T020 [P] Add media upload i18n keys to apps/frontend/src/i18n/zh.json
-- [ ] T021 Update i18n type definitions in apps/frontend/src/i18n/types.ts (depends on T012-T020)
+- [X] T012 [P] Add transfer i18n keys to apps/frontend/src/i18n/ja.json
+- [X] T013 [P] Add transfer i18n keys to apps/frontend/src/i18n/en.json
+- [X] T014 [P] Add transfer i18n keys to apps/frontend/src/i18n/zh.json
+- [X] T015 [P] Add address/nickname i18n keys to apps/frontend/src/i18n/ja.json
+- [X] T016 [P] Add address/nickname i18n keys to apps/frontend/src/i18n/en.json
+- [X] T017 [P] Add address/nickname i18n keys to apps/frontend/src/i18n/zh.json
+- [X] T018 [P] Add media upload i18n keys to apps/frontend/src/i18n/ja.json
+- [X] T019 [P] Add media upload i18n keys to apps/frontend/src/i18n/en.json
+- [X] T020 [P] Add media upload i18n keys to apps/frontend/src/i18n/zh.json
+- [X] T021 Update i18n type definitions in apps/frontend/src/i18n/types.ts (depends on T012-T020)
 
 **Checkpoint**: Foundation ready - Nickname Pallet deployed, i18n keys available. User story implementation can begin.
 
@@ -74,18 +74,18 @@
 
 ### Tests for User Story 1
 
-- [ ] T022 [P] [US1] Write useTransfer hook unit tests in apps/frontend/tests/hooks/useTransfer.test.ts
-- [ ] T023 [P] [US1] Write TransferForm component tests in apps/frontend/tests/components/TransferForm.test.tsx
+- [X] T022 [P] [US1] Write useTransfer hook unit tests in apps/frontend/tests/hooks/useTransfer.test.ts
+- [X] T023 [P] [US1] Write TransferForm component tests in apps/frontend/tests/components/TransferForm.test.tsx
 
 ### Implementation for User Story 1
 
-- [ ] T024 [US1] Implement AccountId validation helper in apps/frontend/src/lib/addressValidation.ts
-- [ ] T025 [US1] Implement useTransfer hook in apps/frontend/src/hooks/useTransfer.ts
-- [ ] T026 [US1] Create TransferForm component in apps/frontend/src/components/TransferForm/index.tsx
-- [ ] T027 [P] [US1] Create TransferForm styles in apps/frontend/src/components/TransferForm/TransferForm.module.css
-- [ ] T028 [US1] Create ConfirmDialog subcomponent in apps/frontend/src/components/TransferForm/ConfirmDialog.tsx
-- [ ] T029 [US1] Integrate TransferForm into main page below balance display in apps/frontend/src/app/page.tsx
-- [ ] T030 [US1] Run `cd apps/frontend && pnpm test` to verify US1 tests pass
+- [X] T024 [US1] Implement AccountId validation helper in apps/frontend/src/lib/addressValidation.ts
+- [X] T025 [US1] Implement useTransfer hook in apps/frontend/src/hooks/useTransfer.ts
+- [X] T026 [US1] Create TransferForm component in apps/frontend/src/components/TransferForm.tsx
+- [X] T027 [P] [US1] Create TransferForm styles in apps/frontend/src/components/TransferForm.module.css
+- [X] T028 [US1] ConfirmDialog integrated into TransferForm component
+- [X] T029 [US1] Integrate TransferForm into main page below balance display in apps/frontend/src/components/WalletConnect.tsx
+- [X] T030 [US1] Run `cd apps/frontend && pnpm test` to verify US1 tests pass
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently. ユーザーは送金操作を60秒以内に完了できる。
 
@@ -99,16 +99,16 @@
 
 ### Tests for User Story 2
 
-- [ ] T031 [P] [US2] Write AddressDisplay component tests in apps/frontend/tests/components/AddressDisplay.test.tsx
+- [X] T031 [P] [US2] Write AddressDisplay component tests in apps/frontend/tests/components/AddressDisplay.test.tsx
 
 ### Implementation for User Story 2
 
-- [ ] T032 [US2] Implement clipboard helper with fallback in apps/frontend/src/lib/clipboard.ts
-- [ ] T033 [US2] Create AddressDisplay component in apps/frontend/src/components/AddressDisplay/index.tsx
-- [ ] T034 [P] [US2] Create AddressDisplay styles in apps/frontend/src/components/AddressDisplay/AddressDisplay.module.css
-- [ ] T035 [US2] Implement Tooltip subcomponent in apps/frontend/src/components/AddressDisplay/Tooltip.tsx
-- [ ] T036 [US2] Integrate AddressDisplay into PostItem in apps/frontend/src/components/PostItem.tsx
-- [ ] T037 [US2] Run `cd apps/frontend && pnpm test` to verify US2 tests pass
+- [X] T032 [US2] Implement clipboard helper with fallback in apps/frontend/src/lib/clipboard.ts
+- [X] T033 [US2] Create AddressDisplay component in apps/frontend/src/components/AddressDisplay/index.tsx
+- [X] T034 [P] [US2] Create AddressDisplay styles in apps/frontend/src/components/AddressDisplay/AddressDisplay.module.css
+- [X] T035 [US2] Implement Tooltip subcomponent in apps/frontend/src/components/AddressDisplay/Tooltip.tsx
+- [X] T036 [US2] Integrate AddressDisplay into PostItem in apps/frontend/src/components/PostItem.tsx
+- [X] T037 [US2] Run `cd apps/frontend && pnpm test` to verify US2 tests pass
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently. AccountIdコピー成功率95%以上を確認。
 
@@ -124,17 +124,17 @@
 
 ### Tests for User Story 5
 
-- [ ] T038 [P] [US5] Write useNickname hook unit tests in apps/frontend/tests/hooks/useNickname.test.ts
-- [ ] T039 [P] [US5] Write NicknameSettings component tests in apps/frontend/tests/components/NicknameSettings.test.tsx
+- [X] T038 [P] [US5] Write useNickname hook unit tests in apps/frontend/tests/hooks/useNickname.test.ts
+- [X] T039 [P] [US5] Write NicknameSettings component tests in apps/frontend/tests/components/NicknameSettings.test.tsx
 
 ### Implementation for User Story 5
 
-- [ ] T040 [US5] Implement useNickname hook (query + set) in apps/frontend/src/hooks/useNickname.ts
-- [ ] T041 [US5] Create NicknameSettings component in apps/frontend/src/components/NicknameSettings/index.tsx
-- [ ] T042 [P] [US5] Create NicknameSettings styles in apps/frontend/src/components/NicknameSettings/NicknameSettings.module.css
-- [ ] T043 [US5] Update AddressDisplay to show nickname when available in apps/frontend/src/components/AddressDisplay/index.tsx
-- [ ] T044 [US5] Integrate NicknameSettings into settings page in apps/frontend/src/app/settings/page.tsx
-- [ ] T045 [US5] Run `cd apps/frontend && pnpm test` to verify US5 tests pass
+- [X] T040 [US5] Implement useNickname hook (query + set) in apps/frontend/src/hooks/useNickname.ts
+- [X] T041 [US5] Create NicknameSettings component in apps/frontend/src/components/NicknameSettings/index.tsx
+- [X] T042 [P] [US5] Create NicknameSettings styles in apps/frontend/src/components/NicknameSettings/NicknameSettings.module.css
+- [X] T043 [US5] Update AddressDisplay to show nickname when available in apps/frontend/src/components/AddressDisplay/index.tsx
+- [X] T044 [US5] Integrate NicknameSettings into settings page in apps/frontend/src/app/settings/page.tsx
+- [X] T045 [US5] Run `cd apps/frontend && pnpm test` to verify US5 tests pass
 
 **Checkpoint**: ニックネーム設定が30秒以内に完了し、タイムラインで表示される。
 

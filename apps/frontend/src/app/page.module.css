@@ -102,9 +102,23 @@
     padding: 1rem;
   }
 
+  .headerBg {
+    margin-left: -1rem;
+    margin-right: -1rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
   .header {
     margin-bottom: 2rem;
     padding-bottom: 1rem;
+  }
+
+  .headerTop {
+    position: static;
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.5rem;
   }
 
   .title {

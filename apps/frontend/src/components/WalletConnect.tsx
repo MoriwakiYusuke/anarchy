@@ -5,6 +5,7 @@ import { PolkadotSigner } from 'polkadot-api/signer'
 import { useMoralBalance, formatMoralBalance } from '@/hooks/useMoralBalance'
 import { useLocale } from '@/i18n'
 import { FaucetButton } from './FaucetButton'
+import { TransferForm } from './TransferForm'
 import styles from './WalletConnect.module.css'
 
 interface Props {
@@ -167,6 +168,15 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
               </button>
             </span>
           </div>
+          
+          <TransferForm
+            client={client}
+            unsafeApi={unsafeApi}
+            senderAddress={account}
+            balance={balance ?? BigInt(0)}
+            signer={signer}
+            onSuccess={refetchBalance}
+          />
           
           <FaucetButton
             client={client}

@@ -156,11 +156,6 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
     // TODO: Add event subscription for new posts
   }, [unsafeApi, refreshTrigger])
 
-  const shortenAddress = (addr: string) => {
-    if (addr.startsWith('0x')) addr = addr.slice(2)
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
-  }
-
   if (isLoading) {
     return (
       <div className={styles.loading}>
@@ -189,7 +184,6 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
           parentId={post.parentId}
           inlineContent={post.content || undefined}
           contentRef={post.contentRef}
-          shortenAddress={shortenAddress}
         />
       ))}
     </div>

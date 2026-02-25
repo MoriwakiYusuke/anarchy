@@ -7,6 +7,7 @@ import { PostForm } from '@/components/PostForm'
 import { Timeline } from '@/components/Timeline'
 import { WalletConnect } from '@/components/WalletConnect'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
+import NicknameSettings from '@/components/NicknameSettings'
 import styles from './page.module.css'
 import type { PolkadotSigner } from 'polkadot-api/signer'
 
@@ -85,6 +86,14 @@ export default function Home() {
             accountSeed={accountSeed}
             refreshTrigger={refreshTrigger}
           />
+          {account && signer && client && unsafeApi && (
+            <NicknameSettings
+              client={client}
+              unsafeApi={unsafeApi}
+              accountId={account}
+              signer={signer}
+            />
+          )}
         </aside>
 
         <section className={styles.content}>
