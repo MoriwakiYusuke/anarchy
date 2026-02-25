@@ -122,11 +122,16 @@
   "media.dropzone": "Drop files or click to select",
   "media.remove": "Remove",
   "media.retry": "Retry",
+  "media.retrying": "Retrying...",
+  "media.retryAll": "Retry All",
+  "media.clearAll": "Clear All",
+  "media.uploadFailed": "Upload Failed",
   "media.processing": "Processing...",
   "media.complete": "Complete",
   "media.loadError": "Failed to load",
   "error.fileTooLarge": "File is too large",
   "error.unsupportedFileType": "Unsupported file type",
   "error.tooManyFiles": "Too many files (max 4)",
-  "error.uploadFailed": "Upload failed"
+  "error.uploadFailed": "Upload failed",
+  "error.videoNotSupported": "Video files not supported"
 }

@@ -78,11 +78,8 @@ export function PostItem({
           }
           
           if (merkleRoot.length !== 32) {
-            console.warn(`[PostItem] Invalid merkle root length: ${merkleRoot.length} (expected 32)`)
             throw new Error(`Invalid merkle root length: ${merkleRoot.length}`)
           }
-          
-          console.log(`[PostItem] Recovering content for post ${postId}, merkle_root:`, Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join(''))
           
           // Construct HybridMetadata from ContentRef
           // Note: Posts created before hybrid migration cannot be recovered with this code path

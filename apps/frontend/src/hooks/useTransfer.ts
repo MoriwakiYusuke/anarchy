@@ -210,7 +210,6 @@ export function useTransfer({
   const confirm = useCallback(async () => {
     // Only proceed if in confirming state
     if (state.status !== 'confirming') {
-      console.warn('[useTransfer] confirm() called but not in confirming state')
       return
     }
 
@@ -273,7 +272,6 @@ export function useTransfer({
 
       // Wait for finalization (for smoldot light client compatibility)
       // Poll for confirmation for up to 15 seconds
-      console.log('[useTransfer] Transaction submitted:', txHash)
 
       // Success
       setState({
@@ -285,8 +283,6 @@ export function useTransfer({
       onSuccess?.(txHash)
 
     } catch (err) {
-      console.error('[useTransfer] Transfer failed:', err)
-      
       const errorMessage = err instanceof Error ? err.message : String(err)
       
       // Map common errors

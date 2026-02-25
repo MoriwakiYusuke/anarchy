@@ -122,11 +122,16 @@
   "media.dropzone": "ファイルをドロップまたはクリックで選択",
   "media.remove": "削除",
   "media.retry": "再試行",
+  "media.retrying": "再試行中...",
+  "media.retryAll": "すべて再試行",
+  "media.clearAll": "すべてクリア",
+  "media.uploadFailed": "アップロード失敗",
   "media.processing": "処理中...",
   "media.complete": "完了",
   "media.loadError": "読み込み失敗",
   "error.fileTooLarge": "ファイルが大きすぎます",
   "error.unsupportedFileType": "サポートされていないファイル形式です",
   "error.tooManyFiles": "ファイル数が上限を超えています（最大4ファイル）",
-  "error.uploadFailed": "アップロードに失敗しました"
+  "error.uploadFailed": "アップロードに失敗しました",
+  "error.videoNotSupported": "動画ファイルはサポートされていません"
 }

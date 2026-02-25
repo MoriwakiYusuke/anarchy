@@ -176,8 +176,6 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
 
       const result = await tx.signAndSubmit(signer)
       
-      console.log('Transaction result:', result)
-      
       if (result.ok) {
         setStatus({ 
           type: 'success', 
@@ -189,11 +187,9 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
         setTimeout(() => setStatus(null), 3000)
       } else {
         const errorMessage = parseError(result.dispatchError, t as TranslateFunc)
-        console.error('Transaction failed:', result.dispatchError)
         setStatus({ type: 'error', message: errorMessage })
       }
     } catch (err: any) {
-      console.error('Transaction error:', err)
       // エラーオブジェクトの構造を確認してparseErrorを使う
       let errorMessage: string
       if (err?.type) {

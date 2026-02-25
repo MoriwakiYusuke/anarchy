@@ -60,7 +60,6 @@ export function useSmoldot(): UseSmoldotResult {
     
     // Prevent double initialization (React StrictMode / hot reload)
     if (hasInitializedRef.current) {
-      console.log('[useSmoldot] Already initialized, skipping...')
       return
     }
     hasInitializedRef.current = true
@@ -94,7 +93,6 @@ export function useSmoldot(): UseSmoldotResult {
       try {
         // Check if already connected (singleton pattern)
         const alreadyInitialized = isSmoldotInitialized()
-        console.log('[useSmoldot] Starting initialization...', { alreadyInitialized })
         
         const clientInstance = await initSmoldotClient()
         if (!mountedRef.current) return
@@ -104,7 +102,6 @@ export function useSmoldot(): UseSmoldotResult {
         
         // If already initialized, skip sync timeout - just verify connection
         if (alreadyInitialized) {
-          console.log('[useSmoldot] Reusing existing connection...')
           try {
             const currentBlock = await api.query.System.Number.getValue()
             if (!mountedRef.current) return
@@ -114,13 +111,12 @@ export function useSmoldot(): UseSmoldotResult {
             setBlockNumber(currentBlock)
             startBlockUpdates(api)
             return
-          } catch (err) {
-            console.warn('[useSmoldot] Existing connection check failed, falling back to sync...')
+          } catch {
+            // Existing connection check failed, falling back to sync
           }
         }
         
         setStatus('syncing')
-        console.log('[useSmoldot] Smoldot initialized, waiting for chain sync...')
         
         // Set timeout for sync (only for fresh connections)
         // The timeout is cleared when polling succeeds
@@ -141,7 +137,6 @@ export function useSmoldot(): UseSmoldotResult {
           
           while (mountedRef.current && retries < maxRetries) {
             try {
-              console.log(`[useSmoldot] Polling for sync (attempt ${retries + 1})...`)
               const currentBlock = await api.query.System.Number.getValue()
               
               if (!mountedRef.current) return
@@ -152,7 +147,6 @@ export function useSmoldot(): UseSmoldotResult {
                 syncTimeoutRef.current = null
               }
               
-              console.log(`[useSmoldot] Connected - Block #${currentBlock}`)
               setUnsafeApi(api)
               setStatus('connected')
               setBlockNumber(currentBlock)
@@ -160,9 +154,8 @@ export function useSmoldot(): UseSmoldotResult {
               // Start periodic block updates
               startBlockUpdates(api)
               return
-            } catch (err) {
+            } catch {
               // Not ready yet, wait and retry
-              console.log('[useSmoldot] Not synced yet, waiting...')
               retries++
               await new Promise(resolve => setTimeout(resolve, pollInterval))
             }

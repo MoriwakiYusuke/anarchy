@@ -104,8 +104,6 @@ export function useFragments(): UseFragmentsResult {
       const shardBytes: Uint8Array[] = []
       const progressPerFragment = 70 / k
 
-      console.log(`[useFragments] Recovering content: merkleRoot=${Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join('')}, k=${k}, n=${n}`)
-
       // Try to fetch fragments from storage nodes
       for (let index = 0; index < n; index++) {
         if (shardBytes.length >= k) break
@@ -125,8 +123,8 @@ export function useFragments(): UseFragmentsResult {
           const data = Uint8Array.from(atob(result.data), c => c.charCodeAt(0))
           shardBytes.push(data)
           setProgress(prev => Math.min(prev + progressPerFragment, 70))
-        } catch (err) {
-          console.warn(`[useFragments] Failed to get fragment ${index}:`, err)
+        } catch {
+          // Failed to get fragment, try next
         }
       }
 

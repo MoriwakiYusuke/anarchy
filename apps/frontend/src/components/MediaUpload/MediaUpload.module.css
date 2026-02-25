@@ -82,3 +82,27 @@
   background: rgba(255, 68, 68, 0.1);
   border-radius: var(--radius-xs, 2px);
 }
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+  .previews {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: var(--spacing-xs, 0.25rem);
+  }
+
+  .dropzone {
+    padding: var(--spacing-md, 1rem);
+    min-height: 100px;
+  }
+}
+
+@media (max-width: 480px) {
+  .previews {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dropzoneText {
+    font-size: var(--font-size-xs, 0.75rem);
+    text-align: center;
+  }
+}

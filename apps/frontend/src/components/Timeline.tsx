@@ -41,7 +41,6 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
       try {
         // Check if Post pallet exists
         if (!unsafeApi.query.Post) {
-          console.log('Post pallet not found')
           setIsLoading(false)
           return
         }
@@ -80,8 +79,8 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
               }
             }
           }
-        } catch (err) {
-          console.log('Contents storage not available (V1):', err)
+        } catch {
+          // Contents storage not available (V1)
         }
 
         // V2: ContentRefs を取得（分散ストレージ参照）
@@ -113,14 +112,12 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
                     // On-chain PostContent uses 'size' field, not 'total_size'
                     total_size: Number(ref.size || 0),
                   })
-                } else {
-                  console.warn(`[Timeline] Invalid root length for post ${postId}: ${rootBytes.length}`)
                 }
               }
             }
           }
-        } catch (err) {
-          console.log('ContentRefs storage not available (V2):', err)
+        } catch {
+          // ContentRefs storage not available (V2)
         }
         
         const fetchedPosts: Post[] = postEntries.map((entry: any) => {

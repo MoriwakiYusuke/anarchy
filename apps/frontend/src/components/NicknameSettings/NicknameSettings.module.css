@@ -136,3 +136,25 @@
   color: var(--success-color, #44ff88);
   background: rgba(68, 255, 136, 0.1);
 }
+
+/* Responsive Styles */
+@media (max-width: 480px) {
+  .container {
+    padding: var(--spacing-sm, 0.5rem);
+  }
+
+  .input {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+    min-height: 44px;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+
+  .setButton,
+  .clearButton {
+    width: 100%;
+    min-height: 44px; /* Touch-friendly tap target */
+  }
+}

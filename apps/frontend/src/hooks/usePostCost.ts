@@ -44,21 +44,13 @@ export function usePostCost(unsafeApi: any): PostCostConfig {
 
     const fetchConstants = async () => {
       try {
-        // デバッグ: 利用可能なパレットと定数を確認
-        console.log('Available pallets in constants:', Object.keys(unsafeApi.constants || {}))
-        
         // PAPI: Runtime constants から PostBaseCost と PostByteCost を取得
         const postConstants = unsafeApi.constants?.Post || unsafeApi.constants?.post
         
         if (!postConstants) {
-          console.warn('Post pallet constants not found, using fallback values')
-          console.log('Available constant pallets:', Object.keys(unsafeApi.constants || {}))
           setConfig(prev => ({ ...prev, isLoading: false, isFromChain: false }))
           return
         }
-
-        // デバッグ: Post パレットで利用可能な定数
-        console.log('Available constants in Post pallet:', Object.keys(postConstants))
 
         // PAPI では constants はゲッター関数として返される
         // 関数なら呼び出し、Promiseならawaitする
@@ -66,8 +58,6 @@ export function usePostCost(unsafeApi: any): PostCostConfig {
         const byteCostGetter = postConstants.PostByteCost ?? postConstants.post_byte_cost
 
         if (baseCostGetter === undefined || byteCostGetter === undefined) {
-          console.warn('PostBaseCost or PostByteCost not found, using fallback values')
-          console.log('Available keys:', Object.keys(postConstants))
           setConfig(prev => ({ ...prev, isLoading: false, isFromChain: false }))
           return
         }
@@ -81,8 +71,6 @@ export function usePostCost(unsafeApi: any): PostCostConfig {
           ? await byteCostGetter() 
           : byteCostGetter
 
-        console.log('Raw constants from chain:', { baseCostRaw, byteCostRaw })
-
         // BigInt に変換
         const baseCostBigInt = BigInt(baseCostRaw.toString())
         const byteCostBigInt = BigInt(byteCostRaw.toString())
@@ -90,8 +78,6 @@ export function usePostCost(unsafeApi: any): PostCostConfig {
         // Human readable に変換 (12 decimals)
         const baseCost = Number(baseCostBigInt) / Number(UNIT)
         const byteCost = Number(byteCostBigInt) / Number(UNIT)
-
-        console.log('Fetched post costs from chain:', { baseCost, byteCost })
 
         setConfig({
           baseCost,
@@ -103,7 +89,6 @@ export function usePostCost(unsafeApi: any): PostCostConfig {
           isFromChain: true,
         })
       } catch (err) {
-        console.error('Failed to fetch post cost constants:', err)
         // フォールバック値を使用
         setConfig(prev => ({
           ...prev,

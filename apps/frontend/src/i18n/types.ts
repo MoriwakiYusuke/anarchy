@@ -178,13 +178,18 @@ export type TranslationKey =
   | 'media.dropzone'
   | 'media.remove'
   | 'media.retry'
+  | 'media.retrying'
+  | 'media.retryAll'
+  | 'media.clearAll'
+  | 'media.uploadFailed'
   | 'media.processing'
   | 'media.complete'
   | 'media.loadError'
   | 'error.fileTooLarge'
   | 'error.unsupportedFileType'
   | 'error.tooManyFiles'
-  | 'error.uploadFailed';
+  | 'error.uploadFailed'
+  | 'error.videoNotSupported';
 
 /**
  * Translation map - maps translation keys to translated strings

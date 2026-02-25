@@ -254,7 +254,6 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
           'Faucet.Claims pre-check'
         )
         if (alreadyClaimed) {
-          console.log('[useFaucet] Account already claimed (pre-check)')
           throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
         }
       } catch (preCheckErr: any) {
@@ -263,7 +262,6 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
           throw preCheckErr
         }
         // Otherwise ignore pre-check errors (might not have Claims storage yet)
-        console.warn('[useFaucet] Pre-check error (ignoring):', preCheckErr)
       }
       
       // Submit transaction
@@ -276,9 +274,7 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
           RPC_TIMEOUT_MS,
           'author_submitExtrinsic'
         )
-        console.log('[useFaucet] Submit result:', result)
       } catch (submitError: any) {
-        console.error('[useFaucet] Submit error:', submitError)
         const message = submitError?.message || submitError?.toString() || 'Submit failed'
         if (
           message.includes('Invalid') || 
@@ -294,13 +290,11 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
       
       // Check if result indicates an error
       if (result && typeof result === 'object' && 'error' in result) {
-        console.error('[useFaucet] RPC error in result:', result.error)
         throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
       }
 
       // smoldot returns tx hash immediately, need to wait and verify claim was recorded
       // Wait for transaction to be included in block (max ~12 seconds = 2 blocks)
-      console.log('[useFaucet] Waiting for transaction to be finalized...')
       const maxWaitMs = 12000
       const pollInterval = 2000
       let elapsed = 0
@@ -317,18 +311,14 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
             'Faucet.Claims verification'
           )
           if (claimed) {
-            console.log('[useFaucet] Claim verified in storage!')
             claimVerified = true
-          } else {
-            console.log(`[useFaucet] Claim not yet recorded, waiting... (${elapsed}ms)`)
           }
-        } catch (verifyErr) {
-          console.warn('[useFaucet] Verify error:', verifyErr)
+        } catch {
+          // Verify error, continue waiting
         }
       }
       
       if (!claimVerified) {
-        console.error('[useFaucet] Claim not recorded after waiting - likely rejected')
         throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
       }
 
@@ -342,8 +332,6 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
       }, 3000)
 
     } catch (err) {
-      console.error('Faucet error:', err)
-      
       // Workerクリーンアップ
       if (workerRef.current) {
         workerRef.current.terminate()

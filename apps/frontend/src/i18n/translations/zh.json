@@ -122,11 +122,16 @@
   "media.dropzone": "拖放文件或点击选择",
   "media.remove": "删除",
   "media.retry": "重试",
+  "media.retrying": "重试中...",
+  "media.retryAll": "全部重试",
+  "media.clearAll": "全部清除",
+  "media.uploadFailed": "上传失败",
   "media.processing": "处理中...",
   "media.complete": "完成",
   "media.loadError": "加载失败",
   "error.fileTooLarge": "文件太大",
   "error.unsupportedFileType": "不支持的文件类型",
   "error.tooManyFiles": "文件数超过上限（最大4个）",
-  "error.uploadFailed": "上传失败"
+  "error.uploadFailed": "上传失败",
+  "error.videoNotSupported": "不支持视频文件"
 }

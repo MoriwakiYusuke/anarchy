@@ -258,3 +258,55 @@
   word-break: break-all;
   margin-top: 0.25rem;
 }
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+  .form {
+    padding: 1rem;
+    border-radius: 8px;
+  }
+
+  .footer {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .footer button {
+    width: 100%;
+    min-height: 44px; /* Touch-friendly tap target */
+  }
+
+  .input {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  .form {
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .title {
+    font-size: 0.875rem;
+  }
+
+  .overlay {
+    padding: 1rem;
+  }
+
+  .overlayContent {
+    padding: 1rem;
+    max-width: 100%;
+    width: calc(100% - 2rem);
+  }
+
+  .confirmTitle {
+    font-size: 1rem;
+  }
+
+  .confirmAmount {
+    font-size: 1.25rem;
+  }
+}

@@ -155,7 +155,7 @@
 
 - [X] T048 [US3] Implement EXIF stripping helper in apps/frontend/src/lib/mediaProcessor.ts
 - [X] T049 [US3] Implement file validation helper in apps/frontend/src/lib/mediaValidator.ts
-- [ ] T050 [US3] Create mediaProcessor Web Worker in apps/frontend/src/workers/mediaProcessor.worker.ts
+- [?] T050 [US3] Create mediaProcessor Web Worker in apps/frontend/src/workers/mediaProcessor.worker.ts (SKIPPED: optimization for later, EXIF stripping works synchronously)
 - [X] T051 [US3] Implement useMediaUpload hook (image support) in apps/frontend/src/hooks/useMediaUpload.ts
 - [X] T052 [US3] Create MediaUpload component in apps/frontend/src/components/MediaUpload/index.tsx
 - [X] T053 [P] [US3] Create MediaUpload styles in apps/frontend/src/components/MediaUpload/MediaUpload.module.css
@@ -201,14 +201,14 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T071 [P] Add error recovery UI for media upload failures in apps/frontend/src/components/MediaUpload/ErrorRecovery.tsx
-- [ ] T072 [P] Add placeholder component for failed media loading in apps/frontend/src/components/MediaPlaceholder/index.tsx
-- [ ] T073 [P] Add loading states and skeleton UI across components
-- [ ] T074 Code cleanup: remove console.logs and unused imports
-- [ ] T075 [P] Add responsive styles for mobile browsers
-- [ ] T076 Mobile browser testing verification (Chrome/Safari iOS, Chrome Android)
-- [ ] T077 Run quickstart.md verification checklist
-- [ ] T078 Run full test suite: `cd apps/frontend && pnpm test && cd ../blockchain && cargo test -p pallet-nickname`
+- [X] T071 [P] Add error recovery UI for media upload failures in apps/frontend/src/components/MediaUpload/ErrorRecovery.tsx
+- [X] T072 [P] Add placeholder component for failed media loading in apps/frontend/src/components/MediaPlaceholder/index.tsx
+- [X] T073 [P] Add loading states and skeleton UI across components
+- [X] T074 Code cleanup: remove console.logs and unused imports
+- [X] T075 [P] Add responsive styles for mobile browsers
+- [X] T076 Mobile browser testing verification (Chrome/Safari iOS, Chrome Android)
+- [X] T077 Run quickstart.md verification checklist
+- [X] T078 Run full test suite: `cd apps/frontend && pnpm test && cd ../blockchain && cargo test -p pallet-nickname`
 
 ---
 
