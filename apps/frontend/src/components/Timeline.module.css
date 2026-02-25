@@ -92,7 +92,7 @@
 }
 
 .text {
-  font-size: 1rem;
+  font-size: 1.125rem;
   line-height: 1.6;
   color: var(--text-primary);
   word-break: break-word;
