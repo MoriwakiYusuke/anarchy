@@ -37,19 +37,19 @@
 }
 
 .dropzone:hover:not(.disabled) {
-  border-color: var(--accent-color, #7b68ee);
-  background: rgba(123, 104, 238, 0.05);
+  border-color: var(--accent, #e53935);
+  background: rgba(229, 57, 53, 0.05);
 }
 
 .dropzone:focus {
   outline: none;
-  border-color: var(--accent-color, #7b68ee);
-  box-shadow: 0 0 0 2px rgba(123, 104, 238, 0.2);
+  border-color: var(--accent, #e53935);
+  box-shadow: 0 0 0 2px rgba(229, 57, 53, 0.2);
 }
 
 .dropzone.dragActive {
-  border-color: var(--accent-color, #7b68ee);
-  background: rgba(123, 104, 238, 0.1);
+  border-color: var(--accent, #e53935);
+  background: rgba(229, 57, 53, 0.1);
 }
 
 .dropzone.disabled {

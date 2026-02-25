@@ -1,10 +1,10 @@
 'use client'
 
 /**
- * NicknameSettings Component
+ * NameSettings Component
  * 
- * T-041: Nickname registration settings UI
- * Allows users to set, update, or clear their on-chain nickname
+ * T-041: Name registration settings UI
+ * Displays current name with collapsible form to change it
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
@@ -17,6 +17,8 @@ import styles from './NicknameSettings.module.css'
 const MAX_NICKNAME_BYTES = 128
 /** Threshold for warning styling (90% of max) */
 const WARNING_THRESHOLD = Math.floor(MAX_NICKNAME_BYTES * 0.9)
+/** Default display name when no nickname is set */
+const DEFAULT_NAME = 'Anarchy'
 
 interface NicknameSettingsProps {
   /** PAPI client instance */
@@ -59,11 +61,16 @@ export default function NicknameSettings({
     signer,
     onSuccess: () => {
       onNicknameChange?.(inputValue || null)
+      setIsOpen(false)
     },
   })
 
   const [inputValue, setInputValue] = useState('')
+  const [isOpen, setIsOpen] = useState(false)
   const [wasCleared, setWasCleared] = useState(false)
+
+  // Display name: registered nickname or default
+  const displayName = nickname || DEFAULT_NAME
 
   // Sync input with current nickname on load
   useEffect(() => {
@@ -107,6 +114,10 @@ export default function NicknameSettings({
     }
   }, [isPending, clearNickname])
 
+  const handleToggle = useCallback(() => {
+    setIsOpen(!isOpen)
+  }, [isOpen])
+
   const getButtonText = (): string => {
     if (isPending) return t('nickname.setting')
     return t('nickname.set')
@@ -120,60 +131,75 @@ export default function NicknameSettings({
 
   return (
     <div className={styles.container}>
-      <h3 className={styles.title}>{t('nickname.title')}</h3>
+      <div className={styles.nameDisplay}>
+        <span className={styles.nameLabel}>{t('name.label')}</span>
+        <span className={styles.nameValue}>{displayName}</span>
+      </div>
       
-      <form onSubmit={handleSubmit} className={styles.form}>
-        <div className={styles.inputWrapper}>
-          <input
-            type="text"
-            value={inputValue}
-            onChange={handleInputChange}
-            placeholder={t('nickname.placeholder')}
-            disabled={isPending}
-            className={`${styles.input} ${isError ? styles.inputError : ''}`}
-            aria-label={t('nickname.title')}
-          />
-          
-          <span 
-            className={`${styles.counter} ${isNearLimit ? styles.warning : ''} ${isOverLimit ? styles.error : ''}`}
-          >
-            {byteCount}/{MAX_NICKNAME_BYTES}
-          </span>
-        </div>
+      <button
+        type="button"
+        className={styles.changeButton}
+        onClick={handleToggle}
+        aria-expanded={isOpen}
+      >
+        <span>{t('name.change')}</span>
+        <span className={styles.collapseIcon}>{isOpen ? '▲' : '▼'}</span>
+      </button>
 
-        <div className={styles.actions}>
-          <button
-            type="submit"
-            disabled={isPending || isOverLimit || !inputValue.trim()}
-            className={styles.setButton}
-          >
-            {getButtonText()}
-          </button>
-
-          {hasNickname && (
-            <button
-              type="button"
-              onClick={handleClear}
+      {isOpen && (
+        <form onSubmit={handleSubmit} className={styles.form}>
+          <div className={styles.inputWrapper}>
+            <input
+              type="text"
+              value={inputValue}
+              onChange={handleInputChange}
+              placeholder={t('nickname.placeholder')}
               disabled={isPending}
-              className={styles.clearButton}
+              className={`${styles.input} ${isError ? styles.inputError : ''}`}
+              aria-label={t('name.label')}
+            />
+            
+            <span 
+              className={`${styles.counter} ${isNearLimit ? styles.warning : ''} ${isOverLimit ? styles.error : ''}`}
             >
-              {t('nickname.clear')}
+              {byteCount}/{MAX_NICKNAME_BYTES}
+            </span>
+          </div>
+
+          <div className={styles.actions}>
+            <button
+              type="submit"
+              disabled={isPending || isOverLimit || !inputValue.trim()}
+              className={styles.setButton}
+            >
+              {getButtonText()}
             </button>
+
+            {hasNickname && (
+              <button
+                type="button"
+                onClick={handleClear}
+                disabled={isPending}
+                className={styles.clearButton}
+              >
+                {t('nickname.clear')}
+              </button>
+            )}
+          </div>
+
+          {/* Status messages */}
+          {isError && error && (
+            <p className={`${styles.message} ${styles.error}`}>
+              {error}
+            </p>
           )}
-        </div>
-      </form>
 
-      {/* Status messages */}
-      {isError && error && (
-        <p className={`${styles.message} ${styles.error}`}>
-          {error}
-        </p>
-      )}
-
-      {isSuccess && (
-        <p className={`${styles.message} ${styles.success}`}>
-          {getStatusMessage()}
-        </p>
+          {isSuccess && (
+            <p className={`${styles.message} ${styles.success}`}>
+              {getStatusMessage()}
+            </p>
+          )}
+        </form>
       )}
     </div>
   )

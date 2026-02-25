@@ -1,11 +1,19 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useStorage, type HybridMetadata } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n/context'
-import AddressDisplay from '@/components/AddressDisplay'
 import MediaDisplay, { type MediaItem } from '@/components/MediaDisplay'
+import { CopyIcon, CheckIcon, ReplyIcon } from '@/components/Icons'
 import styles from './Timeline.module.css'
+
+/**
+ * アドレスを短縮表示する
+ */
+function shortenAddress(addr: string): string {
+  if (addr.length <= 16) return addr
+  return `${addr.slice(0, 8)}...${addr.slice(-6)}`
+}
 
 interface ContentRef {
   root: number[]       // [u8; 32]
@@ -129,15 +137,35 @@ export function PostItem({
     displayContent = <span className={styles.contentLoading}>読み込み中...</span>
   }
 
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyAddress = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(author)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy address:', err)
+    }
+  }, [author])
+
   return (
     <article className={styles.post}>
       <header className={styles.postHeader}>
-        <AddressDisplay 
-          address={author} 
-          nickname={nickname}
-          size="compact"
-          className={styles.author}
-        />
+        <span className={styles.author}>
+          {nickname && <span className={styles.nickname}>{nickname}</span>}
+          <span className={styles.addressRow}>
+            <span className={styles.address}>{shortenAddress(author)}</span>
+            <button
+              className={styles.copyButton}
+              onClick={handleCopyAddress}
+              title={t('address.clickToCopy')}
+              type="button"
+            >
+              {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+            </button>
+          </span>
+        </span>
         <span className={styles.block}>
           Block #{createdAt}
         </span>
@@ -154,7 +182,7 @@ export function PostItem({
         </span>
         {parentId !== null && (
           <span className={styles.reply}>
-            ↩ Reply to #{parentId}
+            <ReplyIcon size={12} /> Reply to #{parentId}
           </span>
         )}
       </footer>

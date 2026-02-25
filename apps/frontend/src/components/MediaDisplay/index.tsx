@@ -18,6 +18,7 @@ import React, { useState, useCallback } from 'react'
 import Image from 'next/image'
 import Lightbox from '@/components/Lightbox'
 import VideoPlayer from '@/components/VideoPlayer'
+import { WarningIcon } from '@/components/Icons'
 import styles from './MediaDisplay.module.css'
 
 export interface MediaItem {
@@ -166,7 +167,7 @@ export default function MediaDisplay({
             >
               {hasError ? (
                 <div className={styles.errorPlaceholder}>
-                  <span className={styles.errorIcon}>⚠️</span>
+                  <span className={styles.errorIcon}><WarningIcon size={20} /></span>
                   <span className={styles.errorText}>Failed to load</span>
                 </div>
               ) : (

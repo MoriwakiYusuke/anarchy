@@ -21,6 +21,7 @@ interface Post {
   createdAt: number
   parentId: number | null
   contentRef?: ContentRef
+  nickname?: string
 }
 
 interface Props {
@@ -119,20 +120,63 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
         } catch {
           // ContentRefs storage not available (V2)
         }
+
+        // 著者のニックネームを取得
+        const nicknameMap = new Map<string, string>()
+        try {
+          if (unsafeApi.query.Nickname?.Nicknames) {
+            // 全著者アドレスを収集
+            const authors = new Set<string>()
+            for (const entry of postEntries) {
+              const author = entry.value?.author
+              if (author && typeof author === 'string') {
+                authors.add(author)
+              }
+            }
+            // 各著者のニックネームを取得
+            for (const author of authors) {
+              try {
+                const result = await unsafeApi.query.Nickname.Nicknames(author)
+                if (result) {
+                  let bytes: Uint8Array
+                  if (typeof result?.asBytes === 'function') {
+                    bytes = result.asBytes()
+                  } else if (result instanceof Uint8Array) {
+                    bytes = result
+                  } else if (Array.isArray(result)) {
+                    bytes = new Uint8Array(result)
+                  } else {
+                    bytes = new Uint8Array(result)
+                  }
+                  const decoded = new TextDecoder().decode(bytes)
+                  if (decoded) {
+                    nicknameMap.set(author, decoded)
+                  }
+                }
+              } catch {
+                // Individual nickname fetch failed
+              }
+            }
+          }
+        } catch {
+          // Nickname pallet not available
+        }
         
         const fetchedPosts: Post[] = postEntries.map((entry: any) => {
           const postId = Number(entry.keyArgs[0])
           const post = entry.value
           const contentRef = contentRefMap.get(postId)
+          const author = post.author || 'unknown'
           return {
             id: postId,
-            author: post.author || 'unknown',
+            author,
             // V2投稿はcontentRefがあるのでcontentは空でOK
             content: contentMap.get(postId) || '',
             contentHash: post.content_hash?.asHex?.() || '',
             createdAt: Number(post.created_at || 0),
             parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
             contentRef,
+            nickname: nicknameMap.get(author),
           }
         })
 
@@ -176,6 +220,7 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
           key={post.id}
           postId={post.id}
           author={post.author}
+          nickname={post.nickname || 'Anarchy'}
           contentHash={post.contentHash}
           createdAt={post.createdAt}
           parentId={post.parentId}

@@ -14,6 +14,7 @@
 import React from 'react'
 import type { MediaFile } from '@/types/media'
 import { useLocale } from '@/i18n'
+import { WarningIcon } from '@/components/Icons'
 import styles from './ErrorRecovery.module.css'
 
 export interface ErrorRecoveryProps {
@@ -48,7 +49,7 @@ export default function ErrorRecovery({
   return (
     <div className={styles.container} role="alert" aria-live="polite">
       <div className={styles.header}>
-        <span className={styles.errorIcon}>⚠️</span>
+        <span className={styles.errorIcon}><WarningIcon size={20} /></span>
         <h3 className={styles.title}>
           {t('media.uploadFailed')} ({failedFiles.length})
         </h3>

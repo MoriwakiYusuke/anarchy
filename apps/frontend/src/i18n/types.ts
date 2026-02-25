@@ -161,6 +161,9 @@ export type TranslationKey =
   | 'address.copied'
   | 'address.copyFailed'
   | 'address.clickToCopy'
+  // Name
+  | 'name.label'
+  | 'name.change'
   // Nickname
   | 'nickname.title'
   | 'nickname.set'

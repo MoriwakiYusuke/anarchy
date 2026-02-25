@@ -11,6 +11,7 @@ import React from 'react'
 import type { MediaFile } from '@/types/media'
 import { useLocale } from '@/i18n'
 import { formatDuration } from '@/lib/videoThumbnail'
+import { CheckIcon } from '@/components/Icons'
 import ProgressBar from './ProgressBar'
 import styles from './MediaPreview.module.css'
 
@@ -91,7 +92,7 @@ export default function MediaPreview({
 
         {/* Complete checkmark */}
         {isComplete && (
-          <span className={styles.completeIcon}>✓</span>
+          <span className={styles.completeIcon}><CheckIcon size={16} color="#4ade80" /></span>
         )}
 
         {/* Error state */}

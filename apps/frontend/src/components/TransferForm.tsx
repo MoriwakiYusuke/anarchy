@@ -126,8 +126,6 @@ export function TransferForm({
 
   return (
     <div className={styles.form}>
-      <h3 className={styles.title}>{t('transfer.title')}</h3>
-
       <form onSubmit={handleSubmit}>
         {/* Recipient Input */}
         <div className={styles.fieldGroup}>

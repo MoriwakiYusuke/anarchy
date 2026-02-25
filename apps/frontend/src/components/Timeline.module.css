@@ -40,9 +40,44 @@
 }
 
 .author {
-  font-family: monospace;
-  font-size: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.nickname {
+  font-size: 1rem;
+  font-weight: 600;
   color: var(--accent);
+}
+
+.addressRow {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.address {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.copyButton {
+  background: transparent;
+  border: none;
+  padding: 0 0.25rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  display: inline-flex;
+  align-items: center;
+}
+
+.copyButton:hover {
+  opacity: 1;
 }
 
 .block {

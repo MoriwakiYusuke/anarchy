@@ -308,6 +308,9 @@
 }
 
 .copyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 6px;

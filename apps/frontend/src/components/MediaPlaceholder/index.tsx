@@ -13,6 +13,7 @@
 
 import React from 'react'
 import { useLocale } from '@/i18n'
+import { WarningIcon } from '@/components/Icons'
 import styles from './MediaPlaceholder.module.css'
 
 export type PlaceholderState = 'loading' | 'error' | 'empty'
@@ -69,7 +70,7 @@ export default function MediaPlaceholder({
 
       {state === 'error' && (
         <>
-          <span className={styles.errorIcon}>⚠️</span>
+          <span className={styles.errorIcon}><WarningIcon size={24} /></span>
           <span className={styles.errorText}>
             {message || t('media.loadError')}
           </span>
