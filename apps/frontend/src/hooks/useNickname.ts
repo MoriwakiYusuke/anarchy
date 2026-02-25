@@ -14,6 +14,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import type { PolkadotSigner } from 'polkadot-api'
+import { Binary } from 'polkadot-api'
 
 /** Maximum nickname length in bytes (UTF-8) */
 const MAX_NICKNAME_BYTES = 128
@@ -166,14 +167,14 @@ export function useNickname({
       const api = unsafeApi as {
         tx: {
           Nickname: {
-            set_nickname: (params: { nickname: Uint8Array }) => {
+            set_nickname: (params: { nickname: Binary }) => {
               signAndSubmit: (signer: unknown) => Promise<{ txHash: string }>
             }
           }
         }
       }
 
-      const nicknameBytes = new TextEncoder().encode(newNickname)
+      const nicknameBytes = Binary.fromBytes(new TextEncoder().encode(newNickname))
       const tx = api.tx.Nickname.set_nickname({ nickname: nicknameBytes })
       const result = await tx.signAndSubmit(signer)
 

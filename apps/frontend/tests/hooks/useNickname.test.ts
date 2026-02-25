@@ -8,6 +8,25 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
+// Mock Binary class for polkadot-api
+class MockBinary {
+  private bytes: Uint8Array
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes
+  }
+  asBytes() {
+    return this.bytes
+  }
+  static fromBytes(bytes: Uint8Array) {
+    return new MockBinary(bytes)
+  }
+}
+
+// Mock polkadot-api with Binary class
+jest.mock('polkadot-api', () => ({
+  Binary: MockBinary,
+}))
+
 /** Timeout for async test operations in milliseconds */
 const TEST_TIMEOUT_MS = 5000
 
