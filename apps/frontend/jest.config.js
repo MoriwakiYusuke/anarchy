@@ -12,6 +12,10 @@ const customJestConfig = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   testPathIgnorePatterns: ['/node_modules/', '/.next/'],
+  testMatch: [
+    '<rootDir>/tests/**/*.test.{ts,tsx}',
+    '<rootDir>/**/__tests__/**/*.{ts,tsx}',
+  ],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',

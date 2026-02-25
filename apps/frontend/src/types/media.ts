@@ -26,13 +26,19 @@ export interface MediaFile {
   /** File size in bytes */
   size: number
   /** Preview URL (blob: URL for images, thumbnail for videos) */
-  previewUrl?: string
+  preview?: string
   /** Upload progress percentage (0-100) */
   uploadProgress: number
   /** Current status */
   status: MediaFileStatus
   /** Error message if status is 'error' */
   error?: string
+  /** Image width in pixels */
+  width?: number
+  /** Image height in pixels */
+  height?: number
+  /** Merkle root after successful upload (hex encoded) */
+  merkleRoot?: string
   /** Upload result if status is 'complete' */
   result?: MediaUploadResult
 }

@@ -55,6 +55,14 @@ describe('useTransfer Hook', () => {
     },
   }
 
+  const defaultOptions = {
+    client: mockClient,
+    unsafeApi: mockUnsafeApi,
+    signer: mockSigner,
+    senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+    balance: BigInt(100_000_000_000_000), // 100 MORAL
+  }
+
   beforeEach(() => {
     jest.clearAllMocks()
     mockSignAndSubmit.mockReset()
@@ -66,12 +74,7 @@ describe('useTransfer Hook', () => {
 
   describe('Initial State', () => {
     it('should initialize with idle status', () => {
-      const { result } = renderHook(() => useTransfer({
-        client: mockClient,
-        unsafeApi: mockUnsafeApi,
-        signer: mockSigner,
-        senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-      }))
+      const { result } = renderHook(() => useTransfer(defaultOptions))
 
       expect(result.current.state.status).toBe('idle')
       expect(result.current.state.recipient).toBeUndefined()
@@ -87,12 +90,7 @@ describe('useTransfer Hook', () => {
 
   describe('Recipient Validation', () => {
     it('should validate correct SS58 address', () => {
-      const { result } = renderHook(() => useTransfer({
-        client: mockClient,
-        unsafeApi: mockUnsafeApi,
-        signer: mockSigner,
-        senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-      }))
+      const { result } = renderHook(() => useTransfer(defaultOptions))
 
       const validation = result.current.validateRecipient('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty')
       expect(validation.valid).toBe(true)
@@ -100,12 +98,7 @@ describe('useTransfer Hook', () => {
     })
 
     it('should reject invalid address', () => {
-      const { result } = renderHook(() => useTransfer({
-        client: mockClient,
-        unsafeApi: mockUnsafeApi,
-        signer: mockSigner,
-        senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-      }))
+      const { result } = renderHook(() => useTransfer(defaultOptions))
 
       const validation = result.current.validateRecipient('invalid_address')
       expect(validation.valid).toBe(false)
@@ -113,12 +106,7 @@ describe('useTransfer Hook', () => {
     })
 
     it('should reject empty address', () => {
-      const { result } = renderHook(() => useTransfer({
-        client: mockClient,
-        unsafeApi: mockUnsafeApi,
-        signer: mockSigner,
-        senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-      }))
+      const { result } = renderHook(() => useTransfer(defaultOptions))
 
       const validation = result.current.validateRecipient('')
       expect(validation.valid).toBe(false)
@@ -126,15 +114,9 @@ describe('useTransfer Hook', () => {
     })
 
     it('should reject self-transfer', () => {
-      const senderAddress = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
-      const { result } = renderHook(() => useTransfer({
-        client: mockClient,
-        unsafeApi: mockUnsafeApi,
-        signer: mockSigner,
-        senderAddress,
-      }))
+      const { result } = renderHook(() => useTransfer(defaultOptions))
 
-      const validation = result.current.validateRecipient(senderAddress)
+      const validation = result.current.validateRecipient(defaultOptions.senderAddress)
       expect(validation.valid).toBe(false)
       expect(validation.error).toBe('error.selfTransfer')
     })
@@ -345,12 +327,7 @@ describe('useTransfer Hook', () => {
 
   describe('Edge Cases', () => {
     it('should not allow confirm() without prior transfer()', async () => {
-      const { result } = renderHook(() => useTransfer({
-        client: mockClient,
-        unsafeApi: mockUnsafeApi,
-        signer: mockSigner,
-        senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-      }))
+      const { result } = renderHook(() => useTransfer(defaultOptions))
 
       // Try to confirm without calling transfer() first
       await act(async () => {

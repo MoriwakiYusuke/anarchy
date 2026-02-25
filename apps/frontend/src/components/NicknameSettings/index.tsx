@@ -166,7 +166,7 @@ export default function NicknameSettings({
       {/* Status messages */}
       {isError && error && (
         <p className={`${styles.message} ${styles.error}`}>
-          {t(error)}
+          {error}
         </p>
       )}
 

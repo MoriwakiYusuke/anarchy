@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useStorage, type HybridMetadata } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n/context'
 import AddressDisplay from '@/components/AddressDisplay'
+import MediaDisplay, { type MediaItem } from '@/components/MediaDisplay'
 import styles from './Timeline.module.css'
 
 interface ContentRef {
@@ -29,6 +30,8 @@ interface Props {
   contentRef?: ContentRef
   /** Optional nickname for the author */
   nickname?: string
+  /** Optional media attachments */
+  media?: MediaItem[]
 }
 
 /**
@@ -42,6 +45,7 @@ export function PostItem({
   inlineContent,
   contentRef,
   nickname,
+  media = [],
 }: Props) {
   const { t } = useLocale()
   const { recoverContent, isReady } = useStorage()
@@ -143,6 +147,9 @@ export function PostItem({
       </header>
       <div className={styles.content}>
         <p className={styles.text}>{displayContent}</p>
+        {media.length > 0 && (
+          <MediaDisplay media={media} />
+        )}
       </div>
       <footer className={styles.postFooter}>
         <span className={styles.postId}>

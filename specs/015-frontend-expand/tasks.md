@@ -148,26 +148,26 @@
 
 ### Tests for User Story 3
 
-- [ ] T046 [P] [US3] Write useMediaUpload hook unit tests in apps/frontend/tests/hooks/useMediaUpload.test.ts
-- [ ] T047 [P] [US3] Write MediaUpload component tests in apps/frontend/tests/components/MediaUpload.test.tsx
+- [X] T046 [P] [US3] Write useMediaUpload hook unit tests in apps/frontend/tests/hooks/useMediaUpload.test.ts
+- [X] T047 [P] [US3] Write MediaUpload component tests in apps/frontend/tests/components/MediaUpload.test.tsx
 
 ### Implementation for User Story 3
 
-- [ ] T048 [US3] Implement EXIF stripping helper in apps/frontend/src/lib/mediaProcessor.ts
-- [ ] T049 [US3] Implement file validation helper in apps/frontend/src/lib/mediaValidator.ts
+- [X] T048 [US3] Implement EXIF stripping helper in apps/frontend/src/lib/mediaProcessor.ts
+- [X] T049 [US3] Implement file validation helper in apps/frontend/src/lib/mediaValidator.ts
 - [ ] T050 [US3] Create mediaProcessor Web Worker in apps/frontend/src/workers/mediaProcessor.worker.ts
-- [ ] T051 [US3] Implement useMediaUpload hook (image support) in apps/frontend/src/hooks/useMediaUpload.ts
-- [ ] T052 [US3] Create MediaUpload component in apps/frontend/src/components/MediaUpload/index.tsx
-- [ ] T053 [P] [US3] Create MediaUpload styles in apps/frontend/src/components/MediaUpload/MediaUpload.module.css
-- [ ] T054 [US3] Create MediaPreview subcomponent in apps/frontend/src/components/MediaUpload/MediaPreview.tsx
-- [ ] T055 [US3] Create ProgressBar subcomponent in apps/frontend/src/components/MediaUpload/ProgressBar.tsx
-- [ ] T056 [US3] Integrate MediaUpload into PostForm in apps/frontend/src/components/PostForm.tsx
-- [ ] T057 [US3] Create MediaDisplay component for timeline in apps/frontend/src/components/MediaDisplay/index.tsx
-- [ ] T058 [P] [US3] Create MediaDisplay styles in apps/frontend/src/components/MediaDisplay/MediaDisplay.module.css
-- [ ] T059 [US3] Create Lightbox component for fullsize view in apps/frontend/src/components/Lightbox/index.tsx
-- [ ] T060 [US3] Integrate MediaDisplay into PostItem in apps/frontend/src/components/PostItem.tsx
-- [ ] T061 [US3] Implement upload rollback on partial failure in apps/frontend/src/hooks/useMediaUpload.ts
-- [ ] T062 [US3] Run `cd apps/frontend && pnpm test` to verify US3 tests pass
+- [X] T051 [US3] Implement useMediaUpload hook (image support) in apps/frontend/src/hooks/useMediaUpload.ts
+- [X] T052 [US3] Create MediaUpload component in apps/frontend/src/components/MediaUpload/index.tsx
+- [X] T053 [P] [US3] Create MediaUpload styles in apps/frontend/src/components/MediaUpload/MediaUpload.module.css
+- [X] T054 [US3] Create MediaPreview subcomponent in apps/frontend/src/components/MediaUpload/MediaPreview.tsx
+- [X] T055 [US3] Create ProgressBar subcomponent in apps/frontend/src/components/MediaUpload/ProgressBar.tsx
+- [X] T056 [US3] Integrate MediaUpload into PostForm in apps/frontend/src/components/PostForm.tsx
+- [X] T057 [US3] Create MediaDisplay component for timeline in apps/frontend/src/components/MediaDisplay/index.tsx
+- [X] T058 [P] [US3] Create MediaDisplay styles in apps/frontend/src/components/MediaDisplay/MediaDisplay.module.css
+- [X] T059 [US3] Create Lightbox component for fullsize view in apps/frontend/src/components/Lightbox/index.tsx
+- [X] T060 [US3] Integrate MediaDisplay into PostItem in apps/frontend/src/components/PostItem.tsx
+- [X] T061 [US3] Implement upload rollback on partial failure in apps/frontend/src/hooks/useMediaUpload.ts
+- [X] T062 [US3] Run `cd apps/frontend && pnpm test` to verify US3 tests pass
 
 **Checkpoint**: 10MB以下の画像アップロードが30秒以内に完了する。
 

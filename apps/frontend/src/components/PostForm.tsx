@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { Binary } from 'polkadot-api'
 import { usePostCost, calculatePostCost } from '@/hooks/usePostCost'
 import { useStorage, createStorageSigner, StorageSigner } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n'
+import MediaUpload from '@/components/MediaUpload'
+import type { MediaUploadResult } from '@/types/media'
 import styles from './PostForm.module.css'
 
 interface Props {
@@ -99,6 +101,9 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [status, setStatus] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null)
   
+  // Media upload results
+  const [mediaResults, setMediaResults] = useState<MediaUploadResult[]>([])
+  
   // Storage認証用のsigner
   const [storageSigner, setStorageSigner] = useState<StorageSigner | null>(null)
   
@@ -128,6 +133,16 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
   // SSS固定パラメータ
   const SSS_K = 3  // 復元に必要な断片数
   const SSS_N = 5  // 総断片数
+
+  // Handle media upload complete
+  const handleMediaUploadComplete = useCallback((results: MediaUploadResult[]) => {
+    setMediaResults(results)
+  }, [])
+
+  // Handle media upload error
+  const handleMediaUploadError = useCallback((error: string) => {
+    setStatus({ type: 'error', message: error })
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -169,6 +184,7 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
           message: t('post.success', { block: result.block.number.toString() })
         })
         setContent('')
+        setMediaResults([]) // Clear media after successful post
         onPostSuccess?.()
         setTimeout(() => setStatus(null), 3000)
       } else {
@@ -210,6 +226,15 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
         maxLength={10000}
         rows={4}
       />
+      
+      {/* Media Upload Section */}
+      <MediaUpload
+        disabled={isSubmitting}
+        onUploadComplete={handleMediaUploadComplete}
+        onError={handleMediaUploadError}
+        className={styles.mediaUpload}
+      />
+      
       <div className={styles.footer}>
         <span className={styles.charCount}>
           {byteCount.toLocaleString()} bytes

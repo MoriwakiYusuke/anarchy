@@ -250,7 +250,7 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
-      expect(screen.getByText('Nickname is too long (max 128 bytes)')).toBeInTheDocument()
+      expect(screen.getByText('error.nicknameTooLong')).toBeInTheDocument()
     })
 
     it('should show error styling on error state', () => {
@@ -266,7 +266,7 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
-      const errorMessage = screen.getByText('Please enter a nickname')
+      const errorMessage = screen.getByText('error.nicknameEmpty')
       expect(errorMessage).toHaveClass(/error/)
     })
   })

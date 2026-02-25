@@ -77,8 +77,14 @@ describe('TransferForm Component', () => {
   } as any
 
   const mockUnsafeApi = {} as any
+  
+  const mockClient = {
+    getUnsafeApi: jest.fn().mockReturnValue(mockUnsafeApi),
+    getFinalizedBlock: jest.fn().mockResolvedValue({ hash: '0x' }),
+  } as any
 
   const defaultProps = {
+    client: mockClient,
     unsafeApi: mockUnsafeApi,
     signer: mockSigner,
     senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
