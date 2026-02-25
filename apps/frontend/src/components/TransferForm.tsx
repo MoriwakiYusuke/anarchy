@@ -7,7 +7,8 @@
  * Handles user input, validation display, confirmation dialog, and status
  */
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { PolkadotSigner } from 'polkadot-api'
 import { useTransfer } from '@/hooks/useTransfer'
 import { useLocale, type TranslationKey } from '@/i18n'
@@ -43,6 +44,12 @@ export function TransferForm({
   const [amount, setAmount] = useState('')
   const [recipientTouched, setRecipientTouched] = useState(false)
   const [amountTouched, setAmountTouched] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  
+  // For portal rendering
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const {
     state,
@@ -218,8 +225,8 @@ export function TransferForm({
         </div>
       )}
 
-      {/* Confirmation Dialog */}
-      {state.status === 'confirming' && (
+      {/* Confirmation Dialog - rendered via Portal to escape stacking context */}
+      {state.status === 'confirming' && mounted && createPortal(
         <div className={styles.confirmOverlay}>
           <div className={styles.confirmDialog}>
             <h4 className={styles.confirmTitle}>{t('transfer.confirmTitle')}</h4>
@@ -261,7 +268,8 @@ export function TransferForm({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

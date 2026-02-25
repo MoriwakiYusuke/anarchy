@@ -74,6 +74,8 @@
   transition: opacity 0.2s;
   display: inline-flex;
   align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
 .copyButton:hover {

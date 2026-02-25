@@ -338,38 +338,40 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
         workerRef.current = null
       }
 
-      // エラーメッセージからパレットエラーを抽出
-      let errorCode: FaucetError['code'] = 'NetworkError'
+      // エラーをログ出力（デバッグ用）
+      console.error('[useFaucet] Error:', err)
+
+      // ネットワークエラーのみUIに表示
+      // その他のエラー（nonce競合、一時的なエラーなど）は表示せずリトライ可能にする
+      let isNetworkError = false
       let errorMessage = 'Unknown error'
 
       if (err instanceof Error) {
         errorMessage = err.message
         
-        // パレットエラーを検出
-        const palletErrors = ['AlreadyClaimed', 'ChallengeExpired', 'InvalidProof', 'BlockNotFound', 'InsufficientBalance']
-        for (const palletError of palletErrors) {
-          if (errorMessage.includes(palletError)) {
-            errorCode = mapPalletError(palletError)
-            break
-          }
-        }
-        
-        // Invalid Transaction はValidateUnsignedで拒否された場合
-        // 2回目以降の請求 = AlreadyClaimed の可能性が高い
-        if (errorMessage.includes('Invalid Transaction') || errorMessage.includes('InvalidTransaction')) {
-          errorCode = 'AlreadyClaimed'
-          errorMessage = 'This account has already claimed from the faucet'
-        }
+        // ネットワーク関連エラーの検出
+        isNetworkError = 
+          errorMessage.includes('Timeout') ||
+          errorMessage.includes('Network') ||
+          errorMessage.includes('Failed to fetch') ||
+          errorMessage.includes('connection') ||
+          errorMessage.includes('API or account not available')
       }
 
-      setError({ code: errorCode, message: errorMessage })
-      setStatus('error')
-      
-      // 数秒後にidleに戻る
-      setTimeout(() => {
+      if (isNetworkError) {
+        setError({ code: 'NetworkError', message: errorMessage })
+        setStatus('error')
+        
+        // 数秒後にidleに戻る
+        setTimeout(() => {
+          setStatus('idle')
+          setError(null)
+        }, 5000)
+      } else {
+        // ネットワークエラー以外は即座にidleに戻してリトライ可能に
         setStatus('idle')
         setError(null)
-      }, 5000)
+      }
     }
   }, [client, unsafeApi, account, status, onSuccess])
 
