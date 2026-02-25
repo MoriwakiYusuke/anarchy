@@ -27,6 +27,10 @@ export interface MediaFile {
   size: number
   /** Preview URL (blob: URL for images, thumbnail for videos) */
   preview?: string
+  /** Video thumbnail as data URL */
+  thumbnail?: string
+  /** Video duration in seconds */
+  duration?: number
   /** Upload progress percentage (0-100) */
   uploadProgress: number
   /** Current status */
@@ -59,6 +63,10 @@ export interface MediaUploadResult {
   width?: number
   /** Image/video height (if available) */
   height?: number
+  /** Video duration in seconds (if video) */
+  duration?: number
+  /** Video thumbnail as data URL (if video) */
+  thumbnail?: string
   /** Reed-Solomon threshold (k) */
   threshold: number
   /** Total shards (n) */

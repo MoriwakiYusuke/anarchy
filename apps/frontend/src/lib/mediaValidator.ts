@@ -19,15 +19,24 @@ import {
  * Validate a single file for upload
  * 
  * @param file - File to validate
+ * @param includeVideo - Whether to allow video files
  * @returns Validation result with error key if invalid
  */
-export function validateFile(file: File): FileValidation {
+export function validateFile(file: File, includeVideo: boolean = false): FileValidation {
   // Check MIME type
   const mediaType = detectMediaType(file.type)
   if (!mediaType) {
     return {
       valid: false,
       error: 'error.unsupportedFileType',
+    }
+  }
+
+  // Check if video is allowed
+  if (mediaType === 'video' && !includeVideo) {
+    return {
+      valid: false,
+      error: 'error.videoNotSupported',
     }
   }
 
@@ -56,11 +65,13 @@ export function validateFile(file: File): FileValidation {
  * 
  * @param files - Files to validate
  * @param existingCount - Number of files already added
+ * @param includeVideo - Whether to allow video files
  * @returns Validation result with valid files and errors
  */
 export function validateFiles(
   files: File[],
-  existingCount: number = 0
+  existingCount: number = 0,
+  includeVideo: boolean = false
 ): {
   validFiles: File[]
   errors: Array<{ file: File; error: string }>
@@ -81,7 +92,7 @@ export function validateFiles(
       continue
     }
 
-    const validation = validateFile(file)
+    const validation = validateFile(file, includeVideo)
     if (validation.valid) {
       validFiles.push(file)
     } else {

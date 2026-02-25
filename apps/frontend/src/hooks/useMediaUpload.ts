@@ -2,10 +2,12 @@
  * useMediaUpload Hook
  * 
  * T-051: Media upload hook with hybrid_split and storage node upload
+ * T-065: Added video support with thumbnail extraction
  * 
  * Features:
  * - File validation
  * - EXIF stripping
+ * - Video thumbnail extraction
  * - Hybrid split (KZG-VSS)
  * - Storage node shard upload
  * - Progress tracking
@@ -21,9 +23,10 @@ import type {
   MediaUploadResult,
   UploadState,
 } from '@/types/media'
-import { MAX_FILES_PER_POST, detectMediaType } from '@/types/media'
+import { MAX_FILES_PER_POST, detectMediaType, MAX_VIDEO_SIZE } from '@/types/media'
 import { validateFile, validateFiles } from '@/lib/mediaValidator'
 import { processMediaFile } from '@/lib/mediaProcessor'
+import { extractVideoThumbnail } from '@/lib/videoThumbnail'
 // Import wasm-engine at top level - this hook is client-only
 import { hybrid_split, merkle_build } from 'anarchy-wasm-engine'
 
@@ -44,6 +47,8 @@ export interface UseMediaUploadOptions {
   atomicUpload?: boolean
   /** Maximum files allowed */
   maxFiles?: number
+  /** Allow video files (default: false for backward compatibility) */
+  includeVideo?: boolean
   /** Progress callback */
   onProgress?: (fileId: string, progress: number) => void
   /** Upload complete callback */
@@ -90,6 +95,7 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
     stripExif = true,
     atomicUpload = false,
     maxFiles = MAX_FILES_PER_POST,
+    includeVideo = false,
     onProgress,
     onUploadComplete,
     onError,
@@ -117,10 +123,25 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
   const addFiles = useCallback(async (newFiles: File[]) => {
     setError(null)
     
+    // Filter out video files if includeVideo is false
+    const filteredInputFiles = includeVideo 
+      ? newFiles 
+      : newFiles.filter(f => !f.type.startsWith('video/'))
+    
+    // Report if video files were filtered out
+    if (!includeVideo && filteredInputFiles.length < newFiles.length) {
+      setError('error.videoNotSupported')
+      onError?.('error.videoNotSupported')
+      if (filteredInputFiles.length === 0) {
+        return
+      }
+    }
+    
     // Validate files
     const { validFiles, errors, overLimitCount } = validateFiles(
-      Array.from(newFiles),
-      files.length
+      Array.from(filteredInputFiles),
+      files.length,
+      includeVideo
     )
 
     // Report file limit error
@@ -150,6 +171,8 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
       // Get dimensions for images
       let width: number | undefined
       let height: number | undefined
+      let duration: number | undefined
+      let thumbnail: string | undefined
 
       if (mediaType === 'image') {
         try {
@@ -160,6 +183,16 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
         } catch {
           // Ignore dimension errors
         }
+      } else if (mediaType === 'video') {
+        try {
+          const videoMeta = await extractVideoThumbnail(file)
+          width = videoMeta.width
+          height = videoMeta.height
+          duration = videoMeta.duration
+          thumbnail = videoMeta.thumbnail
+        } catch {
+          // Ignore video metadata errors - use file directly
+        }
       }
 
       processedFiles.push({
@@ -168,6 +201,8 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
         type: mediaType,
         size: file.size,
         preview,
+        thumbnail,
+        duration,
         uploadProgress: 0,
         status: 'pending',
         width,
@@ -176,7 +211,7 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
     }
 
     setFiles(prev => [...prev, ...processedFiles])
-  }, [files.length, error, onError])
+  }, [files.length, error, includeVideo, onError])
 
   /**
    * Remove a file by ID
@@ -305,6 +340,8 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
         sizeBytes: file.size,
         width,
         height,
+        duration: file.duration,
+        thumbnail: file.thumbnail,
         threshold: splitResult.threshold,
         totalShards: splitResult.total_shards,
       }

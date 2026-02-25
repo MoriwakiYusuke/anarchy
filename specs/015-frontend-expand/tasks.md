@@ -181,17 +181,17 @@
 
 ### Tests for User Story 4
 
-- [ ] T063 [P] [US4] Write video handling tests in apps/frontend/tests/hooks/useMediaUpload.video.test.ts
+- [X] T063 [P] [US4] Write video handling tests in apps/frontend/tests/hooks/useMediaUpload.video.test.ts
 
 ### Implementation for User Story 4
 
-- [ ] T064 [US4] Implement video thumbnail extraction in apps/frontend/src/lib/videoThumbnail.ts
-- [ ] T065 [US4] Update useMediaUpload hook for video support in apps/frontend/src/hooks/useMediaUpload.ts
-- [ ] T066 [US4] Update MediaPreview for video thumbnail in apps/frontend/src/components/MediaUpload/MediaPreview.tsx
-- [ ] T067 [US4] Create VideoPlayer component in apps/frontend/src/components/VideoPlayer/index.tsx
-- [ ] T068 [P] [US4] Create VideoPlayer styles in apps/frontend/src/components/VideoPlayer/VideoPlayer.module.css
-- [ ] T069 [US4] Update MediaDisplay to handle video playback in apps/frontend/src/components/MediaDisplay/index.tsx
-- [ ] T070 [US4] Run `cd apps/frontend && pnpm test` to verify US4 tests pass
+- [X] T064 [US4] Implement video thumbnail extraction in apps/frontend/src/lib/videoThumbnail.ts
+- [X] T065 [US4] Update useMediaUpload hook for video support in apps/frontend/src/hooks/useMediaUpload.ts
+- [X] T066 [US4] Update MediaPreview for video thumbnail in apps/frontend/src/components/MediaUpload/MediaPreview.tsx
+- [X] T067 [US4] Create VideoPlayer component in apps/frontend/src/components/VideoPlayer/index.tsx
+- [X] T068 [P] [US4] Create VideoPlayer styles in apps/frontend/src/components/VideoPlayer/VideoPlayer.module.css
+- [X] T069 [US4] Update MediaDisplay to handle video playback in apps/frontend/src/components/MediaDisplay/index.tsx
+- [X] T070 [US4] Run `cd apps/frontend && pnpm test` to verify US4 tests pass
 
 **Checkpoint**: 100MB以下の動画アップロードが5分以内に完了する。
 

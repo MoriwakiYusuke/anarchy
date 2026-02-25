@@ -2,11 +2,13 @@
  * MediaDisplay Component
  * 
  * T-057: Component for displaying media attachments in timeline posts
+ * T-069: Added video support with VideoPlayer
  * 
  * Features:
  * - Fixed max-width with aspect ratio preservation
- * - Grid layout for multiple images
- * - Click to open fullsize (Lightbox)
+ * - Grid layout for multiple images/videos
+ * - Click to open fullsize (Lightbox for images)
+ * - Inline video playback
  * - Lazy loading for performance
  */
 
@@ -15,6 +17,7 @@
 import React, { useState, useCallback } from 'react'
 import Image from 'next/image'
 import Lightbox from '@/components/Lightbox'
+import VideoPlayer from '@/components/VideoPlayer'
 import styles from './MediaDisplay.module.css'
 
 export interface MediaItem {
@@ -26,6 +29,10 @@ export interface MediaItem {
   width?: number
   /** Height in pixels */
   height?: number
+  /** Duration in seconds (for video) */
+  duration?: number
+  /** Thumbnail URL (for video) */
+  thumbnail?: string
 }
 
 export interface MediaDisplayProps {
@@ -72,13 +79,25 @@ export default function MediaDisplay({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [loadError, setLoadError] = useState<Record<string, boolean>>({})
 
-  // Filter to only images for now
+  // Separate images and videos
   const images = media.filter(m => m.type === 'image')
+  const videos = media.filter(m => m.type === 'video')
+  
+  // All displayable media
+  const allMedia = media
 
   // Handle image click - open lightbox
   const handleImageClick = useCallback((index: number) => {
-    setLightboxIndex(index)
-  }, [])
+    // Only open lightbox for images
+    const item = allMedia[index]
+    if (item.type === 'image') {
+      // Find the index within images array
+      const imageIndex = images.findIndex(img => img.merkleRoot === item.merkleRoot)
+      if (imageIndex !== -1) {
+        setLightboxIndex(imageIndex)
+      }
+    }
+  }, [allMedia, images])
 
   // Handle lightbox close
   const handleLightboxClose = useCallback(() => {
@@ -104,30 +123,46 @@ export default function MediaDisplay({
   }, [])
 
   // Early return if no media
-  if (images.length === 0) {
+  if (allMedia.length === 0) {
     return null
   }
 
   const containerClasses = [
     styles.container,
-    getGridClass(images.length),
+    getGridClass(allMedia.length),
     className,
   ].filter(Boolean).join(' ')
 
   return (
     <>
       <div className={containerClasses}>
-        {images.map((item, index) => {
+        {allMedia.map((item, index) => {
           const url = getMediaUrl(item.merkleRoot, storageNodeUrl)
           const hasError = loadError[item.merkleRoot]
 
+          // Render video
+          if (item.type === 'video') {
+            return (
+              <div key={item.merkleRoot} className={styles.videoWrapper}>
+                <VideoPlayer
+                  src={url}
+                  poster={item.thumbnail}
+                  width={item.width}
+                  height={item.height}
+                  duration={item.duration}
+                />
+              </div>
+            )
+          }
+
+          // Render image
           return (
             <button
               key={item.merkleRoot}
               type="button"
               className={styles.imageButton}
               onClick={() => handleImageClick(index)}
-              aria-label={`${altPrefix} ${index + 1} of ${images.length}`}
+              aria-label={`${altPrefix} ${index + 1} of ${allMedia.length}`}
             >
               {hasError ? (
                 <div className={styles.errorPlaceholder}>

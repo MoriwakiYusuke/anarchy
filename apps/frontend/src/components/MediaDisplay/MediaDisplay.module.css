@@ -110,3 +110,24 @@
     max-height: 250px;
   }
 }
+
+/* Video wrapper - T-069 */
+.videoWrapper {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  overflow: hidden;
+  background: var(--surface-secondary, #f0f2f5);
+  border-radius: inherit;
+}
+
+.gridSingle .videoWrapper {
+  aspect-ratio: 16 / 10;
+  max-height: 300px;
+}
+
+@media (max-width: 600px) {
+  .gridSingle .videoWrapper {
+    max-height: 250px;
+  }
+}

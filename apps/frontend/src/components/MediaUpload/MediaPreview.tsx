@@ -2,6 +2,7 @@
  * MediaPreview Component
  * 
  * T-054: Preview subcomponent for media files
+ * T-066: Added video thumbnail support
  */
 
 'use client'
@@ -9,6 +10,7 @@
 import React from 'react'
 import type { MediaFile } from '@/types/media'
 import { useLocale } from '@/i18n'
+import { formatDuration } from '@/lib/videoThumbnail'
 import ProgressBar from './ProgressBar'
 import styles from './MediaPreview.module.css'
 
@@ -30,11 +32,14 @@ export default function MediaPreview({
   disabled = false,
 }: MediaPreviewProps): React.ReactElement {
   const { t } = useLocale()
-  const { status, uploadProgress, preview } = file
+  const { status, uploadProgress, preview, thumbnail, duration } = file
 
   const isUploading = status === 'splitting' || status === 'uploading'
   const isComplete = status === 'complete'
   const isError = status === 'error'
+
+  // For video, prefer thumbnail, fallback to preview (blob URL)
+  const videoPreviewSrc = thumbnail || preview
 
   return (
     <div className={`${styles.preview} ${isError ? styles.error : ''}`}>
@@ -49,8 +54,26 @@ export default function MediaPreview({
 
       {/* Video preview (thumbnail or placeholder) */}
       {file.type === 'video' && (
-        <div className={styles.videoPlaceholder}>
-          <span className={styles.videoIcon}>🎬</span>
+        <div className={styles.videoWrapper}>
+          {videoPreviewSrc ? (
+            <img
+              src={videoPreviewSrc}
+              alt={file.file.name}
+              className={styles.image}
+            />
+          ) : (
+            <div className={styles.videoPlaceholder}>
+              <span className={styles.videoIcon}>🎬</span>
+            </div>
+          )}
+          {/* Duration badge */}
+          {duration !== undefined && (
+            <span className={styles.durationBadge}>
+              {formatDuration(duration)}
+            </span>
+          )}
+          {/* Video play indicator */}
+          <span className={styles.playIndicator}>▶</span>
         </div>
       )}
 
