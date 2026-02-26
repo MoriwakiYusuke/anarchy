@@ -171,8 +171,29 @@ export function PostItem({
           <div className={styles.mediaGrid}>
             {decodedMedia.map((item, idx) => {
               const dataUrl = mediaToDataUrl(item)
-              const filename = `media-${postId}-${idx + 1}.${item.type.split('/')[1]}`
+              // Use filename from codec if available, otherwise generate one
+              const filename = item.filename || `media-${postId}-${idx + 1}.${item.type.split('/')[1] || 'bin'}`
               const isVideo = item.type.startsWith('video/')
+              const isImage = item.type.startsWith('image/')
+              
+              // General file (not image or video)
+              if (!isVideo && !isImage) {
+                return (
+                  <div key={idx} className={styles.fileItem}>
+                    <span className={styles.fileIcon}>📄</span>
+                    <span className={styles.fileName}>{filename}</span>
+                    <a
+                      href={dataUrl}
+                      download={filename}
+                      className={styles.fileDownloadBtn}
+                      title="ダウンロード"
+                    >
+                      ↓
+                    </a>
+                  </div>
+                )
+              }
+              
               return (
                 <div key={idx} className={styles.mediaWrapper}>
                   {isVideo ? (
@@ -185,7 +206,7 @@ export function PostItem({
                   ) : (
                     <img
                       src={dataUrl}
-                      alt={`Media ${idx + 1}`}
+                      alt={filename}
                       className={styles.mediaImage}
                       onClick={() => setModalImage({ src: dataUrl, filename })}
                     />

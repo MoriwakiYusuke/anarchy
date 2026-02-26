@@ -8,29 +8,23 @@ import {
   MediaType,
   FileValidation,
   MAX_FILES_PER_POST,
-  MAX_IMAGE_SIZE,
-  MAX_VIDEO_SIZE,
+  MAX_FILE_SIZE,
   ALLOWED_IMAGE_TYPES,
   ALLOWED_VIDEO_TYPES,
   detectMediaType,
+  getMaxFileSize,
 } from '@/types/media'
 
 /**
  * Validate a single file for upload
  * 
  * @param file - File to validate
- * @param includeVideo - Whether to allow video files
+ * @param includeVideo - Whether to allow video files (ignored for general files)
  * @returns Validation result with error key if invalid
  */
 export function validateFile(file: File, includeVideo: boolean = false): FileValidation {
   // Check MIME type
   const mediaType = detectMediaType(file.type)
-  if (!mediaType) {
-    return {
-      valid: false,
-      error: 'error.unsupportedFileType',
-    }
-  }
 
   // Check if video is allowed
   if (mediaType === 'video' && !includeVideo) {
@@ -41,7 +35,7 @@ export function validateFile(file: File, includeVideo: boolean = false): FileVal
   }
 
   // Check file size based on type
-  const maxSize = mediaType === 'image' ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE
+  const maxSize = getMaxFileSize(mediaType)
   if (file.size > maxSize) {
     return {
       valid: false,
@@ -117,14 +111,10 @@ export function formatFileSize(bytes: number): string {
 }
 
 /**
- * Get accept string for file input
+ * Get accept string for file input (accepts all files)
  */
 export function getAcceptString(includeVideo: boolean = false): string {
-  const types: string[] = [...ALLOWED_IMAGE_TYPES]
-  if (includeVideo) {
-    types.push(...ALLOWED_VIDEO_TYPES)
-  }
-  return types.join(',')
+  return '*/*'
 }
 
 /**

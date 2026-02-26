@@ -225,3 +225,50 @@
 .mediaWrapper .mediaImage {
   cursor: pointer;
 }
+
+/* General file display */
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-tertiary, #2a2a2a);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.fileIcon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.fileName {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileDownloadBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  color: var(--text-primary, #fff);
+  background: var(--accent, #e53935);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.fileDownloadBtn:hover {
+  background: #c62828;
+  transform: scale(1.05);
+}

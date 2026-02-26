@@ -45,12 +45,46 @@ export default function MediaPreview({
   const isUploading = status === 'splitting' || status === 'uploading'
   const isComplete = status === 'complete'
   const isError = status === 'error'
+  const isMedia = file.type === 'image' || file.type === 'video'
 
   // For video, prefer thumbnail, fallback to preview (blob URL)
   const videoPreviewSrc = thumbnail || preview
 
+  // General file (not image or video) - card style like PostItem
+  if (!isMedia) {
+    return (
+      <div className={`${styles.preview} ${styles.filePreview} ${isError ? styles.error : ''}`}>
+        <span className={styles.fileIcon}>📄</span>
+        <span className={styles.fileNameText}>{file.file.name}</span>
+        <span className={styles.fileSizeText}>{formatFileSize(file.size)}</span>
+        
+        {/* Status indicators */}
+        {isUploading && (
+          <div className={styles.progressWrapper}>
+            <ProgressBar progress={uploadProgress} />
+          </div>
+        )}
+        {isComplete && <span className={styles.completeIcon}><CheckIcon size={16} color="#4ade80" /></span>}
+        
+        {/* Remove button */}
+        {!isUploading && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className={styles.removeButton}
+            disabled={disabled}
+            aria-label={t('media.remove')}
+            style={{ position: 'static', opacity: 1, transform: 'none' }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+    )
+  }
+
   return (
-    <div className={`${styles.preview} ${isError ? styles.error : ''}`}>
+    <div className={`${styles.preview} ${styles.mediaPreview} ${isError ? styles.error : ''}`}>
       {/* Image preview */}
       {file.type === 'image' && preview && (
         <img 

@@ -70,8 +70,8 @@
 
 .previews {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: var(--spacing-md, 0.75rem);
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
   padding: var(--spacing-xs, 0.25rem);
 }
 
@@ -87,7 +87,7 @@
 /* Responsive Styles */
 @media (max-width: 768px) {
   .previews {
-    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: var(--spacing-xs, 0.25rem);
   }
 

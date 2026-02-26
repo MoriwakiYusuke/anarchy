@@ -42,11 +42,11 @@ describe('PostCodec', () => {
       expect(isSupportedMediaType('video/quicktime')).toBe(true)
     })
 
-    it('should return false for unsupported types', () => {
-      expect(isSupportedMediaType('text/plain')).toBe(false)
-      expect(isSupportedMediaType('application/pdf')).toBe(false)
-      expect(isSupportedMediaType('audio/mp3')).toBe(false)
-      expect(isSupportedMediaType('video/avi')).toBe(false)
+    it('should return true for any type (all types supported)', () => {
+      expect(isSupportedMediaType('text/plain')).toBe(true)
+      expect(isSupportedMediaType('application/pdf')).toBe(true)
+      expect(isSupportedMediaType('audio/mp3')).toBe(true)
+      expect(isSupportedMediaType('video/avi')).toBe(true)
     })
   })
 
@@ -69,6 +69,7 @@ describe('PostCodec', () => {
         media: [
           {
             type: 'image/jpeg',
+            filename: 'test.jpg',
             width: 100,
             height: 200,
             data: imageData,
@@ -88,6 +89,7 @@ describe('PostCodec', () => {
         media: [
           {
             type: 'video/mp4',
+            filename: 'video.mp4',
             width: 1920,
             height: 1080,
             data: videoData,
@@ -106,8 +108,8 @@ describe('PostCodec', () => {
       const content: PostContent = {
         text: 'Mixed media',
         media: [
-          { type: 'image/jpeg', width: 100, height: 100, data: imageData },
-          { type: 'video/mp4', width: 1920, height: 1080, data: videoData },
+          { type: 'image/jpeg', filename: 'img.jpg', width: 100, height: 100, data: imageData },
+          { type: 'video/mp4', filename: 'vid.mp4', width: 1920, height: 1080, data: videoData },
         ],
       }
 
@@ -137,6 +139,7 @@ describe('PostCodec', () => {
         media: [
           {
             type: 'image/jpeg',
+            filename: 'test.jpg',
             width: 100,
             height: 200,
             data: imageData,
@@ -150,6 +153,7 @@ describe('PostCodec', () => {
       expect(decoded.text).toBe(original.text)
       expect(decoded.media).toHaveLength(1)
       expect(decoded.media[0].type).toBe('image/jpeg')
+      expect(decoded.media[0].filename).toBe('test.jpg')
       expect(decoded.media[0].width).toBe(100)
       expect(decoded.media[0].height).toBe(200)
       expect(decoded.media[0].data).toEqual(imageData)
@@ -162,6 +166,7 @@ describe('PostCodec', () => {
         media: [
           {
             type: 'video/mp4',
+            filename: 'video.mp4',
             width: 1920,
             height: 1080,
             data: videoData,
@@ -175,6 +180,7 @@ describe('PostCodec', () => {
       expect(decoded.text).toBe(original.text)
       expect(decoded.media).toHaveLength(1)
       expect(decoded.media[0].type).toBe('video/mp4')
+      expect(decoded.media[0].filename).toBe('video.mp4')
       expect(decoded.media[0].width).toBe(1920)
       expect(decoded.media[0].height).toBe(1080)
       expect(decoded.media[0].data).toEqual(videoData)
@@ -187,6 +193,7 @@ describe('PostCodec', () => {
         media: [
           {
             type: 'video/webm',
+            filename: 'clip.webm',
             width: 1280,
             height: 720,
             data: videoData,
@@ -209,6 +216,7 @@ describe('PostCodec', () => {
         media: [
           {
             type: 'video/quicktime',
+            filename: 'movie.mov',
             width: 640,
             height: 480,
             data: videoData,
@@ -228,8 +236,8 @@ describe('PostCodec', () => {
       const original: PostContent = {
         text: 'Mixed',
         media: [
-          { type: 'image/png', width: 50, height: 50, data: imageData },
-          { type: 'video/mp4', width: 1920, height: 1080, data: videoData },
+          { type: 'image/png', filename: 'img.png', width: 50, height: 50, data: imageData },
+          { type: 'video/mp4', filename: 'vid.mp4', width: 1920, height: 1080, data: videoData },
         ],
       }
 
@@ -257,7 +265,7 @@ describe('PostCodec', () => {
       const imageData = new Uint8Array([0xFF, 0xD8])
       const original: PostContent = {
         text: '',
-        media: [{ type: 'image/jpeg', width: 100, height: 100, data: imageData }],
+        media: [{ type: 'image/jpeg', filename: 'img.jpg', width: 100, height: 100, data: imageData }],
       }
 
       const encoded = encodePostContent(original)
@@ -272,6 +280,7 @@ describe('PostCodec', () => {
     it('should convert image media to data URL', () => {
       const media: MediaItem = {
         type: 'image/jpeg',
+        filename: 'test.jpg',
         width: 100,
         height: 100,
         data: new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0]),
@@ -284,6 +293,7 @@ describe('PostCodec', () => {
     it('should convert video media to data URL', () => {
       const media: MediaItem = {
         type: 'video/mp4',
+        filename: 'video.mp4',
         width: 1920,
         height: 1080,
         data: new Uint8Array([0x00, 0x00, 0x00, 0x1C]),
@@ -296,6 +306,7 @@ describe('PostCodec', () => {
     it('should convert webm video to data URL', () => {
       const media: MediaItem = {
         type: 'video/webm',
+        filename: 'clip.webm',
         width: 1280,
         height: 720,
         data: new Uint8Array([0x1A, 0x45, 0xDF, 0xA3]),
@@ -308,6 +319,7 @@ describe('PostCodec', () => {
     it('should handle empty data', () => {
       const media: MediaItem = {
         type: 'image/png',
+        filename: '',
         width: 1,
         height: 1,
         data: new Uint8Array([]),
@@ -326,6 +338,7 @@ describe('PostCodec', () => {
 
       const media: MediaItem = {
         type: 'image/jpeg',
+        filename: 'chunk-test.jpg',
         width: 256,
         height: 256,
         data,
@@ -345,6 +358,7 @@ describe('PostCodec', () => {
 
       const media: MediaItem = {
         type: 'video/mp4',
+        filename: 'large-1mb.mp4',
         width: 1920,
         height: 1080,
         data,
@@ -366,6 +380,7 @@ describe('PostCodec', () => {
 
       const media: MediaItem = {
         type: 'video/mp4',
+        filename: 'large-5mb.mp4',
         width: 1920,
         height: 1080,
         data,
@@ -382,6 +397,7 @@ describe('PostCodec', () => {
       const testData = new Uint8Array([72, 101, 108, 108, 111]) // "Hello"
       const media: MediaItem = {
         type: 'image/png',
+        filename: 'hello.png',
         width: 1,
         height: 1,
         data: testData,
@@ -402,10 +418,10 @@ describe('PostCodec', () => {
       const original: PostContent = {
         text: 'Complete roundtrip test with all types',
         media: [
-          { type: 'image/jpeg', width: 640, height: 480, data: imageData },
-          { type: 'video/mp4', width: 1920, height: 1080, data: videoData },
-          { type: 'image/gif', width: 256, height: 256, data: new Uint8Array([0x47, 0x49, 0x46]) },
-          { type: 'video/webm', width: 800, height: 600, data: new Uint8Array([0x1A, 0x45]) },
+          { type: 'image/jpeg', filename: 'photo.jpg', width: 640, height: 480, data: imageData },
+          { type: 'video/mp4', filename: 'movie.mp4', width: 1920, height: 1080, data: videoData },
+          { type: 'image/gif', filename: 'anim.gif', width: 256, height: 256, data: new Uint8Array([0x47, 0x49, 0x46]) },
+          { type: 'video/webm', filename: 'clip.webm', width: 800, height: 600, data: new Uint8Array([0x1A, 0x45]) },
         ],
       }
 

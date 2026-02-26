@@ -6,7 +6,7 @@
 /**
  * Supported media types
  */
-export type MediaType = 'image' | 'video'
+export type MediaType = 'image' | 'video' | 'file'
 
 /**
  * Media file status during upload process
@@ -142,6 +142,11 @@ export const MAX_IMAGE_SIZE = 256 * 1024 * 1024
 export const MAX_VIDEO_SIZE = 256 * 1024 * 1024
 
 /**
+ * Maximum general file size (256MB)
+ */
+export const MAX_FILE_SIZE = 256 * 1024 * 1024
+
+/**
  * Allowed image MIME types
  */
 export const ALLOWED_IMAGE_TYPES = [
@@ -163,16 +168,16 @@ export const ALLOWED_VIDEO_TYPES = [
 /**
  * Detect media type from MIME type
  * @param mimeType - File MIME type
- * @returns MediaType or null if unsupported
+ * @returns MediaType (always returns a valid type, defaults to 'file')
  */
-export function detectMediaType(mimeType: string): MediaType | null {
+export function detectMediaType(mimeType: string): MediaType {
   if (ALLOWED_IMAGE_TYPES.includes(mimeType as typeof ALLOWED_IMAGE_TYPES[number])) {
     return 'image'
   }
   if (ALLOWED_VIDEO_TYPES.includes(mimeType as typeof ALLOWED_VIDEO_TYPES[number])) {
     return 'video'
   }
-  return null
+  return 'file'
 }
 
 /**
@@ -181,5 +186,7 @@ export function detectMediaType(mimeType: string): MediaType | null {
  * @returns Maximum size in bytes
  */
 export function getMaxFileSize(type: MediaType): number {
-  return type === 'image' ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE
+  if (type === 'image') return MAX_IMAGE_SIZE
+  if (type === 'video') return MAX_VIDEO_SIZE
+  return MAX_FILE_SIZE
 }

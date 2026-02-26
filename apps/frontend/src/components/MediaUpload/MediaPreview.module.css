@@ -7,13 +7,28 @@
 
 .preview {
   position: relative;
-  aspect-ratio: 1;
-  border-radius: var(--radius-md, 8px);
+  border-radius: 8px;
   overflow: hidden;
   background: var(--bg-tertiary, #2a2a2a);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.preview.mediaPreview {
+  aspect-ratio: 16 / 9;
   cursor: pointer;
+}
+
+.preview.mediaPreview:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.preview.filePreview {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
 }
 
 .preview:hover {
@@ -39,8 +54,29 @@
   transition: transform 0.3s ease;
 }
 
-.preview:hover .image {
+.preview:hover:not(.filePreview) .image {
   transform: scale(1.05);
+}
+
+/* General file display (card style like PostItem) */
+.fileIcon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.fileNameText {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileSizeText {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #aaa);
+  flex-shrink: 0;
 }
 
 .videoPlaceholder {
