@@ -1,8 +1,8 @@
 /**
  * Post Content Binary Codec
  * 
- * Format v2:
- * [1 byte: version=2]
+ * Format:
+ * [1 byte: version=1]
  * [4 bytes: text_length (big-endian)]
  * [text bytes (UTF-8)]
  * [1 byte: media_count]
@@ -15,22 +15,9 @@
  *   [2 bytes: height (big-endian)]
  *   [4 bytes: data_length (big-endian)]
  *   [data bytes]
- * 
- * Format v1 (legacy):
- * [1 byte: version=1]
- * [4 bytes: text_length]
- * [text bytes]
- * [1 byte: media_count]
- * for each media:
- *   [1 byte: media_type_code]
- *   [2 bytes: width]
- *   [2 bytes: height]
- *   [4 bytes: data_length]
- *   [data bytes]
  */
 
-export const CODEC_VERSION = 2;
-export const CODEC_VERSION_LEGACY = 1;
+export const CODEC_VERSION = 1;
 
 // Any MIME type is supported
 export type MediaType = string;
@@ -48,19 +35,8 @@ export interface PostContent {
   media: MediaItem[];
 }
 
-// Legacy type codes for v1 compatibility
-const LEGACY_MEDIA_TYPE_REVERSE: Record<number, MediaType> = {
-  0: 'image/jpeg',
-  1: 'image/png',
-  2: 'image/gif',
-  3: 'image/webp',
-  4: 'video/mp4',
-  5: 'video/webm',
-  6: 'video/quicktime',
-};
-
 /**
- * Encode post content (text + media) to binary format v2
+ * Encode post content (text + media) to binary format
  */
 export function encodePostContent(content: PostContent): Uint8Array {
   const textEncoder = new TextEncoder();
@@ -73,7 +49,7 @@ export function encodePostContent(content: PostContent): Uint8Array {
     media,
   }));
   
-  // Calculate total size for v2 format
+  // Calculate total size
   let totalSize = 1 + 4 + textBytes.length + 1; // version + text_length + text + media_count
   for (const { typeBytes, filenameBytes, media } of mediaEncodings) {
     // type_length(1) + type + filename_length(2) + filename + width(2) + height(2) + data_length(4) + data
@@ -132,7 +108,7 @@ export function encodePostContent(content: PostContent): Uint8Array {
 }
 
 /**
- * Decode binary format to post content (supports v1 and v2)
+ * Decode binary format to post content
  */
 export function decodePostContent(data: Uint8Array): PostContent {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -142,20 +118,9 @@ export function decodePostContent(data: Uint8Array): PostContent {
   // Version check
   const version = data[offset++];
   
-  if (version === CODEC_VERSION_LEGACY) {
-    // Decode v1 format
-    return decodeV1(data, view, offset, textDecoder);
-  }
-  
   if (version !== CODEC_VERSION) {
-    // Fallback: treat as plain text (very old posts)
-    return {
-      text: textDecoder.decode(data),
-      media: [],
-    };
+    throw new Error(`Unsupported codec version: ${version}`);
   }
-  
-  // Decode v2 format
   // Text length
   const textLength = view.getUint32(offset, false);
   offset += 4;
@@ -201,51 +166,6 @@ export function decodePostContent(data: Uint8Array): PostContent {
     offset += dataLength;
     
     media.push({ type, filename, width, height, data: mediaData });
-  }
-  
-  return { text, media };
-}
-
-/**
- * Decode legacy v1 format
- */
-function decodeV1(data: Uint8Array, view: DataView, offset: number, textDecoder: TextDecoder): PostContent {
-  // Text length
-  const textLength = view.getUint32(offset, false);
-  offset += 4;
-  
-  // Text bytes
-  const textBytes = data.slice(offset, offset + textLength);
-  const text = textDecoder.decode(textBytes);
-  offset += textLength;
-  
-  // Media count
-  const mediaCount = data[offset++];
-  
-  // Media items
-  const media: MediaItem[] = [];
-  for (let i = 0; i < mediaCount; i++) {
-    // Media type code
-    const typeCode = data[offset++];
-    const type = LEGACY_MEDIA_TYPE_REVERSE[typeCode] ?? 'application/octet-stream';
-    
-    // Width
-    const width = view.getUint16(offset, false);
-    offset += 2;
-    
-    // Height
-    const height = view.getUint16(offset, false);
-    offset += 2;
-    
-    // Data length
-    const dataLength = view.getUint32(offset, false);
-    offset += 4;
-    
-    // Data bytes
-    const mediaData = data.slice(offset, offset + dataLength);
-    offset += dataLength;
-    
-    media.push({ type, filename: '', width, height, data: mediaData });
   }
   
   return { text, media };
