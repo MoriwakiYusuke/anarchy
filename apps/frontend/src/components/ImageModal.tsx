@@ -20,11 +20,14 @@ export function ImageModal({ src, alt = 'Image', onClose, downloadFilename }: Im
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)
-    // Prevent body scroll when modal is open
+    // Prevent body scroll when modal is open, compensate for scrollbar width
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
     document.body.style.overflow = 'hidden'
+    document.body.style.paddingRight = `${scrollbarWidth}px`
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
       document.body.style.overflow = ''
+      document.body.style.paddingRight = ''
     }
   }, [handleKeyDown])
 
