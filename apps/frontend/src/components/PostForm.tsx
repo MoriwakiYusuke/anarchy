@@ -106,6 +106,9 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
   // Media files (not yet uploaded)
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([])
   
+  // Reset key for MediaUpload component (increment to force remount)
+  const [mediaResetKey, setMediaResetKey] = useState(0)
+  
   // Storage認証用のsigner
   const [storageSigner, setStorageSigner] = useState<StorageSigner | null>(null)
   
@@ -199,7 +202,8 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
           message: t('post.success', { block: result.block.number.toString() })
         })
         setContent('')
-        setMediaFiles([]) // Clear media after successful post
+        setMediaFiles([]) // Clear media state
+        setMediaResetKey(prev => prev + 1) // Force MediaUpload component to reset
         onPostSuccess?.()
         setTimeout(() => setStatus(null), 3000)
       } else {
@@ -241,6 +245,7 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
       
       {/* Media Upload Section */}
       <MediaUpload
+        key={mediaResetKey}
         disabled={isSubmitting}
         onFilesChange={handleMediaFilesChange}
         onError={handleMediaUploadError}
