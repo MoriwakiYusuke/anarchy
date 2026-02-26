@@ -8,6 +8,19 @@ import { render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { PostItem } from '@/components/PostItem'
 
+// Mock postCodec
+let mockDecodedText = ''
+let mockDecodedMedia: Array<{ mime: string; data: Uint8Array }> = []
+jest.mock('@/lib/postCodec', () => ({
+  decodePostContent: jest.fn().mockImplementation(() => ({
+    text: mockDecodedText,
+    media: mockDecodedMedia,
+  })),
+  mediaToDataUrl: jest.fn().mockImplementation((item: { mime: string; data: Uint8Array }) => 
+    `data:${item.mime};base64,mock`
+  ),
+}))
+
 // Mock CSS module
 jest.mock('@/components/Timeline.module.css', () => ({
   post: 'post',
@@ -81,7 +94,6 @@ describe('PostItem', () => {
     contentHash: 'abc123',
     createdAt: 1000,
     parentId: null,
-    shortenAddress: (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`,
   }
 
   beforeEach(() => {
@@ -89,6 +101,8 @@ describe('PostItem', () => {
     sharedPoolSpy.executeCount = 0
     mockRecoverContent.mockReset()
     mockIsReady = true
+    mockDecodedText = ''
+    mockDecodedMedia = []
   })
 
   describe('V1 inline content', () => {
@@ -117,7 +131,7 @@ describe('PostItem', () => {
         />
       )
 
-      expect(screen.getByText('5Grwva...utQY')).toBeInTheDocument()
+      expect(screen.getByText('5GrwvaEF...GKutQY')).toBeInTheDocument()
     })
 
     it('displays post ID', () => {
@@ -145,8 +159,8 @@ describe('PostItem', () => {
     }
 
     it('test_post_item_uses_shared_pool - recovers content using shared WorkerPool via useStorage', async () => {
-      const recoveredData = new TextEncoder().encode('Recovered content from distributed storage')
-      mockRecoverContent.mockResolvedValueOnce({ data: recoveredData })
+      mockDecodedText = 'Recovered content from distributed storage'
+      mockRecoverContent.mockResolvedValueOnce({ data: new Uint8Array([]) })
 
       render(
         <PostItem

@@ -93,7 +93,6 @@
   "error.invalidAddressLength": "地址长度无效",
   "error.invalidAddressCharacter": "地址包含无效字符",
   "error.invalidAddressPrefix": "地址前缀无效",
-  "error.selfTransfer": "不能转账给自己",
   "error.emptyAmount": "请输入金额",
   "error.missingDependencies": "API或签名者不可用",
   "error.invalidTransferState": "转账状态无效",

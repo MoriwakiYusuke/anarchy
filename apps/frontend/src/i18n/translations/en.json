@@ -93,7 +93,6 @@
   "error.invalidAddressLength": "Invalid address length",
   "error.invalidAddressCharacter": "Address contains invalid characters",
   "error.invalidAddressPrefix": "Invalid address prefix",
-  "error.selfTransfer": "Cannot transfer to yourself",
   "error.emptyAmount": "Please enter an amount",
   "error.missingDependencies": "API or signer not available",
   "error.invalidTransferState": "Invalid transfer state",

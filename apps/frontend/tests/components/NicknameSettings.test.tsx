@@ -25,6 +25,8 @@ jest.mock('@/i18n', () => ({
         'nickname.error': 'Failed to set nickname',
         'error.nicknameTooLong': 'Nickname is too long (max 128 bytes)',
         'error.nicknameEmpty': 'Please enter a nickname',
+        'name.label': 'Name',
+        'name.change': 'Change',
       }
       return translations[key] || key
     },
@@ -75,20 +77,31 @@ describe('NicknameSettings Component', () => {
   // T-039a: Basic Rendering
   // ============================================================================
 
+  // Helper to expand the collapsible form
+  const expandForm = async (user: ReturnType<typeof userEvent.setup>) => {
+    const changeButton = screen.getByRole('button', { name: /change/i })
+    await user.click(changeButton)
+  }
+
   describe('Basic Rendering', () => {
-    it('should render nickname input field', () => {
+    it('should render nickname input field', async () => {
+      const user = userEvent.setup()
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       expect(screen.getByPlaceholderText('Enter nickname...')).toBeInTheDocument()
     })
 
-    it('should render set button', () => {
+    it('should render set button', async () => {
+      const user = userEvent.setup()
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       expect(screen.getByRole('button', { name: /set/i })).toBeInTheDocument()
     })
 
-    it('should show current nickname in input if set', () => {
+    it('should show current nickname in input if set', async () => {
+      const user = userEvent.setup()
       ;(useNickname as jest.Mock).mockReturnValue({
         nickname: TEST_NICKNAME,
         isLoading: false,
@@ -101,10 +114,12 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       expect(screen.getByDisplayValue(TEST_NICKNAME)).toBeInTheDocument()
     })
 
-    it('should show clear button when nickname is set', () => {
+    it('should show clear button when nickname is set', async () => {
+      const user = userEvent.setup()
       ;(useNickname as jest.Mock).mockReturnValue({
         nickname: TEST_NICKNAME,
         isLoading: false,
@@ -117,6 +132,7 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       expect(screen.getByRole('button', { name: /clear/i })).toBeInTheDocument()
     })
   })
@@ -130,6 +146,7 @@ describe('NicknameSettings Component', () => {
       const user = userEvent.setup()
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       const input = screen.getByPlaceholderText('Enter nickname...')
       await user.type(input, TEST_NICKNAME)
       
@@ -139,7 +156,8 @@ describe('NicknameSettings Component', () => {
       expect(mockSetNickname).toHaveBeenCalledWith(TEST_NICKNAME)
     })
 
-    it('should disable button while setting', () => {
+    it('should disable button while setting', async () => {
+      const user = userEvent.setup()
       ;(useNickname as jest.Mock).mockReturnValue({
         nickname: null,
         isLoading: false,
@@ -152,11 +170,13 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       const setButton = screen.getByRole('button', { name: /setting/i })
       expect(setButton).toBeDisabled()
     })
 
-    it('should show loading state while pending', () => {
+    it('should show loading state while pending', async () => {
+      const user = userEvent.setup()
       ;(useNickname as jest.Mock).mockReturnValue({
         nickname: null,
         isLoading: false,
@@ -169,10 +189,12 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       expect(screen.getByText('Setting...')).toBeInTheDocument()
     })
 
-    it('should show success message after successful set', () => {
+    it('should show success message after successful set', async () => {
+      const user = userEvent.setup()
       ;(useNickname as jest.Mock).mockReturnValue({
         nickname: TEST_NICKNAME,
         isLoading: false,
@@ -185,6 +207,7 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       expect(screen.getByText('Nickname set')).toBeInTheDocument()
     })
   })
@@ -208,13 +231,15 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       const clearButton = screen.getByRole('button', { name: /clear/i })
       await user.click(clearButton)
       
       expect(mockClearNickname).toHaveBeenCalled()
     })
 
-    it('should show cleared message after successful clear', () => {
+    it('should show cleared message after successful clear', async () => {
+      const user = userEvent.setup()
       ;(useNickname as jest.Mock).mockReturnValue({
         nickname: null,
         isLoading: false,
@@ -228,6 +253,7 @@ describe('NicknameSettings Component', () => {
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
       // Success state with no nickname means it was cleared
+      await expandForm(user)
       expect(screen.getByText('Nickname cleared')).toBeInTheDocument()
     })
   })
@@ -237,7 +263,8 @@ describe('NicknameSettings Component', () => {
   // ============================================================================
 
   describe('Error Handling', () => {
-    it('should display error message', () => {
+    it('should display error message', async () => {
+      const user = userEvent.setup()
       ;(useNickname as jest.Mock).mockReturnValue({
         nickname: null,
         isLoading: false,
@@ -250,10 +277,13 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
-      expect(screen.getByText('error.nicknameTooLong')).toBeInTheDocument()
+      await expandForm(user)
+      // Error message is translated
+      expect(screen.getByText('Nickname is too long (max 128 bytes)')).toBeInTheDocument()
     })
 
-    it('should show error styling on error state', () => {
+    it('should show error styling on error state', async () => {
+      const user = userEvent.setup()
       ;(useNickname as jest.Mock).mockReturnValue({
         nickname: null,
         isLoading: false,
@@ -266,7 +296,9 @@ describe('NicknameSettings Component', () => {
 
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
-      const errorMessage = screen.getByText('error.nicknameEmpty')
+      await expandForm(user)
+      // Error message is translated to 'Please enter a nickname'
+      const errorMessage = screen.getByText('Please enter a nickname')
       expect(errorMessage).toHaveClass(/error/)
     })
   })
@@ -280,6 +312,7 @@ describe('NicknameSettings Component', () => {
       const user = userEvent.setup()
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       const input = screen.getByPlaceholderText('Enter nickname...')
       await user.type(input, 'alice')
       
@@ -291,6 +324,7 @@ describe('NicknameSettings Component', () => {
       const user = userEvent.setup()
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       const input = screen.getByPlaceholderText('Enter nickname...')
       // Type 120 characters (close to 128 byte limit)
       await user.type(input, 'a'.repeat(120))
@@ -305,9 +339,11 @@ describe('NicknameSettings Component', () => {
   // ============================================================================
 
   describe('Accessibility', () => {
-    it('should have proper form labels', () => {
+    it('should have proper form labels', async () => {
+      const user = userEvent.setup()
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       const input = screen.getByPlaceholderText('Enter nickname...')
       expect(input).toHaveAccessibleName()
     })
@@ -316,6 +352,7 @@ describe('NicknameSettings Component', () => {
       const user = userEvent.setup()
       render(<NicknameSettings client={{}} unsafeApi={{}} accountId="5Grw..." signer={{}} />)
       
+      await expandForm(user)
       const input = screen.getByPlaceholderText('Enter nickname...')
       await user.type(input, TEST_NICKNAME)
       await user.keyboard('{Enter}')

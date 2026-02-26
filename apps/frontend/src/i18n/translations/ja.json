@@ -93,7 +93,6 @@
   "error.invalidAddressLength": "アドレスの長さが不正です",
   "error.invalidAddressCharacter": "アドレスに無効な文字が含まれています",
   "error.invalidAddressPrefix": "アドレスのプレフィックスが無効です",
-  "error.selfTransfer": "自分自身には送金できません",
   "error.emptyAmount": "金額を入力してください",
   "error.missingDependencies": "APIまたは署名者が利用できません",
   "error.invalidTransferState": "送金状態が無効です",
