@@ -254,6 +254,7 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
           'Faucet.Claims pre-check'
         )
         if (alreadyClaimed) {
+          console.log('[useFaucet] Account already claimed (pre-check)')
           throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
         }
       } catch (preCheckErr: any) {
@@ -262,64 +263,38 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
           throw preCheckErr
         }
         // Otherwise ignore pre-check errors (might not have Claims storage yet)
+        console.warn('[useFaucet] Pre-check error (ignoring):', preCheckErr)
       }
       
-      // Submit transaction
-      // Note: smoldot's author_submitExtrinsic returns tx hash immediately,
-      // validation happens asynchronously. We verify success by checking storage after.
-      let result: any
+      // Submit transaction and wait for finalization
+      // client.submit() waits until the transaction is finalized or rejected
       try {
-        result = await withTimeout(
-          client._request('author_submitExtrinsic', [hexExtrinsic]) as Promise<any>,
-          RPC_TIMEOUT_MS,
-          'author_submitExtrinsic'
+        const finalizedResult = await withTimeout(
+          client.submit(hexExtrinsic) as Promise<any>,
+          60_000, // 60秒タイムアウト（Finalizedまで待つため長め）
+          'client.submit'
         )
+        console.log('[useFaucet] Transaction finalized:', finalizedResult)
+        
+        // Check if the transaction was successful
+        if (finalizedResult?.ok === false || finalizedResult?.dispatchError) {
+          console.error('[useFaucet] Transaction failed:', finalizedResult)
+          throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
+        }
       } catch (submitError: any) {
+        console.error('[useFaucet] Submit error:', submitError)
         const message = submitError?.message || submitError?.toString() || 'Submit failed'
         if (
           message.includes('Invalid') || 
           message.includes('Custom(1)') || 
           message.includes('1010') ||
           message.includes('already claimed') ||
-          message.includes('dispatch')
+          message.includes('dispatch') ||
+          message.includes('AlreadyClaimed')
         ) {
           throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
         }
         throw submitError
-      }
-      
-      // Check if result indicates an error
-      if (result && typeof result === 'object' && 'error' in result) {
-        throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
-      }
-
-      // smoldot returns tx hash immediately, need to wait and verify claim was recorded
-      // Wait for transaction to be included in block (max ~12 seconds = 2 blocks)
-      const maxWaitMs = 12000
-      const pollInterval = 2000
-      let elapsed = 0
-      let claimVerified = false
-      
-      while (elapsed < maxWaitMs && !claimVerified) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval))
-        elapsed += pollInterval
-        
-        try {
-          const claimed = await withTimeout(
-            unsafeApi.query.Faucet.Claims.getValue(account),
-            RPC_TIMEOUT_MS,
-            'Faucet.Claims verification'
-          )
-          if (claimed) {
-            claimVerified = true
-          }
-        } catch {
-          // Verify error, continue waiting
-        }
-      }
-      
-      if (!claimVerified) {
-        throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
       }
 
       // 成功
@@ -332,46 +307,46 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
       }, 3000)
 
     } catch (err) {
+      console.error('Faucet error:', err)
+      
       // Workerクリーンアップ
       if (workerRef.current) {
         workerRef.current.terminate()
         workerRef.current = null
       }
 
-      // エラーをログ出力（デバッグ用）
-      console.error('[useFaucet] Error:', err)
-
-      // ネットワークエラーのみUIに表示
-      // その他のエラー（nonce競合、一時的なエラーなど）は表示せずリトライ可能にする
-      let isNetworkError = false
+      // エラーメッセージからパレットエラーを抽出
+      let errorCode: FaucetError['code'] = 'NetworkError'
       let errorMessage = 'Unknown error'
 
       if (err instanceof Error) {
         errorMessage = err.message
         
-        // ネットワーク関連エラーの検出
-        isNetworkError = 
-          errorMessage.includes('Timeout') ||
-          errorMessage.includes('Network') ||
-          errorMessage.includes('Failed to fetch') ||
-          errorMessage.includes('connection') ||
-          errorMessage.includes('API or account not available')
+        // パレットエラーを検出
+        const palletErrors = ['AlreadyClaimed', 'ChallengeExpired', 'InvalidProof', 'BlockNotFound', 'InsufficientBalance']
+        for (const palletError of palletErrors) {
+          if (errorMessage.includes(palletError)) {
+            errorCode = mapPalletError(palletError)
+            break
+          }
+        }
+        
+        // Invalid Transaction はValidateUnsignedで拒否された場合
+        // 2回目以降の請求 = AlreadyClaimed の可能性が高い
+        if (errorMessage.includes('Invalid Transaction') || errorMessage.includes('InvalidTransaction')) {
+          errorCode = 'AlreadyClaimed'
+          errorMessage = 'This account has already claimed from the faucet'
+        }
       }
 
-      if (isNetworkError) {
-        setError({ code: 'NetworkError', message: errorMessage })
-        setStatus('error')
-        
-        // 数秒後にidleに戻る
-        setTimeout(() => {
-          setStatus('idle')
-          setError(null)
-        }, 5000)
-      } else {
-        // ネットワークエラー以外は即座にidleに戻してリトライ可能に
+      setError({ code: errorCode, message: errorMessage })
+      setStatus('error')
+      
+      // 数秒後にidleに戻る
+      setTimeout(() => {
         setStatus('idle')
         setError(null)
-      }
+      }, 5000)
     }
   }, [client, unsafeApi, account, status, onSuccess])
 

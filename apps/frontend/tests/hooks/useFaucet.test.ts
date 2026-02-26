@@ -126,6 +126,7 @@ describe('useFaucet Hook', () => {
       }
       return Promise.resolve(null)
     }),
+    submit: jest.fn().mockResolvedValue({ ok: true, block: { hash: '0x123' } }),
   }
 
   beforeAll(() => {
@@ -261,10 +262,9 @@ describe('useFaucet Hook', () => {
         return result.current.status === 'success' || result.current.status === 'error'
       }, { timeout: TEST_TIMEOUT_MS * 2 }) // Longer timeout for full submit flow
 
-      // Verify the unsigned transaction was submitted
-      expect(mockClient._request).toHaveBeenCalledWith(
-        'author_submitExtrinsic',
-        expect.arrayContaining([expect.stringMatching(/^0x/)])
+      // Verify client.submit was called with the unsigned transaction
+      expect(mockClient.submit).toHaveBeenCalledWith(
+        expect.stringMatching(/^0x/)
       )
       
       // Should succeed
@@ -403,6 +403,7 @@ describe('useFaucet Hook', () => {
           }
           return Promise.resolve(null)
         }),
+        submit: jest.fn().mockRejectedValue(new Error('Invalid Transaction: dispatch error')),
       }
 
       const { result } = renderHook(() =>
@@ -446,6 +447,7 @@ describe('useFaucet Hook', () => {
           }
           return Promise.resolve(null)
         }),
+        submit: jest.fn().mockResolvedValue({ ok: false, dispatchError: { type: 'Module' } }),
       }
 
       const { result } = renderHook(() =>
@@ -483,6 +485,7 @@ describe('useFaucet Hook', () => {
           }
           return Promise.resolve(null)
         }),
+        submit: jest.fn().mockRejectedValue(new Error('1010: Transaction dispatch is mandatory but invalid')),
       }
 
       const { result } = renderHook(() =>

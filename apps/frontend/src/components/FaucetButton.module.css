@@ -51,6 +51,12 @@
   color: #00ff00;
 }
 
+.button.submitted {
+  background: rgba(0, 255, 0, 0.15);
+  border-color: rgba(0, 255, 0, 0.4);
+  color: #00ff00;
+}
+
 .button.error {
   background: rgba(255, 0, 0, 0.1);
   border-color: rgba(255, 0, 0, 0.3);

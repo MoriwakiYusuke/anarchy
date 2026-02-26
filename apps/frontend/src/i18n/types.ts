@@ -105,6 +105,7 @@ export type TranslationKey =
   | 'faucet.button'
   | 'faucet.mining'
   | 'faucet.submitting'
+  | 'faucet.submitted'
   | 'faucet.success'
   | 'faucet.error'
   | 'faucet.cancel'
