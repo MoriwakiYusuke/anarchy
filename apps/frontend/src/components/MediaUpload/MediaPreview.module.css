@@ -2,24 +2,45 @@
  * MediaPreview Styles
  * 
  * T-054: CSS Module for MediaPreview component
+ * Enhanced with modern card design and hover effects
  */
 
 .preview {
   position: relative;
   aspect-ratio: 1;
-  border-radius: var(--radius-sm, 4px);
+  border-radius: var(--radius-md, 8px);
   overflow: hidden;
   background: var(--bg-tertiary, #2a2a2a);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+
+.preview:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 .preview.error {
   border: 2px solid var(--error-color, #ff4444);
+  animation: shake 0.3s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
 }
 
 .image {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.preview:hover .image {
+  transform: scale(1.05);
 }
 
 .videoPlaceholder {
@@ -118,27 +139,37 @@
   position: absolute;
   top: var(--spacing-xs, 0.25rem);
   right: var(--spacing-xs, 0.25rem);
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  font-size: 14px;
+  font-size: 16px;
+  font-weight: bold;
   color: var(--text-primary, #fff);
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.7);
   border: none;
   border-radius: 50%;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
+  opacity: 0;
+  transform: scale(0.8);
+  backdrop-filter: blur(4px);
+}
+
+.preview:hover .removeButton {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .removeButton:hover:not(:disabled) {
-  background: rgba(255, 68, 68, 0.8);
+  background: var(--accent, #e53935);
+  transform: scale(1.1);
 }
 
 .removeButton:disabled {
-  opacity: 0.5;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
@@ -146,11 +177,57 @@
   position: absolute;
   bottom: var(--spacing-xs, 0.25rem);
   left: var(--spacing-xs, 0.25rem);
-  padding: 2px 6px;
+  padding: 3px 8px;
   font-size: var(--font-size-xs, 0.75rem);
+  font-weight: 500;
   color: #000;
-  background: var(--success-color, #44ff88);
-  border-radius: var(--radius-xs, 2px);
+  background: linear-gradient(135deg, #4ade80, #22c55e);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  animation: fadeInScale 0.3s ease;
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* File info overlay */
+.fileInfo {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: var(--spacing-sm, 0.5rem);
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.preview:hover .fileInfo {
+  opacity: 1;
+}
+
+.fileName {
+  display: block;
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--text-primary, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.fileSize {
+  font-size: 10px;
+  color: var(--text-secondary, #aaa);
 }
 
 /* Video-specific styles */
@@ -176,14 +253,21 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--text-primary, #fff);
   background: rgba(0, 0, 0, 0.6);
   border-radius: 50%;
   pointer-events: none;
+  backdrop-filter: blur(4px);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.preview:hover .playIndicator {
+  transform: translate(-50%, -50%) scale(1.1);
+  background: rgba(229, 57, 53, 0.8);
 }

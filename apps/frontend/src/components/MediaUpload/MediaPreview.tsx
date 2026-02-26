@@ -15,6 +15,13 @@ import { CheckIcon } from '@/components/Icons'
 import ProgressBar from './ProgressBar'
 import styles from './MediaPreview.module.css'
 
+/** Format file size to human readable string */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export interface MediaPreviewProps {
   /** Media file to preview */
   file: MediaFile
@@ -131,6 +138,12 @@ export default function MediaPreview({
       {isComplete && (
         <span className={styles.completeBadge}>{t('media.complete')}</span>
       )}
+
+      {/* File info overlay (shows on hover) */}
+      <div className={styles.fileInfo}>
+        <span className={styles.fileName}>{file.file.name}</span>
+        <span className={styles.fileSize}>{formatFileSize(file.size)}</span>
+      </div>
     </div>
   )
 }

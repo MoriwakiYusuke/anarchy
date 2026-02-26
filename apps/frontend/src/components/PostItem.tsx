@@ -6,6 +6,7 @@ import { useLocale } from '@/i18n/context'
 import { decodePostContent, mediaToDataUrl } from '@/lib/postCodec'
 import type { MediaItem as PostMediaItem } from '@/lib/postCodec'
 import { CopyIcon, CheckIcon, ReplyIcon } from '@/components/Icons'
+import { ImageModal } from '@/components/ImageModal'
 import styles from './Timeline.module.css'
 
 /**
@@ -131,6 +132,7 @@ export function PostItem({
   }
 
   const [copied, setCopied] = useState(false)
+  const [modalImage, setModalImage] = useState<{ src: string; filename: string } | null>(null)
 
   const handleCopyAddress = useCallback(async () => {
     try {
@@ -167,15 +169,30 @@ export function PostItem({
         <p className={styles.text}>{displayContent}</p>
         {decodedMedia.length > 0 && (
           <div className={styles.mediaGrid}>
-            {decodedMedia.map((item, idx) => (
-              <img
-                key={idx}
-                src={mediaToDataUrl(item)}
-                alt={`Media ${idx + 1}`}
-                className={styles.mediaImage}
-                style={{ maxWidth: '100%', maxHeight: 400 }}
-              />
-            ))}
+            {decodedMedia.map((item, idx) => {
+              const dataUrl = mediaToDataUrl(item)
+              const filename = `media-${postId}-${idx + 1}.${item.type.split('/')[1]}`
+              return (
+                <div key={idx} className={styles.mediaWrapper}>
+                  <img
+                    src={dataUrl}
+                    alt={`Media ${idx + 1}`}
+                    className={styles.mediaImage}
+                    onClick={() => setModalImage({ src: dataUrl, filename })}
+                  />
+                  <div className={styles.mediaActions}>
+                    <a
+                      href={dataUrl}
+                      download={filename}
+                      className={styles.mediaActionBtn}
+                      title="ダウンロード"
+                    >
+                      ↓
+                    </a>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -189,6 +206,15 @@ export function PostItem({
           </span>
         )}
       </footer>
+
+      {/* Image modal */}
+      {modalImage && (
+        <ImageModal
+          src={modalImage.src}
+          downloadFilename={modalImage.filename}
+          onClose={() => setModalImage(null)}
+        />
+      )}
     </article>
   )
 }
