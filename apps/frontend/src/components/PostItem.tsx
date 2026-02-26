@@ -172,14 +172,24 @@ export function PostItem({
             {decodedMedia.map((item, idx) => {
               const dataUrl = mediaToDataUrl(item)
               const filename = `media-${postId}-${idx + 1}.${item.type.split('/')[1]}`
+              const isVideo = item.type.startsWith('video/')
               return (
                 <div key={idx} className={styles.mediaWrapper}>
-                  <img
-                    src={dataUrl}
-                    alt={`Media ${idx + 1}`}
-                    className={styles.mediaImage}
-                    onClick={() => setModalImage({ src: dataUrl, filename })}
-                  />
+                  {isVideo ? (
+                    <video
+                      src={dataUrl}
+                      className={styles.mediaImage}
+                      controls
+                      preload="metadata"
+                    />
+                  ) : (
+                    <img
+                      src={dataUrl}
+                      alt={`Media ${idx + 1}`}
+                      className={styles.mediaImage}
+                      onClick={() => setModalImage({ src: dataUrl, filename })}
+                    />
+                  )}
                   <div className={styles.mediaActions}>
                     <a
                       href={dataUrl}

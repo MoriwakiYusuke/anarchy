@@ -24,9 +24,9 @@ use tracing::{info, debug, warn};
 // Security Constants (T074)
 // ============================================================================
 
-/// Maximum fragment size: 256KB (262144 bytes)
+/// Maximum fragment size: 1GB (1073741824 bytes)
 /// Fragments exceeding this size will be rejected.
-pub const MAX_FRAGMENT_SIZE: usize = 256 * 1024;
+pub const MAX_FRAGMENT_SIZE: usize = 1024 * 1024 * 1024;
 
 /// Maximum post ID value (for sanity check)
 pub const MAX_POST_ID: u64 = u64::MAX / 2;

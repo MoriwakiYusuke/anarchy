@@ -132,14 +132,14 @@ export type UploadState = 'idle' | 'processing' | 'complete' | 'error'
 export const MAX_FILES_PER_POST = 4
 
 /**
- * Maximum image file size (100MB)
+ * Maximum image file size (256MB)
  */
-export const MAX_IMAGE_SIZE = 100 * 1024 * 1024
+export const MAX_IMAGE_SIZE = 256 * 1024 * 1024
 
 /**
- * Maximum video file size (1GB)
+ * Maximum video file size (256MB)
  */
-export const MAX_VIDEO_SIZE = 1024 * 1024 * 1024
+export const MAX_VIDEO_SIZE = 256 * 1024 * 1024
 
 /**
  * Allowed image MIME types

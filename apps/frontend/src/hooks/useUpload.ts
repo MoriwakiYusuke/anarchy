@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { blake2b } from 'blakejs'
 import { getSharedWorkerPool } from '@/workers/WorkerPool'
+import { uint8ArrayToBase64 } from '@/lib/postCodec'
 
 const RPC_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944'
 const SSS_K = 3, SSS_N = 5, MAX_RETRIES = 3, RETRY_DELAY_MS = 1000
@@ -170,8 +171,8 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
         const proof = await sendToSpecificWorker<Uint8Array>(
           merkleWorkerIndex, 'merkle_generate_proof', { merkleRootHex, index }
         )
-        const dataB64 = btoa(String.fromCharCode.apply(null, Array.from(share)))
-        const proofB64 = btoa(String.fromCharCode.apply(null, Array.from(proof)))
+        const dataB64 = uint8ArrayToBase64(share)
+        const proofB64 = uint8ArrayToBase64(proof)
         const baseParams = { merkle_root: Array.from(merkleRoot), index, data: dataB64, proof: proofB64, total_leaves: SSS_N }
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {

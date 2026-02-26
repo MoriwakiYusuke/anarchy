@@ -16,7 +16,7 @@
 
 export const CODEC_VERSION = 1;
 
-export type MediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+export type MediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' | 'video/mp4' | 'video/webm' | 'video/quicktime';
 
 export interface MediaItem {
   type: MediaType;
@@ -35,6 +35,9 @@ const MEDIA_TYPE_MAP: Record<MediaType, number> = {
   'image/png': 1,
   'image/gif': 2,
   'image/webp': 3,
+  'video/mp4': 4,
+  'video/webm': 5,
+  'video/quicktime': 6,
 };
 
 const MEDIA_TYPE_REVERSE: Record<number, MediaType> = {
@@ -42,6 +45,9 @@ const MEDIA_TYPE_REVERSE: Record<number, MediaType> = {
   1: 'image/png',
   2: 'image/gif',
   3: 'image/webp',
+  4: 'video/mp4',
+  5: 'video/webm',
+  6: 'video/quicktime',
 };
 
 /**
@@ -158,14 +164,41 @@ export function decodePostContent(data: Uint8Array): PostContent {
 }
 
 /**
- * Convert MediaItem to data URL for display
+ * Convert Uint8Array to base64 string (handles large files without stack overflow)
+ * Uses chunked approach with incremental btoa calls
+ */
+export function uint8ArrayToBase64(data: Uint8Array): string {
+  // For small data, use simple conversion
+  if (data.length < 0x8000) {
+    let binary = '';
+    for (let i = 0; i < data.length; i++) {
+      binary += String.fromCharCode(data[i]);
+    }
+    return btoa(binary);
+  }
+  
+  // For large data, process in chunks that are multiples of 3
+  // (base64 encodes 3 bytes into 4 characters)
+  const CHUNK_SIZE = 0x6000; // 24KB (divisible by 3)
+  const base64Chunks: string[] = [];
+  
+  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+    const end = Math.min(i + CHUNK_SIZE, data.length);
+    let binary = '';
+    for (let j = i; j < end; j++) {
+      binary += String.fromCharCode(data[j]);
+    }
+    base64Chunks.push(btoa(binary));
+  }
+  
+  return base64Chunks.join('');
+}
+
+/**
+ * Convert MediaItem to data URL for display (async for large files)
  */
 export function mediaToDataUrl(media: MediaItem): string {
-  const base64 = btoa(
-    Array.from(media.data)
-      .map((b) => String.fromCharCode(b))
-      .join('')
-  );
+  const base64 = uint8ArrayToBase64(media.data);
   return `data:${media.type};base64,${base64}`;
 }
 
@@ -199,6 +232,49 @@ export async function loadImageFile(file: File): Promise<MediaItem> {
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsArrayBuffer(file);
   });
+}
+
+/**
+ * Load video file and get dimensions
+ */
+export async function loadVideoFile(file: File): Promise<MediaItem> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const arrayBuffer = reader.result as ArrayBuffer;
+      const data = new Uint8Array(arrayBuffer);
+      
+      // Get video dimensions
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        resolve({
+          type: file.type as MediaType,
+          width: video.videoWidth,
+          height: video.videoHeight,
+          data,
+        });
+        URL.revokeObjectURL(video.src);
+      };
+      video.onerror = () => {
+        reject(new Error('Failed to load video'));
+        URL.revokeObjectURL(video.src);
+      };
+      video.src = URL.createObjectURL(file);
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/**
+ * Load media file (image or video) and get dimensions
+ */
+export async function loadMediaFile(file: File): Promise<MediaItem> {
+  if (file.type.startsWith('video/')) {
+    return loadVideoFile(file);
+  }
+  return loadImageFile(file);
 }
 
 /**

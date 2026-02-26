@@ -177,6 +177,12 @@
   cursor: pointer;
 }
 
+/* Video element styling */
+.mediaWrapper video.mediaImage {
+  cursor: default;
+  max-height: 400px;
+}
+
 /* Media action buttons (download, fullsize) */
 .mediaActions {
   position: absolute;

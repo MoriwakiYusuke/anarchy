@@ -8,7 +8,7 @@ import { useStorage, createStorageSigner, StorageSigner } from '@/hooks/useStora
 import { useLocale } from '@/i18n'
 import MediaUpload from '@/components/MediaUpload'
 import type { MediaFile } from '@/types/media'
-import { encodePostContent, loadImageFile, isSupportedMediaType } from '@/lib/postCodec'
+import { encodePostContent, loadMediaFile, isSupportedMediaType } from '@/lib/postCodec'
 import type { MediaItem, MediaType as PostMediaType } from '@/lib/postCodec'
 import styles from './PostForm.module.css'
 
@@ -164,7 +164,7 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
         if (!isSupportedMediaType(mediaFile.file.type)) {
           throw new Error(`Unsupported media type: ${mediaFile.file.type}`)
         }
-        const item = await loadImageFile(mediaFile.file)
+        const item = await loadMediaFile(mediaFile.file)
         mediaItems.push(item)
       }
       
@@ -247,6 +247,7 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
       <MediaUpload
         key={mediaResetKey}
         disabled={isSubmitting}
+        includeVideo={true}
         onFilesChange={handleMediaFilesChange}
         onError={handleMediaUploadError}
         className={styles.mediaUpload}

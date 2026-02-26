@@ -68,6 +68,7 @@ export default function MediaUpload({
     retryFailed,
   } = useMediaUpload({
     storageNodeUrl,
+    includeVideo,
     onUploadComplete,
     onError,
   })

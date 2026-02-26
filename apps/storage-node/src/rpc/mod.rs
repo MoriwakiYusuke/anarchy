@@ -22,8 +22,8 @@ use crate::storage::FragmentStore;
 use crate::metrics::Metrics;
 use auth::{AuthState, auth_middleware, method_requires_auth, require_auth};
 
-/// Maximum fragment size: 256KB
-const MAX_FRAGMENT_SIZE: usize = 256 * 1024;
+/// Maximum fragment size: 1GB
+const MAX_FRAGMENT_SIZE: usize = 1024 * 1024 * 1024;
 
 /// JSON-RPC Request wrapper
 #[derive(Debug, Deserialize)]

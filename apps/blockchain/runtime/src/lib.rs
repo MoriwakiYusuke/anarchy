@@ -257,8 +257,8 @@ impl pallet_storage::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     /// ネイティブトークン: Balances (報酬ミント用)
     type NativeToken = Balances;
-    /// 断片最大サイズ: 1MB
-    type MaxFragmentSize = ConstU32<1_048_576>;
+    /// 断片最大サイズ: 1GB
+    type MaxFragmentSize = ConstU32<1_073_741_824>;
     /// PeerID最大長: 64バイト
     type MaxPeerIdLen = ConstU32<64>;
     /// 断片あたり最大保持者数: 100
