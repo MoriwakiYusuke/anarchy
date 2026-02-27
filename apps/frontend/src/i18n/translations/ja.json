@@ -135,5 +135,10 @@
   "error.unsupportedFileType": "サポートされていないファイル形式です",
   "error.tooManyFiles": "ファイル数が上限を超えています（最大4ファイル）",
   "error.uploadFailed": "アップロードに失敗しました",
-  "error.videoNotSupported": "動画ファイルはサポートされていません"
+  "error.videoNotSupported": "動画ファイルはサポートされていません",
+  "error.nicknameQueryFailed": "ニックネームの取得に失敗しました",
+  "error.nicknameClearFailed": "ニックネームの削除に失敗しました",
+  "error.signerRequired": "署名者が必要です",
+  "error.apiNotReady": "APIが準備できていません",
+  "error.emptyFile": "ファイルが空です"
 }

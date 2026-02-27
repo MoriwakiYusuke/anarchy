@@ -100,7 +100,9 @@ export function validateSS58Address(address: string): ValidationResult {
  * @returns true if addresses are the same
  */
 export function isSelfTransfer(recipient: string, sender: string): boolean {
-  return recipient.trim().toLowerCase() === sender.trim().toLowerCase()
+  // SS58 addresses are case-sensitive (Base58 alphabet)
+  // Compare exact trimmed strings without case folding
+  return recipient.trim() === sender.trim()
 }
 
 /**

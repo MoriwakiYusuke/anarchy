@@ -139,8 +139,8 @@ pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics:
         .route("/metrics", get(handle_metrics)) // NFR-002: Prometheus metrics endpoint
         .with_state(state)
         .layer(cors)
-        // 2GB limit to accommodate base64-encoded 1GB fragments (33% overhead + margin)
-        .layer(DefaultBodyLimit::max(MAX_FRAGMENT_SIZE * 2))
+        // 512KB limit to accommodate base64-encoded 256KB fragments (33% overhead + margin)
+        .layer(DefaultBodyLimit::max(512 * 1024))
 }
 
 /// Handle JSON-RPC requests

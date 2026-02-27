@@ -194,7 +194,12 @@ export type TranslationKey =
   | 'error.unsupportedFileType'
   | 'error.tooManyFiles'
   | 'error.uploadFailed'
-  | 'error.videoNotSupported';
+  | 'error.videoNotSupported'
+  | 'error.nicknameQueryFailed'
+  | 'error.nicknameClearFailed'
+  | 'error.signerRequired'
+  | 'error.apiNotReady'
+  | 'error.emptyFile';
 
 /**
  * Translation map - maps translation keys to translated strings

@@ -109,8 +109,8 @@ export default function NicknameSettings({
 
   const handleClear = useCallback(async () => {
     if (!isPending) {
+      setInputValue('')  // Clear inputValue BEFORE async operation so onSuccess sees correct value
       await clearNickname()
-      setInputValue('')
     }
   }, [isPending, clearNickname])
 

@@ -133,5 +133,10 @@
   "error.unsupportedFileType": "Unsupported file type",
   "error.tooManyFiles": "Too many files (max 4)",
   "error.uploadFailed": "Upload failed",
-  "error.videoNotSupported": "Video files not supported"
+  "error.videoNotSupported": "Video files not supported",
+  "error.nicknameQueryFailed": "Failed to query nickname",
+  "error.nicknameClearFailed": "Failed to clear nickname",
+  "error.signerRequired": "Signer is required",
+  "error.apiNotReady": "API is not ready",
+  "error.emptyFile": "File is empty"
 }

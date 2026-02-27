@@ -145,6 +145,8 @@ export default function VideoPlayer({
         onPause={handlePause}
         onEnded={handleEnded}
         onError={onError}
+        // Stop propagation when native controls are shown to prevent double play/pause
+        onClick={controls && isPlaying ? (e) => e.stopPropagation() : undefined}
       />
 
       {/* Play button overlay */}

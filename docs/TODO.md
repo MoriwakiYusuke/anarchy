@@ -366,32 +366,79 @@
 
 ---
 
-### 2.6 フロントエンド拡充
+### 2.6 フロントエンド拡充 → **完了** (2026-02-27)
 
-- [ ] **送金モーダル** (`apps/frontend/`)
-  - [ ] 送金モーダルコンポーネント (`components/TransferModal.tsx`)
-  - [ ] 宛先AccountId入力フィールド（バリデーション付き）
-  - [ ] 送金金額入力（MORAL単位、残高上限チェック）
-  - [ ] `Balances.transfer_allow_death` 呼び出し（PAPI経由）
-  - [ ] トランザクション送信・確認UI
-  - [ ] エラーハンドリング（残高不足、無効アドレス等）
-  - [ ] 成功時の残高更新・トースト通知
+> **実装内容**: 015-frontend-expand仕様に基づく送金・メディア添付・ニックネーム機能
 
-- [ ] **メディア添付対応** (`apps/frontend/`)
-  > 動画・画像は既存分散ストレージインフラを活用（SSS分割 → Storage Node保存）
-  - [ ] 画像アップロードUI（ドラッグ&ドロップ、ファイル選択）
-  - [ ] 画像プレビュー表示
-  - [ ] 動画アップロードUI（ファイル選択）
-  - [ ] 動画プレビュー/サムネイル表示
-  - [ ] ファイルサイズ制限（画像: 100MB、動画: 1000MB）
-  - [ ] 対応フォーマット検証（画像: JPEG/PNG/GIF/WebP、動画: MP4/WebM）
-  - [ ] Post V2拡張: `media_merkle_roots: Vec<[u8; 32]>` 追加
-  - [ ] タイムライン表示: メディア復元・インライン表示
+- [x] + **送金フォーム** (`apps/frontend/`) ← ~~送金モーダル~~（常時表示に変更）
+  - ~~[ ] 送金モーダルコンポーネント (`components/TransferModal.tsx`)~~ → [x] + `components/TransferForm.tsx` (275行)
+  - [x] + 宛先AccountId入力フィールド（SS58チェックサム検証付き）
+  - [x] + 送金金額入力（MORAL単位、残高上限チェック）
+  - ~~[ ] `Balances.transfer_allow_death` 呼び出し~~ → [x] + `Balances.transfer_keep_alive`（PAPI経由）
+  - [x] + 確認ダイアログ（宛先・金額を再確認）
+  - [x] + 自己送金防止バリデーション
+  - [x] + エラーハンドリング（残高不足、無効アドレス等）
+  - [x] + 成功時の残高更新・トースト通知
+  - [x] + `useTransfer` hook (332行): 送金ロジックカプセル化
+  - [x] + `lib/addressValidation.ts` (229行): SS58アドレス検証
 
-- [ ] **投稿者名表示**
-  - [ ] 投稿者AccountIdの短縮表示（先頭6文字...末尾4文字）
-  - [ ] クリックで全AccountIdコピー
-  - [ ] Identity Palletとの連携?（ニックネーム登録）
+- [x] + **メディア添付対応** (`apps/frontend/`)
+  > 動画・画像は既存分散ストレージインフラを活用（KZG-VSS暗号化 → Storage Node保存）
+  - [x] + 画像アップロードUI（ドラッグ&ドロップ、ファイル選択）: `components/MediaUpload/` (544行)
+  - [x] + 画像プレビュー表示: `MediaPreview.tsx` (183行)
+  - [x] + 動画アップロードUI（ファイル選択）
+  - [x] + 動画プレビュー/サムネイル自動生成: `lib/videoThumbnail.ts` (151行)
+  - ~~[ ] ファイルサイズ制限（画像: 100MB、動画: 1000MB）~~ → [x] + ファイルサイズ制限（全メディア: 256MB、最大4ファイル）
+  - ~~[ ] 対応フォーマット検証（画像: JPEG/PNG/GIF/WebP、動画: MP4/WebM）~~ → [x] + 全ファイルタイプ受付（`accept="*/*"`）、タイプ自動検出
+  - ~~[ ] Post V2拡張: `media_merkle_roots: Vec<[u8; 32]>` 追加~~ → [x] + `postCodec.ts` (320行): テキスト+メディアのバイナリエンコード
+  - [x] + タイムライン表示: メディア復元・インライン表示
+  - [x] + `components/MediaDisplay/` (205行): 投稿内メディア表示
+  - [x] + `components/VideoPlayer/` (175行): 動画再生プレイヤー
+  - [x] + `components/ImageModal.tsx` (71行): フルスクリーン画像表示
+  - [x] + `components/Lightbox/` (191行): 画像ギャラリー
+  - [x] + `useMediaUpload` hook (435行): ファイル検証・アップロード・状態管理
+  - [x] + `lib/mediaProcessor.ts` (231行): EXIF自動除去
+  - [x] + `lib/mediaValidator.ts` (139行): ファイルタイプ・サイズ検証
+  - [x] + 進捗表示（%）: `ProgressBar.tsx` (39行)
+  - [x] + エラーリカバリーUI: `ErrorRecovery.tsx` (109行)
+
+- [x] + **投稿者名表示**
+  - ~~[ ] 投稿者AccountIdの短縮表示（先頭6文字...末尾4文字）~~ → [x] + 短縮表示（先頭8文字...末尾6文字）
+  - [x] + クリックで全AccountIdコピー: `lib/clipboard.ts` (84行)
+  - ~~[ ] Identity Palletとの連携?~~ → [x] + **Nickname Pallet新規作成**（下記参照）
+  - [x] + `components/AddressDisplay/` (187行): 短縮表示+ツールチップ+コピー
+  - [x] + ホバーツールチップでフルAccountId表示
+
+- [x] + **Nickname Pallet** (`apps/blockchain/pallets/nickname/`) ← **新規追加**
+  > 軽量オンチェーンニックネーム登録（ユニーク制約なし、自称OK）
+  - [x] + `set_nickname` extrinsic: ニックネーム登録/更新
+  - [x] + `clear_nickname` extrinsic: ニックネーム削除
+  - [x] + ストレージ: `Nicknames: AccountId -> BoundedVec<u8, 32>`
+  - [x] + 手数料: 登録・変更時に10 MORAL消費
+  - [x] + 制約: 1-32 UTF-8文字
+  - [x] + ランタイム統合 (`runtime/src/lib.rs`)
+  - [x] + ユニットテスト 366行
+  - [x] + `components/NicknameSettings/` (206行): 折りたたみ式設定UI
+  - [x] + `useNickname` hook (249行): ニックネームCRUD操作
+
+- [x] + **UI/UX改善**
+  - [x] + `components/Skeleton/` (94行): ローディングスケルトン
+  - [x] + `components/PostSkeleton/` (58行): 投稿読み込み中表示
+  - [x] + `components/MediaPlaceholder/` (94行): メディア読み込みプレースホルダー
+  - [x] + `components/Icons.tsx` (138行): SVGアイコン集
+  - [x] + i18n翻訳追加 (ja/en/zh): 送金・メディア・ニックネーム関連 (+70キー)
+
+- [x] + **テスト** (391 tests passed)
+  - [x] + `TransferForm.test.tsx` (358行)
+  - [x] + `MediaUpload.test.tsx` (518行)
+  - [x] + `NicknameSettings.test.tsx` (363行)
+  - [x] + `AddressDisplay.test.tsx` (324行)
+  - [x] + `VideoPlayer.test.tsx` (150行)
+  - [x] + `useTransfer.test.ts` (358行)
+  - [x] + `useMediaUpload.test.ts` (632行)
+  - [x] + `useMediaUpload.video.test.ts` (390行)
+  - [x] + `useNickname.test.ts` (471行)
+  - [x] + `postCodec.test.ts` (442行)
 
 - [ ] **いいね/bad/ギフト** → **Phase 3.2（反応マイニング）で実装**
   > オンチェーンスコア反映はReaction Palletと同時に実装。詳細は Phase 3.2 を参照。
@@ -456,6 +503,68 @@
   - [ ] 復号・表示UI
   - [ ] 送信フロー
 
+### + 3.4 経済設計（トークノミクス）
+
+> **詳細**: [CONCEPTS.md](CONCEPTS.md#経済設計トークノミクス) を参照
+
+- [ ] **バリデーター報酬設計**
+  - [ ] 案A: ブロック報酬mint（シンプル、インフレ）
+  - [ ] 案D: Ethereum EIP-1559方式（Base Fee burn + Priority Fee → バリデーター）
+  - [ ] インフレ率とデフレ圧力のバランス検証
+
+- [ ] **手数料モデル**
+  - [ ] TX手数料: 0維持 or Base Fee導入
+  - [ ] 投稿コスト: burn維持（デフレ圧力）
+  - [ ] Faucet: unsigned tx維持
+
+- [ ] **ステーキング設計**（NPoS検討時）
+  - [ ] pallet_staking 導入の是非
+  - [ ] 最小ステーク額の設定
+  - [ ] スラッシング条件の定義
+
+### + 3.5 コンセンサス方式の検討（PoA → PoW/NPoS）
+
+> **詳細**: [CONCEPTS.md](CONCEPTS.md#コンセンサス方式の検討poa--pow) を参照
+
+- [ ] **PoW移行検討**
+  - [ ] アルゴリズム選定: sha3pow / RandomX / Ethash
+  - [ ] ASIC耐性の要否判断
+  - [ ] 難易度調整アルゴリズム実装
+  - [ ] ファイナリティ方式変更（GRANDPA → 確率的）
+
+- [ ] **NPoS（Hybrid）検討**
+  - [ ] pallet_staking / pallet_election_provider 導入
+  - [ ] $moralステークによるバリデーター候補参加
+  - [ ] Polkadot/Kusamaモデルの適用検討
+
+- [ ] **移行計画**
+  - [ ] テストネット後期でPoW/NPoSテスト
+  - [ ] メインネットでの最終選択（ハードフォーク）
+
+### + 3.6 投稿人気度システム
+
+> **詳細**: [CONCEPTS.md](CONCEPTS.md#投稿人気度システム) を参照
+
+- [ ] **人気度スコア計算**
+  - [ ] 高評価（Like）: +N スコア
+  - [ ] フェッチ（閲覧）: +1 スコア（ストレージノード取得時）
+  - [ ] 低評価（Dislike）: +M スコア（関心として加点）
+  - [ ] 時間経過: 減衰関数（絶対/相対/ランキング相対）
+
+- [ ] **Popularity Pallet** 作成
+  - [ ] `PostPopularity` ストレージ（score, last_interaction, like/dislike/fetch_count）
+  - [ ] `on_finalize` で減衰適用
+  - [ ] 閾値以下の投稿をマーク
+
+- [ ] **削除フロー**
+  - [ ] 猶予期間（例: 7日）経過後に削除指示
+  - [ ] ストレージノードへの削除通知
+  - [ ] オンチェーンメタデータ削除
+
+- [ ] **Sybil対策**
+  - [ ] 自演スコア操作の防止
+  - [ ] 「永続化」オプション（追加料金で削除対象外）
+
 ---
 
 ## Phase 4: 本番デプロイ
@@ -464,16 +573,10 @@
 
 > Tor統合断念に伴い、smoldot導入を前倒し。詳細は Phase 2.5 を参照。
 
-### 4.2 ハイドラ（フロントエンド業者）支援
+### ~~4.2 ハイドラ（フロントエンド業者）支援~~ → **削除** (2026-02-27)
 
-- [ ] **RPCノード運用ガイド**
-  - [ ] 公開RPCノード構成ドキュメント
-  - [ ] ロードバランサー設定例
-  - [ ] レート制限・セキュリティ設定
-
-- [ ] **分散性の確保**
-  - [ ] ハイドラ業者向けノード運用ドキュメント
-  - [ ] コミュニティノード参加インセンティブ設計
+> smoldot Light Clientにより各フロントエンドがRPC不要で接続可能。
+> 業者向けドキュメントはメインネット安定後に必要に応じて作成。
 
 ### 4.3 テストネット/メインネット
 
@@ -506,17 +609,44 @@
   - [ ] 投票期間・クォーラム閾値
   - [ ] パラメータ変更プロセス
 
+### + 4.5 オンチェーンガバナンス
+
+> **詳細**: [CONCEPTS.md](CONCEPTS.md#オンチェーンガバナンス) を参照
+
+- [ ] **段階的移行計画**
+  - [ ] 開発〜テストネット: pallet_sudo維持（単一管理者）
+  - [ ] メインネット初期: Multisig（コア開発者数名）
+  - [ ] メインネット安定後: Democracy/OpenGovへ移行
+
+- [ ] **Multisig導入**
+  - [ ] pallet_multisig 設定
+  - [ ] 署名者リスト・閾値設定
+  - [ ] ランタイムアップグレード承認フロー
+
+- [ ] **Democracy/OpenGov導入**（将来）
+  - [ ] pallet_democracy / pallet_referenda 導入
+  - [ ] $moral保有量ベースの投票権
+  - [ ] Conviction voting（ロック期間に応じた投票力増加）
+  - [ ] Track別投票システム（技術提案 vs コミュニティ提案）
+  - [ ] 緊急時対応（セキュリティパッチ等）の特別ルート
+
+- [ ] **セキュリティ考慮**
+  - [ ] 経済的攻撃（$moral買い占め）対策
+  - [ ] 最小投票期間の設定
+  - [ ] 提案スパム防止（デポジット要求）
+
 ---
 
 ## 構想事項（検討中）
 
 > **別ドキュメントに移動**: [CONCEPTS.md](CONCEPTS.md) を参照
 >
-> - 経済設計（トークノミクス）
-> - コンセンサス方式の検討（PoA → PoW）
+> - ~~経済設計（トークノミクス）~~ → Phase 3.4へ移動
+> - ~~コンセンサス方式の検討（PoA → PoW）~~ → Phase 3.5へ移動
 > - ブラウザ拡張ウォレット連携
-> - オンチェーンガバナンス
+> - ~~オンチェーンガバナンス~~ → Phase 4.5へ移動
 > - 残高保護機能（Keep Alive強制）
+> - ~~投稿人気度システム~~ → Phase 3.6へ移動
 > - ZKP匿名人間証明（Circom/Noir回路、Groth16/PLONK検証）
 
 ---

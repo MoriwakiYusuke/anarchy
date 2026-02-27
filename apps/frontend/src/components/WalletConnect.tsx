@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { useMoralBalance, formatMoralBalance } from '@/hooks/useMoralBalance'
 import { useLocale } from '@/i18n'
@@ -40,10 +40,12 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
   const [showAddressCopied, setShowAddressCopied] = useState(false)
   const { balance, isLoading: balanceLoading, refetch: refetchBalance } = useMoralBalance(unsafeApi, account, refreshTrigger)
 
-  // Expose refetchBalance to parent
-  if (onBalanceChange) {
-    onBalanceChange(refetchBalance)
-  }
+  // Expose refetchBalance to parent via useEffect to avoid side effects during render
+  useEffect(() => {
+    if (onBalanceChange) {
+      onBalanceChange(refetchBalance)
+    }
+  }, [onBalanceChange, refetchBalance])
 
   // 開発モード: テストアカウントで接続
   const handleConnectDev = async () => {

@@ -133,5 +133,10 @@
   "error.unsupportedFileType": "不支持的文件类型",
   "error.tooManyFiles": "文件数超过上限（最大4个）",
   "error.uploadFailed": "上传失败",
-  "error.videoNotSupported": "不支持视频文件"
+  "error.videoNotSupported": "不支持视频文件",
+  "error.nicknameQueryFailed": "获取昵称失败",
+  "error.nicknameClearFailed": "清除昵称失败",
+  "error.signerRequired": "需要签名者",
+  "error.apiNotReady": "API未就绪",
+  "error.emptyFile": "文件为空"
 }
