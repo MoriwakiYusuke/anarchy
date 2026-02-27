@@ -303,7 +303,6 @@ impl pallet_nickname::Config for Runtime {
 
 // Stealth Pallet設定
 impl pallet_stealth::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     /// ブロックあたり最大エフェメラルキー登録数: 100
     type MaxEntriesPerBlock = ConstU32<100>;
