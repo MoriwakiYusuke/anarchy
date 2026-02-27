@@ -138,20 +138,20 @@
 
 - [X] T049 [P] [US3] Unit test: scan_transaction() returns true for own in packages/wasm-engine/src/stealth/tests.rs
 - [X] T050 [P] [US3] Unit test: scan_transaction() returns false for others in packages/wasm-engine/src/stealth/tests.rs
-- [ ] T051 [P] [US3] Jest test: StealthScanner block scanning in apps/frontend/tests/lib/stealth/scanner.test.ts
-- [ ] T052 [P] [US3] Jest test: DetectedStealthBalance state management in apps/frontend/tests/lib/stealth/balanceStore.test.ts
+- [X] T051 [P] [US3] Jest test: StealthScanner block scanning in apps/frontend/tests/lib/stealth/scanner.test.ts
+- [X] T052 [P] [US3] Jest test: DetectedStealthBalance state management in apps/frontend/tests/lib/stealth/balanceStore.test.ts
 
 ### Implementation for User Story 3
 
 - [X] T053 [US3] Implement scan_transaction() wasm export in packages/wasm-engine/src/stealth/scan.rs
-- [ ] T054 [US3] Implement StealthScanner class in apps/frontend/src/lib/stealth/scanner.ts
-- [ ] T055 [US3] Add batch block fetching with progress callback in scanner.ts
-- [ ] T056 [US3] Implement ephemeral key query via PAPI in apps/frontend/src/lib/stealth/api.ts
-- [ ] T057 [US3] Create detected balance state store in apps/frontend/src/lib/stealth/balanceStore.ts
-- [ ] T058 [US3] Integrate scanner with Web Worker in apps/frontend/src/lib/stealth/worker.ts
-- [ ] T059 [P] [US3] Create StealthBalanceList component in apps/frontend/src/components/stealth/StealthBalanceList.tsx
-- [ ] T060 [US3] Add notification for detected payments in StealthBalanceList
-- [ ] T061 [US3] Integrate scanner and balance list into stealth page
+- [X] T054 [US3] Implement StealthScanner class in apps/frontend/src/lib/stealth/scanner.ts
+- [X] T055 [US3] Add batch block fetching with progress callback in scanner.ts
+- [X] T056 [US3] Implement ephemeral key query via PAPI in apps/frontend/src/lib/stealth/api.ts
+- [X] T057 [US3] Create detected balance state store in apps/frontend/src/lib/stealth/balanceStore.ts
+- [X] T058 [US3] Integrate scanner with Web Worker in apps/frontend/src/lib/stealth/worker.ts
+- [X] T059 [P] [US3] Create StealthBalanceList component in apps/frontend/src/components/stealth/StealthBalanceList.tsx
+- [X] T060 [US3] Add notification for detected payments in StealthBalanceList
+- [X] T061 [US3] Integrate scanner and balance list into stealth page
 
 **Checkpoint**: 受取人が自分宛のステルス送金を検出し、残高が表示される
 
@@ -165,25 +165,27 @@
 
 ### Tests for User Story 4
 
-- [ ] T062 [P] [US4] Unit test: derive_stealth_private_key() in packages/wasm-engine/src/stealth/tests.rs
-- [ ] T063 [P] [US4] Jest test: coin selection algorithm in apps/frontend/tests/lib/stealth/coinSelection.test.ts
-- [ ] T064 [P] [US4] Jest test: StealthSpendForm submission in apps/frontend/tests/components/stealth/StealthSpendForm.test.tsx
+- [X] T062 [P] [US4] Unit test: derive_stealth_private_key() in packages/wasm-engine/src/stealth/tests.rs
+- [X] T063 [P] [US4] Jest test: coin selection algorithm in apps/frontend/tests/lib/stealth/coinSelection.test.ts
+- [X] T064 [P] [US4] Jest test: StealthSpendForm submission in apps/frontend/tests/components/stealth/StealthSpendForm.test.tsx
 
 ### Implementation for User Story 4
 
-- [ ] T065 [US4] Implement derive_stealth_private_key() wasm export in packages/wasm-engine/src/stealth/keys.rs
-- [ ] T066 [US4] Implement coin selection algorithm in apps/frontend/src/lib/stealth/coinSelection.ts
-- [ ] T067 [US4] Add linkability warning for multi-UTXO selection in coinSelection.ts
-- [ ] T068 [US4] Create stealth signer using derived private key in apps/frontend/src/lib/stealth/signer.ts
-- [ ] T069 [US4] Create StealthSpendForm component in apps/frontend/src/components/stealth/StealthSpendForm.tsx
-- [ ] T070 [US4] Add multi-UTXO warning dialog in StealthSpendForm
-- [ ] T071 [US4] Integrate spend functionality into stealth page
+- [X] T065 [US4] Implement derive_stealth_private_key() wasm export in packages/wasm-engine/src/stealth/keys.rs
+- [X] T066 [US4] Implement coin selection algorithm in apps/frontend/src/lib/stealth/coinSelection.ts
+- [X] T067 [US4] Add linkability warning for multi-UTXO selection in coinSelection.ts
+- [X] T068 [US4] Create stealth signer using derived private key in apps/frontend/src/lib/stealth/signer.ts
+- [X] T069 [US4] Create StealthSpendForm component in apps/frontend/src/components/stealth/StealthSpendForm.tsx
+- [X] T070 [US4] Add multi-UTXO warning dialog in StealthSpendForm
+- [X] T071 [US4] Integrate spend functionality into stealth page
 
 **Checkpoint**: 受取人がステルスアドレスから資金を送金できる
 
 ---
 
-## Phase 7: User Story 5 - スキャナー設定管理 (Priority: P3)
+## Phase 7: User Story 5 - スキャナー設定管理 (Priority: P3) [SKIPPED]
+
+**Note**: P3優先度のため、MVPスコープ外としてスキップ
 
 **Goal**: ユーザーがスキャナーの動作設定を管理できる
 
@@ -191,16 +193,16 @@
 
 ### Tests for User Story 5
 
-- [ ] T072 [P] [US5] Jest test: ScannerSettings state management in apps/frontend/tests/lib/stealth/scannerSettings.test.ts
-- [ ] T073 [P] [US5] Jest test: ScannerSettingsPanel component in apps/frontend/tests/components/stealth/ScannerSettingsPanel.test.tsx
+- [-] T072 [P] [US5] Jest test: ScannerSettings state management in apps/frontend/tests/lib/stealth/scannerSettings.test.ts
+- [-] T073 [P] [US5] Jest test: ScannerSettingsPanel component in apps/frontend/tests/components/stealth/ScannerSettingsPanel.test.tsx
 
 ### Implementation for User Story 5
 
-- [ ] T074 [US5] Create scanner settings state in apps/frontend/src/lib/stealth/scannerSettings.ts
-- [ ] T075 [US5] Add visibility API integration for battery saving in scanner.ts
-- [ ] T076 [US5] Create ScannerSettingsPanel component in apps/frontend/src/components/stealth/ScannerSettingsPanel.tsx
-- [ ] T077 [US5] Add scan frequency options (realtime, 1min, 5min, manual)
-- [ ] T078 [US5] Integrate settings panel into stealth page
+- [-] T074 [US5] Create scanner settings state in apps/frontend/src/lib/stealth/scannerSettings.ts
+- [-] T075 [US5] Add visibility API integration for battery saving in scanner.ts
+- [-] T076 [US5] Create ScannerSettingsPanel component in apps/frontend/src/components/stealth/ScannerSettingsPanel.tsx
+- [-] T077 [US5] Add scan frequency options (realtime, 1min, 5min, manual)
+- [-] T078 [US5] Integrate settings panel into stealth page
 
 **Checkpoint**: ユーザーがスキャン頻度を変更でき、設定が動作に反映される
 
@@ -212,23 +214,23 @@
 
 ### Error Handling & Validation
 
-- [ ] T079 Add comprehensive error messages for all Wasm functions
-- [ ] T080 Add RPC retry logic with exponential backoff in scanner.ts
-- [ ] T081 Add network disconnection handling in stealth page
+- [X] T079 Add comprehensive error messages for all Wasm functions
+- [X] T080 Add RPC retry logic with exponential backoff in scanner.ts
+- [X] T081 Add network disconnection handling in stealth page
 
 ### Performance & Edge Cases
 
-- [ ] T082 Optimize scan performance with batch processing (1000 blocks/batch)
-- [ ] T083 Add Web Worker fallback for unsupported browsers
-- [ ] T084 Add progress indicator for full scan (genesis to current)
-- [ ] T085 Add catch-up scan on app foreground return
+- [X] T082 Optimize scan performance with batch processing (1000 blocks/batch)
+- [X] T083 Add Web Worker fallback for unsupported browsers
+- [X] T084 Add progress indicator for full scan (genesis to current)
+- [X] T085 Add catch-up scan on app foreground return
 
 ### Documentation & Testing
 
-- [ ] T086 Update quickstart.md with actual working commands
-- [ ] T087 Run full integration test: generate → send → scan → spend flow
-- [ ] T088 Verify Constitution compliance (no key persistence, client-side crypto)
-- [ ] T089 Measure scanner CPU usage and document battery impact expectations (SC-007)
+- [X] T086 Update quickstart.md with actual working commands
+- [X] T087 Run full integration test: generate → send → scan → spend flow
+- [X] T088 Verify Constitution compliance (no key persistence, client-side crypto)
+- [X] T089 Measure scanner CPU usage and document battery impact expectations (SC-007)
 
 ---
 

@@ -148,6 +148,7 @@ export type WorkerResponse =
   | { type: 'keysGenerated'; keys: StealthKeyPair }
   | { type: 'addressDerived'; result: StealthAddressResult }
   | { type: 'scanProgress'; progress: ScanProgress }
+  | { type: 'scanReady'; viewKey: number[]; spendPubkey: number[]; startBlock: number; endBlock: number }
   | { type: 'scanComplete'; balances: DetectedStealthBalance[] }
   | { type: 'backupEncrypted'; data: Uint8Array }
   | { type: 'backupDecrypted'; keys: StealthKeyPair }

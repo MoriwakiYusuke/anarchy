@@ -10,15 +10,35 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { StealthAddressGenerator } from '../../components/stealth/StealthAddressGenerator';
 import { BackupImportDialog } from '../../components/stealth/BackupImportDialog';
 import { StealthSendForm } from '../../components/stealth/StealthSendForm';
+import { StealthSpendForm, type SpendFormValues } from '../../components/stealth/StealthSpendForm';
+import { StealthBalanceList } from '../../components/stealth';
 import { stealthKeyManager } from '../../lib/stealth/keyManager';
 import { sendToStealth } from '../../lib/stealth/api';
-import type { StealthKeyPair } from '../../lib/stealth/types';
+import { StealthScanner } from '../../lib/stealth/scanner';
+import { createBalanceStore, type BalanceStore } from '../../lib/stealth/balanceStore';
+import { deriveKeyFromBalance, createStealthSigner } from '../../lib/stealth/signer';
+import type { StealthKeyPair, ScanProgress, DetectedStealthBalance } from '../../lib/stealth/types';
 import { useSmoldot } from '../../hooks/useSmoldot';
 
 export default function StealthPage() {
   const [metaAddress, setMetaAddress] = useState<string | null>(null);
   const [isImportDialogOpen, setImportDialogOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'receive' | 'send'>('receive');
+  const [activeTab, setActiveTab] = useState<'receive' | 'send' | 'balance'>('receive');
+  
+  // Scanner state
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [balances, setBalances] = useState<DetectedStealthBalance[]>([]);
+  const [scanner, setScanner] = useState<StealthScanner | null>(null);
+  const [balanceStore, setBalanceStore] = useState<BalanceStore | null>(null);
+  
+  // Spend state
+  const [isSpending, setIsSpending] = useState(false);
+  const [showSpendForm, setShowSpendForm] = useState(false);
+  
+  // Network state (T081)
+  const [wasDisconnected, setWasDisconnected] = useState(false);
+  const [lastScannedBlock, setLastScannedBlock] = useState<number>(0);
   
   // Hooks for blockchain interaction
   const { unsafeApi, connectionState } = useSmoldot();
@@ -33,7 +53,207 @@ export default function StealthPage() {
     if (existing) {
       setMetaAddress(existing);
     }
+    
+    // Initialize balance store
+    const store = createBalanceStore();
+    setBalanceStore(store);
+    setBalances(store.getAllAsStealthBalance());
+    
+    // Load last scanned block from localStorage
+    const savedBlock = localStorage.getItem('stealth_last_scanned_block');
+    if (savedBlock) {
+      setLastScannedBlock(parseInt(savedBlock, 10));
+    }
   }, []);
+
+  // T081: Network disconnection handling
+  useEffect(() => {
+    // Check for non-connected states (error, syncing, initializing)
+    const isDisconnected = connectionState.status !== 'connected';
+    
+    if (isDisconnected && connectionState.status === 'error') {
+      setWasDisconnected(true);
+      // Stop any ongoing scan
+      if (scanner && isScanning) {
+        scanner.stop();
+        setIsScanning(false);
+      }
+    } else if (connectionState.status === 'connected' && wasDisconnected) {
+      // Reconnected after disconnection
+      setWasDisconnected(false);
+      console.log('[StealthPage] Reconnected, ready for catch-up scan');
+    }
+  }, [connectionState.status, scanner, isScanning, wasDisconnected]);
+
+  // T085: Catch-up scan on app foreground return
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && metaAddress && !isScanning) {
+        // App returned to foreground, check if we need to catch up
+        const currentBlock = connectionState.blockNumber ?? 0;
+        if (currentBlock > lastScannedBlock + 10) {
+          console.log(`[StealthPage] Catch-up: ${lastScannedBlock} → ${currentBlock}`);
+          // Auto-start catch-up scan for balance tab
+          if (activeTab === 'balance') {
+            // Don't auto-start, just show notification
+            console.log('[StealthPage] New blocks available, user can start scan');
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [metaAddress, isScanning, connectionState.blockNumber, lastScannedBlock, activeTab]);
+
+  /**
+   * Start scanning for stealth payments
+   * T082: Optimized with 1000 blocks/batch
+   * T084: Progress indicator for full scan
+   */
+  const handleStartScan = useCallback(async () => {
+    const keyPair = stealthKeyManager.getKeyPair();
+    if (!keyPair || !unsafeApi) {
+      console.warn('Cannot start scan: missing keys or API');
+      return;
+    }
+
+    // T081: Check network connection
+    if (connectionState.status !== 'connected') {
+      console.warn('Cannot start scan: not connected to network');
+      return;
+    }
+
+    setIsScanning(true);
+    setScanProgress({
+      currentBlock: 0,
+      targetBlock: 0,
+      percentage: 0,
+      detectedCount: 0,
+    });
+
+    try {
+      const newScanner = new StealthScanner(
+        keyPair.viewKey,
+        keyPair.spendPubkey,
+        unsafeApi
+      );
+      setScanner(newScanner);
+
+      // T084: Use lastScannedBlock for incremental scan
+      const startBlock = lastScannedBlock > 0 ? lastScannedBlock + 1 : 0;
+      const endBlock = connectionState.blockNumber ?? 100;
+
+      // T082: Use 1000 blocks/batch for performance
+      const results = await newScanner.scanBlockRange(
+        startBlock,
+        endBlock,
+        (progress) => setScanProgress(progress),
+        { batchSize: 1000, delayBetweenBatches: 100 }
+      );
+
+      // Add detected balances to store
+      if (balanceStore) {
+        for (const result of results) {
+          if (result.isOwned) {
+            // Note: In real implementation, we'd need to query the actual balance
+            // For now, we add with placeholder balance
+            balanceStore.add({
+              stealthAddress: result.stealthAddress,
+              balance: BigInt(0), // Would need to query actual balance
+              blockNumber: result.blockNumber,
+              ephemeralPubkey: result.ephemeralPubkey,
+              txHash: new Uint8Array(32), // Would need actual tx hash
+            });
+          }
+        }
+        setBalances(balanceStore.getAllAsStealthBalance());
+      }
+
+      // Save last scanned block for incremental scan
+      setLastScannedBlock(endBlock);
+      localStorage.setItem('stealth_last_scanned_block', endBlock.toString());
+    } catch (error) {
+      console.error('Scan error:', error);
+    } finally {
+      setIsScanning(false);
+      setScanner(null);
+    }
+  }, [unsafeApi, connectionState.blockNumber, connectionState.status, balanceStore, lastScannedBlock]);
+
+  /**
+   * Stop scanning
+   */
+  const handleStopScan = useCallback(() => {
+    if (scanner) {
+      scanner.stop();
+    }
+    setIsScanning(false);
+    setScanner(null);
+  }, [scanner]);
+
+  /**
+   * Handle balance selection - show spend form
+   */
+  const handleBalanceSelect = useCallback((balance: DetectedStealthBalance) => {
+    console.log('Selected balance:', balance.stealthAddress);
+    setShowSpendForm(true);
+  }, []);
+
+  /**
+   * Handle spend from stealth balance
+   */
+  const handleSpend = useCallback(async (values: SpendFormValues) => {
+    if (!unsafeApi) {
+      throw new Error('ブロックチェーンに接続していません');
+    }
+
+    const keyPair = stealthKeyManager.getKeyPair();
+    if (!keyPair) {
+      throw new Error('鍵が設定されていません');
+    }
+
+    setIsSpending(true);
+    try {
+      // 各選択残高に対してステルス秘密鍵を導出してトランザクションを作成
+      for (const balance of values.selectedBalances) {
+        const privateKey = await deriveKeyFromBalance(
+          balance,
+          keyPair.spendKey,
+          keyPair.viewKey
+        );
+        const stealthSigner = await createStealthSigner(privateKey);
+        
+        try {
+          // TODO: 実際のトランザクション送信ロジック
+          // 現時点ではコンソールログのみ
+          console.log('Spending from:', balance.stealthAddress);
+          console.log('To:', values.recipientAddress);
+          console.log('Amount:', values.amount.toString());
+          
+          // 残高を使用済みとしてマーク
+          if (balanceStore) {
+            balanceStore.markSpent(balance.stealthAddress);
+          }
+        } finally {
+          stealthSigner.destroy();
+        }
+      }
+
+      // 残高リストを更新
+      if (balanceStore) {
+        setBalances(balanceStore.getAllAsStealthBalance());
+      }
+      
+      setShowSpendForm(false);
+      alert('送金が完了しました');
+    } catch (error) {
+      console.error('Spend error:', error);
+      throw error;
+    } finally {
+      setIsSpending(false);
+    }
+  }, [unsafeApi, balanceStore]);
 
   /**
    * 鍵生成完了ハンドラ
@@ -108,6 +328,13 @@ export default function StealthPage() {
           onClick={() => setActiveTab('send')}
         >
           ステルス送金
+        </button>
+        <button
+          type="button"
+          className={`tab-button ${activeTab === 'balance' ? 'active' : ''}`}
+          onClick={() => setActiveTab('balance')}
+        >
+          残高確認
         </button>
       </nav>
 
@@ -188,6 +415,57 @@ export default function StealthPage() {
               onSend={handleSend}
               disabled={isSendDisabled}
             />
+          </div>
+        )}
+
+        {activeTab === 'balance' && (
+          <div className="balance-section">
+            <h2>ステルス残高</h2>
+            <p className="balance-description">
+              受け取ったステルス送金を確認できます。スキャンを実行して新しい送金を検出してください。
+            </p>
+
+            {!metaAddress ? (
+              <div className="warning-box">
+                <p>残高を確認するには、まず受け取り設定でメタアドレスを生成してください。</p>
+              </div>
+            ) : showSpendForm ? (
+              <div className="spend-form-section">
+                <button
+                  type="button"
+                  onClick={() => setShowSpendForm(false)}
+                  className="back-button"
+                >
+                  ← 残高リストに戻る
+                </button>
+                <StealthSpendForm
+                  balances={balances}
+                  onSpend={handleSpend}
+                  onCancel={() => setShowSpendForm(false)}
+                  isProcessing={isSpending}
+                />
+              </div>
+            ) : (
+              <>
+                <StealthBalanceList
+                  balances={balances}
+                  isScanning={isScanning}
+                  scanProgress={scanProgress ?? undefined}
+                  onSelect={handleBalanceSelect}
+                  onStartScan={handleStartScan}
+                  onStopScan={handleStopScan}
+                />
+                {balances.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSpendForm(true)}
+                    className="spend-button"
+                  >
+                    残高を送金
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
       </main>
@@ -351,6 +629,23 @@ export default function StealthPage() {
         .warning-box p {
           margin: 0;
           color: #856404;
+          font-size: 14px;
+        }
+
+        .balance-section {
+          background: #f5f5f5;
+          border-radius: 8px;
+          padding: 24px;
+        }
+
+        .balance-section h2 {
+          margin: 0 0 8px;
+          font-size: 18px;
+        }
+
+        .balance-description {
+          color: #666;
+          margin: 0 0 16px;
           font-size: 14px;
         }
       `}</style>

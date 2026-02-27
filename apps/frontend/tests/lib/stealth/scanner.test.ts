@@ -4,32 +4,30 @@
  * Tests block scanning functionality for stealth payment detection
  */
 
-import { StealthScanner, ScanProgress, ScanResult } from '@/lib/stealth/scanner';
-import type { EphemeralKeyEntry } from '@/lib/stealth/types';
+import { StealthScanner, ScanResult } from '@/lib/stealth/scanner';
+import type { ScanProgress, EphemeralKeyEntry } from '@/lib/stealth/types';
 
 // Mock wasm module
 jest.mock('anarchy-wasm-engine', () => ({
-  scan_transaction: jest.fn((viewKey: Uint8Array, spendPubkey: Uint8Array, ephemeralPubkey: Uint8Array) => {
-    // Mock: return stealth address if first byte of ephemeral key matches view key
-    if (ephemeralPubkey[0] === viewKey[0]) {
-      return '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
-    }
-    return null;
+  // scan_transaction(view_key, ephemeral_pubkey, stealth_address, spend_pubkey) -> bool
+  scan_transaction: jest.fn((viewKey: Uint8Array, ephemeralPubkey: Uint8Array, _stealthAddress: string, spendPubkey: Uint8Array) => {
+    // Mock: return true if first byte of ephemeral key matches view key
+    return ephemeralPubkey[0] === viewKey[0];
   }),
 }));
 
 // Mock API module
 jest.mock('@/lib/stealth/api', () => ({
   getEphemeralKeys: jest.fn(async (_api: unknown, blockNumber: number) => {
-    // Return mock ephemeral keys for specific blocks
+    // Return mock ephemeral keys for specific blocks (using camelCase as per EphemeralKeyEntry interface)
     if (blockNumber === 100) {
       return [
-        { ephemeral_pubkey: new Uint8Array([1, ...new Array(31).fill(0)]), stealth_address: 'addr1' },
+        { ephemeralPubkey: new Uint8Array([1, ...new Array(31).fill(0)]), stealthAddress: 'addr1', blockNumber: 100 },
       ];
     }
     if (blockNumber === 105) {
       return [
-        { ephemeral_pubkey: new Uint8Array([2, ...new Array(31).fill(0)]), stealth_address: 'addr2' },
+        { ephemeralPubkey: new Uint8Array([2, ...new Array(31).fill(0)]), stealthAddress: 'addr2', blockNumber: 105 },
       ];
     }
     return null;
@@ -95,9 +93,9 @@ describe('StealthScanner', () => {
         progressUpdates.push(progress);
       });
 
-      // Check progress updates
-      expect(progressUpdates[0].total).toBe(5); // 100-104 = 5 blocks
-      expect(progressUpdates[progressUpdates.length - 1].scanned).toBe(5);
+      // Check progress updates (ScanProgress has: currentBlock, targetBlock, percentage, detectedCount)
+      expect(progressUpdates[0].targetBlock).toBe(104);
+      expect(progressUpdates[progressUpdates.length - 1].percentage).toBe(100);
     });
   });
 

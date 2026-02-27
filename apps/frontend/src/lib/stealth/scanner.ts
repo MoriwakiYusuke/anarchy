@@ -1,5 +1,7 @@
 /**
  * T054-T055: StealthScanner Class
+ * T080: RPC retry logic with exponential backoff
+ * T083: Web Worker fallback for unsupported browsers
  *
  * Scans blockchain blocks for stealth payments owned by the user.
  */
@@ -9,6 +11,15 @@ import type { EphemeralKeyEntry, ScanProgress } from './types';
 
 // Re-export ScanProgress from types
 export type { ScanProgress } from './types';
+
+/**
+ * T083: Check if Web Workers are supported
+ * Falls back to main thread processing when not available
+ */
+export function isWorkerSupported(): boolean {
+  if (typeof window === 'undefined') return false;
+  return typeof Worker !== 'undefined';
+}
 
 export interface ScanResult {
   blockNumber: number;
@@ -20,6 +31,37 @@ export interface ScanResult {
 export interface ScanOptions {
   batchSize?: number;
   delayBetweenBatches?: number;
+  maxRetries?: number;
+  baseRetryDelayMs?: number;
+  /** T083: Use main thread instead of Worker (default: auto-detect) */
+  useMainThread?: boolean;
+}
+
+/**
+ * T080: Retry with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 1000
+): Promise<T> {
+  let lastError: unknown;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      if (attempt < maxRetries) {
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        console.warn(`[RPC] Retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  throw lastError;
 }
 
 /**
@@ -46,7 +88,12 @@ export class StealthScanner {
     onProgress?: (progress: ScanProgress) => void,
     options: ScanOptions = {}
   ): Promise<ScanResult[]> {
-    const { batchSize = 10, delayBetweenBatches = 50 } = options;
+    const { 
+      batchSize = 1000, // T082: Optimized batch size for performance
+      delayBetweenBatches = 50,
+      maxRetries = 3,
+      baseRetryDelayMs = 1000,
+    } = options;
     const results: ScanResult[] = [];
     const total = endBlock - startBlock + 1;
     let scanned = 0;
@@ -64,13 +111,20 @@ export class StealthScanner {
       const batchEnd = Math.min(batchStart + batchSize - 1, endBlock);
       const batchPromises: Promise<{ blockNumber: number; entries: EphemeralKeyEntry[] | null }>[] = [];
 
-      // Queue batch of block fetches
+      // Queue batch of block fetches with retry logic
       for (let blockNum = batchStart; blockNum <= batchEnd; blockNum++) {
         batchPromises.push(
-          getEphemeralKeys(this.api, blockNum).then((entries) => ({
+          retryWithBackoff(
+            () => getEphemeralKeys(this.api, blockNum),
+            maxRetries,
+            baseRetryDelayMs
+          ).then((entries) => ({
             blockNumber: blockNum,
             entries,
-          }))
+          })).catch((error) => {
+            console.warn(`[StealthScanner] Failed to fetch block ${blockNum} after retries:`, error);
+            return { blockNumber: blockNum, entries: null };
+          })
         );
       }
 
@@ -82,32 +136,30 @@ export class StealthScanner {
 
         scanned++;
 
-        if (!entries || entries.length === 0) {
-          continue;
-        }
+        if (entries && entries.length > 0) {
+          // Check each ephemeral key entry
+          for (const entry of entries) {
+            try {
+              // scan_transaction(view_key, ephemeral_pubkey, stealth_address, spend_pubkey) -> bool
+              const isOwned = wasm.scan_transaction(
+                this.viewKey,
+                entry.ephemeralPubkey,
+                entry.stealthAddress,
+                this.spendPubkey
+              );
 
-        // Check each ephemeral key entry
-        for (const entry of entries) {
-          try {
-            // scan_transaction(view_key, ephemeral_pubkey, stealth_address, spend_pubkey) -> bool
-            const isOwned = wasm.scan_transaction(
-              this.viewKey,
-              entry.ephemeralPubkey,
-              entry.stealthAddress,
-              this.spendPubkey
-            );
-
-            if (isOwned) {
-              found++;
-              results.push({
-                blockNumber,
-                stealthAddress: entry.stealthAddress,
-                ephemeralPubkey: entry.ephemeralPubkey,
-                isOwned: true,
-              });
+              if (isOwned) {
+                found++;
+                results.push({
+                  blockNumber,
+                  stealthAddress: entry.stealthAddress,
+                  ephemeralPubkey: entry.ephemeralPubkey,
+                  isOwned: true,
+                });
+              }
+            } catch (error) {
+              console.warn(`[StealthScanner] Error scanning block ${blockNumber}:`, error);
             }
-          } catch (error) {
-            console.warn(`[StealthScanner] Error scanning block ${blockNumber}:`, error);
           }
         }
 

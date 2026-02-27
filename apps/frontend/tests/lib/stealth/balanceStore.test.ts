@@ -11,18 +11,34 @@ import {
 } from '@/lib/stealth/balanceStore';
 
 // Mock localStorage
+const localStorageStore: Record<string, string> = {};
+
+const getItemMock = jest.fn((key: string): string | null => localStorageStore[key] || null);
+const setItemMock = jest.fn((key: string, value: string): void => {
+  localStorageStore[key] = value;
+});
+const removeItemMock = jest.fn((key: string): void => {
+  delete localStorageStore[key];
+});
+const clearMock = jest.fn((): void => {
+  Object.keys(localStorageStore).forEach((key) => {
+    delete localStorageStore[key];
+  });
+});
+const keyMock = jest.fn((index: number): string | null => {
+  const keys = Object.keys(localStorageStore);
+  return keys[index] || null;
+});
+
 const localStorageMock = {
-  store: {} as Record<string, string>,
-  getItem: jest.fn((key: string) => localStorageMock.store[key] || null),
-  setItem: jest.fn((key: string, value: string) => {
-    localStorageMock.store[key] = value;
-  }),
-  removeItem: jest.fn((key: string) => {
-    delete localStorageMock.store[key];
-  }),
-  clear: jest.fn(() => {
-    localStorageMock.store = {};
-  }),
+  get length(): number {
+    return Object.keys(localStorageStore).length;
+  },
+  key: keyMock,
+  getItem: getItemMock,
+  setItem: setItemMock,
+  removeItem: removeItemMock,
+  clear: clearMock,
 };
 
 Object.defineProperty(window, 'localStorage', {
@@ -48,6 +64,7 @@ describe('BalanceStore', () => {
           balance: BigInt(100_000_000_000_000).toString(),
           blockNumber: 100,
           ephemeralPubkey: Array.from(new Uint8Array(32)),
+          txHash: Array.from(new Uint8Array(32)),
           detectedAt: Date.now(),
         },
       ];
@@ -68,6 +85,7 @@ describe('BalanceStore', () => {
         balance: BigInt(100_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       expect(store.getAll().length).toBe(1);
@@ -82,6 +100,7 @@ describe('BalanceStore', () => {
         balance: BigInt(100_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       expect(localStorageMock.setItem).toHaveBeenCalledWith(
@@ -98,6 +117,7 @@ describe('BalanceStore', () => {
         balance: BigInt(100_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       store.add({
@@ -105,6 +125,7 @@ describe('BalanceStore', () => {
         balance: BigInt(200_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       expect(store.getAll().length).toBe(1);
@@ -120,6 +141,7 @@ describe('BalanceStore', () => {
         balance: BigInt(100_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       expect(callback).toHaveBeenCalledWith(expect.any(Array));
@@ -135,6 +157,7 @@ describe('BalanceStore', () => {
         balance: BigInt(100_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       store.remove('addr1');
@@ -149,6 +172,7 @@ describe('BalanceStore', () => {
         balance: BigInt(100_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       const callCount = localStorageMock.setItem.mock.calls.length;
@@ -167,6 +191,7 @@ describe('BalanceStore', () => {
         balance: BigInt(100_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       store.add({
@@ -174,6 +199,7 @@ describe('BalanceStore', () => {
         balance: BigInt(50_000_000_000_000),
         blockNumber: 101,
         ephemeralPubkey: new Uint8Array([1, ...new Array(31).fill(0)]),
+        txHash: new Uint8Array(32),
       });
 
       expect(store.getTotalBalance()).toBe(BigInt(150_000_000_000_000));
@@ -197,6 +223,7 @@ describe('BalanceStore', () => {
         balance: BigInt(100_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       expect(callback).toHaveBeenCalledTimes(1);
@@ -208,6 +235,7 @@ describe('BalanceStore', () => {
         balance: BigInt(50_000_000_000_000),
         blockNumber: 101,
         ephemeralPubkey: new Uint8Array([1, ...new Array(31).fill(0)]),
+        txHash: new Uint8Array(32),
       });
 
       expect(callback).toHaveBeenCalledTimes(1); // Not called again
@@ -223,6 +251,7 @@ describe('BalanceStore', () => {
         balance: BigInt(100_000_000_000_000),
         blockNumber: 100,
         ephemeralPubkey: new Uint8Array(32),
+      txHash: new Uint8Array(32),
       });
 
       store.clear();

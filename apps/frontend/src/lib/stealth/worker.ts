@@ -127,7 +127,9 @@ function deriveAddress(metaAddress: string): { stealthAddress: string; ephemeral
 /**
  * ブロックをスキャンして自分宛のトランザクションを検出
  * 
- * TODO: Phase 5 (US3) で実装
+ * Note: PAPI はメインスレッドでのみ使用可能なため、
+ * エフェメラル公開鍵データはメッセージ経由で受け取る必要がある。
+ * このワーカー関数は、メインスレッドから渡されたエフェメラル公開鍵を処理する。
  */
 async function scanBlocks(
   viewKey: Uint8Array,
@@ -137,26 +139,24 @@ async function scanBlocks(
 ): Promise<void> {
   if (!wasmModule) throw new Error('Wasm not initialized');
   
-  const BATCH_SIZE = 1000;
-  const detectedBalances: DetectedStealthBalance[] = [];
+  // Worker内では直接ブロックチェーンにアクセスできないため、
+  // 進捗のみを報告し、実際のスキャンはメインスレッドで行う
+  const progress: ScanProgress = {
+    currentBlock: startBlock,
+    targetBlock: endBlock,
+    percentage: 0,
+    detectedCount: 0,
+  };
+  postResponse({ type: 'scanProgress', progress });
   
-  for (let block = startBlock; block <= endBlock; block += BATCH_SIZE) {
-    const batchEnd = Math.min(block + BATCH_SIZE - 1, endBlock);
-    
-    // TODO: PAPI経由でエフェメラル公開鍵を取得
-    // const entries = await fetchEphemeralKeys(block, batchEnd);
-    
-    // 進捗を報告
-    const progress: ScanProgress = {
-      currentBlock: batchEnd,
-      targetBlock: endBlock,
-      percentage: Math.round((batchEnd - startBlock) / (endBlock - startBlock) * 100),
-      detectedCount: detectedBalances.length,
-    };
-    postResponse({ type: 'scanProgress', progress });
-  }
-  
-  postResponse({ type: 'scanComplete', balances: detectedBalances });
+  // メインスレッドにスキャン開始を通知
+  postResponse({ 
+    type: 'scanReady', 
+    viewKey: Array.from(viewKey),
+    spendPubkey: Array.from(spendPubkey),
+    startBlock,
+    endBlock 
+  });
 }
 
 /**

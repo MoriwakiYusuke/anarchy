@@ -4,13 +4,19 @@
  * Manages detected stealth balances with localStorage persistence
  */
 
+import type { DetectedStealthBalance } from './types';
+
 const STORAGE_KEY = 'stealth_balances';
 
+/**
+ * Internal serializable format for localStorage
+ */
 export interface DetectedBalance {
   stealthAddress: string;
   balance: string; // BigInt as string for JSON serialization
   blockNumber: number;
   ephemeralPubkey: number[]; // Uint8Array as number[] for JSON
+  txHash: number[]; // Uint8Array as number[] for JSON
   detectedAt: number;
   spent?: boolean;
   spentAt?: number;
@@ -21,11 +27,15 @@ export interface AddBalanceParams {
   balance: bigint;
   blockNumber: number;
   ephemeralPubkey: Uint8Array;
+  txHash: Uint8Array;
 }
 
 export interface BalanceStore {
-  /** Get all detected balances */
+  /** Get all detected balances (internal serializable format) */
   getAll(): DetectedBalance[];
+  
+  /** Get all balances as DetectedStealthBalance (API-compatible format) */
+  getAllAsStealthBalance(): DetectedStealthBalance[];
   
   /** Get unspent balances only */
   getUnspent(): DetectedBalance[];
@@ -47,6 +57,20 @@ export interface BalanceStore {
   
   /** Clear all balances */
   clear(): void;
+}
+
+/**
+ * Convert internal format to DetectedStealthBalance
+ */
+export function toStealthBalance(internal: DetectedBalance): DetectedStealthBalance {
+  return {
+    stealthAddress: internal.stealthAddress,
+    balance: BigInt(internal.balance),
+    receivedAt: internal.blockNumber,
+    txHash: new Uint8Array(internal.txHash),
+    spent: internal.spent ?? false,
+    ephemeralPubkey: new Uint8Array(internal.ephemeralPubkey),
+  };
 }
 
 /**
@@ -94,6 +118,10 @@ export function createBalanceStore(): BalanceStore {
       return [...balances];
     },
 
+    getAllAsStealthBalance(): DetectedStealthBalance[] {
+      return balances.map(toStealthBalance);
+    },
+
     getUnspent(): DetectedBalance[] {
       return balances.filter((b) => !b.spent);
     },
@@ -112,6 +140,7 @@ export function createBalanceStore(): BalanceStore {
         balance: params.balance.toString(),
         blockNumber: params.blockNumber,
         ephemeralPubkey: Array.from(params.ephemeralPubkey),
+        txHash: Array.from(params.txHash),
         detectedAt: Date.now(),
       };
 

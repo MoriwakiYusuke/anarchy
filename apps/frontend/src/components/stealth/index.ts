@@ -12,8 +12,9 @@ export { BackupImportDialog } from './BackupImportDialog';
 export { StealthSendForm, validateMetaAddress, formatAmount } from './StealthSendForm';
 export type { StealthSendFormProps, ValidationResult } from './StealthSendForm';
 
-// Phase 5 (US3) で追加予定
-// export { StealthBalanceList } from './StealthBalanceList';
+// Phase 5 (US3) コンポーネント
+export { default as StealthBalanceList } from './StealthBalanceList';
+export type { StealthBalanceListProps } from './StealthBalanceList';
 
 // Phase 6 (US4) で追加予定
 // export { StealthSpendForm } from './StealthSpendForm';
