@@ -306,11 +306,11 @@ mod tests {
 
     #[test]
     fn test_hex_to_bytes() {
-        assert_eq!(hex_to_bytes("").unwrap(), vec![]);
+        assert_eq!(hex_to_bytes("").unwrap(), Vec::<u8>::new());
         assert_eq!(hex_to_bytes("00").unwrap(), vec![0u8]);
         assert_eq!(hex_to_bytes("ff").unwrap(), vec![255u8]);
         assert_eq!(hex_to_bytes("0102").unwrap(), vec![1u8, 2u8]);
-        assert_eq!(hex_to_bytes("deadbeef").unwrap(), vec![0xde, 0xad, 0xbe, 0xef]);
+        assert_eq!(hex_to_bytes("deadbeef").unwrap(), vec![0xdeu8, 0xad, 0xbe, 0xef]);
         
         // Error cases
         assert!(hex_to_bytes("0").is_err()); // odd length

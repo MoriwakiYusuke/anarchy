@@ -26,12 +26,12 @@
 
 **Purpose**: Project initialization, directory structure, dependencies
 
-- [ ] T001 Create pallet directory structure in apps/blockchain/pallets/stealth/
-- [ ] T002 Create stealth module directory in packages/wasm-engine/src/stealth/
-- [ ] T003 [P] Create frontend stealth lib directory in apps/frontend/src/lib/stealth/
-- [ ] T004 [P] Create frontend stealth components directory in apps/frontend/src/components/stealth/
-- [ ] T005 Add x25519-dalek, aes-gcm, pbkdf2 dependencies to packages/wasm-engine/Cargo.toml
-- [ ] T006 Add pallet-stealth to apps/blockchain/Cargo.toml workspace members
+- [X] T001 Create pallet directory structure in apps/blockchain/pallets/stealth/
+- [X] T002 Create stealth module directory in packages/wasm-engine/src/stealth/
+- [X] T003 [P] Create frontend stealth lib directory in apps/frontend/src/lib/stealth/
+- [X] T004 [P] Create frontend stealth components directory in apps/frontend/src/components/stealth/
+- [X] T005 Add x25519-dalek, aes-gcm, pbkdf2 dependencies to packages/wasm-engine/Cargo.toml
+- [X] T006 Add pallet-stealth to apps/blockchain/Cargo.toml workspace members
 
 ---
 
@@ -43,28 +43,28 @@
 
 ### Wasm Crypto Core
 
-- [ ] T007 Create stealth module entry in packages/wasm-engine/src/stealth/mod.rs
-- [ ] T008 [P] Define TypeScript types interface in packages/wasm-engine/src/stealth/types.rs
-- [ ] T009 [P] Implement X25519 key pair generation in packages/wasm-engine/src/stealth/keys.rs
-- [ ] T010 [P] Implement Blake2b hashing utilities in packages/wasm-engine/src/stealth/hash.rs
-- [ ] T011 Implement EIP-5564 stealth address derivation in packages/wasm-engine/src/stealth/address.rs
-- [ ] T012 Implement ownership scan logic in packages/wasm-engine/src/stealth/scan.rs
-- [ ] T013 Add wasm_bindgen exports to packages/wasm-engine/src/lib.rs
+- [X] T007 Create stealth module entry in packages/wasm-engine/src/stealth/mod.rs
+- [X] T008 [P] Define TypeScript types interface in packages/wasm-engine/src/stealth/types.rs
+- [X] T009 [P] Implement X25519 key pair generation in packages/wasm-engine/src/stealth/keys.rs
+- [X] T010 [P] Implement Blake2b hashing utilities in packages/wasm-engine/src/stealth/hash.rs
+- [X] T011 Implement EIP-5564 stealth address derivation in packages/wasm-engine/src/stealth/address.rs
+- [X] T012 Implement ownership scan logic in packages/wasm-engine/src/stealth/scan.rs
+- [X] T013 Add wasm_bindgen exports to packages/wasm-engine/src/lib.rs
 
 ### Pallet Core
 
-- [ ] T014 Create pallet skeleton with Config trait in apps/blockchain/pallets/stealth/src/lib.rs
-- [ ] T015 [P] Define EphemeralKeyEntry type in apps/blockchain/pallets/stealth/src/types.rs
-- [ ] T016 [P] Define Error enum in apps/blockchain/pallets/stealth/src/lib.rs
-- [ ] T017 [P] Define Event enum in apps/blockchain/pallets/stealth/src/lib.rs
-- [ ] T018 Add EphemeralKeys StorageMap in apps/blockchain/pallets/stealth/src/lib.rs
-- [ ] T019 Add pallet-stealth to runtime in apps/blockchain/runtime/src/lib.rs
+- [X] T014 Create pallet skeleton with Config trait in apps/blockchain/pallets/stealth/src/lib.rs
+- [X] T015 [P] Define EphemeralKeyEntry type in apps/blockchain/pallets/stealth/src/types.rs
+- [X] T016 [P] Define Error enum in apps/blockchain/pallets/stealth/src/lib.rs
+- [X] T017 [P] Define Event enum in apps/blockchain/pallets/stealth/src/lib.rs
+- [X] T018 Add EphemeralKeys StorageMap in apps/blockchain/pallets/stealth/src/lib.rs
+- [X] T019 Add pallet-stealth to runtime in apps/blockchain/runtime/src/lib.rs
 
 ### Frontend Service Core
 
-- [ ] T020 Create TypeScript type definitions in apps/frontend/src/lib/stealth/types.ts
-- [ ] T021 [P] Create Web Worker entry point in apps/frontend/src/lib/stealth/worker.ts
-- [ ] T022 [P] Create Worker client wrapper in apps/frontend/src/lib/stealth/client.ts
+- [X] T020 Create TypeScript type definitions in apps/frontend/src/lib/stealth/types.ts
+- [X] T021 [P] Create Web Worker entry point in apps/frontend/src/lib/stealth/worker.ts
+- [X] T022 [P] Create Worker client wrapper in apps/frontend/src/lib/stealth/client.ts
 
 **Checkpoint**: Foundation ready - Wasm builds, Pallet compiles, Worker initializes
 
@@ -78,22 +78,22 @@
 
 ### Tests for User Story 1
 
-- [ ] T023 [P] [US1] Unit test: generate_stealth_keys() in packages/wasm-engine/src/stealth/tests.rs
-- [ ] T024 [P] [US1] Unit test: encrypt_backup/decrypt_backup in packages/wasm-engine/src/stealth/tests.rs
-- [ ] T025 [P] [US1] Jest test: StealthKeyManager in apps/frontend/tests/lib/stealth/keyManager.test.ts
+- [X] T023 [P] [US1] Unit test: generate_stealth_keys() in packages/wasm-engine/src/stealth/tests.rs
+- [X] T024 [P] [US1] Unit test: encrypt_backup/decrypt_backup in packages/wasm-engine/src/stealth/tests.rs
+- [X] T025 [P] [US1] Jest test: StealthKeyManager in apps/frontend/tests/lib/stealth/keyManager.test.ts
 
 ### Implementation for User Story 1
 
-- [ ] T026 [US1] Implement generate_stealth_keys() wasm export in packages/wasm-engine/src/stealth/keys.rs
-- [ ] T027 [US1] Implement format_meta_address() (EIP-5564 format) in packages/wasm-engine/src/stealth/address.rs
-- [ ] T028 [US1] Implement parse_meta_address() (EIP-5564 format) in packages/wasm-engine/src/stealth/address.rs
-- [ ] T029 [US1] Implement encrypt_backup() with AES-256-GCM in packages/wasm-engine/src/stealth/backup.rs
-- [ ] T030 [US1] Implement decrypt_backup() in packages/wasm-engine/src/stealth/backup.rs
-- [ ] T031 [US1] Implement StealthKeyManager class in apps/frontend/src/lib/stealth/keyManager.ts
-- [ ] T032 [US1] Add beforeunload key destruction handler in apps/frontend/src/lib/stealth/keyManager.ts
-- [ ] T033 [P] [US1] Create StealthAddressGenerator component in apps/frontend/src/components/stealth/StealthAddressGenerator.tsx
-- [ ] T034 [P] [US1] Create BackupImportDialog component in apps/frontend/src/components/stealth/BackupImportDialog.tsx
-- [ ] T035 [US1] Create stealth page with key generation UI in apps/frontend/src/app/stealth/page.tsx
+- [X] T026 [US1] Implement generate_stealth_keys() wasm export in packages/wasm-engine/src/stealth/keys.rs
+- [X] T027 [US1] Implement format_meta_address() (EIP-5564 format) in packages/wasm-engine/src/stealth/address.rs
+- [X] T028 [US1] Implement parse_meta_address() (EIP-5564 format) in packages/wasm-engine/src/stealth/address.rs
+- [X] T029 [US1] Implement encrypt_backup() with AES-256-GCM in packages/wasm-engine/src/stealth/backup.rs
+- [X] T030 [US1] Implement decrypt_backup() in packages/wasm-engine/src/stealth/backup.rs
+- [X] T031 [US1] Implement StealthKeyManager class in apps/frontend/src/lib/stealth/keyManager.ts
+- [X] T032 [US1] Add beforeunload key destruction handler in apps/frontend/src/lib/stealth/keyManager.ts
+- [X] T033 [P] [US1] Create StealthAddressGenerator component in apps/frontend/src/components/stealth/StealthAddressGenerator.tsx
+- [X] T034 [P] [US1] Create BackupImportDialog component in apps/frontend/src/components/stealth/BackupImportDialog.tsx
+- [X] T035 [US1] Create stealth page with key generation UI in apps/frontend/src/app/stealth/page.tsx
 
 **Checkpoint**: ユーザーが鍵を生成し、バックアップを作成/復元できる
 
@@ -107,22 +107,22 @@
 
 ### Tests for User Story 2
 
-- [ ] T036 [P] [US2] Unit test: derive_stealth_address() in packages/wasm-engine/src/stealth/tests.rs
-- [ ] T037 [P] [US2] Pallet test: send_to_stealth works in apps/blockchain/pallets/stealth/src/tests.rs
-- [ ] T038 [P] [US2] Pallet test: send_to_stealth fails with zero amount in apps/blockchain/pallets/stealth/src/tests.rs
-- [ ] T039 [P] [US2] Pallet test: ephemeral keys recorded correctly in apps/blockchain/pallets/stealth/src/tests.rs
-- [ ] T040 [P] [US2] Jest test: StealthSendForm validation in apps/frontend/tests/components/stealth/StealthSendForm.test.tsx
+- [X] T036 [P] [US2] Unit test: derive_stealth_address() in packages/wasm-engine/src/stealth/tests.rs
+- [X] T037 [P] [US2] Pallet test: send_to_stealth works in apps/blockchain/pallets/stealth/src/tests.rs
+- [X] T038 [P] [US2] Pallet test: send_to_stealth fails with zero amount in apps/blockchain/pallets/stealth/src/tests.rs
+- [X] T039 [P] [US2] Pallet test: ephemeral keys recorded correctly in apps/blockchain/pallets/stealth/src/tests.rs
+- [X] T040 [P] [US2] Jest test: StealthSendForm validation in apps/frontend/tests/components/stealth/StealthSendForm.test.tsx
 
 ### Implementation for User Story 2
 
-- [ ] T041 [US2] Implement derive_stealth_address() wasm export in packages/wasm-engine/src/stealth/address.rs
-- [ ] T042 [US2] Implement send_to_stealth extrinsic in apps/blockchain/pallets/stealth/src/lib.rs
-- [ ] T043 [US2] Add Currency transfer integration in apps/blockchain/pallets/stealth/src/lib.rs
-- [ ] T044 [US2] Implement WeightInfo for send_to_stealth in apps/blockchain/pallets/stealth/src/weights.rs
-- [ ] T045 [US2] Create PAPI wrapper for sendToStealth in apps/frontend/src/lib/stealth/api.ts
-- [ ] T046 [US2] Create StealthSendForm component in apps/frontend/src/components/stealth/StealthSendForm.tsx
-- [ ] T047 [US2] Add meta-address validation with error display in StealthSendForm
-- [ ] T048 [US2] Integrate StealthSendForm into stealth page in apps/frontend/src/app/stealth/page.tsx
+- [X] T041 [US2] Implement derive_stealth_address() wasm export in packages/wasm-engine/src/stealth/address.rs
+- [X] T042 [US2] Implement send_to_stealth extrinsic in apps/blockchain/pallets/stealth/src/lib.rs
+- [X] T043 [US2] Add Currency transfer integration in apps/blockchain/pallets/stealth/src/lib.rs
+- [X] T044 [US2] Implement WeightInfo for send_to_stealth in apps/blockchain/pallets/stealth/src/weights.rs
+- [X] T045 [US2] Create PAPI wrapper for sendToStealth in apps/frontend/src/lib/stealth/api.ts
+- [X] T046 [US2] Create StealthSendForm component in apps/frontend/src/components/stealth/StealthSendForm.tsx
+- [X] T047 [US2] Add meta-address validation with error display in StealthSendForm
+- [X] T048 [US2] Integrate StealthSendForm into stealth page in apps/frontend/src/app/stealth/page.tsx
 
 **Checkpoint**: 送金者がステルスアドレスへ送金でき、エフェメラル公開鍵がチェーンに記録される
 
@@ -136,14 +136,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T049 [P] [US3] Unit test: scan_transaction() returns true for own in packages/wasm-engine/src/stealth/tests.rs
-- [ ] T050 [P] [US3] Unit test: scan_transaction() returns false for others in packages/wasm-engine/src/stealth/tests.rs
+- [X] T049 [P] [US3] Unit test: scan_transaction() returns true for own in packages/wasm-engine/src/stealth/tests.rs
+- [X] T050 [P] [US3] Unit test: scan_transaction() returns false for others in packages/wasm-engine/src/stealth/tests.rs
 - [ ] T051 [P] [US3] Jest test: StealthScanner block scanning in apps/frontend/tests/lib/stealth/scanner.test.ts
 - [ ] T052 [P] [US3] Jest test: DetectedStealthBalance state management in apps/frontend/tests/lib/stealth/balanceStore.test.ts
 
 ### Implementation for User Story 3
 
-- [ ] T053 [US3] Implement scan_transaction() wasm export in packages/wasm-engine/src/stealth/scan.rs
+- [X] T053 [US3] Implement scan_transaction() wasm export in packages/wasm-engine/src/stealth/scan.rs
 - [ ] T054 [US3] Implement StealthScanner class in apps/frontend/src/lib/stealth/scanner.ts
 - [ ] T055 [US3] Add batch block fetching with progress callback in scanner.ts
 - [ ] T056 [US3] Implement ephemeral key query via PAPI in apps/frontend/src/lib/stealth/api.ts

@@ -56,6 +56,26 @@ zeroize = { version = "1.7", default-features = false, features = ["alloc"] }
 # Hybrid approach: Reed-Solomon erasure coding
 reed-solomon-erasure = { version = "6.0", default-features = false }
 
+# Stealth address: X25519 key exchange
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+
+# Random number generation
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+# Stealth address: Key derivation
+pbkdf2 = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+
+# Stealth address: Base58 encoding for meta-address
+bs58 = "0.5"
+
+# Stealth address: JSON serialization for backup
+serde_json = "1.0"
+
+# Stealth address: Base64 encoding for backup
+base64 = "0.22"
+
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
 # Enable test-utils feature for integration tests

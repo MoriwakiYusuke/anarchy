@@ -181,6 +181,7 @@ dependencies = [
  "pallet-grandpa",
  "pallet-nickname",
  "pallet-post",
+ "pallet-stealth",
  "pallet-storage",
  "pallet-sudo",
  "pallet-timestamp",
@@ -5536,6 +5537,21 @@ dependencies = [
  "sp-staking",
  "sp-state-machine",
  "sp-trie",
+]
+
+[[package]]
+name = "pallet-stealth"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]

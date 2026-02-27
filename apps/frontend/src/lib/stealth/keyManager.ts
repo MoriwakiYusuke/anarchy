@@ -1,0 +1,207 @@
+/**
+ * StealthKeyManager - Session Key Management
+ * 
+ * ステルス鍵のセッション管理。
+ * 鍵はメモリにのみ保持され、ブラウザ/localStorage/IndexedDBには保存しない。
+ * セッション終了時（beforeunload）に自動破棄。
+ */
+
+import type { StealthKeyPair } from './types';
+
+// Wasm functions will be imported dynamically to support both sync and async loading
+type WasmModule = typeof import('anarchy-wasm-engine');
+let wasmModule: WasmModule | null = null;
+
+/**
+ * Load wasm module lazily
+ */
+async function getWasm(): Promise<WasmModule> {
+  if (!wasmModule) {
+    wasmModule = await import('anarchy-wasm-engine');
+  }
+  return wasmModule;
+}
+
+/**
+ * Secure wipe utility - overwrite buffer with zeros
+ */
+function secureWipe(buffer: Uint8Array): void {
+  if (buffer) {
+    buffer.fill(0);
+  }
+}
+
+/**
+ * StealthKeyManager - manages stealth keys in session memory
+ */
+export class StealthKeyManager {
+  private keyPair: StealthKeyPair | null = null;
+  private beforeUnloadHandler: (() => void) | null = null;
+
+  /**
+   * Generate new stealth key pair
+   * @returns Generated key pair
+   */
+  async generateKeys(): Promise<StealthKeyPair> {
+    // Return existing keys if already generated
+    if (this.keyPair) {
+      return this.keyPair;
+    }
+
+    const wasm = await getWasm();
+    const wasmKeys = wasm.generate_stealth_keys();
+
+    this.keyPair = {
+      spendKey: new Uint8Array(wasmKeys.spend_key),
+      viewKey: new Uint8Array(wasmKeys.view_key),
+      spendPubkey: new Uint8Array(wasmKeys.spend_pubkey),
+      viewPubkey: new Uint8Array(wasmKeys.view_pubkey),
+      metaAddress: wasmKeys.meta_address,
+      createdAt: Date.now(),
+    };
+
+    // Register cleanup handler
+    this.registerCleanupHandler();
+
+    return this.keyPair;
+  }
+
+  /**
+   * Import keys from encrypted backup
+   * @param encryptedBackup - Encrypted backup data
+   * @param password - User password
+   */
+  async importFromBackup(
+    encryptedBackup: Uint8Array,
+    password: string
+  ): Promise<void> {
+    const wasm = await getWasm();
+    
+    // Decrypt backup
+    const wasmKeys = wasm.decrypt_backup(encryptedBackup, password);
+
+    this.keyPair = {
+      spendKey: new Uint8Array(wasmKeys.spend_key),
+      viewKey: new Uint8Array(wasmKeys.view_key),
+      spendPubkey: new Uint8Array(wasmKeys.spend_pubkey),
+      viewPubkey: new Uint8Array(wasmKeys.view_pubkey),
+      metaAddress: wasmKeys.meta_address,
+      createdAt: Date.now(),
+    };
+
+    // Register cleanup handler
+    this.registerCleanupHandler();
+  }
+
+  /**
+   * Export keys as encrypted backup
+   * @param password - User password for encryption
+   * @returns Encrypted backup data
+   */
+  async exportBackup(password: string): Promise<Uint8Array> {
+    if (!this.keyPair) {
+      throw new Error('No key pair loaded');
+    }
+
+    const wasm = await getWasm();
+    
+    const encrypted = wasm.encrypt_backup(
+      this.keyPair.spendKey,
+      this.keyPair.viewKey,
+      password
+    );
+
+    return new Uint8Array(encrypted);
+  }
+
+  /**
+   * Check if keys are loaded
+   */
+  hasKeys(): boolean {
+    return this.keyPair !== null;
+  }
+
+  /**
+   * Get meta address
+   */
+  getMetaAddress(): string | null {
+    return this.keyPair?.metaAddress ?? null;
+  }
+
+  /**
+   * Get view key (for scanning)
+   */
+  getViewKey(): Uint8Array | null {
+    return this.keyPair?.viewKey ?? null;
+  }
+
+  /**
+   * Get spend key (for claiming)
+   */
+  getSpendKey(): Uint8Array | null {
+    return this.keyPair?.spendKey ?? null;
+  }
+
+  /**
+   * Get spend public key (for verification)
+   */
+  getSpendPubkey(): Uint8Array | null {
+    return this.keyPair?.spendPubkey ?? null;
+  }
+
+  /**
+   * Get view public key
+   */
+  getViewPubkey(): Uint8Array | null {
+    return this.keyPair?.viewPubkey ?? null;
+  }
+
+  /**
+   * Get full key pair (for internal use only)
+   */
+  getKeyPair(): StealthKeyPair | null {
+    return this.keyPair;
+  }
+
+  /**
+   * Destroy keys from memory with secure wipe
+   */
+  destroy(): void {
+    if (this.keyPair) {
+      // Secure wipe all sensitive data
+      secureWipe(this.keyPair.spendKey);
+      secureWipe(this.keyPair.viewKey);
+      secureWipe(this.keyPair.spendPubkey);
+      secureWipe(this.keyPair.viewPubkey);
+      this.keyPair = null;
+    }
+
+    // Unregister cleanup handler
+    this.unregisterCleanupHandler();
+  }
+
+  /**
+   * Register beforeunload handler for key destruction
+   */
+  private registerCleanupHandler(): void {
+    if (typeof window !== 'undefined' && !this.beforeUnloadHandler) {
+      this.beforeUnloadHandler = () => this.destroy();
+      window.addEventListener('beforeunload', this.beforeUnloadHandler);
+    }
+  }
+
+  /**
+   * Unregister beforeunload handler
+   */
+  private unregisterCleanupHandler(): void {
+    if (typeof window !== 'undefined' && this.beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      this.beforeUnloadHandler = null;
+    }
+  }
+}
+
+/**
+ * Singleton instance for global use
+ */
+export const stealthKeyManager = new StealthKeyManager();

@@ -1,0 +1,104 @@
+/**
+ * T040: Unit tests for StealthSendForm component
+ *
+ * Tests validation of meta-address input and amount input
+ */
+
+import { StealthSendForm, validateMetaAddress, formatAmount } from '@/components/stealth/StealthSendForm';
+
+// Mock the wasm-engine module
+jest.mock('anarchy-wasm-engine', () => ({
+  parse_meta_address: jest.fn((addr: string) => {
+    // Valid meta-address format: st:anarchy:<spend_pubkey>:<view_pubkey>
+    if (addr.startsWith('st:anarchy:') && addr.split(':').length === 4) {
+      const parts = addr.split(':');
+      const spendPubkey = parts[2];
+      const viewPubkey = parts[3];
+      // Check if both keys are valid hex (64 chars = 32 bytes)
+      if (spendPubkey.length === 64 && viewPubkey.length === 64) {
+        return {
+          spend_pubkey: new Uint8Array(32),
+          view_pubkey: new Uint8Array(32),
+        };
+      }
+    }
+    throw new Error('Invalid meta-address format');
+  }),
+  derive_stealth_address: jest.fn(() => ({
+    stealth_address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+    ephemeral_pubkey: new Uint8Array(32),
+  })),
+}));
+
+describe('StealthSendForm validation', () => {
+  describe('validateMetaAddress', () => {
+    const validMetaAddress = 'st:anarchy:' +
+      '0'.repeat(64) + ':' + // spend pubkey (32 bytes = 64 hex chars)
+      '1'.repeat(64);        // view pubkey (32 bytes = 64 hex chars)
+
+    it('should accept valid meta-address format', () => {
+      const result = validateMetaAddress(validMetaAddress);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should reject empty string', () => {
+      const result = validateMetaAddress('');
+      expect(result.valid).toBe(false);
+      expect(result.error).toBe('メタアドレスを入力してください');
+    });
+
+    it('should reject invalid prefix', () => {
+      const invalidAddr = 'invalid:' + '0'.repeat(64) + ':' + '1'.repeat(64);
+      const result = validateMetaAddress(invalidAddr);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('st:anarchy:');
+    });
+
+    it('should reject malformed addresses', () => {
+      const result = validateMetaAddress('st:anarchy:tooshort:alsoshort');
+      expect(result.valid).toBe(false);
+      expect(result.error).toBeDefined();
+    });
+
+    it('should reject addresses with invalid characters', () => {
+      const invalidChars = 'st:anarchy:' +
+        'zzzz' + '0'.repeat(60) + ':' + // Invalid hex chars
+        '1'.repeat(64);
+      const result = validateMetaAddress(invalidChars);
+      expect(result.valid).toBe(false);
+    });
+  });
+
+  describe('formatAmount', () => {
+    it('should format whole numbers correctly', () => {
+      expect(formatAmount('100')).toBe('100000000000000'); // 100 MORAL = 100 * 10^12
+    });
+
+    it('should format decimal numbers correctly', () => {
+      expect(formatAmount('0.5')).toBe('500000000000'); // 0.5 MORAL = 0.5 * 10^12
+    });
+
+    it('should return null for invalid amounts', () => {
+      expect(formatAmount('')).toBeNull();
+      expect(formatAmount('abc')).toBeNull();
+      expect(formatAmount('-1')).toBeNull();
+    });
+
+    it('should return null for zero amount', () => {
+      expect(formatAmount('0')).toBeNull();
+    });
+
+    it('should handle very small amounts', () => {
+      // Minimum smallest unit
+      expect(formatAmount('0.000000000001')).toBe('1');
+    });
+  });
+
+  describe('StealthSendForm component', () => {
+    // Component rendering tests will be added when testing with React Testing Library
+    it('should export StealthSendForm component', () => {
+      expect(StealthSendForm).toBeDefined();
+    });
+  });
+});
