@@ -22,8 +22,8 @@ use crate::storage::FragmentStore;
 use crate::metrics::Metrics;
 use auth::{AuthState, auth_middleware, method_requires_auth, require_auth};
 
-/// Maximum fragment size: 256KB
-const MAX_FRAGMENT_SIZE: usize = 256 * 1024;
+/// Maximum fragment size: 1GB
+const MAX_FRAGMENT_SIZE: usize = 1024 * 1024 * 1024;
 
 /// JSON-RPC Request wrapper
 #[derive(Debug, Deserialize)]
@@ -139,7 +139,8 @@ pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics:
         .route("/metrics", get(handle_metrics)) // NFR-002: Prometheus metrics endpoint
         .with_state(state)
         .layer(cors)
-        .layer(DefaultBodyLimit::max(512 * 1024)) // 512KB limit
+        // 2GB limit to accommodate base64-encoded 1GB fragments (33% overhead + margin)
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024 * 1024))
 }
 
 /// Handle JSON-RPC requests

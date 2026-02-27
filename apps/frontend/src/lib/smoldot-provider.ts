@@ -37,8 +37,6 @@ export async function initSmoldotClient(): Promise<PolkadotClient> {
   
   initPromise = (async () => {
     try {
-      console.log('[smoldot] Initializing...')
-      
       // Start smoldot light client
       // Note: In browser, this runs in main thread but is designed to be non-blocking
       // For production, consider Web Worker setup for better performance
@@ -47,8 +45,6 @@ export async function initSmoldotClient(): Promise<PolkadotClient> {
         forbidNonLocalWs: false,
         forbidWss: false,
       })
-      
-      console.log('[smoldot] Client started, adding chain...')
       
       // Add Anarchy chain with static chain spec
       // Note: addChain returns a Promise<Chain>, but getSmProvider accepts Promise directly
@@ -64,7 +60,6 @@ export async function initSmoldotClient(): Promise<PolkadotClient> {
       
       // Store chain reference for cleanup
       anarchyChain = await chainPromise
-      console.log(`[smoldot] Chain added: ${chainSpecJson.id}`)
       
       return papiClient
     } catch (error) {
@@ -101,13 +96,11 @@ export function isSmoldotInitialized(): boolean {
  * Should be called when the app unmounts
  */
 export function destroySmoldotClient(): void {
-  console.log('[smoldot] Destroying client...')
-  
   if (papiClient) {
     try {
       papiClient.destroy()
-    } catch (e) {
-      console.warn('[smoldot] Error destroying PAPI client:', e)
+    } catch {
+      // Error destroying PAPI client
     }
     papiClient = null
   }
@@ -115,8 +108,8 @@ export function destroySmoldotClient(): void {
   if (anarchyChain) {
     try {
       anarchyChain.remove()
-    } catch (e) {
-      console.warn('[smoldot] Error removing chain:', e)
+    } catch {
+      // Error removing chain
     }
     anarchyChain = null
   }
@@ -124,14 +117,13 @@ export function destroySmoldotClient(): void {
   if (smoldotClient) {
     try {
       smoldotClient.terminate()
-    } catch (e) {
-      console.warn('[smoldot] Error terminating smoldot:', e)
+    } catch {
+      // Error terminating smoldot
     }
     smoldotClient = null
   }
 
   initPromise = null
-  console.log('[smoldot] Client destroyed')
 }
 
 /**

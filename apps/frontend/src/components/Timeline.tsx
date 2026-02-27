@@ -11,6 +11,9 @@ interface ContentRef {
   k: number
   n: number
   total_size: number
+  ciphertext_len: number
+  shard_size: number
+  compressed: boolean
 }
 
 interface Post {
@@ -21,6 +24,7 @@ interface Post {
   createdAt: number
   parentId: number | null
   contentRef?: ContentRef
+  nickname?: string
 }
 
 interface Props {
@@ -41,7 +45,6 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
       try {
         // Check if Post pallet exists
         if (!unsafeApi.query.Post) {
-          console.log('Post pallet not found')
           setIsLoading(false)
           return
         }
@@ -80,8 +83,8 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
               }
             }
           }
-        } catch (err) {
-          console.log('Contents storage not available (V1):', err)
+        } catch {
+          // Contents storage not available (V1)
         }
 
         // V2: ContentRefs を取得（分散ストレージ参照）
@@ -112,30 +115,75 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
                     n: Number(ref.n || 5),
                     // On-chain PostContent uses 'size' field, not 'total_size'
                     total_size: Number(ref.size || 0),
+                    // Hybrid metadata fields from on-chain storage
+                    ciphertext_len: Number(ref.ciphertext_len || 0),
+                    shard_size: Number(ref.shard_size || 0),
+                    compressed: Boolean(ref.compressed),
                   })
-                } else {
-                  console.warn(`[Timeline] Invalid root length for post ${postId}: ${rootBytes.length}`)
                 }
               }
             }
           }
-        } catch (err) {
-          console.log('ContentRefs storage not available (V2):', err)
+        } catch {
+          // ContentRefs storage not available (V2)
+        }
+
+        // 著者のニックネームを取得
+        const nicknameMap = new Map<string, string>()
+        try {
+          if (unsafeApi.query.Nickname?.Nicknames?.getValue) {
+            // 全著者アドレスを収集
+            const authors = new Set<string>()
+            for (const entry of postEntries) {
+              const author = entry.value?.author
+              if (author && typeof author === 'string') {
+                authors.add(author)
+              }
+            }
+            // 各著者のニックネームを取得
+            for (const author of authors) {
+              try {
+                const result = await unsafeApi.query.Nickname.Nicknames.getValue(author)
+                if (result) {
+                  let bytes: Uint8Array
+                  if (typeof result?.asBytes === 'function') {
+                    bytes = result.asBytes()
+                  } else if (result instanceof Uint8Array) {
+                    bytes = result
+                  } else if (Array.isArray(result)) {
+                    bytes = new Uint8Array(result)
+                  } else {
+                    bytes = new Uint8Array(result)
+                  }
+                  const decoded = new TextDecoder().decode(bytes)
+                  if (decoded) {
+                    nicknameMap.set(author, decoded)
+                  }
+                }
+              } catch {
+                // Individual nickname fetch failed
+              }
+            }
+          }
+        } catch {
+          // Nickname pallet not available
         }
         
         const fetchedPosts: Post[] = postEntries.map((entry: any) => {
           const postId = Number(entry.keyArgs[0])
           const post = entry.value
           const contentRef = contentRefMap.get(postId)
+          const author = post.author || 'unknown'
           return {
             id: postId,
-            author: post.author || 'unknown',
+            author,
             // V2投稿はcontentRefがあるのでcontentは空でOK
             content: contentMap.get(postId) || '',
             contentHash: post.content_hash?.asHex?.() || '',
             createdAt: Number(post.created_at || 0),
             parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
             contentRef,
+            nickname: nicknameMap.get(author),
           }
         })
 
@@ -155,11 +203,6 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
     // Note: PAPI event subscription is different, skipping for now
     // TODO: Add event subscription for new posts
   }, [unsafeApi, refreshTrigger])
-
-  const shortenAddress = (addr: string) => {
-    if (addr.startsWith('0x')) addr = addr.slice(2)
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
-  }
 
   if (isLoading) {
     return (
@@ -184,12 +227,12 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
           key={post.id}
           postId={post.id}
           author={post.author}
+          nickname={post.nickname || 'Anarchy'}
           contentHash={post.contentHash}
           createdAt={post.createdAt}
           parentId={post.parentId}
           inlineContent={post.content || undefined}
           contentRef={post.contentRef}
-          shortenAddress={shortenAddress}
         />
       ))}
     </div>

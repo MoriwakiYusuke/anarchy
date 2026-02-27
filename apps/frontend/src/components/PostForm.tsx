@@ -1,11 +1,15 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { Binary } from 'polkadot-api'
 import { usePostCost, calculatePostCost } from '@/hooks/usePostCost'
 import { useStorage, createStorageSigner, StorageSigner } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n'
+import MediaUpload from '@/components/MediaUpload'
+import type { MediaFile } from '@/types/media'
+import { encodePostContent, loadMediaFile, isSupportedMediaType } from '@/lib/postCodec'
+import type { MediaItem, MediaType as PostMediaType } from '@/lib/postCodec'
 import styles from './PostForm.module.css'
 
 interface Props {
@@ -99,6 +103,12 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [status, setStatus] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null)
   
+  // Media files (not yet uploaded)
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([])
+  
+  // Reset key for MediaUpload component (increment to force remount)
+  const [mediaResetKey, setMediaResetKey] = useState(0)
+  
   // Storage認証用のsigner
   const [storageSigner, setStorageSigner] = useState<StorageSigner | null>(null)
   
@@ -120,14 +130,25 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
   // ブロックチェーンからコスト設定を動的に取得
   const costConfig = usePostCost(unsafeApi)
 
-  // バイト数とコストをリアルタイム計算
-  const contentBytes = new TextEncoder().encode(content)
-  const byteCount = contentBytes.length
+  // バイト数とコストをリアルタイム計算（テキスト＋画像サイズ）
+  const textBytes = new TextEncoder().encode(content)
+  const mediaByteSize = mediaFiles.reduce((sum, f) => sum + f.size, 0)
+  const byteCount = textBytes.length + mediaByteSize
   const estimatedCost = calculatePostCost(byteCount, costConfig)
 
   // SSS固定パラメータ
   const SSS_K = 3  // 復元に必要な断片数
   const SSS_N = 5  // 総断片数
+
+  // Handle media files change
+  const handleMediaFilesChange = useCallback((files: MediaFile[]) => {
+    setMediaFiles(files)
+  }, [])
+
+  // Handle media upload error
+  const handleMediaUploadError = useCallback((error: string) => {
+    setStatus({ type: 'error', message: error })
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -137,12 +158,23 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
     setStatus({ type: 'info', message: t('post.uploading') })
 
     try {
-      // SSS分割 → Storage Node アップロード → create_post
-      const contentBytes = new TextEncoder().encode(content)
+      // 1. 画像ファイルを読み込み、MediaItemに変換
+      const mediaItems: MediaItem[] = []
+      for (const mediaFile of mediaFiles) {
+        if (!isSupportedMediaType(mediaFile.file.type)) {
+          throw new Error(`Unsupported media type: ${mediaFile.file.type}`)
+        }
+        const item = await loadMediaFile(mediaFile.file)
+        mediaItems.push(item)
+      }
       
-      // 1. SSS分割してアップロード
+      // 2. テキスト+画像をバイナリにエンコード
+      const postContent = { text: content, media: mediaItems }
+      const encodedContent = encodePostContent(postContent)
+      
+      // 3. SSS分割してアップロード
       setStatus({ type: 'info', message: t('post.splitting') })
-      const uploadResult = await uploadContent(new Uint8Array(contentBytes))
+      const uploadResult = await uploadContent(encodedContent)
       
       // 2. create_postを呼び出し（MerkleRootをチェーンに記録）
       setStatus({ type: 'info', message: t('post.recording') })
@@ -156,12 +188,13 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
         k: SSS_K,
         n: SSS_N,
         total_size: BigInt(uploadResult.totalSize),
+        ciphertext_len: BigInt(uploadResult.metadata.ciphertextLen),
+        shard_size: uploadResult.metadata.shardSize,
+        compressed: uploadResult.metadata.compressed,
         parent_id: undefined
       })
 
       const result = await tx.signAndSubmit(signer)
-      
-      console.log('Transaction result:', result)
       
       if (result.ok) {
         setStatus({ 
@@ -169,15 +202,15 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
           message: t('post.success', { block: result.block.number.toString() })
         })
         setContent('')
+        setMediaFiles([]) // Clear media state
+        setMediaResetKey(prev => prev + 1) // Force MediaUpload component to reset
         onPostSuccess?.()
         setTimeout(() => setStatus(null), 3000)
       } else {
         const errorMessage = parseError(result.dispatchError, t as TranslateFunc)
-        console.error('Transaction failed:', result.dispatchError)
         setStatus({ type: 'error', message: errorMessage })
       }
     } catch (err: any) {
-      console.error('Transaction error:', err)
       // エラーオブジェクトの構造を確認してparseErrorを使う
       let errorMessage: string
       if (err?.type) {
@@ -207,9 +240,19 @@ export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props
         placeholder={t('post.placeholder')}
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        maxLength={10000}
         rows={4}
       />
+      
+      {/* Media Upload Section */}
+      <MediaUpload
+        key={mediaResetKey}
+        disabled={isSubmitting}
+        includeVideo={true}
+        onFilesChange={handleMediaFilesChange}
+        onError={handleMediaUploadError}
+        className={styles.mediaUpload}
+      />
+      
       <div className={styles.footer}>
         <span className={styles.charCount}>
           {byteCount.toLocaleString()} bytes

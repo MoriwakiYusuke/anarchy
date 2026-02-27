@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { useMoralBalance, formatMoralBalance } from '@/hooks/useMoralBalance'
 import { useLocale } from '@/i18n'
 import { FaucetButton } from './FaucetButton'
+import { ConnectedDot, CopyIcon, CheckIcon } from './Icons'
 import styles from './WalletConnect.module.css'
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
   signer: PolkadotSigner | null
   accountSeed: string | null
   refreshTrigger?: number
+  onBalanceChange?: (refetch: () => void) => void
 }
 
 // 開発用: テストアカウント
@@ -25,12 +27,9 @@ const TEST_ACCOUNTS = [
   { name: 'Charlie', seed: '//Charlie' },
 ]
 
-// AliceのアドレスプレフィックスまたはSeed
-const ALICE_SEED = '//Alice'
-
 type AuthMode = 'dev' | 'seedphrase'
 
-export function WalletConnect({ account, setAccount, setAccountSeed, client, unsafeApi, signer, accountSeed, refreshTrigger }: Props) {
+export function WalletConnect({ account, setAccount, setAccountSeed, client, unsafeApi, signer, accountSeed, refreshTrigger, onBalanceChange }: Props) {
   const { t } = useLocale()
   const [selectedAccount, setSelectedAccount] = useState<string>('')
   const [authMode, setAuthMode] = useState<AuthMode>('dev')
@@ -41,7 +40,12 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
   const [showAddressCopied, setShowAddressCopied] = useState(false)
   const { balance, isLoading: balanceLoading, refetch: refetchBalance } = useMoralBalance(unsafeApi, account, refreshTrigger)
 
-  const isAlice = accountSeed === ALICE_SEED
+  // Expose refetchBalance to parent via useEffect to avoid side effects during render
+  useEffect(() => {
+    if (onBalanceChange) {
+      onBalanceChange(refetchBalance)
+    }
+  }, [onBalanceChange, refetchBalance])
 
   // 開発モード: テストアカウントで接続
   const handleConnectDev = async () => {
@@ -130,7 +134,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
       {account ? (
         <div className={styles.connected}>
           <div className={styles.address}>
-            <span className={styles.label}>{t('wallet.connected')} {isAlice && <span className={styles.adminBadge}>Admin</span>}</span>
+            <span className={styles.label}><ConnectedDot size={8} /> {t('wallet.connected')}</span>
             <div className={styles.addressRow}>
               <code className={styles.fullAddress}>{account}</code>
               <button
@@ -233,7 +237,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
                     className={styles.copyBtn}
                     onClick={handleCopySeedPhrase}
                   >
-                    {showCopied ? t('wallet.copied') : t('wallet.copy')}
+                    {showCopied ? <><CheckIcon size={14} />{' '}{t('wallet.copied')}</> : <><CopyIcon size={14} />{' '}{t('wallet.copy')}</>}
                   </button>
                 </div>
               )}

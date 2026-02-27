@@ -48,6 +48,7 @@ pallet-sudo = { workspace = true }
 pallet-post = { workspace = true }
 pallet-faucet = { workspace = true }
 pallet-storage = { workspace = true }
+pallet-nickname = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { version = "31.1.0", optional = true }
@@ -87,6 +88,7 @@ std = [
     "pallet-post/std",
     "pallet-faucet/std",
     "pallet-storage/std",
+    "pallet-nickname/std",
     "substrate-wasm-builder",
 ]
 runtime-benchmarks = [
@@ -99,6 +101,7 @@ runtime-benchmarks = [
     "pallet-post/runtime-benchmarks",
     "pallet-faucet/runtime-benchmarks",
     "pallet-storage/runtime-benchmarks",
+    "pallet-nickname/runtime-benchmarks",
 ]
 try-runtime = [
     "frame-support/try-runtime",
@@ -113,4 +116,5 @@ try-runtime = [
     "pallet-post/try-runtime",
     "pallet-faucet/try-runtime",
     "pallet-storage/try-runtime",
+    "pallet-nickname/try-runtime",
 ]

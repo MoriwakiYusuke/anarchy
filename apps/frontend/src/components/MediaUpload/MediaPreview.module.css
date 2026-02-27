@@ -1,0 +1,309 @@
+/**
+ * MediaPreview Styles
+ * 
+ * T-054: CSS Module for MediaPreview component
+ * Enhanced with modern card design and hover effects
+ */
+
+.preview {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-tertiary, #2a2a2a);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.preview.mediaPreview {
+  aspect-ratio: 16 / 9;
+  cursor: pointer;
+}
+
+.preview.mediaPreview:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.preview.filePreview {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+}
+
+.preview:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.preview.error {
+  border: 2px solid var(--error-color, #ff4444);
+  animation: shake 0.3s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.preview:hover:not(.filePreview) .image {
+  transform: scale(1.05);
+}
+
+/* General file display (card style like PostItem) */
+.fileIcon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.fileNameText {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileSizeText {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #aaa);
+  flex-shrink: 0;
+}
+
+.videoPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-secondary, #1a1a1a);
+}
+
+.videoIcon {
+  font-size: 2rem;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progressWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs, 0.25rem);
+  width: 80%;
+  padding: var(--spacing-sm, 0.5rem);
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.statusText {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--text-primary, #fff);
+}
+
+.completeIcon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--success-color, #44ff88);
+  color: #000;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.errorOverlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs, 0.25rem);
+  padding: var(--spacing-sm, 0.5rem);
+  background: rgba(255, 68, 68, 0.8);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.errorIcon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--error-color, #ff4444);
+  color: #fff;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.retryButton {
+  padding: var(--spacing-xs, 0.25rem) var(--spacing-sm, 0.5rem);
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--text-primary, #fff);
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-xs, 2px);
+  cursor: pointer;
+}
+
+.retryButton:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.retryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.removeButton {
+  position: absolute;
+  top: var(--spacing-xs, 0.25rem);
+  right: var(--spacing-xs, 0.25rem);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--text-primary, #fff);
+  background: rgba(0, 0, 0, 0.7);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0;
+  transform: scale(0.8);
+  backdrop-filter: blur(4px);
+}
+
+.preview:hover .removeButton {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.removeButton:hover:not(:disabled) {
+  background: var(--accent, #e53935);
+  transform: scale(1.1);
+}
+
+.removeButton:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.completeBadge {
+  position: absolute;
+  bottom: var(--spacing-xs, 0.25rem);
+  left: var(--spacing-xs, 0.25rem);
+  padding: 3px 8px;
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: 500;
+  color: #000;
+  background: linear-gradient(135deg, #4ade80, #22c55e);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  animation: fadeInScale 0.3s ease;
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* File info overlay */
+.fileInfo {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: var(--spacing-sm, 0.5rem);
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.preview:hover .fileInfo {
+  opacity: 1;
+}
+
+.fileName {
+  display: block;
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--text-primary, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.fileSize {
+  font-size: 10px;
+  color: var(--text-secondary, #aaa);
+}
+
+/* Video-specific styles */
+.videoWrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.durationBadge {
+  position: absolute;
+  bottom: var(--spacing-xs, 0.25rem);
+  right: var(--spacing-xs, 0.25rem);
+  padding: 2px 6px;
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--text-primary, #fff);
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: var(--radius-xs, 2px);
+}
+
+.playIndicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--text-primary, #fff);
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 50%;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.preview:hover .playIndicator {
+  transform: translate(-50%, -50%) scale(1.1);
+  background: rgba(229, 57, 53, 0.8);
+}

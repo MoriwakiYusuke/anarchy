@@ -52,6 +52,8 @@ const nextConfig = {
     
     return config;
   },
+  // Empty turbopack config to silence Next.js 16 warning
+  turbopack: {},
 }
 
 module.exports = nextConfig

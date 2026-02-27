@@ -138,6 +138,8 @@ fn create_post_works() {
         let k = 3u32;
         let n = 5u32;
         let total_size = 15u64; // "Hello, Anarchy!" is 15 bytes
+        let ciphertext_len = total_size + 28; // AES-GCM overhead
+        let shard_size = ((ciphertext_len + k as u64 - 1) / k as u64) as u32;
         let initial_balance = Balances::free_balance(author);
 
         // 投稿作成
@@ -147,6 +149,9 @@ fn create_post_works() {
             k,
             n,
             total_size,
+            ciphertext_len,
+            shard_size,
+            false,
             None
         ));
 
@@ -198,6 +203,7 @@ fn create_reply_works() {
             RuntimeOrigin::signed(author1),
             merkle_root1,
             3, 5, 13, // "Original post" is 13 bytes
+            41, 14, false, // ciphertext_len, shard_size, compressed
             None
         ));
 
@@ -206,6 +212,7 @@ fn create_reply_works() {
             RuntimeOrigin::signed(author2),
             merkle_root2,
             3, 5, 15, // "This is a reply" is 15 bytes
+            43, 15, false, // ciphertext_len, shard_size, compressed
             Some(0)
         ));
 
@@ -226,6 +233,7 @@ fn create_reply_to_nonexistent_post_fails() {
                 RuntimeOrigin::signed(1),
                 merkle_root,
                 3, 5, 16,
+                44, 15, false,
                 Some(999)
             ),
             Error::<Test>::ParentPostNotFound
@@ -245,6 +253,7 @@ fn insufficient_moral_balance_fails() {
                 RuntimeOrigin::signed(poor_user),
                 merkle_root,
                 3, 5, 15,
+                43, 15, false,
                 None
             ),
             Error::<Test>::InsufficientMoralBalance
@@ -262,10 +271,14 @@ fn multiple_posts_by_same_user() {
         for i in 0..3 {
             let content = format!("Post number {}", i);
             let merkle_root = sp_io::hashing::blake2_256(content.as_bytes());
+            let size = content.len() as u64;
+            let ciphertext_len = size + 28;
+            let shard_size = ((ciphertext_len + 2) / 3) as u32;
             assert_ok!(PostModule::create_post(
                 RuntimeOrigin::signed(author),
                 merkle_root,
-                3, 5, content.len() as u64,
+                3, 5, size,
+                ciphertext_len, shard_size, false,
                 None
             ));
         }
@@ -289,11 +302,15 @@ fn merkle_root_stored_correctly() {
     new_test_ext().execute_with(|| {
         let content = b"Test content for hashing";
         let merkle_root = sp_io::hashing::blake2_256(content);
+        let size = content.len() as u64;
+        let ciphertext_len = size + 28;
+        let shard_size = ((ciphertext_len + 2) / 3) as u32;
 
         assert_ok!(PostModule::create_post(
             RuntimeOrigin::signed(1),
             merkle_root,
-            3, 5, content.len() as u64,
+            3, 5, size,
+            ciphertext_len, shard_size, false,
             None
         ));
 
@@ -322,6 +339,9 @@ fn test_post_content_encode_decode() {
         k: 3,                 // 復元に必要な最小断片数
         n: 5,                 // 総断片数
         size: 1024 * 100,     // 100KB
+        ciphertext_len: 1024 * 100 + 28,
+        shard_size: (1024 * 100 + 28 + 2) / 3,
+        compressed: false,
     };
 
     // SCALEエンコード
@@ -336,14 +356,18 @@ fn test_post_content_encode_decode() {
     assert_eq!(decoded.k, content.k);
     assert_eq!(decoded.n, content.n);
     assert_eq!(decoded.size, content.size);
+    assert_eq!(decoded.ciphertext_len, content.ciphertext_len);
+    assert_eq!(decoded.shard_size, content.shard_size);
+    assert_eq!(decoded.compressed, content.compressed);
 }
 
 #[test]
 fn test_post_content_max_encoded_len() {
     // MaxEncodedLenが正しく計算されるか検証
-    // root: 32バイト + k: 4バイト + n: 4バイト + size: 8バイト = 48バイト
+    // root: 32バイト + k: 4バイト + n: 4バイト + size: 8バイト + 
+    // ciphertext_len: 8バイト + shard_size: 4バイト + compressed: 1バイト = 61バイト
     let max_len = <PostContent as MaxEncodedLen>::max_encoded_len();
-    assert_eq!(max_len, 48, "PostContentの最大エンコードサイズは48バイト");
+    assert_eq!(max_len, 61, "PostContentの最大エンコードサイズは61バイト");
 }
 
 #[test]
@@ -357,6 +381,9 @@ fn test_post_content_k_n_validation() {
         k: 3,
         n: 5,
         size: 1000,
+        ciphertext_len: 1028,
+        shard_size: 343,
+        compressed: false,
     };
     assert!(valid.k > 0 && valid.k <= valid.n);
 
@@ -366,6 +393,9 @@ fn test_post_content_k_n_validation() {
         k: 5,
         n: 5,
         size: 1000,
+        ciphertext_len: 1028,
+        shard_size: 206,
+        compressed: false,
     };
     assert!(edge.k <= edge.n);
 
@@ -375,6 +405,9 @@ fn test_post_content_k_n_validation() {
         k: 0,  // 無効: k > 0 必須
         n: 5,
         size: 1000,
+        ciphertext_len: 1028,
+        shard_size: 343,
+        compressed: false,
     };
     assert!(invalid_k_zero.k == 0);  // 構造体は作成可能
 
@@ -383,6 +416,9 @@ fn test_post_content_k_n_validation() {
         k: 6,  // 無効: k <= n 必須
         n: 5,
         size: 1000,
+        ciphertext_len: 1028,
+        shard_size: 172,
+        compressed: false,
     };
     assert!(invalid_k_gt_n.k > invalid_k_gt_n.n);  // 構造体は作成可能
 }
@@ -400,6 +436,8 @@ fn test_create_post_params() {
         let k = 3u32;
         let n = 5u32;
         let total_size = 1024u64; // 1KB (MaxContentLength=10000以内)
+        let ciphertext_len = total_size + 28;
+        let shard_size = ((ciphertext_len + k as u64 - 1) / k as u64) as u32;
 
         // 投稿作成
         assert_ok!(PostModule::create_post(
@@ -408,6 +446,9 @@ fn test_create_post_params() {
             k,
             n,
             total_size,
+            ciphertext_len,
+            shard_size,
+            false,
             None // parent_id
         ));
 
@@ -417,6 +458,9 @@ fn test_create_post_params() {
         assert_eq!(content_ref.k, k);
         assert_eq!(content_ref.n, n);
         assert_eq!(content_ref.size, total_size);
+        assert_eq!(content_ref.ciphertext_len, ciphertext_len);
+        assert_eq!(content_ref.shard_size, shard_size);
+        assert_eq!(content_ref.compressed, false);
 
         // Post.content_hashはmerkle_rootと同じ
         let post = Posts::<Test>::get(0).expect("Postが存在するはず");
@@ -434,6 +478,8 @@ fn test_cost_calculation_ratio() {
         
         let merkle_root = [0xABu8; 32];
         let total_size = 10_000u64; // 10KB
+        let ciphertext_len = total_size + 28;
+        let shard_size = ((ciphertext_len + 2) / 3) as u32;
 
         assert_ok!(PostModule::create_post(
             RuntimeOrigin::signed(author),
@@ -441,6 +487,9 @@ fn test_cost_calculation_ratio() {
             3,
             5,
             total_size,
+            ciphertext_len,
+            shard_size,
+            false,
             None
         ));
 
@@ -470,6 +519,7 @@ fn test_k_n_validation() {
                 0, // k = 0は無効
                 5,
                 1000,
+                1028, 343, false,
                 None
             ),
             Error::<Test>::InvalidKNParameters
@@ -483,6 +533,7 @@ fn test_k_n_validation() {
                 6, // k > n
                 5,
                 1000,
+                1028, 172, false,
                 None
             ),
             Error::<Test>::InvalidKNParameters
@@ -495,6 +546,7 @@ fn test_k_n_validation() {
             5, // k == n: OK
             5,
             1000,
+            1028, 206, false,
             None
         ));
     });
@@ -509,6 +561,8 @@ fn test_storage_deposit_allocation() {
         
         let merkle_root = [0xABu8; 32];
         let total_size = 10_000u64;
+        let ciphertext_len = total_size + 28;
+        let shard_size = ((ciphertext_len + 2) / 3) as u32;
 
         assert_ok!(PostModule::create_post(
             RuntimeOrigin::signed(author),
@@ -516,6 +570,9 @@ fn test_storage_deposit_allocation() {
             3,
             5,
             total_size,
+            ciphertext_len,
+            shard_size,
+            false,
             None
         ));
 

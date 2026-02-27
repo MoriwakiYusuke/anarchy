@@ -1,0 +1,107 @@
+/**
+ * VideoPlayer Styles
+ * 
+ * T-068: CSS Module for VideoPlayer component
+ */
+
+.container {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  max-width: 100%;
+  cursor: pointer;
+  outline: none;
+}
+
+.container:focus-visible {
+  outline: 2px solid var(--focus-color, #4a9eff);
+  outline-offset: 2px;
+}
+
+.video {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  background: var(--bg-tertiary, #1a1a1a);
+  border-radius: var(--radius-md, 8px);
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-md, 8px);
+  transition: background-color 0.2s;
+}
+
+.container:hover .overlay {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.playButton {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.7);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.playButton:hover {
+  background: rgba(0, 0, 0, 0.9);
+  border-color: rgba(255, 255, 255, 0.8);
+  transform: scale(1.1);
+}
+
+.playButton:focus-visible {
+  outline: 2px solid var(--focus-color, #4a9eff);
+  outline-offset: 4px;
+}
+
+.playIcon {
+  font-size: 24px;
+  color: var(--text-primary, #fff);
+  margin-left: 4px; /* Visual centering for play icon */
+}
+
+.durationBadge {
+  position: absolute;
+  bottom: var(--spacing-md, 1rem);
+  right: var(--spacing-md, 1rem);
+  padding: 4px 8px;
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--text-primary, #fff);
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: var(--radius-sm, 4px);
+}
+
+/* Responsive Styles */
+@media (max-width: 480px) {
+  .playButton {
+    width: 56px;
+    height: 56px;
+    min-width: 44px; /* Touch-friendly */
+    min-height: 44px;
+  }
+
+  .playIcon {
+    font-size: 20px;
+    margin-left: 3px;
+  }
+
+  .durationBadge {
+    bottom: var(--spacing-sm, 0.5rem);
+    right: var(--spacing-sm, 0.5rem);
+    padding: 3px 6px;
+    font-size: var(--font-size-xs, 0.75rem);
+  }
+}

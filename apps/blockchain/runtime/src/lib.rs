@@ -230,11 +230,11 @@ impl pallet_sudo::Config for Runtime {
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
     type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
-    type MaxContentLength = ConstU32<10000>; // 約10KB
-    /// 基本コスト: 10 MORAL
-    type PostBaseCost = ConstU128<10_000_000_000_000>;
-    /// バイト単価: 0.1 MORAL/byte
-    type PostByteCost = ConstU128<100_000_000_000>;
+    type MaxContentLength = ConstU32<1_073_741_824>; // 1GB (画像含むコンテンツ対応)
+    /// 基本コスト: 100 MORAL
+    type PostBaseCost = ConstU128<100_000_000_000_000>;
+    /// バイト単価: 0.001 MORAL/byte
+    type PostByteCost = ConstU128<1_000_000_000>;
 }
 
 // Faucet Pallet設定
@@ -257,8 +257,8 @@ impl pallet_storage::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     /// ネイティブトークン: Balances (報酬ミント用)
     type NativeToken = Balances;
-    /// 断片最大サイズ: 1MB
-    type MaxFragmentSize = ConstU32<1_048_576>;
+    /// 断片最大サイズ: 1GB
+    type MaxFragmentSize = ConstU32<1_073_741_824>;
     /// PeerID最大長: 64バイト
     type MaxPeerIdLen = ConstU32<64>;
     /// 断片あたり最大保持者数: 100
@@ -295,6 +295,12 @@ impl pallet_storage::Config for Runtime {
     type MinWithdrawalAmount = ConstU128<500_000_000_000_000>;
 }
 
+// Nickname Pallet設定
+impl pallet_nickname::Config for Runtime {
+    /// ニックネーム最大長: 128バイト
+    type MaxNicknameLength = ConstU32<128>;
+}
+
 // Runtime構築
 construct_runtime!(
     pub struct Runtime {
@@ -309,6 +315,7 @@ construct_runtime!(
         Storage: pallet_storage,
         Post: pallet_post,
         Faucet: pallet_faucet,
+        Nickname: pallet_nickname,
     }
 );
 

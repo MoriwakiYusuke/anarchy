@@ -1,0 +1,133 @@
+/**
+ * MediaDisplay Styles
+ * 
+ * T-058: Styles for MediaDisplay component
+ */
+
+.container {
+  display: grid;
+  gap: 4px;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 12px;
+  max-width: 400px;
+}
+
+/* Grid layouts for different media counts */
+.gridSingle {
+  grid-template-columns: 1fr;
+}
+
+.gridTwo {
+  grid-template-columns: 1fr 1fr;
+}
+
+.gridThree {
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.gridThree .imageButton:first-child {
+  grid-row: 1 / 3;
+}
+
+.gridFour {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+/* Image button wrapper */
+.imageButton {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: var(--surface-secondary, #f0f2f5);
+  overflow: hidden;
+  transition: opacity 0.2s ease;
+}
+
+.imageButton:hover {
+  opacity: 0.9;
+}
+
+.imageButton:focus-visible {
+  outline: 2px solid var(--accent, #0066cc);
+  outline-offset: 2px;
+}
+
+/* Image styling */
+.image {
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.imageButton:hover .image {
+  transform: scale(1.02);
+}
+
+/* Error placeholder */
+.errorPlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--surface-secondary, #f0f2f5);
+  color: var(--text-secondary, #666);
+}
+
+.errorIcon {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+
+.errorText {
+  font-size: 12px;
+}
+
+/* Single image - larger aspect ratio */
+.gridSingle .imageButton {
+  aspect-ratio: 16 / 10;
+  max-height: 300px;
+}
+
+/* Three images - adjust first image */
+.gridThree .imageButton:first-child {
+  aspect-ratio: 9 / 16;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .container {
+    max-width: 100%;
+  }
+
+  .gridSingle .imageButton {
+    max-height: 250px;
+  }
+}
+
+/* Video wrapper - T-069 */
+.videoWrapper {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  overflow: hidden;
+  background: var(--surface-secondary, #f0f2f5);
+  border-radius: inherit;
+}
+
+.gridSingle .videoWrapper {
+  aspect-ratio: 16 / 10;
+  max-height: 300px;
+}
+
+@media (max-width: 600px) {
+  .gridSingle .videoWrapper {
+    max-height: 250px;
+  }
+}

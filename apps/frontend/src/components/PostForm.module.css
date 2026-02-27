@@ -132,3 +132,7 @@
   font-weight: 600;
   color: var(--text-primary);
 }
+
+.mediaUpload {
+  margin-top: 1rem;
+}

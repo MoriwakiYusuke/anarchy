@@ -1,0 +1,167 @@
+/**
+ * ErrorRecovery Styles
+ * 
+ * T-071: CSS Module for ErrorRecovery component
+ */
+
+.container {
+  padding: var(--spacing-md, 1rem);
+  background: var(--error-bg, rgba(255, 68, 68, 0.1));
+  border: 1px solid var(--error-color, #ff4444);
+  border-radius: var(--radius-md, 8px);
+  margin-top: var(--spacing-sm, 0.5rem);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 0.5rem);
+  margin-bottom: var(--spacing-sm, 0.5rem);
+}
+
+.errorIcon {
+  font-size: 1.25rem;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-md, 1rem);
+  font-weight: 600;
+  color: var(--error-color, #ff4444);
+}
+
+.fileList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 0.5rem);
+  padding: var(--spacing-xs, 0.25rem) 0;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+}
+
+.fileItem:last-child {
+  border-bottom: none;
+}
+
+.fileName {
+  flex: 1;
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--text-primary, #fff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.errorMessage {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--error-color, #ff4444);
+  opacity: 0.8;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs, 0.25rem);
+}
+
+.retryButton {
+  padding: var(--spacing-xs, 0.25rem) var(--spacing-sm, 0.5rem);
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--text-primary, #fff);
+  background: transparent;
+  border: 1px solid var(--text-secondary, rgba(255, 255, 255, 0.5));
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.retryButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--text-primary, #fff);
+}
+
+.retryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.removeButton {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 14px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.removeButton:hover:not(:disabled) {
+  color: var(--error-color, #ff4444);
+  background: rgba(255, 68, 68, 0.2);
+}
+
+.removeButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm, 0.5rem);
+  margin-top: var(--spacing-md, 1rem);
+  padding-top: var(--spacing-sm, 0.5rem);
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+}
+
+.retryAllButton {
+  padding: var(--spacing-xs, 0.25rem) var(--spacing-md, 1rem);
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--text-primary, #fff);
+  background: var(--accent, #4a9eff);
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.retryAllButton:hover:not(:disabled) {
+  background: var(--accent-hover, #2a7eff);
+}
+
+.retryAllButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.clearButton {
+  padding: var(--spacing-xs, 0.25rem) var(--spacing-md, 1rem);
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  background: transparent;
+  border: 1px solid var(--text-secondary, rgba(255, 255, 255, 0.5));
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.clearButton:hover:not(:disabled) {
+  color: var(--text-primary, #fff);
+  border-color: var(--text-primary, #fff);
+}
+
+.clearButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

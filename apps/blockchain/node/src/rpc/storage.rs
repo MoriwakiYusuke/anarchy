@@ -35,9 +35,9 @@ use std::sync::Arc;
 // Security Constants (T074)
 // ============================================================================
 
-/// Maximum fragment size: 256KB (262144 bytes)
+/// Maximum fragment size: 1GB (1073741824 bytes)
 /// 断片サイズの上限。これを超えるリクエストは拒否される。
-pub const MAX_FRAGMENT_SIZE: usize = 256 * 1024;
+pub const MAX_FRAGMENT_SIZE: usize = 1024 * 1024 * 1024;
 
 /// Maximum total leaves in MerkleTree
 /// n値 (総断片数) の上限。SSS (k=3, n=5) の場合は通常5以下。

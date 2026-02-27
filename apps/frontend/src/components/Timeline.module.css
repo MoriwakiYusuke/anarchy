@@ -40,9 +40,46 @@
 }
 
 .author {
-  font-family: monospace;
-  font-size: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.nickname {
+  font-size: 1rem;
+  font-weight: 600;
   color: var(--accent);
+}
+
+.addressRow {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.address {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.copyButton {
+  background: transparent;
+  border: none;
+  padding: 0 0.25rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.copyButton:hover {
+  opacity: 1;
 }
 
 .block {
@@ -55,7 +92,7 @@
 }
 
 .text {
-  font-size: 1rem;
+  font-size: 1.125rem;
   line-height: 1.6;
   color: var(--text-primary);
   word-break: break-word;
@@ -111,4 +148,127 @@
 .text .error {
   color: #ef4444;
   font-size: 0.875rem;
+}
+
+/* Media grid for inline images */
+.mediaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.mediaImage {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+/* Video wrapper for posted content */
+.mediaWrapper {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-tertiary, #2a2a2a);
+}
+
+.mediaWrapper .mediaImage {
+  cursor: pointer;
+}
+
+/* Video element styling */
+.mediaWrapper video.mediaImage {
+  cursor: default;
+  max-height: 400px;
+}
+
+/* Media action buttons (download, fullsize) */
+.mediaActions {
+  position: absolute;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 2;
+}
+
+.mediaWrapper:hover .mediaActions {
+  opacity: 1;
+}
+
+.mediaActionBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  color: var(--text-primary, #fff);
+  background: rgba(0, 0, 0, 0.7);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.2s ease, transform 0.2s ease;
+  text-decoration: none;
+}
+
+.mediaActionBtn:hover {
+  background: var(--accent, #e53935);
+  transform: scale(1.1);
+}
+
+/* Clickable image */
+.mediaWrapper .mediaImage {
+  cursor: pointer;
+}
+
+/* General file display */
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-tertiary, #2a2a2a);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.fileIcon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.fileName {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileDownloadBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  color: var(--text-primary, #fff);
+  background: var(--accent, #e53935);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.fileDownloadBtn:hover {
+  background: #c62828;
+  transform: scale(1.05);
 }

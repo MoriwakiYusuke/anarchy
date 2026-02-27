@@ -21,18 +21,28 @@ function toHex(arr: Uint8Array): string {
 
 /**
  * Wasmモジュールを初期化
+ * Worker内ではimport.meta.urlが正しく解決されないため、
+ * public/wasmフォルダにコピーされたWASMファイルを使用
  */
 async function initWasm(): Promise<void> {
   if (wasmModule) return;
 
   try {
-    // Dynamic import (wasm-packでビルドされたモジュール)
     const module = await import("anarchy-wasm-engine");
-    // default exportを呼び出してWasmバイナリをロード
-    // これにより内部でwasm.__wbindgen_start()が呼ばれ、Rust側のinit()も実行される
-    await module.default();
+    
+    // public/wasm/に配置されたWASMファイルを使用
+    const wasmUrl = new URL('/wasm/anarchy_wasm_engine_bg.wasm', self.location.origin);
+    const response = await fetch(wasmUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
+    }
+    
+    const wasmBytes = await response.arrayBuffer();
+    module.initSync({ module: new WebAssembly.Module(wasmBytes) });
+    
     wasmModule = module;
-    console.log("[CryptoWorker] Wasm module initialized");
+    console.log("[CryptoWorker] Wasm module initialized from /wasm/");
   } catch (error) {
     console.error("[CryptoWorker] Failed to initialize Wasm:", error);
     throw error;

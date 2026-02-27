@@ -1,12 +1,16 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { useLocale } from '@/i18n'
 import { PostForm } from '@/components/PostForm'
 import { Timeline } from '@/components/Timeline'
 import { WalletConnect } from '@/components/WalletConnect'
+import { TransferForm } from '@/components/TransferForm'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
+import NicknameSettings from '@/components/NicknameSettings'
+import { ConnectedDot, SyncingDot, DisconnectedDot } from '@/components/Icons'
+import { useMoralBalance } from '@/hooks/useMoralBalance'
 import styles from './page.module.css'
 import type { PolkadotSigner } from 'polkadot-api/signer'
 
@@ -17,6 +21,9 @@ export default function Home() {
   const [accountSeed, setAccountSeed] = useState<string | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [signer, setSigner] = useState<PolkadotSigner | null>(null)
+  const [isTransferOpen, setIsTransferOpen] = useState(false)
+  const refetchBalanceRef = useRef<(() => void) | null>(null)
+  const { balance } = useMoralBalance(unsafeApi, account, refreshTrigger)
 
   // Create signer when accountSeed changes (async)
   useEffect(() => {
@@ -44,13 +51,13 @@ export default function Home() {
   const renderConnectionStatus = () => {
     switch (connectionState.status) {
       case 'connected':
-        return <span className={styles.connected}>● {t('app.connected')}</span>
+        return <span className={styles.connected}><ConnectedDot size={8} /> {t('app.connected')}</span>
       case 'syncing':
-        return <span className={styles.syncing}>◐ {t('app.syncing')}</span>
+        return <span className={styles.syncing}><SyncingDot size={8} /> {t('app.syncing')}</span>
       case 'initializing':
-        return <span className={styles.disconnected}>○ {t('app.connecting')}</span>
+        return <span className={styles.disconnected}><DisconnectedDot size={8} /> {t('app.connecting')}</span>
       case 'error':
-        return <span className={styles.disconnected}>○ {t('app.disconnected')}</span>
+        return <span className={styles.disconnected}><DisconnectedDot size={8} /> {t('app.disconnected')}</span>
       default:
         return <span className={styles.disconnected}>○ {t('app.disconnected')}</span>
     }
@@ -75,6 +82,14 @@ export default function Home() {
 
       <div className={styles.container}>
         <aside className={styles.sidebar}>
+          {account && signer && client && unsafeApi && (
+            <NicknameSettings
+              client={client}
+              unsafeApi={unsafeApi}
+              accountId={account}
+              signer={signer}
+            />
+          )}
           <WalletConnect 
             account={account} 
             setAccount={setAccount}
@@ -84,7 +99,32 @@ export default function Home() {
             signer={signer}
             accountSeed={accountSeed}
             refreshTrigger={refreshTrigger}
+            onBalanceChange={(refetch) => { refetchBalanceRef.current = refetch }}
           />
+          {account && signer && (
+            <div className={styles.collapsibleSection}>
+              <button 
+                className={styles.collapsibleHeader}
+                onClick={() => setIsTransferOpen(!isTransferOpen)}
+                aria-expanded={isTransferOpen}
+              >
+                <span>{t('transfer.title')}</span>
+                <span className={styles.collapseIcon}>{isTransferOpen ? '▲' : '▼'}</span>
+              </button>
+              {isTransferOpen && (
+                <div className={styles.collapsibleContent}>
+                  <TransferForm
+                    client={client}
+                    unsafeApi={unsafeApi}
+                    senderAddress={account}
+                    balance={balance ?? BigInt(0)}
+                    signer={signer}
+                    onSuccess={() => refetchBalanceRef.current?.()}
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </aside>
 
         <section className={styles.content}>

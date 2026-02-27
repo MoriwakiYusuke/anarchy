@@ -1,0 +1,47 @@
+/**
+ * PostSkeleton Styles
+ * 
+ * T-073: CSS Module for PostSkeleton component
+ */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md, 1rem);
+}
+
+.post {
+  padding: var(--spacing-md, 1rem);
+  background: var(--surface-primary, #fff);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 0.5rem);
+  margin-bottom: var(--spacing-sm, 0.5rem);
+}
+
+.headerText {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.content {
+  margin-bottom: var(--spacing-sm, 0.5rem);
+}
+
+.media {
+  margin-bottom: var(--spacing-sm, 0.5rem);
+}
+
+.actions {
+  display: flex;
+  gap: var(--spacing-md, 1rem);
+  padding-top: var(--spacing-sm, 0.5rem);
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
+}

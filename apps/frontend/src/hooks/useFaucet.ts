@@ -266,17 +266,21 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
         console.warn('[useFaucet] Pre-check error (ignoring):', preCheckErr)
       }
       
-      // Submit transaction
-      // Note: smoldot's author_submitExtrinsic returns tx hash immediately,
-      // validation happens asynchronously. We verify success by checking storage after.
-      let result: any
+      // Submit transaction and wait for finalization
+      // client.submit() waits until the transaction is finalized or rejected
       try {
-        result = await withTimeout(
-          client._request('author_submitExtrinsic', [hexExtrinsic]) as Promise<any>,
-          RPC_TIMEOUT_MS,
-          'author_submitExtrinsic'
+        const finalizedResult = await withTimeout(
+          client.submit(hexExtrinsic) as Promise<any>,
+          60_000, // 60秒タイムアウト（Finalizedまで待つため長め）
+          'client.submit'
         )
-        console.log('[useFaucet] Submit result:', result)
+        console.log('[useFaucet] Transaction finalized:', finalizedResult)
+        
+        // Check if the transaction was successful
+        if (finalizedResult?.ok === false || finalizedResult?.dispatchError) {
+          console.error('[useFaucet] Transaction failed:', finalizedResult)
+          throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
+        }
       } catch (submitError: any) {
         console.error('[useFaucet] Submit error:', submitError)
         const message = submitError?.message || submitError?.toString() || 'Submit failed'
@@ -285,51 +289,12 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
           message.includes('Custom(1)') || 
           message.includes('1010') ||
           message.includes('already claimed') ||
-          message.includes('dispatch')
+          message.includes('dispatch') ||
+          message.includes('AlreadyClaimed')
         ) {
           throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
         }
         throw submitError
-      }
-      
-      // Check if result indicates an error
-      if (result && typeof result === 'object' && 'error' in result) {
-        console.error('[useFaucet] RPC error in result:', result.error)
-        throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
-      }
-
-      // smoldot returns tx hash immediately, need to wait and verify claim was recorded
-      // Wait for transaction to be included in block (max ~12 seconds = 2 blocks)
-      console.log('[useFaucet] Waiting for transaction to be finalized...')
-      const maxWaitMs = 12000
-      const pollInterval = 2000
-      let elapsed = 0
-      let claimVerified = false
-      
-      while (elapsed < maxWaitMs && !claimVerified) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval))
-        elapsed += pollInterval
-        
-        try {
-          const claimed = await withTimeout(
-            unsafeApi.query.Faucet.Claims.getValue(account),
-            RPC_TIMEOUT_MS,
-            'Faucet.Claims verification'
-          )
-          if (claimed) {
-            console.log('[useFaucet] Claim verified in storage!')
-            claimVerified = true
-          } else {
-            console.log(`[useFaucet] Claim not yet recorded, waiting... (${elapsed}ms)`)
-          }
-        } catch (verifyErr) {
-          console.warn('[useFaucet] Verify error:', verifyErr)
-        }
-      }
-      
-      if (!claimVerified) {
-        console.error('[useFaucet] Claim not recorded after waiting - likely rejected')
-        throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
       }
 
       // 成功

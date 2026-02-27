@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "./scripts/copy-wasm.sh",
+    "predev": "./scripts/update-chainspec.sh",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -22,7 +24,7 @@
     "anarchy-wasm-engine": "file:../../packages/wasm-engine/pkg",
     "blakejs": "^1.2.1",
     "lucide-react": "^0.564.0",
-    "next": "^14.1.0",
+    "next": "^16.1.6",
     "polkadot-api": "^1.23.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -32,6 +34,7 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",

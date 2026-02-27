@@ -1,19 +1,31 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useStorage, type HybridMetadata } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n/context'
+import { decodePostContent, mediaToDataUrl } from '@/lib/postCodec'
+import type { MediaItem as PostMediaItem } from '@/lib/postCodec'
+import { CopyIcon, CheckIcon, ReplyIcon } from '@/components/Icons'
+import { ImageModal } from '@/components/ImageModal'
 import styles from './Timeline.module.css'
+
+/**
+ * アドレスを短縮表示する
+ */
+function shortenAddress(addr: string): string {
+  if (addr.length <= 16) return addr
+  return `${addr.slice(0, 8)}...${addr.slice(-6)}`
+}
 
 interface ContentRef {
   root: number[]       // [u8; 32]
   k: number
   n: number
   total_size: number
-  // Optional hybrid metadata fields (may not be present in older posts)
-  ciphertext_len?: number
-  shard_size?: number
-  compressed?: boolean
+  // Hybrid metadata fields (now stored on-chain)
+  ciphertext_len: number
+  shard_size: number
+  compressed: boolean
 }
 
 interface Props {
@@ -26,7 +38,8 @@ interface Props {
   inlineContent?: string
   /** V2: content reference from ContentRefs storage */  
   contentRef?: ContentRef
-  shortenAddress: (addr: string) => string
+  /** Optional nickname for the author */
+  nickname?: string
 }
 
 /**
@@ -39,11 +52,12 @@ export function PostItem({
   parentId,
   inlineContent,
   contentRef,
-  shortenAddress,
+  nickname,
 }: Props) {
   const { t } = useLocale()
   const { recoverContent, isReady } = useStorage()
   const [content, setContent] = useState<string | null>(null)
+  const [decodedMedia, setDecodedMedia] = useState<PostMediaItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -72,35 +86,26 @@ export function PostItem({
           }
           
           if (merkleRoot.length !== 32) {
-            console.warn(`[PostItem] Invalid merkle root length: ${merkleRoot.length} (expected 32)`)
             throw new Error(`Invalid merkle root length: ${merkleRoot.length}`)
           }
           
-          console.log(`[PostItem] Recovering content for post ${postId}, merkle_root:`, Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join(''))
-          
           // Construct HybridMetadata from ContentRef
-          // Note: Posts created before hybrid migration cannot be recovered with this code path
-          // Reed-Solomon shard_size = ceil(ciphertext_len / k)
-          // AES-GCM overhead: 12 bytes nonce + 16 bytes auth tag
-          // TODO: Export AES_GCM_OVERHEAD from wasm-engine and import here to ensure consistency
-          // with backend encryption parameters. If encryption params change, this estimation
-          // could become incorrect.
-          const AES_GCM_OVERHEAD = 12 + 16 // nonce (12) + auth tag (16) = 28 bytes
-          const estimatedCiphertextLen = contentRef.total_size + AES_GCM_OVERHEAD
+          // All metadata fields are now stored on-chain
           const metadata: HybridMetadata = {
             originalLen: contentRef.total_size,
-            ciphertextLen: contentRef.ciphertext_len ?? estimatedCiphertextLen,
-            // shard_size must use k (threshold), not n (total shards)
-            shardSize: contentRef.shard_size ?? Math.ceil((contentRef.ciphertext_len ?? estimatedCiphertextLen) / contentRef.k),
-            // compressed flag from ContentRef, default false for older posts (may fail if mismatched)
-            compressed: contentRef.compressed ?? false,
+            ciphertextLen: contentRef.ciphertext_len,
+            shardSize: contentRef.shard_size,
+            compressed: contentRef.compressed,
             threshold: contentRef.k,
             totalShards: contentRef.n,
           }
           
           const result = await recoverContent(merkleRoot, metadata)
-          const text = new TextDecoder().decode(result.data)
-          setContent(text)
+          
+          // Decode binary content (text + media)
+          const decoded = decodePostContent(result.data)
+          setContent(decoded.text)
+          setDecodedMedia(decoded.media)
         } catch (err) {
           console.error(`[PostItem] Failed to recover content for post ${postId}:`, err)
           setError(err instanceof Error ? err.message : String(err))
@@ -126,11 +131,35 @@ export function PostItem({
     displayContent = <span className={styles.contentLoading}>読み込み中...</span>
   }
 
+  const [copied, setCopied] = useState(false)
+  const [modalImage, setModalImage] = useState<{ src: string; filename: string } | null>(null)
+
+  const handleCopyAddress = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(author)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy address:', err)
+    }
+  }, [author])
+
   return (
     <article className={styles.post}>
       <header className={styles.postHeader}>
         <span className={styles.author}>
-          {shortenAddress(author)}
+          {nickname && <span className={styles.nickname}>{nickname}</span>}
+          <span className={styles.addressRow}>
+            <span className={styles.address}>{shortenAddress(author)}</span>
+            <button
+              className={styles.copyButton}
+              onClick={handleCopyAddress}
+              title={t('address.clickToCopy')}
+              type="button"
+            >
+              {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+            </button>
+          </span>
         </span>
         <span className={styles.block}>
           Block #{createdAt}
@@ -138,6 +167,65 @@ export function PostItem({
       </header>
       <div className={styles.content}>
         <p className={styles.text}>{displayContent}</p>
+        {decodedMedia.length > 0 && (
+          <div className={styles.mediaGrid}>
+            {decodedMedia.map((item, idx) => {
+              const dataUrl = mediaToDataUrl(item)
+              // Use filename from codec if available, otherwise generate one
+              const filename = item.filename || `media-${postId}-${idx + 1}.${item.type.split('/')[1] || 'bin'}`
+              const isVideo = item.type.startsWith('video/')
+              const isImage = item.type.startsWith('image/')
+              
+              // General file (not image or video)
+              if (!isVideo && !isImage) {
+                return (
+                  <div key={idx} className={styles.fileItem}>
+                    <span className={styles.fileIcon}>📄</span>
+                    <span className={styles.fileName}>{filename}</span>
+                    <a
+                      href={dataUrl}
+                      download={filename}
+                      className={styles.fileDownloadBtn}
+                      title="ダウンロード"
+                    >
+                      ↓
+                    </a>
+                  </div>
+                )
+              }
+              
+              return (
+                <div key={idx} className={styles.mediaWrapper}>
+                  {isVideo ? (
+                    <video
+                      src={dataUrl}
+                      className={styles.mediaImage}
+                      controls
+                      preload="metadata"
+                    />
+                  ) : (
+                    <img
+                      src={dataUrl}
+                      alt={filename}
+                      className={styles.mediaImage}
+                      onClick={() => setModalImage({ src: dataUrl, filename })}
+                    />
+                  )}
+                  <div className={styles.mediaActions}>
+                    <a
+                      href={dataUrl}
+                      download={filename}
+                      className={styles.mediaActionBtn}
+                      title="ダウンロード"
+                    >
+                      ↓
+                    </a>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
       <footer className={styles.postFooter}>
         <span className={styles.postId}>
@@ -145,10 +233,19 @@ export function PostItem({
         </span>
         {parentId !== null && (
           <span className={styles.reply}>
-            ↩ Reply to #{parentId}
+            <ReplyIcon size={12} /> Reply to #{parentId}
           </span>
         )}
       </footer>
+
+      {/* Image modal */}
+      {modalImage && (
+        <ImageModal
+          src={modalImage.src}
+          downloadFilename={modalImage.filename}
+          onClose={() => setModalImage(null)}
+        />
+      )}
     </article>
   )
 }
