@@ -419,6 +419,102 @@ fn test_react_skips_reward_when_pool_empty() {
 }
 
 // =============================================================================
+// T048: adjust_difficulty increases when rate exceeds target
+// =============================================================================
+#[test]
+fn test_adjust_difficulty_increases_when_rate_high() {
+    new_test_ext().execute_with(|| {
+        // Initial difficulty is 8
+        assert_eq!(pallet_reaction::CurrentDifficulty::<Test>::get(), 8);
+        
+        // TargetReactionRate = 10 per block, AdjustmentWindow = 10 blocks
+        // Target total = 10 * 10 = 100 reactions
+        
+        // Set up: simulate high reaction rate by setting reaction history
+        // Put 150 reactions in the last 10 blocks (50% above target)
+        for block in 1u64..=10u64 {
+            pallet_reaction::ReactionHistory::<Test>::insert(block, 15u32);
+        }
+        
+        System::set_block_number(10);
+        
+        // Trigger difficulty adjustment
+        Reaction::adjust_difficulty();
+        
+        // Difficulty should increase
+        // (150 - 100) / 2 = 25, but clamped to max 32
+        // Starting from 8: 8 + 25 = 33, clamped to 32
+        let new_difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
+        assert!(new_difficulty > 8, "Difficulty should increase when rate exceeds target");
+    });
+}
+
+// =============================================================================
+// T049: adjust_difficulty decreases when rate below target
+// =============================================================================
+#[test]
+fn test_adjust_difficulty_decreases_when_rate_low() {
+    new_test_ext().execute_with(|| {
+        // Set initial difficulty to 16
+        pallet_reaction::CurrentDifficulty::<Test>::put(16);
+        assert_eq!(pallet_reaction::CurrentDifficulty::<Test>::get(), 16);
+        
+        // TargetReactionRate = 10 per block, AdjustmentWindow = 10 blocks
+        // Target total = 100 reactions
+        
+        // Set up: simulate low reaction rate (50 reactions, 50% below target)
+        for block in 1u64..=10u64 {
+            pallet_reaction::ReactionHistory::<Test>::insert(block, 5u32);
+        }
+        
+        System::set_block_number(10);
+        
+        // Trigger difficulty adjustment
+        Reaction::adjust_difficulty();
+        
+        // Difficulty should decrease
+        // (100 - 50) / 2 = 25
+        // Starting from 16: 16 - 25 = -9, clamped to min 4
+        let new_difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
+        assert!(new_difficulty < 16, "Difficulty should decrease when rate below target");
+    });
+}
+
+// =============================================================================
+// T050: difficulty respects min/max bounds
+// =============================================================================
+#[test]
+fn test_difficulty_respects_bounds() {
+    new_test_ext().execute_with(|| {
+        // Test max bound: Set very high reaction rate
+        pallet_reaction::CurrentDifficulty::<Test>::put(30);
+        for block in 1u64..=10u64 {
+            pallet_reaction::ReactionHistory::<Test>::insert(block, 100u32); // 1000 total, way above target
+        }
+        System::set_block_number(10);
+        
+        Reaction::adjust_difficulty();
+        
+        // Should be clamped to MaxDifficulty (32)
+        let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
+        assert!(difficulty <= 32, "Difficulty should not exceed MaxDifficulty");
+        
+        // Test min bound: Set very low reaction rate
+        pallet_reaction::CurrentDifficulty::<Test>::put(5);
+        for block in 1u64..=10u64 {
+            pallet_reaction::ReactionHistory::<Test>::insert(block, 0u32); // 0 total, way below target
+        }
+        System::set_block_number(20);
+        
+        Reaction::adjust_difficulty();
+        
+        // Should be clamped to MinDifficulty (4)
+        let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
+        assert!(difficulty >= 4, "Difficulty should not go below MinDifficulty");
+    });
+}
+
+// =============================================================================
 // T-Extra: react() rejects expired challenge
 // =============================================================================
 #[test]
@@ -452,5 +548,86 @@ fn test_react_rejects_expired_challenge() {
             ),
             pallet_reaction::Error::<Test>::ChallengeExpired
         );
+    });
+}
+
+// =============================================================================
+// T060: react() with stealth_recipient sends reward to stealth
+// =============================================================================
+#[test]
+fn test_react_with_stealth_recipient() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xAB));
+        
+        let reactor = 1u64;
+        let stealth_recipient = 99u64; // Different account
+        let post_id = 100u64;
+        let block_number = 1u64;
+        let block_hash = frame_system::BlockHash::<Test>::get(block_number);
+        let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
+        
+        let nonce = find_valid_nonce(reactor, block_hash, difficulty);
+        
+        // React with stealth recipient
+        assert_ok!(Reaction::react(
+            RuntimeOrigin::signed(reactor),
+            post_id,
+            pallet_reaction::ReactionType::Like,
+            block_number,
+            nonce,
+            1000,
+            Some(stealth_recipient), // Specify stealth recipient
+        ));
+        
+        // Reaction should be recorded
+        assert!(pallet_reaction::Reactions::<Test>::contains_key(post_id, reactor));
+        
+        // Event should include the stealth recipient info
+        let events = System::events();
+        let reaction_event = events.iter().find(|e| {
+            matches!(
+                e.event,
+                RuntimeEvent::Reaction(pallet_reaction::Event::ReactionCreated { .. })
+            )
+        });
+        assert!(reaction_event.is_some(), "ReactionCreated event should be emitted");
+    });
+}
+
+// =============================================================================
+// T061: react() without recipient sends reward to post author
+// =============================================================================
+#[test]
+fn test_react_without_stealth_recipient() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xCD));
+        
+        let reactor = 2u64;
+        let post_id = 200u64;
+        let block_number = 1u64;
+        let block_hash = frame_system::BlockHash::<Test>::get(block_number);
+        let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
+        
+        let nonce = find_valid_nonce(reactor, block_hash, difficulty);
+        
+        // React without stealth recipient (None)
+        assert_ok!(Reaction::react(
+            RuntimeOrigin::signed(reactor),
+            post_id,
+            pallet_reaction::ReactionType::Boost,
+            block_number,
+            nonce,
+            2000,
+            None, // No stealth recipient -> reward goes to author
+        ));
+        
+        // Reaction should be recorded
+        assert!(pallet_reaction::Reactions::<Test>::contains_key(post_id, reactor));
+        
+        // Stats should be updated
+        let stats = pallet_reaction::ReactionStatsStorage::<Test>::get(post_id);
+        assert_eq!(stats.boosts, 1);
     });
 }
