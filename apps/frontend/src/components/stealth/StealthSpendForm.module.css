@@ -1,0 +1,292 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.balanceSelection h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.balanceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.headerActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.linkButton {
+  font-size: 0.875rem;
+  color: #ff6666;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.linkButton:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.linkButton:disabled {
+  color: #666;
+  cursor: not-allowed;
+}
+
+.linkButtonGray {
+  color: #999;
+}
+
+.emptyText {
+  color: #999;
+  font-size: 0.875rem;
+}
+
+.balanceList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.balanceItem {
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.balanceItem:hover:not(.balanceItemDisabled) {
+  border-color: #ff4444;
+}
+
+.balanceItemSelected {
+  border-color: #ff4444;
+  background: rgba(255, 68, 68, 0.1);
+}
+
+.balanceItemRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.balanceAddress {
+  font-family: monospace;
+  font-size: 0.875rem;
+  color: #ddd;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.balanceAmount {
+  font-weight: 600;
+  color: #22c55e;
+}
+
+.balanceBlock {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.selectedTotal {
+  margin-top: 0.5rem;
+  text-align: right;
+  font-size: 0.875rem;
+  color: #999;
+}
+
+.inputGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #ccc;
+}
+
+.inputRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.input {
+  flex: 1;
+  padding: 0.75rem;
+  font-size: 0.875rem;
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #ff4444;
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.inputFull {
+  width: 100%;
+}
+
+.autoSelectButton {
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.autoSelectButton:hover:not(:disabled) {
+  background: #3a3a3a;
+}
+
+.autoSelectButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.errorText {
+  font-size: 0.875rem;
+  color: #ef4444;
+}
+
+.successMessage {
+  padding: 0.75rem 1rem;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid #22c55e;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #22c55e;
+}
+
+.warningBox {
+  padding: 1rem;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+}
+
+.warningBox h4 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f59e0b;
+}
+
+.warningBox p {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: #d97706;
+  line-height: 1.5;
+}
+
+.warningActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.warningConfirm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: #f59e0b;
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.warningConfirm:hover:not(:disabled) {
+  background: #d97706;
+}
+
+.warningConfirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.warningCancel {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.warningCancel:hover:not(:disabled) {
+  background: #3a3a3a;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.submitButton {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  background: #ff4444;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.submitButton:hover:not(:disabled) {
+  background: #cc3333;
+}
+
+.submitButton:disabled {
+  background: #4a4a4a;
+  cursor: not-allowed;
+}
+
+.cancelButton {
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.cancelButton:hover:not(:disabled) {
+  background: #3a3a3a;
+}

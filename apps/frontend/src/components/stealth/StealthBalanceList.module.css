@@ -1,0 +1,167 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.headerInfo h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.headerInfo p {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: #999;
+}
+
+.scanButton {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.scanButtonStart {
+  background: #ff4444;
+}
+
+.scanButtonStart:hover {
+  background: #cc3333;
+}
+
+.scanButtonStop {
+  background: #ef4444;
+}
+
+.scanButtonStop:hover {
+  background: #dc2626;
+}
+
+.progressBox {
+  padding: 0.75rem;
+  background: rgba(255, 68, 68, 0.1);
+  border: 1px solid #ff4444;
+  border-radius: 6px;
+}
+
+.progressText {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #ff6666;
+}
+
+.progressBar {
+  height: 0.5rem;
+  margin-top: 0.5rem;
+  background: rgba(255, 68, 68, 0.2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: #ff4444;
+  transition: width 0.3s;
+}
+
+.progressDetail {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: #ff6666;
+}
+
+.emptyState {
+  padding: 2rem;
+  text-align: center;
+  color: #999;
+}
+
+.emptyState p {
+  margin: 0;
+}
+
+.emptyState p:last-child {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.balanceList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.balanceItem {
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.balanceItem:hover:not(.balanceItemSpent) {
+  border-color: #ff4444;
+  background: rgba(255, 68, 68, 0.05);
+}
+
+.balanceItemSpent {
+  opacity: 0.6;
+  background: #141414;
+  border-color: #333;
+}
+
+.balanceItemHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.balanceAddress {
+  font-family: monospace;
+  font-size: 0.875rem;
+  color: #ddd;
+}
+
+.balanceAmount {
+  font-weight: 600;
+  color: #22c55e;
+}
+
+.balanceItemSpent .balanceAmount {
+  color: #666;
+}
+
+.balanceItemFooter {
+  margin-top: 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.spentBadge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  background: #333;
+  color: #999;
+  border-radius: 4px;
+}

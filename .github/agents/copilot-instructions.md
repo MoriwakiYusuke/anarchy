@@ -22,6 +22,7 @@ Auto-generated from all feature plans. Last updated: 2026-02-07
 - N/A (ブラウザ内ライトクライアント) (014-smoldot-integration)
 - Rust (Polkadot SDK stable2503), TypeScript (ES2022), Next.js 14 + PAPI (polkadot-api), React 18, wasm-engine (KZG-VSS/SSS), @polkadot/util (015-frontend-expand)
 - Substrate blockchain state (pallets), Distributed storage nodes (libp2p + axum RPC) (015-frontend-expand)
+- Rust 1.87 (blockchain/wasm-engine), TypeScript 5.x (frontend) (016-stealth-address)
 
 - Rust 1.75+ (Polkadot SDK stable2503) + frame-support, frame-system, sp-runtime, sp-core (001-identity-pallet)
 
@@ -41,9 +42,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust 1.75+ (Polkadot SDK stable2503): Follow standard conventions
 
 ## Recent Changes
+- 016-stealth-address: Added Rust 1.87 (blockchain/wasm-engine), TypeScript 5.x (frontend)
 - 015-frontend-expand: Added Rust (Polkadot SDK stable2503), TypeScript (ES2022), Next.js 14 + PAPI (polkadot-api), React 18, wasm-engine (KZG-VSS/SSS), @polkadot/util
 - 014-smoldot-integration: Added TypeScript 5.3.3, Rust (stable) for blockchain + polkadot-api ^1.23.3, @polkadot-api/smoldot, smoldot, Next.js 14
-- 013-slashing-repair: Added Rust 1.75+ (stable channel with wasm32v1-none target)
 
 
 <!-- MANUAL ADDITIONS START -->

@@ -36,6 +36,7 @@ blake2 = "0.10"
 # Wasm bindings
 wasm-bindgen = "0.2"
 js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -55,6 +56,32 @@ zeroize = { version = "1.7", default-features = false, features = ["alloc"] }
 
 # Hybrid approach: Reed-Solomon erasure coding
 reed-solomon-erasure = { version = "6.0", default-features = false }
+
+# Stealth address: X25519 key exchange
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+
+# Stealth address: Ed25519 signatures for proper pubkey derivation
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+
+# Stealth address: Curve25519 for EC point operations
+curve25519-dalek = { version = "4.1", default-features = false, features = ["alloc"] }
+
+# Random number generation
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+# Stealth address: Key derivation
+pbkdf2 = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+
+# Stealth address: Base58 encoding for meta-address
+bs58 = "0.5"
+
+# Stealth address: JSON serialization for backup
+serde_json = "1.0"
+
+# Stealth address: Base64 encoding for backup
+base64 = "0.22"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

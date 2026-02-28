@@ -301,6 +301,14 @@ impl pallet_nickname::Config for Runtime {
     type MaxNicknameLength = ConstU32<128>;
 }
 
+// Stealth Pallet設定
+impl pallet_stealth::Config for Runtime {
+    type Currency = Balances;
+    /// ブロックあたり最大エフェメラルキー登録数: 100
+    type MaxEntriesPerBlock = ConstU32<100>;
+    type WeightInfo = pallet_stealth::weights::SubstrateWeight<Runtime>;
+}
+
 // Runtime構築
 construct_runtime!(
     pub struct Runtime {
@@ -316,6 +324,7 @@ construct_runtime!(
         Post: pallet_post,
         Faucet: pallet_faucet,
         Nickname: pallet_nickname,
+        Stealth: pallet_stealth,
     }
 );
 

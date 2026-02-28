@@ -119,6 +119,7 @@ export default function Home() {
                     senderAddress={account}
                     balance={balance ?? BigInt(0)}
                     signer={signer}
+                    blockNumber={connectionState.blockNumber}
                     onSuccess={() => refetchBalanceRef.current?.()}
                   />
                 </div>

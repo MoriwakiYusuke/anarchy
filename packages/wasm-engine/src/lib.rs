@@ -3,9 +3,11 @@
 //! ブラウザで実行可能なWasm暗号エンジン。
 //! - KZG-VSS: BLS12-381曲線上の検証可能秘密分散
 //! - Hybrid: AES-256-GCM暗号 + KZG-VSS鍵分散
+//! - Stealth: EIP-5564互換ステルスアドレス
 
 pub mod kzg;
 mod merkle;
+pub mod stealth;
 
 use wasm_bindgen::prelude::*;
 
@@ -37,4 +39,11 @@ pub use kzg::wasm::{
     hybrid_recover, hybrid_split, kzg_compress, kzg_decompress, kzg_generate_proof,
     kzg_init_srs, kzg_is_srs_initialized, kzg_verify_proof, kzg_vss_recover, kzg_vss_split,
     WasmHybridShard, WasmHybridSplitResult, WasmVssShare, WasmVssSplitResult,
+};
+
+// Re-export Stealth APIs
+pub use stealth::{
+    derive_stealth_address, derive_stealth_private_key, encrypt_backup, decrypt_backup,
+    format_meta_address_wasm, generate_stealth_keys, parse_meta_address, scan_transaction,
+    MetaAddressParts, StealthAddressResult, StealthKeyPairJs,
 };
