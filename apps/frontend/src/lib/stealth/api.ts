@@ -124,7 +124,16 @@ export async function getEphemeralKeys(
   }
 
   const typedApi = api as StealthApi;
-  return typedApi.query.Stealth.EphemeralKeys.getValue(blockNumber);
+  const rawResult = await typedApi.query.Stealth.EphemeralKeys.getValue(blockNumber);
+  
+  // Debug logging
+  if (rawResult && rawResult.length > 0) {
+    console.log(`[getEphemeralKeys] Block ${blockNumber}: found ${rawResult.length} entries`);
+    console.log('[getEphemeralKeys] Raw result:', rawResult);
+    console.log('[getEphemeralKeys] First entry keys:', rawResult[0] ? Object.keys(rawResult[0]) : 'N/A');
+  }
+  
+  return rawResult;
 }
 
 /**

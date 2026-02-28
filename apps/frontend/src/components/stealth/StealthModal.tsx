@@ -21,6 +21,7 @@ import { StealthScanner } from '../../lib/stealth/scanner';
 import { createBalanceStore, type BalanceStore } from '../../lib/stealth/balanceStore';
 import { deriveKeyFromBalance, createStealthSigner } from '../../lib/stealth/signer';
 import type { StealthKeyPair, ScanProgress, DetectedStealthBalance } from '../../lib/stealth/types';
+import * as wasm from 'anarchy-wasm-engine';
 import styles from './StealthModal.module.css';
 
 export interface StealthModalProps {
@@ -77,10 +78,10 @@ export function StealthModal({
         setMetaAddress(existingKeys.metaAddress);
       }
       
-      // Initialize balance store
+      // Initialize balance store (in-memory)
       const store = createBalanceStore();
       setBalanceStore(store);
-      setBalances(store.getAllAsStealthBalance());
+      setBalances([]);
     }
   }, [isOpen]);
 
@@ -143,13 +144,50 @@ export function StealthModal({
   const handleStartScan = useCallback(async () => {
     const keyPair = stealthKeyManager.getKeyPair();
     if (!keyPair || !unsafeApi) {
+      console.error('[StealthModal] Cannot start scan: keyPair or unsafeApi missing');
       return;
+    }
+
+    // Debug: Log the keys being used for scanning and the metaAddress
+    console.log('[StealthModal] Starting scan with keys:', {
+      metaAddress: keyPair.metaAddress,
+      viewKeyFirst8: Array.from(keyPair.viewKey.slice(0, 8)),
+      spendPubkeyFirst8: Array.from(keyPair.spendPubkey.slice(0, 8)),
+      viewPubkeyFirst8: Array.from(keyPair.viewPubkey.slice(0, 8)),
+    });
+
+    // Key consistency verification: parse metaAddress and compare with keyPair pubkeys
+    try {
+      const parsed = wasm.parse_meta_address(keyPair.metaAddress);
+      const parsedSpendPubkey = new Uint8Array(parsed.spend_pubkey);
+      const parsedViewPubkey = new Uint8Array(parsed.view_pubkey);
+      
+      const spendMatch = parsedSpendPubkey.every((v, i) => v === keyPair.spendPubkey[i]);
+      const viewMatch = parsedViewPubkey.every((v, i) => v === keyPair.viewPubkey[i]);
+      
+      console.log('[StealthModal] Key consistency check:', {
+        parsedSpendPubkeyFirst8: Array.from(parsedSpendPubkey.slice(0, 8)),
+        keyPairSpendPubkeyFirst8: Array.from(keyPair.spendPubkey.slice(0, 8)),
+        spendMatch,
+        parsedViewPubkeyFirst8: Array.from(parsedViewPubkey.slice(0, 8)),
+        keyPairViewPubkeyFirst8: Array.from(keyPair.viewPubkey.slice(0, 8)),
+        viewMatch,
+      });
+      
+      if (!spendMatch || !viewMatch) {
+        console.error('[StealthModal] CRITICAL: Key mismatch detected! metaAddress does not match keyPair pubkeys.');
+        alert('鍵の整合性エラー: metaAddressとキーペアが一致しません。鍵が破損している可能性があります。');
+        setIsScanning(false);
+        return;
+      }
+    } catch (parseError) {
+      console.error('[StealthModal] Failed to parse metaAddress for consistency check:', parseError);
     }
 
     setIsScanning(true);
     setScanProgress({
       currentBlock: 0,
-      targetBlock: 0,
+      targetBlock: blockNumber ?? 100,
       percentage: 0,
       detectedCount: 0,
     });
@@ -165,6 +203,8 @@ export function StealthModal({
       const startBlock = 0;
       const endBlock = blockNumber ?? 100;
 
+      console.log(`[StealthModal] Scanning blocks ${startBlock} to ${endBlock}`);
+
       const results = await newScanner.scanBlockRange(
         startBlock,
         endBlock,
@@ -172,19 +212,47 @@ export function StealthModal({
         { batchSize: 1000, delayBetweenBatches: 100 }
       );
 
-      if (balanceStore) {
+      console.log(`[StealthModal] Scan completed. Total results: ${results.length}`);
+      console.log(`[StealthModal] Results:`, results);
+
+      if (balanceStore && results.length > 0) {
+        console.log(`[StealthModal] Found ${results.length} stealth addresses, fetching balances...`);
+        
         for (const result of results) {
+          console.log(`[StealthModal] Processing result:`, {
+            stealthAddress: result.stealthAddress,
+            isOwned: result.isOwned,
+            blockNumber: result.blockNumber,
+          });
+          
           if (result.isOwned) {
+            // Fetch actual balance from chain
+            let balance = BigInt(0);
+            try {
+              console.log(`[StealthModal] Fetching balance for: ${result.stealthAddress}`);
+              const accountInfo = await unsafeApi.query.System.Account.getValue(result.stealthAddress);
+              console.log(`[StealthModal] Raw accountInfo:`, accountInfo);
+              console.log(`[StealthModal] accountInfo.data:`, accountInfo?.data);
+              balance = accountInfo?.data?.free ?? BigInt(0);
+              console.log(`[StealthModal] Balance for ${result.stealthAddress}: ${balance.toString()}`);
+            } catch (balanceError) {
+              console.error(`[StealthModal] Failed to fetch balance for ${result.stealthAddress}:`, balanceError);
+            }
+            
             balanceStore.add({
               stealthAddress: result.stealthAddress,
-              balance: BigInt(0),
+              balance,
               blockNumber: result.blockNumber,
               ephemeralPubkey: result.ephemeralPubkey,
               txHash: new Uint8Array(32),
             });
           }
         }
-        setBalances(balanceStore.getAllAsStealthBalance());
+        const allBalances = balanceStore.getAllAsStealthBalance();
+        console.log(`[StealthModal] Final balances to display:`, allBalances);
+        setBalances(allBalances);
+      } else {
+        console.log(`[StealthModal] No results to process. balanceStore exists: ${!!balanceStore}, results.length: ${results.length}`);
       }
     } catch (error) {
       console.error('Scan error:', error);
@@ -202,21 +270,16 @@ export function StealthModal({
     }
   }, [scanner]);
 
-  const handleSend = useCallback(async (recipientMeta: string, amount: string, ephemeralPubkey?: Uint8Array) => {
+  const handleSend = useCallback(async (stealthAddress: string, amount: string, ephemeralPubkey: Uint8Array) => {
     if (!unsafeApi || !signer) {
       throw new Error('Not connected');
     }
     
-    // ephemeralPubkey is already passed from StealthSendForm which uses deriveStealthAddress
-    // We need to derive the stealth address again to get stealthAddress
-    const { deriveStealthAddress } = await import('@/lib/stealth/keyManager');
-    const result = await deriveStealthAddress(recipientMeta);
-    const stealthAddress = result.stealthAddress;
-    const ephemeral = ephemeralPubkey ?? new Uint8Array(result.ephemeralPubkey);
-
+    // stealthAddress and ephemeralPubkey are already derived together in StealthSendForm
+    // using the same ephemeral keypair, so they match correctly
     await sendToStealth(unsafeApi, signer, {
       stealthAddress,
-      ephemeralPubkey: ephemeral,
+      ephemeralPubkey,
       amount: BigInt(amount),
     });
   }, [unsafeApi, signer]);
@@ -363,6 +426,7 @@ export function StealthModal({
                       onSpend={handleSpend}
                       onCancel={() => setShowSpendForm(false)}
                       isProcessing={false}
+                      defaultRecipientAddress={accountAddress ?? ''}
                     />
                   )}
                 </>

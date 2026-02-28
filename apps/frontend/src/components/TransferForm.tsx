@@ -28,6 +28,8 @@ interface Props {
   balance: bigint
   /** Polkadot signer for transaction signing */
   signer: PolkadotSigner | null
+  /** Current block number for scanning */
+  blockNumber?: number
   /** Callback on successful transfer */
   onSuccess?: () => void
 }
@@ -38,6 +40,7 @@ export function TransferForm({
   senderAddress,
   balance,
   signer,
+  blockNumber,
   onSuccess,
 }: Props) {
   const { t } = useLocale()
@@ -288,6 +291,7 @@ export function TransferForm({
         signer={signer}
         accountAddress={senderAddress}
         isConnected={!!signer}
+        blockNumber={blockNumber}
       />
     </div>
   )

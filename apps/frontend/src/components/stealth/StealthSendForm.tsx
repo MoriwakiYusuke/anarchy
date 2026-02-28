@@ -21,7 +21,7 @@ export interface ValidationResult {
 }
 
 export interface StealthSendFormProps {
-  onSend: (metaAddress: string, amount: string, ephemeralPubkey: Uint8Array) => Promise<void>;
+  onSend: (stealthAddress: string, amount: string, ephemeralPubkey: Uint8Array) => Promise<void>;
   disabled?: boolean;
 }
 
@@ -186,8 +186,9 @@ export function StealthSendForm({
       // Derive stealth address using properly initialized wasm
       const derivation = await deriveStealthAddress(metaAddress);
 
-      // Call the parent's onSend handler
-      await onSend(metaAddress, formattedAmount, derivation.ephemeralPubkey);
+      // Call the parent's onSend handler with the derived stealth address
+      // Important: pass stealthAddress (not metaAddress) so ephemeralPubkey matches
+      await onSend(derivation.stealthAddress, formattedAmount, derivation.ephemeralPubkey);
 
       setTxStatus('success');
       setTxMessage('送金が完了しました');

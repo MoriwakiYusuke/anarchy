@@ -1,22 +1,20 @@
 /**
  * T057: Detected Balance State Store
  *
- * Manages detected stealth balances with localStorage persistence
+ * Manages detected stealth balances in memory (no persistence)
  */
 
 import type { DetectedStealthBalance } from './types';
 
-const STORAGE_KEY = 'stealth_balances';
-
 /**
- * Internal serializable format for localStorage
+ * Internal format for balance data
  */
 export interface DetectedBalance {
   stealthAddress: string;
-  balance: string; // BigInt as string for JSON serialization
+  balance: string; // BigInt as string
   blockNumber: number;
-  ephemeralPubkey: number[]; // Uint8Array as number[] for JSON
-  txHash: number[]; // Uint8Array as number[] for JSON
+  ephemeralPubkey: number[]; // Uint8Array as number[]
+  txHash: number[]; // Uint8Array as number[]
   detectedAt: number;
   spent?: boolean;
   spentAt?: number;
@@ -74,34 +72,11 @@ export function toStealthBalance(internal: DetectedBalance): DetectedStealthBala
 }
 
 /**
- * Create a new balance store with localStorage persistence
+ * Create a new balance store (in-memory only)
  */
 export function createBalanceStore(): BalanceStore {
   let balances: DetectedBalance[] = [];
   const subscribers = new Set<(balances: DetectedBalance[]) => void>();
-
-  // Load from localStorage
-  const loadFromStorage = () => {
-    if (typeof window === 'undefined') return;
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        balances = JSON.parse(stored);
-      }
-    } catch (error) {
-      console.warn('[BalanceStore] Failed to load from localStorage:', error);
-    }
-  };
-
-  // Save to localStorage
-  const saveToStorage = () => {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(balances));
-    } catch (error) {
-      console.warn('[BalanceStore] Failed to save to localStorage:', error);
-    }
-  };
 
   // Notify all subscribers
   const notifySubscribers = () => {
@@ -109,9 +84,6 @@ export function createBalanceStore(): BalanceStore {
       callback([...balances]);
     }
   };
-
-  // Initialize from storage
-  loadFromStorage();
 
   return {
     getAll(): DetectedBalance[] {
@@ -127,11 +99,16 @@ export function createBalanceStore(): BalanceStore {
     },
 
     add(params: AddBalanceParams): void {
-      // Check for duplicate
-      const exists = balances.some(
+      // Check for duplicate - if exists, update the balance
+      const existingIndex = balances.findIndex(
         (b) => b.stealthAddress === params.stealthAddress
       );
-      if (exists) {
+      
+      if (existingIndex >= 0) {
+        // Update existing balance
+        balances[existingIndex].balance = params.balance.toString();
+        console.log(`[BalanceStore] Updated existing balance for ${params.stealthAddress}: ${params.balance.toString()}`);
+        notifySubscribers();
         return;
       }
 
@@ -144,14 +121,13 @@ export function createBalanceStore(): BalanceStore {
         detectedAt: Date.now(),
       };
 
+      console.log(`[BalanceStore] Adding new balance for ${params.stealthAddress}: ${params.balance.toString()}`);
       balances.push(newBalance);
-      saveToStorage();
       notifySubscribers();
     },
 
     remove(address: string): void {
       balances = balances.filter((b) => b.stealthAddress !== address);
-      saveToStorage();
       notifySubscribers();
     },
 
@@ -160,7 +136,6 @@ export function createBalanceStore(): BalanceStore {
       if (balance) {
         balance.spent = true;
         balance.spentAt = Date.now();
-        saveToStorage();
         notifySubscribers();
       }
     },
@@ -180,7 +155,6 @@ export function createBalanceStore(): BalanceStore {
 
     clear(): void {
       balances = [];
-      saveToStorage();
       notifySubscribers();
     },
   };

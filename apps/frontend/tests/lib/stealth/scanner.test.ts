@@ -7,12 +7,30 @@
 import { StealthScanner, ScanResult } from '@/lib/stealth/scanner';
 import type { ScanProgress, EphemeralKeyEntry } from '@/lib/stealth/types';
 
+// Define test pubkeys with first byte matching for detection logic
+const pubkey1 = new Uint8Array([1, ...new Array(31).fill(0)]);
+const pubkey2 = new Uint8Array([2, ...new Array(31).fill(0)]);
+
 // Mock wasm module
 jest.mock('anarchy-wasm-engine', () => ({
-  // scan_transaction(view_key, ephemeral_pubkey, stealth_address, spend_pubkey) -> bool
-  scan_transaction: jest.fn((viewKey: Uint8Array, ephemeralPubkey: Uint8Array, _stealthAddress: string, spendPubkey: Uint8Array) => {
+  // scan_transaction(view_key, ephemeral_pubkey, stealth_pubkey, spend_pubkey) -> bool
+  scan_transaction: jest.fn((viewKey: Uint8Array, ephemeralPubkey: Uint8Array, _stealthPubkey: Uint8Array, _spendPubkey: Uint8Array) => {
     // Mock: return true if first byte of ephemeral key matches view key
     return ephemeralPubkey[0] === viewKey[0];
+  }),
+}));
+
+// Mock getSs58AddressInfo to decode test addresses
+jest.mock('@polkadot-api/substrate-bindings', () => ({
+  getSs58AddressInfo: jest.fn((address: string) => {
+    // Return valid decoded info for test addresses
+    if (address === 'test_addr_1') {
+      return { isValid: true, publicKey: new Uint8Array([1, ...new Array(31).fill(0)]) };
+    }
+    if (address === 'test_addr_2') {
+      return { isValid: true, publicKey: new Uint8Array([2, ...new Array(31).fill(0)]) };
+    }
+    return { isValid: false };
   }),
 }));
 
@@ -22,12 +40,12 @@ jest.mock('@/lib/stealth/api', () => ({
     // Return mock ephemeral keys for specific blocks (using camelCase as per EphemeralKeyEntry interface)
     if (blockNumber === 100) {
       return [
-        { ephemeralPubkey: new Uint8Array([1, ...new Array(31).fill(0)]), stealthAddress: 'addr1', blockNumber: 100 },
+        { ephemeralPubkey: new Uint8Array([1, ...new Array(31).fill(0)]), stealthAddress: 'test_addr_1', blockNumber: 100 },
       ];
     }
     if (blockNumber === 105) {
       return [
-        { ephemeralPubkey: new Uint8Array([2, ...new Array(31).fill(0)]), stealthAddress: 'addr2', blockNumber: 105 },
+        { ephemeralPubkey: new Uint8Array([2, ...new Array(31).fill(0)]), stealthAddress: 'test_addr_2', blockNumber: 105 },
       ];
     }
     return null;

@@ -243,22 +243,27 @@ export async function deriveStealthAddress(metaAddress: string): Promise<{
   console.log('[deriveStealthAddress] Input:', metaAddress);
   const wasm = await getWasm();
   try {
+    // Parse the metaAddress to log the pubkeys being used
+    const parsed = wasm.parse_meta_address(metaAddress);
+    console.log('[deriveStealthAddress] Parsed spend_pubkey (first 8):', Array.from(new Uint8Array(parsed.spend_pubkey).slice(0, 8)));
+    console.log('[deriveStealthAddress] Parsed view_pubkey (first 8):', Array.from(new Uint8Array(parsed.view_pubkey).slice(0, 8)));
+    
     const result = wasm.derive_stealth_address(metaAddress);
     
     // Get stealth pubkey from wasm result
     const stealthPubkey = new Uint8Array(result.stealth_pubkey);
-    console.log('[deriveStealthAddress] Stealth pubkey length:', stealthPubkey.length);
-    console.log('[deriveStealthAddress] Stealth pubkey (first 8 bytes):', Array.from(stealthPubkey.slice(0, 8)));
+    const ephemeralPubkey = new Uint8Array(result.ephemeral_pubkey);
+    console.log('[deriveStealthAddress] Ephemeral pubkey (first 8):', Array.from(ephemeralPubkey.slice(0, 8)));
+    console.log('[deriveStealthAddress] Stealth pubkey (first 8):', Array.from(stealthPubkey.slice(0, 8)));
     
     // Use polkadot-api's SS58 encoder for compatibility
     const { fromBufferToBase58, getSs58AddressInfo } = await import('@polkadot-api/substrate-bindings');
     const stealthAddress = fromBufferToBase58(42)(stealthPubkey);
     
-    console.log('[deriveStealthAddress] Stealth address (polkadot-api):', stealthAddress);
+    console.log('[deriveStealthAddress] Stealth address (SS58):', stealthAddress);
     
     // Verify the address is valid before returning
     const validation = getSs58AddressInfo(stealthAddress);
-    console.log('[deriveStealthAddress] Address valid:', validation.isValid);
     if (!validation.isValid) {
       console.error('[deriveStealthAddress] Generated invalid SS58 address!');
       throw new Error('Generated invalid SS58 address');
@@ -266,7 +271,7 @@ export async function deriveStealthAddress(metaAddress: string): Promise<{
     
     return {
       stealthAddress,
-      ephemeralPubkey: new Uint8Array(result.ephemeral_pubkey),
+      ephemeralPubkey,
       stealthPubkey,
     };
   } catch (error) {

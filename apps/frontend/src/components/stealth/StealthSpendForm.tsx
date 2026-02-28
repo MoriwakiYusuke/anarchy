@@ -131,6 +131,8 @@ export interface StealthSpendFormProps {
   onCancel?: () => void;
   /** 処理中フラグ */
   isProcessing?: boolean;
+  /** デフォルトの送金先アドレス（編集可） */
+  defaultRecipientAddress?: string;
 }
 
 /**
@@ -141,9 +143,10 @@ export function StealthSpendForm({
   onSpend,
   onCancel,
   isProcessing = false,
+  defaultRecipientAddress = '',
 }: StealthSpendFormProps) {
   const [selectedAddresses, setSelectedAddresses] = useState<Set<string>>(new Set());
-  const [recipientAddress, setRecipientAddress] = useState('');
+  const [recipientAddress, setRecipientAddress] = useState(defaultRecipientAddress);
   const [amountInput, setAmountInput] = useState('');
   const [showLinkabilityWarning, setShowLinkabilityWarning] = useState(false);
   const [error, setError] = useState<string | null>(null);

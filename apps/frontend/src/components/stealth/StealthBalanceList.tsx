@@ -8,10 +8,8 @@
 
 import React from 'react';
 import type { DetectedStealthBalance, ScanProgress } from '@/lib/stealth/types';
+import { formatMoralBalance } from '@/hooks/useMoralBalance';
 import styles from './StealthBalanceList.module.css';
-
-// MORAL token has 12 decimals
-const MORAL_DECIMALS = 12;
 
 export interface StealthBalanceListProps {
   /** List of detected balances */
@@ -28,20 +26,6 @@ export interface StealthBalanceListProps {
   onStartScan?: () => void;
   /** Called when stop button is clicked */
   onStopScan?: () => void;
-}
-
-/**
- * Format balance amount for display
- */
-function formatBalance(balance: bigint): string {
-  const divisor = BigInt(10 ** MORAL_DECIMALS);
-  const wholePart = balance / divisor;
-  const fractionalPart = balance % divisor;
-  
-  // Format fractional part with 4 decimal places
-  const fractionalStr = fractionalPart.toString().padStart(MORAL_DECIMALS, '0').slice(0, 4);
-  
-  return `${wholePart}.${fractionalStr}`;
 }
 
 /**
@@ -81,7 +65,7 @@ export default function StealthBalanceList({
         <div className={styles.headerInfo}>
           <h3>ステルス残高</h3>
           <p>
-            合計: {formatBalance(totalBalance)} MORAL
+            合計: {formatMoralBalance(totalBalance)}
           </p>
         </div>
         <div>
@@ -150,7 +134,7 @@ export default function StealthBalanceList({
                   {truncateAddress(balance.stealthAddress)}
                 </span>
                 <span className={styles.balanceAmount}>
-                  {formatBalance(balance.balance)} MORAL
+                  {formatMoralBalance(balance.balance)}
                 </span>
               </div>
               <div className={styles.balanceItemFooter}>

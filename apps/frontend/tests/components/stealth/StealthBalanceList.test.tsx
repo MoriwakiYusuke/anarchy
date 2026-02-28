@@ -58,8 +58,8 @@ describe('StealthBalanceList', () => {
       
       // Total should be 1.5 MORAL
       expect(screen.getByText(/合計/i)).toBeInTheDocument();
-      // Total is displayed in header
-      expect(screen.getByText(/1\.5000\s*MORAL/i)).toBeInTheDocument();
+      // Total is displayed in header (formatMoralBalance returns "1.50 MORAL")
+      expect(screen.getByText(/1\.50\s*MORAL/i)).toBeInTheDocument();
     });
 
     it('should truncate stealth addresses', () => {
@@ -172,8 +172,8 @@ describe('StealthBalanceList', () => {
       render(<StealthBalanceList balances={balancesWithSpent} showSpent={false} />);
       
       expect(screen.queryByText(/使用済み/i)).not.toBeInTheDocument();
-      // Only unspent balance should be shown (getAllByText for amount appearing in total and item)
-      const elements = screen.getAllByText(/0\.5000\s*MORAL/i);
+      // Only unspent balance should be shown (formatMoralBalance returns "0.50 MORAL")
+      const elements = screen.getAllByText(/0\.50\s*MORAL/i);
       expect(elements.length).toBeGreaterThan(0);
     });
   });
@@ -191,8 +191,8 @@ describe('StealthBalanceList', () => {
 
       render(<StealthBalanceList balances={[smallAmount]} />);
       
-      // Should show truncated decimal (getAllByText since it appears in both item and total)
-      const elements = screen.getAllByText(/0\.1234/i);
+      // Should show truncated decimal (formatMoralBalance returns "0.12 MORAL")
+      const elements = screen.getAllByText(/0\.12\s*MORAL/i);
       expect(elements.length).toBeGreaterThan(0);
     });
 

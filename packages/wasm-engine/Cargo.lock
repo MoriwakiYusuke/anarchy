@@ -103,6 +103,7 @@ dependencies = [
  "sha2",
  "wasm-bindgen",
  "wasm-bindgen-test",
+ "web-sys",
  "x25519-dalek",
  "zeroize",
 ]

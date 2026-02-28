@@ -1,7 +1,7 @@
 /**
  * T052: Jest tests for DetectedStealthBalance state management
  *
- * Tests the balance store for persisting and managing detected stealth balances
+ * Tests the balance store for managing detected stealth balances (in-memory)
  */
 
 import { 
@@ -10,69 +10,11 @@ import {
   DetectedBalance 
 } from '@/lib/stealth/balanceStore';
 
-// Mock localStorage
-const localStorageStore: Record<string, string> = {};
-
-const getItemMock = jest.fn((key: string): string | null => localStorageStore[key] || null);
-const setItemMock = jest.fn((key: string, value: string): void => {
-  localStorageStore[key] = value;
-});
-const removeItemMock = jest.fn((key: string): void => {
-  delete localStorageStore[key];
-});
-const clearMock = jest.fn((): void => {
-  Object.keys(localStorageStore).forEach((key) => {
-    delete localStorageStore[key];
-  });
-});
-const keyMock = jest.fn((index: number): string | null => {
-  const keys = Object.keys(localStorageStore);
-  return keys[index] || null;
-});
-
-const localStorageMock = {
-  get length(): number {
-    return Object.keys(localStorageStore).length;
-  },
-  key: keyMock,
-  getItem: getItemMock,
-  setItem: setItemMock,
-  removeItem: removeItemMock,
-  clear: clearMock,
-};
-
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
-});
-
 describe('BalanceStore', () => {
-  beforeEach(() => {
-    localStorageMock.clear();
-    jest.clearAllMocks();
-  });
-
   describe('createBalanceStore', () => {
     it('should create an empty store', () => {
       const store = createBalanceStore();
       expect(store.getAll()).toEqual([]);
-    });
-
-    it('should load existing balances from localStorage', () => {
-      const existingBalances: DetectedBalance[] = [
-        {
-          stealthAddress: 'addr1',
-          balance: BigInt(100_000_000_000_000).toString(),
-          blockNumber: 100,
-          ephemeralPubkey: Array.from(new Uint8Array(32)),
-          txHash: Array.from(new Uint8Array(32)),
-          detectedAt: Date.now(),
-        },
-      ];
-      localStorageMock.setItem('stealth_balances', JSON.stringify(existingBalances));
-
-      const store = createBalanceStore();
-      expect(store.getAll().length).toBe(1);
-      expect(store.getAll()[0].stealthAddress).toBe('addr1');
     });
   });
 
@@ -92,24 +34,7 @@ describe('BalanceStore', () => {
       expect(store.getAll()[0].stealthAddress).toBe('addr1');
     });
 
-    it('should persist to localStorage', () => {
-      const store = createBalanceStore();
-      
-      store.add({
-        stealthAddress: 'addr1',
-        balance: BigInt(100_000_000_000_000),
-        blockNumber: 100,
-        ephemeralPubkey: new Uint8Array(32),
-      txHash: new Uint8Array(32),
-      });
-
-      expect(localStorageMock.setItem).toHaveBeenCalledWith(
-        'stealth_balances',
-        expect.any(String)
-      );
-    });
-
-    it('should not add duplicates', () => {
+    it('should update balance for duplicate addresses', () => {
       const store = createBalanceStore();
       
       store.add({
@@ -129,6 +54,7 @@ describe('BalanceStore', () => {
       });
 
       expect(store.getAll().length).toBe(1);
+      expect(store.getAll()[0].balance).toBe(BigInt(200_000_000_000_000).toString());
     });
 
     it('should notify subscribers', () => {
@@ -162,23 +88,6 @@ describe('BalanceStore', () => {
 
       store.remove('addr1');
       expect(store.getAll().length).toBe(0);
-    });
-
-    it('should persist removal to localStorage', () => {
-      const store = createBalanceStore();
-      
-      store.add({
-        stealthAddress: 'addr1',
-        balance: BigInt(100_000_000_000_000),
-        blockNumber: 100,
-        ephemeralPubkey: new Uint8Array(32),
-      txHash: new Uint8Array(32),
-      });
-
-      const callCount = localStorageMock.setItem.mock.calls.length;
-      store.remove('addr1');
-
-      expect(localStorageMock.setItem).toHaveBeenCalledTimes(callCount + 1);
     });
   });
 

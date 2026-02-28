@@ -61,6 +61,34 @@ fn test_generate_stealth_keys() {
     assert!(keys.meta_address().starts_with("st:anarchy:"));
 }
 
+/// Test that meta_address contains the correct pubkeys from generated keys
+#[test]
+fn test_meta_address_contains_correct_pubkeys() {
+    let keys = generate_stealth_keys();
+    
+    // Parse the meta_address
+    let parts = parse_meta_address(&keys.meta_address()).unwrap();
+    
+    // Verify spend_pubkey matches
+    assert_eq!(
+        parts.spend_pubkey(),
+        keys.spend_pubkey(),
+        "spend_pubkey in meta_address must match the generated spend_pubkey"
+    );
+    
+    // Verify view_pubkey matches  
+    assert_eq!(
+        parts.view_pubkey(),
+        keys.view_pubkey(),
+        "view_pubkey in meta_address must match the generated view_pubkey"
+    );
+    
+    println!("Generated spend_pubkey (first 8): {:?}", &keys.spend_pubkey()[0..8]);
+    println!("Parsed spend_pubkey (first 8): {:?}", &parts.spend_pubkey()[0..8]);
+    println!("Generated view_pubkey (first 8): {:?}", &keys.view_pubkey()[0..8]);
+    println!("Parsed view_pubkey (first 8): {:?}", &parts.view_pubkey()[0..8]);
+}
+
 #[test]
 fn test_format_and_parse_meta_address() {
     let spend_pubkey = [1u8; 32];
@@ -181,15 +209,148 @@ fn test_scan_transaction_detects_own() {
     // ステルスアドレスを導出
     let result = derive_stealth_address(&keys.meta_address()).unwrap();
     
-    // 自分宛トランザクションをスキャン
+    // 自分宛トランザクションをスキャン（pubkeyバイト列を直接比較）
     let is_ours = scan_transaction(
         &keys.view_key(),
         &result.ephemeral_pubkey(),
-        &result.stealth_address(),
+        &result.stealth_pubkey(),
         &keys.spend_pubkey(),
     );
     
     assert!(is_ours, "Should detect own transaction");
+}
+
+/// Test ECDH commutativity explicitly
+/// This verifies that sender and receiver compute the same shared secret
+#[test]
+fn test_ecdh_commutativity() {
+    use x25519_dalek::{PublicKey, StaticSecret};
+    use super::hash::blake2b_256;
+    
+    // Generate receiver's key pair (view_key, view_pubkey)
+    let view_secret = StaticSecret::random_from_rng(rand_core::OsRng);
+    let view_pubkey = PublicKey::from(&view_secret);
+    
+    // Generate sender's ephemeral key pair
+    let ephemeral_secret = StaticSecret::random_from_rng(rand_core::OsRng);
+    let ephemeral_pubkey = PublicKey::from(&ephemeral_secret);
+    
+    // Sender computes: s = ephemeral_secret * view_pubkey
+    let sender_shared = ephemeral_secret.diffie_hellman(&view_pubkey);
+    
+    // Receiver computes: s = view_secret * ephemeral_pubkey
+    let receiver_shared = view_secret.diffie_hellman(&ephemeral_pubkey);
+    
+    // Both should be equal
+    assert_eq!(
+        sender_shared.as_bytes(),
+        receiver_shared.as_bytes(),
+        "ECDH should be commutative"
+    );
+    
+    // Hash should also be equal
+    let sender_hash = blake2b_256(sender_shared.as_bytes());
+    let receiver_hash = blake2b_256(receiver_shared.as_bytes());
+    
+    assert_eq!(sender_hash, receiver_hash, "Hash of shared secret should match");
+}
+
+/// End-to-end test simulating the exact frontend flow
+#[test]
+fn test_e2e_stealth_flow_with_ss58() {
+    use bs58;
+    use blake2::{Blake2b512, Digest};
+    
+    // Step 1: Receiver generates stealth keys
+    let receiver_keys = generate_stealth_keys();
+    let meta_address = receiver_keys.meta_address();
+    
+    println!("Receiver meta_address: {}", meta_address);
+    println!("Receiver view_key (first 8): {:?}", &receiver_keys.view_key()[0..8]);
+    println!("Receiver spend_pubkey (first 8): {:?}", &receiver_keys.spend_pubkey()[0..8]);
+    
+    // Step 2: Sender derives stealth address from meta_address
+    let derived = derive_stealth_address(&meta_address).unwrap();
+    let ephemeral_pubkey = derived.ephemeral_pubkey();
+    let stealth_pubkey = derived.stealth_pubkey();
+    let stealth_address_wasm = derived.stealth_address();
+    
+    println!("Derived ephemeral_pubkey (first 8): {:?}", &ephemeral_pubkey[0..8]);
+    println!("Derived stealth_pubkey (first 8): {:?}", &stealth_pubkey[0..8]);
+    println!("Derived stealth_address (wasm): {}", stealth_address_wasm);
+    
+    // Step 3: Simulate frontend SS58 encoding (like polkadot-api does)
+    // This mirrors: fromBufferToBase58(42)(stealthPubkey)
+    fn encode_ss58(pubkey: &[u8]) -> String {
+        const SS58_PREFIX: u8 = 42;
+        let mut payload = Vec::with_capacity(35);
+        payload.push(SS58_PREFIX);
+        payload.extend_from_slice(pubkey);
+        
+        let mut hasher = Blake2b512::new();
+        hasher.update(b"SS58PRE");
+        hasher.update(&payload);
+        let hash = hasher.finalize();
+        
+        payload.extend_from_slice(&hash[0..2]);
+        bs58::encode(payload).into_string()
+    }
+    
+    let frontend_stealth_address = encode_ss58(&stealth_pubkey);
+    println!("Frontend-style SS58 address: {}", frontend_stealth_address);
+    
+    // Verify addresses match
+    assert_eq!(
+        stealth_address_wasm, frontend_stealth_address,
+        "Wasm and frontend SS58 encoding should match"
+    );
+    
+    // Step 4: Simulate SS58 decode (like getSs58AddressInfo does)
+    fn decode_ss58(address: &str) -> Option<[u8; 32]> {
+        let decoded = bs58::decode(address).into_vec().ok()?;
+        if decoded.len() != 35 {
+            return None;
+        }
+        // Verify checksum
+        let payload = &decoded[..33];
+        let checksum = &decoded[33..35];
+        
+        let mut hasher = Blake2b512::new();
+        hasher.update(b"SS58PRE");
+        hasher.update(payload);
+        let hash = hasher.finalize();
+        
+        if hash[0] != checksum[0] || hash[1] != checksum[1] {
+            return None;
+        }
+        
+        let mut pubkey = [0u8; 32];
+        pubkey.copy_from_slice(&decoded[1..33]);
+        Some(pubkey)
+    }
+    
+    let decoded_pubkey = decode_ss58(&frontend_stealth_address)
+        .expect("SS58 decode should succeed");
+    
+    println!("Decoded stealth_pubkey (first 8): {:?}", &decoded_pubkey[0..8]);
+    
+    // Verify round-trip preserves bytes
+    assert_eq!(
+        &decoded_pubkey[..], &stealth_pubkey[..],
+        "SS58 round-trip should preserve pubkey bytes"
+    );
+    
+    // Step 5: Scan the transaction using decoded pubkey
+    let is_ours = scan_transaction(
+        &receiver_keys.view_key(),
+        &ephemeral_pubkey,
+        &decoded_pubkey,  // Use decoded pubkey (as scanner does)
+        &receiver_keys.spend_pubkey(),
+    );
+    
+    println!("scan_transaction result: {}", is_ours);
+    
+    assert!(is_ours, "Should detect own transaction through full SS58 round-trip");
 }
 
 #[test]
@@ -203,11 +364,11 @@ fn test_scan_transaction_rejects_others() {
     // 受信者宛テルスアドレスを導出
     let result = derive_stealth_address(&recipient_keys.meta_address()).unwrap();
     
-    // 別のユーザーがスキャン
+    // 別のユーザーがスキャン（pubkeyバイト列を直接比較）
     let is_ours = scan_transaction(
         &other_keys.view_key(),
         &result.ephemeral_pubkey(),
-        &result.stealth_address(),
+        &result.stealth_pubkey(),
         &other_keys.spend_pubkey(),
     );
     
