@@ -25,6 +25,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-07
 - Rust 1.87 (blockchain/wasm-engine), TypeScript 5.x (frontend) (016-stealth-address)
 - Rust (stable via rust-toolchain.toml), TypeScript 5.x + Polkadot SDK stable2503, frame-support, sp-io, PAPI (polkadot-api), Next.js 14 (017-reaction-mining)
 - オンチェーンストレージ（FRAME StorageMap/StorageValue） (017-reaction-mining)
+- Rust 1.81+ (stable2503互換) + libp2p 0.53+, axum 0.7+, ed25519-dalek, rand (018-storage-node-auth)
+- In-memory HashMap<Token, SessionInfo>（永続化不要） (018-storage-node-auth)
 
 - Rust 1.75+ (Polkadot SDK stable2503) + frame-support, frame-system, sp-runtime, sp-core (001-identity-pallet)
 
@@ -44,9 +46,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust 1.75+ (Polkadot SDK stable2503): Follow standard conventions
 
 ## Recent Changes
+- 018-storage-node-auth: Added Rust 1.81+ (stable2503互換) + libp2p 0.53+, axum 0.7+, ed25519-dalek, rand
 - 017-reaction-mining: Added Rust (stable via rust-toolchain.toml), TypeScript 5.x + Polkadot SDK stable2503, frame-support, sp-io, PAPI (polkadot-api), Next.js 14
 - 017-reaction-mining: Added Rust (stable via rust-toolchain.toml), TypeScript 5.x + Polkadot SDK stable2503, frame-support, sp-io, PAPI (polkadot-api), Next.js 14
-- 016-stealth-address: Added Rust 1.87 (blockchain/wasm-engine), TypeScript 5.x (frontend)
 
 
 <!-- MANUAL ADDITIONS START -->
