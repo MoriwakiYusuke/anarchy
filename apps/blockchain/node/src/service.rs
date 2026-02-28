@@ -253,9 +253,15 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         info!("Storage node gossip service spawned");
 
         // Session client for authenticated storage access (T038)
-        // TODO: Initialize with node's Ed25519 keypair when key management is set up
-        // For now, session authentication is optional and disabled by default
-        let session_client: Option<std::sync::Arc<crate::storage::StorageSessionClient>> = None;
+        // Generate Ed25519 keypair for storage node sessions
+        // Each node has its own identity for storage access
+        let session_client = {
+            use sp_core::{ed25519, Pair};
+            // Generate keypair from random seed (or derive from node identity in production)
+            let (keypair, _) = ed25519::Pair::generate();
+            info!("Storage session client initialized with public key: 0x{}", hex::encode(keypair.public().0));
+            Some(std::sync::Arc::new(crate::storage::StorageSessionClient::new(keypair)))
+        };
 
         Box::new(move |_| {
             let deps = crate::rpc::FullDeps {

@@ -368,6 +368,8 @@ pub struct StorageNodeClient {
     http_client: reqwest::Client,
     /// Storage NodeのベースURL
     storage_node_url: String,
+    /// Session token for authenticated access (if available)
+    session_token: Option<String>,
 }
 
 impl StorageNodeClient {
@@ -376,6 +378,16 @@ impl StorageNodeClient {
         Self {
             http_client: reqwest::Client::new(),
             storage_node_url,
+            session_token: None,
+        }
+    }
+    
+    /// Create with session token for authenticated access
+    pub fn new_with_session(storage_node_url: String, session_token: String) -> Self {
+        Self {
+            http_client: reqwest::Client::new(),
+            storage_node_url,
+            session_token: Some(session_token),
         }
     }
 
@@ -417,8 +429,11 @@ impl StorageNodeClient {
             .post(&self.storage_node_url)
             .json(&rpc_request);
         
-        // Add X-Anarchy-Auth header if auth is present
-        if let Some(auth) = auth {
+        // Add X-Session-Token header if session token is available (preferred)
+        if let Some(ref token) = self.session_token {
+            http_request = http_request.header("X-Session-Token", token);
+        } else if let Some(auth) = auth {
+            // Fallback to X-Anarchy-Auth (legacy signature auth)
             let auth_json = serde_json::to_string(&auth)
                 .map_err(|e| format!("Failed to serialize auth: {}", e))?;
             http_request = http_request.header("X-Anarchy-Auth", auth_json);
@@ -556,8 +571,11 @@ impl StorageNodeClient {
             .post(&self.storage_node_url)
             .json(&rpc_request);
         
-        // Add X-Anarchy-Auth header if auth is present
-        if let Some(ref auth) = request.auth {
+        // Add X-Session-Token header if session token is available (preferred)
+        if let Some(ref token) = self.session_token {
+            http_request = http_request.header("X-Session-Token", token);
+        } else if let Some(ref auth) = request.auth {
+            // Fallback to X-Anarchy-Auth (legacy)
             let auth_json = serde_json::to_string(auth)
                 .map_err(|e| format!("Failed to serialize auth: {}", e))?;
             http_request = http_request.header("X-Anarchy-Auth", auth_json);
@@ -610,6 +628,7 @@ where
     /// 新しいStorage RPCハンドラを作成
     /// Storage Nodeは起動時にstorage_registerEndpoint RPCで自動登録される
     /// 複数ノードが登録可能で、断片は分散配置される
+    #[allow(dead_code)]
     pub fn new(client: Arc<C>, storage_nodes: SharedStorageNodes, gossip_handle: crate::gossip::StorageNodeGossipHandle) -> Self {
         Self { 
             client, 
@@ -674,7 +693,12 @@ where
         {
             let registry = self.storage_nodes.read().await;
             if let Some(node) = registry.select_node_for_fragment(merkle_root, fragment_index) {
-                return Some(StorageNodeClient::new(node.endpoint.clone()));
+                let endpoint = node.endpoint.clone();
+                // Get session token for authenticated access
+                if let Some(token) = self.get_session_token(&endpoint).await {
+                    return Some(StorageNodeClient::new_with_session(endpoint, token));
+                }
+                return Some(StorageNodeClient::new(endpoint));
             }
         }
         
@@ -687,7 +711,12 @@ where
         // オンチェーンノードからもmerkle_rootベースで選択（プライバシー保護）
         let seed = u64::from_le_bytes(merkle_root[..8].try_into().unwrap());
         let node_index = (seed as usize).wrapping_add(fragment_index) % on_chain_urls.len();
-        Some(StorageNodeClient::new(on_chain_urls[node_index].clone()))
+        let endpoint = on_chain_urls[node_index].clone();
+        // Get session token for authenticated access
+        if let Some(token) = self.get_session_token(&endpoint).await {
+            return Some(StorageNodeClient::new_with_session(endpoint, token));
+        }
+        Some(StorageNodeClient::new(endpoint))
     }
     
     /// 全てのオンラインノードへのクライアントを取得（取得時のフォールバック用）
@@ -711,9 +740,16 @@ where
             }
         }
         
-        endpoints.into_iter()
-            .map(StorageNodeClient::new)
-            .collect()
+        // Create clients with session tokens where available
+        let mut clients = Vec::with_capacity(endpoints.len());
+        for endpoint in endpoints {
+            if let Some(token) = self.get_session_token(&endpoint).await {
+                clients.push(StorageNodeClient::new_with_session(endpoint, token));
+            } else {
+                clients.push(StorageNodeClient::new(endpoint));
+            }
+        }
+        clients
     }
 }
 

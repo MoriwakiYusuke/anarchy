@@ -3,6 +3,9 @@
 //! Handles session token acquisition, renewal, and revocation for storage node access.
 //! Uses Ed25519 signed HTTP requests to authenticate with storage nodes.
 
+// Allow dead code for future API expansion and optional features
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
