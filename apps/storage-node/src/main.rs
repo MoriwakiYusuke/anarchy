@@ -156,6 +156,9 @@ async fn main() -> anyhow::Result<()> {
     );
     let connected_peers = network.shared_connected_peers();
     
+    // Initialize nonce cache for P2P session requests (replay attack prevention)
+    let session_nonce_cache = session::NonceCache::new();
+    
     // Spawn session cleanup task (T012)
     let _session_cleanup_handle = session_registry.spawn_cleanup_task(
         config.session.cleanup_interval(),
@@ -166,9 +169,14 @@ async fn main() -> anyhow::Result<()> {
         "Session authentication initialized"
     );
 
-    // Start HTTP RPC server
+    // Start HTTP RPC server with connected_peers for session auth (B案)
     let rpc_addr = format!("0.0.0.0:{}", config.rpc_port);
-    let rpc_router = rpc::create_rpc_router(Arc::clone(&store), config.auth_enabled, metrics.clone());
+    let auth_state = rpc::AuthState::with_connected_peers(
+        config.auth_enabled,
+        session_registry.clone(),
+        connected_peers.clone(),
+    );
+    let rpc_router = rpc::create_rpc_router_with_auth(Arc::clone(&store), auth_state, metrics.clone());
     let rpc_listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
     info!(addr = %rpc_addr, auth = config.auth_enabled, "HTTP RPC server started (NFR-002: /metrics endpoint enabled)");
     
@@ -433,12 +441,20 @@ async fn main() -> anyhow::Result<()> {
                             "storage_requestSession" => {
                                 // Verify Ed25519 signature and check PeerId matches
                                 match request.verify_signature() {
-                                    Ok((derived_peer_id, _nonce)) => {
-                                        // Note: nonce replay check for P2P sessions is handled by
-                                        // the session registry (one session per peer)
-                                        
-                                        // Verify the derived peer_id matches the actual peer
-                                        if derived_peer_id != peer {
+                                    Ok((derived_peer_id, nonce)) => {
+                                        // Check nonce for replay attack prevention
+                                        if session_nonce_cache.check_and_mark(&nonce) {
+                                            warn!(
+                                                peer = %peer,
+                                                nonce = %nonce,
+                                                "Session request nonce already used (replay attack detected)"
+                                            );
+                                            session::SessionResponse::error(
+                                                request_id,
+                                                session::SessionError::NonceReused,
+                                            )
+                                        } else if derived_peer_id != peer {
+                                            // Verify the derived peer_id matches the actual peer
                                             warn!(
                                                 peer = %peer, 
                                                 derived = %derived_peer_id, 

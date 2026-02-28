@@ -21,7 +21,7 @@ use tracing::{info, warn, error};
 use crate::storage::FragmentStore;
 use crate::metrics::Metrics;
 use crate::session::{SessionRequest, SessionResponse, SessionError};
-use auth::{AuthState, auth_middleware, method_requires_auth, require_auth};
+pub use auth::{AuthState, auth_middleware, method_requires_auth, require_auth};
 
 /// Maximum fragment size: 1GB
 const MAX_FRAGMENT_SIZE: usize = 1024 * 1024 * 1024;
@@ -158,52 +158,55 @@ pub fn create_rpc_router_with_auth(
 /// Handle session request (POST /session)
 /// This endpoint allows blockchain nodes to request session tokens via HTTP
 /// by providing a signed request (same format as libp2p session protocol).
+///
+/// - `storage_requestSession`: Requires Ed25519 signature + connected_peers check
+/// - `storage_renewSession`: Requires valid session token only
+/// - `storage_revokeSession`: Requires valid session token only
 async fn handle_session_request(
     State(state): State<RpcState>,
     Json(request): Json<SessionRequest>,
 ) -> impl IntoResponse {
-    // Verify signature and get peer_id + nonce from the public key
-    let (peer_id, nonce) = match request.verify_signature() {
-        Ok((peer_id, nonce)) => (peer_id, nonce),
-        Err(err) => {
-            warn!(error = %err, "Session request signature verification failed");
-            return Json(SessionResponse::error(request.id, err));
-        }
-    };
-
-    // Check nonce for replay attack prevention
-    if state.auth.session_nonce_cache.check_and_mark(&nonce) {
-        warn!(nonce = %nonce, "Session request nonce already used (replay attack detected)");
-        return Json(SessionResponse::error(request.id, SessionError::NonceReused));
-    }
-
-    // Get session registry from auth state
     let registry = &state.auth.session_registry;
 
-    // Handle based on method
+    // Handle based on method - different auth requirements for each
     match request.method.as_str() {
         "storage_requestSession" => {
+            // Verify signature and get peer_id + nonce from the public key
+            let (peer_id, nonce) = match request.verify_signature() {
+                Ok((peer_id, nonce)) => (peer_id, nonce),
+                Err(err) => {
+                    warn!(error = %err, "Session request signature verification failed");
+                    return Json(SessionResponse::error(request.id, err));
+                }
+            };
+
+            // Check nonce for replay attack prevention
+            if state.auth.session_nonce_cache.check_and_mark(&nonce) {
+                warn!(nonce = %nonce, "Session request nonce already used (replay attack detected)");
+                return Json(SessionResponse::error(request.id, SessionError::NonceReused));
+            }
+
+            // Check if peer is connected via P2P (B案: HTTP でも connected_peers チェック)
+            // This ensures only peers that have established a libp2p connection can obtain session tokens
+            if !state.auth.connected_peers.read().contains(&peer_id) {
+                warn!(peer_id = %peer_id, "Session request from non-connected peer via HTTP");
+                return Json(SessionResponse::error(request.id, SessionError::NotConnected));
+            }
+
             // Create session
             let token = registry.create_session(peer_id);
-            let expires_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                + 86400; // 24 hours
+            let expires_at = registry.get_expiration(token.as_str()).unwrap_or(0);
 
             info!(peer_id = %peer_id, "Session created via HTTP");
             Json(SessionResponse::success_session(request.id, token.to_string(), expires_at))
         }
         "storage_renewSession" => {
+            // Token-based auth only - no signature required
             if let Some(token_str) = request.get_token() {
                 // Use renew_session which checks expiry and creates new token
                 if let Some(new_token) = registry.renew_session(token_str) {
-                    let expires_at = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                        + 86400;
-                    info!(peer_id = %peer_id, "Session renewed via HTTP");
+                    let expires_at = registry.get_expiration(new_token.as_str()).unwrap_or(0);
+                    info!("Session renewed via HTTP");
                     Json(SessionResponse::success_session(request.id, new_token.to_string(), expires_at))
                 } else {
                     Json(SessionResponse::error(
@@ -219,9 +222,17 @@ async fn handle_session_request(
             }
         }
         "storage_revokeSession" => {
-            if let Some(_token_str) = request.get_token() {
-                registry.revoke_for_peer(&peer_id);
-                Json(SessionResponse::success_revoked(request.id))
+            // Token-based auth only - no signature required
+            if let Some(token_str) = request.get_token() {
+                if registry.revoke_by_token(token_str) {
+                    info!("Session revoked via HTTP");
+                    Json(SessionResponse::success_revoked(request.id))
+                } else {
+                    Json(SessionResponse::error(
+                        request.id,
+                        SessionError::InvalidToken,
+                    ))
+                }
             } else {
                 Json(SessionResponse::error(
                     request.id,

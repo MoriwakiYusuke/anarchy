@@ -144,8 +144,14 @@ grep bootstrap_peers config.toml
 ### 署名検証エラー (-32002)
 
 1. タイムスタンプが±30秒以内か確認
-2. 署名ペイロードが`"anarchy-session-request:{timestamp}"`形式か確認
-3. 公開鍵と秘密鍵のペアが正しいか確認
+2. 署名ペイロードが`"anarchy-session-request:{timestamp}:{nonce}"`形式か確認
+3. nonceが32 hex文字（16バイト）か確認
+4. 公開鍵と秘密鍵のペアが正しいか確認
+
+### Nonce再利用エラー (-32006)
+
+1. 各リクエストで新しいランダムnonceを生成しているか確認
+2. 同じnonceを複数回使用していないか確認
 
 ## 複数ノード同時セッションテスト (Concurrent Session Test)
 

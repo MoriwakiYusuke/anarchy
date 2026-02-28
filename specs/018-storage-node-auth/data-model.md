@@ -168,26 +168,54 @@ impl ConnectedPeers {
 ```rust
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionRequest {
-    /// Ed25519 public key (protobuf encoded)
-    pub public_key: Vec<u8>,
-    /// Ed25519 signature over challenge
-    pub signature: Vec<u8>,
-    /// Request timestamp (prevents replay)
-    pub timestamp: u64,
+    /// JSON-RPC method
+    pub method: String,
+    /// Request parameters
+    pub params: SessionRequestParams,
+    /// JSON-RPC ID
+    pub id: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum SessionRequestParams {
+    /// Request new session
+    Request {
+        /// Ed25519 public key (hex, 64 characters)
+        public_key: String,
+        /// Unix timestamp (seconds)
+        timestamp: u64,
+        /// Random nonce (hex, 32 characters = 16 bytes)
+        nonce: String,
+        /// Ed25519 signature (hex, 128 characters)
+        signature: String,
+    },
+    /// Renew existing session
+    Renew { token: String },
+    /// Revoke session
+    Revoke { token: String },
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| public_key | `Vec<u8>` | Ed25519公開鍵（protobufエンコード） |
-| signature | `Vec<u8>` | タイムスタンプに対する署名 |
-| timestamp | `u64` | リクエスト時刻（UNIX epoch秒） |
+| method | `String` | `"storage_requestSession"`, `"storage_renewSession"`, or `"storage_revokeSession"` |
+| params.public_key | `String` | Ed25519公開鍵（hex, 64文字） |
+| params.timestamp | `u64` | リクエスト時刻（UNIX epoch秒） |
+| params.nonce | `String` | ランダムnonce（hex, 32文字）、リプレイ攻撃防止 |
+| params.signature | `String` | Ed25519署名（hex, 128文字） |
+| params.token | `String` | セッショントークン（renew/revoke時） |
 
-**Validation**:
+**Validation (storage_requestSession)**:
 1. `public_key` からpeer_idを復元
 2. peer_idが`connected_peers`に含まれるか確認
-3. 署名検証（メッセージ = `"anarchy-session-request:{timestamp}"`）
-4. タイムスタンプが現在時刻±30秒以内か確認（リプレイ攻撃防止）
+3. nonceが32 hex文字であることを確認
+4. nonceがNonceCacheに存在しないことを確認（リプレイ防止）
+5. 署名検証（メッセージ = `"anarchy-session-request:{timestamp}:{nonce}"`）
+6. タイムスタンプが現在時刻±30秒以内か確認
+
+**Validation (storage_renewSession / storage_revokeSession)**:
+1. tokenが有効なセッショントークンであることを確認
+2. 署名検証は不要（トークンベース認証）
 
 ---
 

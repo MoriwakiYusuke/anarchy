@@ -1,13 +1,13 @@
 # JSON-RPC API Contract: Session Authentication
 
-**Version**: 1.0.0  
-**Transport**: libp2p request-response protocol  
+**Version**: 1.1.0  
+**Transport**: libp2p request-response protocol OR HTTP POST `/session`  
 **Protocol ID**: `/anarchy/session/1.0.0`
 
 ## Overview
 
 ストレージノードとブロックチェーンノード間のセッション認証用JSON-RPC API。
-libp2p経由でのみ利用可能（HTTP経由での呼び出し不可）。
+libp2pまたはHTTP経由で利用可能。どちらの場合も、リクエスト元のpeer_idがP2P接続済み（`connected_peers`に含まれる）である必要がある。
 
 ## Methods
 
@@ -24,6 +24,7 @@ libp2p経由でのみ利用可能（HTTP経由での呼び出し不可）。
   "params": {
     "public_key": "0x...",
     "timestamp": 1709251200,
+    "nonce": "0x...",
     "signature": "0x..."
   },
   "id": 1
@@ -32,15 +33,18 @@ libp2p経由でのみ利用可能（HTTP経由での呼び出し不可）。
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| public_key | `string` | Yes | Ed25519公開鍵（hex, 64文字） |
+| public_key | `string` | Yes | Ed25519公開鍵（hex, 64文字、0xプレフィックスなし） |
 | timestamp | `integer` | Yes | Unix timestamp（秒）、±30秒以内 |
-| signature | `string` | Yes | Ed25519署名（hex, 128文字） |
+| nonce | `string` | Yes | ランダムnonce（hex, 32文字 = 16バイト）、リプレイ攻撃防止 |
+| signature | `string` | Yes | Ed25519署名（hex, 128文字、0xプレフィックスなし） |
 
 **Signature Payload**:
 
 ```
-"anarchy-session-request:{timestamp}"
+"anarchy-session-request:{timestamp}:{nonce}"
 ```
+
+例：`"anarchy-session-request:1709251200:a1b2c3d4e5f67890a1b2c3d4e5f67890"`
 
 **Response (Success)**:
 
@@ -81,6 +85,8 @@ libp2p経由でのみ利用可能（HTTP経由での呼び出し不可）。
 | -32002 | Invalid signature | 署名検証失敗 |
 | -32003 | Invalid timestamp | タイムスタンプが許容範囲外 |
 | -32004 | Invalid public key format | 公開鍵フォーマット不正 |
+| -32005 | Invalid nonce format | nonceフォーマット不正（32 hex文字必須） |
+| -32006 | Nonce reused | 同じnonceが再利用された（リプレイ攻撃検出） |
 | -32600 | Invalid Request | JSON-RPCフォーマット不正 |
 | -32601 | Method not found | 不明なメソッド |
 | -32602 | Invalid params | パラメータ不正 |

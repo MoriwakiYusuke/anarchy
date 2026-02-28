@@ -143,6 +143,20 @@ impl SessionRegistry {
         }
     }
 
+    /// Revoke a session by token string (hex)
+    /// Returns true if the token was found and revoked, false otherwise
+    pub fn revoke_by_token(&self, token_str: &str) -> bool {
+        if let Some(token) = SessionToken::from_hex(token_str) {
+            let sessions = self.inner.sessions.read();
+            if sessions.contains_key(&token) {
+                drop(sessions);
+                self.revoke_token(&token);
+                return true;
+            }
+        }
+        false
+    }
+
     /// Revoke all sessions for a peer
     pub fn revoke_for_peer(&self, peer_id: &PeerId) {
         let peer_tokens = self.inner.peer_tokens.read();

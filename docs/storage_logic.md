@@ -437,31 +437,41 @@ pub struct ProofRecord<BlockNumber> {
 │  (Ed25519鍵保持)  │                  │  (認証サーバー)   │
 └────────┬─────────┘                  └────────┬─────────┘
          │                                      │
-         │  ① POST /session                     │
+         │  ① libp2p P2P接続を確立               │
+         │ ─────────────────────────────────────►
+         │                            connected_peersに追加
+         │                                      │
+         │  ② POST /session または libp2p       │
          │  SessionRequest {                    │
-         │    peer_id, action: "create",        │
-         │    timestamp, signature              │
+         │    method: "storage_requestSession", │
+         │    params: {                         │
+         │      public_key, timestamp,          │
+         │      nonce, signature                │
+         │    }                                 │
          │  }                                   │
          │ ─────────────────────────────────────►
          │                                      │
-         │                            ② 署名検証：
-         │                               - Ed25519.verify(...)
-         │                               - timestamp ±5分
+         │                            ③ 検証：
+         │                               - peer_id ∈ connected_peers
+         │                               - Ed25519.verify(message, sig)
+         │                               - message = "anarchy-session-request:{ts}:{nonce}"
+         │                               - timestamp ±30秒
+         │                               - nonce未使用（リプレイ防止）
          │                                      │
-         │  ③ SessionResponse {                 │
+         │  ④ SessionResponse {                 │
          │    token: "abc123...",               │
-         │    expires_at, idle_timeout          │
+         │    expires_at                        │
          │  }                                   │
          │ ◄─────────────────────────────────────
          │                                      │
-         │  ④ POST /storage/store               │
+         │  ⑤ POST / (JSON-RPC)                 │
          │  Header: X-Session-Token: abc123...  │
          │ ─────────────────────────────────────►
          │                                      │
-         │                            ⑤ トークン検証
+         │                            ⑥ トークン検証
          │                               → アイドルタイムアウト更新
          │                                      │
-         │  ⑥ 操作成功                           │
+         │  ⑦ 操作成功                           │
          │ ◄─────────────────────────────────────
          │                                      │
 ```
@@ -473,19 +483,29 @@ pub struct ProofRecord<BlockNumber> {
 | `session.ttl` | 24時間 | セッション有効期限 |
 | `session.idle_timeout` | 1時間 | アイドルタイムアウト |
 | `session.cleanup_interval` | 5分 | 期限切れセッションの削除間隔 |
+| `session.timestamp_tolerance` | 30秒 | タイムスタンプ許容範囲 |
 
-### 7.3 HTTPエンドポイント
+### 7.3 セキュリティ要件
+
+| 要件 | 実装 |
+|------|------|
+| P2P接続必須 | `POST /session` は `connected_peers` に含まれる peer_id のみ許可 |
+| リプレイ防止 | nonce をキャッシュし、使用済み nonce は拒否 |
+| タイムスタンプ検証 | 署名時刻が現在時刻 ±30秒 以内 |
+| 署名形式 | `"anarchy-session-request:{timestamp}:{nonce}"` |
+
+### 7.4 HTTPエンドポイント
 
 | メソッド | パス | 認証 | 説明 |
 |---------|------|------|------|
 | `GET` | `/health` | 不要 | ヘルスチェック |
 | `GET` | `/storage/list` | 不要 | 断片一覧（読み取り） |
 | `GET` | `/storage/get` | 不要 | 断片取得（読み取り） |
-| `POST` | `/session` | 署名 | セッション作成/更新/削除 |
+| `POST` | `/session` | 署名 + P2P接続 | セッション作成/更新/削除 |
 | `POST` | `/storage/store` | トークン | 断片保存（書き込み） |
 | `DELETE` | `/storage/delete` | トークン | 断片削除 |
 
-### 7.4 実装ファイル
+### 7.5 実装ファイル
 
 ```
 apps/storage-node/src/session/

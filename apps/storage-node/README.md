@@ -188,17 +188,21 @@ cleanup_interval_secs = 300
 
 ```bash
 # Request session (from blockchain node)
+# Note: The requesting peer must be connected via libp2p (P2P connection required)
 curl -X POST http://localhost:3030/session \
   -H "Content-Type: application/json" \
   -d '{
     "method": "storage_requestSession",
     "params": {
-      "public_key": "<ed25519_pubkey_hex>",
+      "public_key": "<ed25519_pubkey_hex_64chars>",
       "timestamp": 1234567890,
-      "signature": "<ed25519_signature_hex>"
+      "nonce": "<random_hex_32chars>",
+      "signature": "<ed25519_signature_hex_128chars>"
     },
     "id": 1
   }'
+
+# Signature payload format: "anarchy-session-request:{timestamp}:{nonce}"
 
 # Use session token for fragment upload
 curl -X POST http://localhost:3030/ \

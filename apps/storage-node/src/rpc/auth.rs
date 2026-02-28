@@ -34,7 +34,8 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use schnorrkel::{PublicKey, Signature, signing_context};
 
-use crate::session::{SessionRegistry, NonceCache as SessionNonceCache};
+use crate::session::{SessionRegistry, NonceCache as SessionNonceCache, ConnectedPeers};
+use std::sync::Arc as StdArc;
 
 /// Maximum request body size for auth hashing (2GB to accommodate base64-encoded 1GB fragments)
 const MAX_AUTH_BODY_SIZE: usize = 2 * 1024 * 1024 * 1024;
@@ -352,6 +353,8 @@ pub struct AuthState {
     pub session_nonce_cache: SessionNonceCache,
     /// Session registry for token-based auth
     pub session_registry: SessionRegistry,
+    /// Connected peers from libp2p network (for session auth)
+    pub connected_peers: StdArc<parking_lot::RwLock<ConnectedPeers>>,
     /// Whether authentication is enabled
     pub enabled: bool,
 }
@@ -363,6 +366,7 @@ impl AuthState {
             nonce_cache: Arc::new(NonceCache::default()),
             session_nonce_cache: SessionNonceCache::new(),
             session_registry: SessionRegistry::new(),
+            connected_peers: StdArc::new(parking_lot::RwLock::new(ConnectedPeers::new())),
             enabled,
         }
     }
@@ -373,6 +377,22 @@ impl AuthState {
             nonce_cache: Arc::new(NonceCache::default()),
             session_nonce_cache: SessionNonceCache::new(),
             session_registry,
+            connected_peers: StdArc::new(parking_lot::RwLock::new(ConnectedPeers::new())),
+            enabled,
+        }
+    }
+
+    /// Create new auth state with connected peers reference
+    pub fn with_connected_peers(
+        enabled: bool,
+        session_registry: SessionRegistry,
+        connected_peers: StdArc<parking_lot::RwLock<ConnectedPeers>>,
+    ) -> Self {
+        Self {
+            nonce_cache: Arc::new(NonceCache::default()),
+            session_nonce_cache: SessionNonceCache::new(),
+            session_registry,
+            connected_peers,
             enabled,
         }
     }
