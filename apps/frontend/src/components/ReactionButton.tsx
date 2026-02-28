@@ -7,6 +7,7 @@
 'use client'
 
 import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { useLocale } from '@/i18n'
 import { useReactionMining, type MiningError } from '@/hooks/useReactionMining'
 import { ReactionType, type ReactionResult } from '@/services/reactionService'
 import type { PolkadotSigner } from 'polkadot-api/signer'
@@ -75,6 +76,7 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
   signer = null,
   onReactionSuccess,
 }) => {
+  const { t } = useLocale()
   const [selectedType, setSelectedType] = useState<ReactionType | null>(null)
   const [loading, setLoading] = useState<ReactionType | null>(null)
   const [localCounts, setLocalCounts] = useState({ likes, boosts, bads })
@@ -233,7 +235,7 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
         </button>
       </div>
       {isNotConnected && (
-        <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>接続してください</span>
+        <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>{t('reaction.pleaseConnect')}</span>
       )}
       {status === 'mining' && progress && (
         <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>
@@ -241,10 +243,10 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
         </span>
       )}
       {status === 'submitting' && (
-        <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>送信中...</span>
+        <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>{t('reaction.submitting')}</span>
       )}
       {alreadyReactedError && (
-        <span style={{ color: '#f4212e', fontSize: '0.625rem', marginTop: '0.25rem' }}>すでに反応済みです</span>
+        <span style={{ color: '#f4212e', fontSize: '0.625rem', marginTop: '0.25rem' }}>{t('reaction.alreadyReacted')}</span>
       )}
     </div>
   )

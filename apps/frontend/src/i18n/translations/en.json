@@ -250,5 +250,11 @@
   "stealth.balance.noMetaAddress": "To view balance, first generate a meta-address in receive settings.",
   "stealth.balance.backToList": "← Back to Balance List",
   
-  "stealth.button": "🔐 Stealth Transfer"
+  "stealth.button": "🔐 Stealth Transfer",
+  
+  "post.expand": "Show more",
+  "post.collapse": "Show less",
+  "reaction.pleaseConnect": "Please connect",
+  "reaction.alreadyReacted": "Already reacted",
+  "reaction.submitting": "Submitting..."
 }

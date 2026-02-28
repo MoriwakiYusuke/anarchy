@@ -200,7 +200,7 @@ export function PostItem({
             className={styles.expandButton}
             onClick={() => setExpanded(!expanded)}
           >
-            {expanded ? '折りたたむ' : 'もっと見る'}
+            {expanded ? t('post.collapse') : t('post.expand')}
           </button>
         )}
         {decodedMedia.length > 0 && (
