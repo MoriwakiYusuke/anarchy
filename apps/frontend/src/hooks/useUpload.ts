@@ -5,7 +5,14 @@ import { blake2b } from 'blakejs'
 import { getSharedWorkerPool } from '@/workers/WorkerPool'
 import { uint8ArrayToBase64 } from '@/lib/postCodec'
 
-const RPC_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944'
+// Multiple RPC endpoints for failover (add more nodes as they become available)
+// フェイルオーバー用の複数RPCエンドポイント（ノード追加時はここに追加）
+const RPC_ENDPOINTS: string[] = [
+  process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944',
+  // TODO: Add more full nodes for redundancy
+  // 'http://node2.anarchy.network:9944',
+  // 'http://node3.anarchy.network:9944',
+]
 const SSS_K = 3, SSS_N = 5, MAX_RETRIES = 3, RETRY_DELAY_MS = 1000
 
 export interface SignedAuth {
@@ -122,15 +129,29 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
     return pool.executeOnWorker<T>(workerIndex, type, payload)
   }, [pool])
 
+  // RPC call with automatic failover to next endpoint
+  // フェイルオーバー付きRPC呼び出し（1つ目が失敗したら次のノードを試行）
   const rpcCall = useCallback(async <T,>(method: string, params: unknown[]): Promise<T> => {
-    const response = await fetch(RPC_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    })
-    const json = await response.json()
-    if (json.error) throw new Error(json.error.message || 'RPC error')
-    return json.result
+    let lastError: Error | null = null
+    
+    for (const endpoint of RPC_ENDPOINTS) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        })
+        const json = await response.json()
+        if (json.error) throw new Error(json.error.message || 'RPC error')
+        return json.result
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err))
+        // Try next endpoint
+        continue
+      }
+    }
+    
+    throw lastError || new Error('All RPC endpoints unreachable')
   }, [])
 
   const uploadContent = useCallback(async (content: Uint8Array): Promise<UploadResult> => {
