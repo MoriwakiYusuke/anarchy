@@ -7,8 +7,25 @@
 import { StealthKeyManager } from '../../../src/lib/stealth/keyManager';
 import type { StealthKeyPair } from '../../../src/lib/stealth/types';
 
+// Mock fetch for wasm initialization
+global.fetch = jest.fn().mockResolvedValue({
+  ok: true,
+  arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+});
+
+// Mock WebAssembly.Module
+global.WebAssembly = {
+  ...global.WebAssembly,
+  Module: class MockModule {
+    constructor() {
+      // Mock module
+    }
+  } as unknown as typeof WebAssembly.Module,
+};
+
 // Mock wasm-engine functions
 jest.mock('anarchy-wasm-engine', () => ({
+  initSync: jest.fn(),
   generate_stealth_keys: jest.fn(() => ({
     spend_key: new Uint8Array(32).fill(1),
     view_key: new Uint8Array(32).fill(2),
@@ -45,6 +62,7 @@ describe('StealthKeyManager', () => {
   let manager: StealthKeyManager;
 
   beforeEach(() => {
+    jest.clearAllMocks();
     manager = new StealthKeyManager();
   });
 

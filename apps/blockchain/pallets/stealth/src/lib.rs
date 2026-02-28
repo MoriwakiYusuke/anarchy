@@ -37,7 +37,7 @@ pub mod pallet {
 
     /// Configuration trait
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
         /// Currency type for transfers
         type Currency: Currency<Self::AccountId>;
 

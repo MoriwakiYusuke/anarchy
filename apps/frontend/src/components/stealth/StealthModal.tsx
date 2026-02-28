@@ -207,10 +207,12 @@ export function StealthModal({
       throw new Error('Not connected');
     }
     
-    const wasm = await import('anarchy-wasm-engine');
-    const result = wasm.derive_stealth_address(recipientMeta);
-    const stealthAddress = result.stealth_address;
-    const ephemeral = ephemeralPubkey ?? new Uint8Array(result.ephemeral_pubkey);
+    // ephemeralPubkey is already passed from StealthSendForm which uses deriveStealthAddress
+    // We need to derive the stealth address again to get stealthAddress
+    const { deriveStealthAddress } = await import('@/lib/stealth/keyManager');
+    const result = await deriveStealthAddress(recipientMeta);
+    const stealthAddress = result.stealthAddress;
+    const ephemeral = ephemeralPubkey ?? new Uint8Array(result.ephemeralPubkey);
 
     await sendToStealth(unsafeApi, signer, {
       stealthAddress,

@@ -2,6 +2,51 @@
 
 use super::*;
 
+/// SS58チェックサムを検証するヘルパー関数
+/// polkadot-apiと同じ方式でチェックサムを検証
+fn verify_ss58_checksum(address: &str) -> bool {
+    use blake2::{Blake2b512, Digest};
+    
+    // Base58デコード
+    let decoded = match bs58::decode(address).into_vec() {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    
+    // 最小長チェック (prefix 1byte + pubkey 32bytes + checksum 2bytes = 35)
+    if decoded.len() < 35 {
+        return false;
+    }
+    
+    // チェックサム検証
+    let payload_len = decoded.len() - 2;
+    let payload = &decoded[..payload_len];
+    let checksum = &decoded[payload_len..];
+    
+    // Blake2b-512でハッシュ
+    let mut hasher = Blake2b512::new();
+    hasher.update(b"SS58PRE");
+    hasher.update(payload);
+    let hash = hasher.finalize();
+    
+    // 最初の2バイトがチェックサムと一致するか確認
+    hash[0] == checksum[0] && hash[1] == checksum[1]
+}
+
+/// SS58アドレスから公開鍵を抽出
+fn extract_pubkey_from_ss58(address: &str) -> Option<[u8; 32]> {
+    let decoded = bs58::decode(address).into_vec().ok()?;
+    
+    // prefix(1) + pubkey(32) + checksum(2) = 35
+    if decoded.len() != 35 {
+        return None;
+    }
+    
+    let mut pubkey = [0u8; 32];
+    pubkey.copy_from_slice(&decoded[1..33]);
+    Some(pubkey)
+}
+
 #[test]
 fn test_generate_stealth_keys() {
     let keys = generate_stealth_keys();
@@ -42,6 +87,90 @@ fn test_derive_stealth_address() {
     
     // エフェメラル公開鍵が32バイトであることを確認
     assert_eq!(result.ephemeral_pubkey().len(), 32);
+    
+    // ステルス公開鍵が32バイトであることを確認
+    assert_eq!(result.stealth_pubkey().len(), 32);
+}
+
+#[test]
+fn test_ss58_checksum_validity() {
+    // 複数の鍵ペアでテスト
+    for _ in 0..10 {
+        let keys = generate_stealth_keys();
+        let result = derive_stealth_address(&keys.meta_address()).unwrap();
+        
+        let address = result.stealth_address();
+        
+        // SS58アドレスが正しい形式であることを確認
+        assert!(
+            address.starts_with('5'),
+            "SS58 address with prefix 42 should start with '5', got: {}",
+            address
+        );
+        
+        // チェックサムが正しいことを確認
+        assert!(
+            verify_ss58_checksum(&address),
+            "SS58 checksum should be valid for address: {}",
+            address
+        );
+        
+        // SS58アドレスから公開鍵を抽出し、stealth_pubkeyと一致することを確認
+        let extracted_pubkey = extract_pubkey_from_ss58(&address)
+            .expect("Should be able to extract pubkey from SS58 address");
+        assert_eq!(
+            extracted_pubkey.to_vec(),
+            result.stealth_pubkey(),
+            "Extracted pubkey should match stealth_pubkey"
+        );
+    }
+}
+
+#[test]
+fn test_ss58_address_length() {
+    let keys = generate_stealth_keys();
+    let result = derive_stealth_address(&keys.meta_address()).unwrap();
+    
+    let address = result.stealth_address();
+    
+    // SS58アドレスの長さ確認 (prefix 42, 32バイト公開鍵の場合は47-48文字)
+    assert!(
+        address.len() >= 47 && address.len() <= 48,
+        "SS58 address length should be 47-48, got: {} (address: {})",
+        address.len(),
+        address
+    );
+}
+
+#[test]
+fn test_stealth_pubkey_matches_address() {
+    let keys = generate_stealth_keys();
+    let result = derive_stealth_address(&keys.meta_address()).unwrap();
+    
+    // stealth_pubkeyからSS58アドレスを再生成
+    let pubkey: [u8; 32] = result.stealth_pubkey().try_into().unwrap();
+    let regenerated_address = {
+        use blake2::{Blake2b512, Digest};
+        
+        const SS58_PREFIX: u8 = 42;
+        let mut payload = Vec::with_capacity(35);
+        payload.push(SS58_PREFIX);
+        payload.extend_from_slice(&pubkey);
+        
+        let mut hasher = Blake2b512::new();
+        hasher.update(b"SS58PRE");
+        hasher.update(&payload);
+        let hash = hasher.finalize();
+        
+        payload.extend_from_slice(&hash[0..2]);
+        bs58::encode(payload).into_string()
+    };
+    
+    assert_eq!(
+        result.stealth_address(),
+        regenerated_address,
+        "Regenerated SS58 address should match original"
+    );
 }
 
 #[test]

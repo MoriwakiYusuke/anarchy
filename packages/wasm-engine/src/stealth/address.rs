@@ -91,6 +91,7 @@ pub fn derive_stealth_address(meta_address: &str) -> Result<StealthAddressResult
     Ok(StealthAddressResult::new(
         stealth_address,
         ephemeral_pubkey.as_bytes().to_vec(),
+        stealth_pubkey.to_vec(),
     ))
 }
 

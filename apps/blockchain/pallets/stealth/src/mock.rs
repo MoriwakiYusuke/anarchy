@@ -48,7 +48,6 @@ impl pallet_balances::Config for Test {
 }
 
 impl pallet_stealth::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type MaxEntriesPerBlock = ConstU32<1000>;
     type WeightInfo = ();

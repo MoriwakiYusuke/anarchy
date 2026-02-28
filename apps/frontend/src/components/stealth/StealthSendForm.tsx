@@ -8,6 +8,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { deriveStealthAddress } from '@/lib/stealth/keyManager';
 import styles from './StealthSendForm.module.css';
 
 // MORAL token has 12 decimals
@@ -40,29 +41,25 @@ export function validateMetaAddress(address: string): ValidationResult {
   }
 
   const parts = trimmed.split(':');
-  if (parts.length !== 4) {
+  // Format: st:anarchy:<base58_encoded_keys>
+  if (parts.length !== 3) {
     return { valid: false, error: '無効なメタアドレス形式です' };
   }
 
-  const spendPubkey = parts[2];
-  const viewPubkey = parts[3];
+  const encoded = parts[2];
+  
+  // Base58 character validation
+  const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+  if (!base58Regex.test(encoded)) {
+    return { valid: false, error: '無効なBase58エンコーディングです' };
+  }
+  
+  // Base58 encoded 64 bytes should be around 87-88 characters
+  if (encoded.length < 80 || encoded.length > 90) {
+    return { valid: false, error: 'メタアドレスの長さが不正です' };
+  }
 
-  // Check hex format (32 bytes = 64 hex chars)
-  const hexRegex = /^[0-9a-fA-F]{64}$/;
-  if (!hexRegex.test(spendPubkey)) {
-    return { valid: false, error: 'spend公開鍵が無効です' };
-  }
-  if (!hexRegex.test(viewPubkey)) {
-    return { valid: false, error: 'view公開鍵が無効です' };
-  }
-
-  // Try to parse with wasm module (lazy load)
-  try {
-    // Dynamic import will be used in actual component
-    return { valid: true };
-  } catch {
-    return { valid: false, error: 'メタアドレスの解析に失敗しました' };
-  }
+  return { valid: true };
 }
 
 /**
@@ -186,12 +183,11 @@ export function StealthSendForm({
     setTxMessage('トランザクションを送信中...');
 
     try {
-      // Import wasm module and derive stealth address
-      const wasm = await import('anarchy-wasm-engine');
-      const derivation = wasm.derive_stealth_address(metaAddress);
+      // Derive stealth address using properly initialized wasm
+      const derivation = await deriveStealthAddress(metaAddress);
 
       // Call the parent's onSend handler
-      await onSend(metaAddress, formattedAmount, derivation.ephemeral_pubkey);
+      await onSend(metaAddress, formattedAmount, derivation.ephemeralPubkey);
 
       setTxStatus('success');
       setTxMessage('送金が完了しました');

@@ -12,7 +12,7 @@ export interface StealthApi {
   tx: {
     Stealth: {
       send_to_stealth: (params: {
-        dest: string
+        stealth_address: string
         ephemeral_pubkey: Binary
         amount: bigint
       }) => {
@@ -60,6 +60,12 @@ export async function sendToStealth(
   signer: unknown,
   params: SendToStealthParams
 ): Promise<SendToStealthResult> {
+  console.log('[sendToStealth] Params:', {
+    stealthAddress: params.stealthAddress,
+    ephemeralPubkeyLength: params.ephemeralPubkey.length,
+    amount: params.amount.toString(),
+  });
+  
   if (!api) {
     throw new Error('API not available');
   }
@@ -69,20 +75,32 @@ export async function sendToStealth(
 
   // Import Binary from polkadot-api dynamically
   const { Binary } = await import('polkadot-api');
+  
+  // Validate the stealth address before submitting
+  const { getSs58AddressInfo } = await import('@polkadot-api/substrate-bindings');
+  const validation = getSs58AddressInfo(params.stealthAddress);
+  console.log('[sendToStealth] Address validation:', validation.isValid);
+  if (!validation.isValid) {
+    throw new Error(`Invalid stealth address: ${params.stealthAddress}`);
+  }
 
   const typedApi = api as StealthApi;
 
   // Convert ephemeral pubkey to Binary
   const ephemeralPubkeyBinary = Binary.fromBytes(params.ephemeralPubkey);
 
+  console.log('[sendToStealth] Creating transaction...');
+  
   // Create and submit transaction
   const tx = typedApi.tx.Stealth.send_to_stealth({
-    dest: params.stealthAddress,
+    stealth_address: params.stealthAddress,
     ephemeral_pubkey: ephemeralPubkeyBinary,
     amount: params.amount,
   });
 
+  console.log('[sendToStealth] Signing and submitting...');
   const result = await tx.signAndSubmit(signer);
+  console.log('[sendToStealth] Success:', result.txHash);
 
   return {
     txHash: result.txHash,

@@ -9,13 +9,13 @@ import { StealthSendForm, validateMetaAddress, formatAmount } from '@/components
 // Mock the wasm-engine module
 jest.mock('anarchy-wasm-engine', () => ({
   parse_meta_address: jest.fn((addr: string) => {
-    // Valid meta-address format: st:anarchy:<spend_pubkey>:<view_pubkey>
-    if (addr.startsWith('st:anarchy:') && addr.split(':').length === 4) {
-      const parts = addr.split(':');
-      const spendPubkey = parts[2];
-      const viewPubkey = parts[3];
-      // Check if both keys are valid hex (64 chars = 32 bytes)
-      if (spendPubkey.length === 64 && viewPubkey.length === 64) {
+    // Valid meta-address format: st:anarchy:<base58_encoded_64_bytes>
+    if (addr.startsWith('st:anarchy:') && addr.split(':').length === 3) {
+      const base58Part = addr.slice('st:anarchy:'.length);
+      // Base58 encoded 64 bytes is about 87-88 characters
+      // Base58 valid chars: 1-9, A-H, J-N, P-Z, a-k, m-z
+      const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+      if (base58Part.length >= 80 && base58Part.length <= 90 && base58Regex.test(base58Part)) {
         return {
           spend_pubkey: new Uint8Array(32),
           view_pubkey: new Uint8Array(32),
@@ -32,9 +32,9 @@ jest.mock('anarchy-wasm-engine', () => ({
 
 describe('StealthSendForm validation', () => {
   describe('validateMetaAddress', () => {
-    const validMetaAddress = 'st:anarchy:' +
-      '0'.repeat(64) + ':' + // spend pubkey (32 bytes = 64 hex chars)
-      '1'.repeat(64);        // view pubkey (32 bytes = 64 hex chars)
+    // Valid meta-address: st:anarchy:<base58_encoded_64_bytes>
+    // 64 bytes of zeros encoded in Base58 = 88 '1's
+    const validMetaAddress = 'st:anarchy:' + '1'.repeat(88);
 
     it('should accept valid meta-address format', () => {
       const result = validateMetaAddress(validMetaAddress);

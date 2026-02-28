@@ -78,6 +78,8 @@ pub struct StealthAddressResult {
     stealth_address: String,
     /// エフェメラル公開鍵 (32 bytes)
     ephemeral_pubkey: Vec<u8>,
+    /// ステルス公開鍵 (32 bytes) - フロントエンドでSS58エンコードに使用
+    stealth_pubkey: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -93,14 +95,21 @@ impl StealthAddressResult {
     pub fn ephemeral_pubkey(&self) -> Vec<u8> {
         self.ephemeral_pubkey.clone()
     }
+
+    /// ステルス公開鍵を取得 (32 bytes)
+    #[wasm_bindgen(getter)]
+    pub fn stealth_pubkey(&self) -> Vec<u8> {
+        self.stealth_pubkey.clone()
+    }
 }
 
 impl StealthAddressResult {
     /// 新しいStealthAddressResultを作成
-    pub fn new(stealth_address: String, ephemeral_pubkey: Vec<u8>) -> Self {
+    pub fn new(stealth_address: String, ephemeral_pubkey: Vec<u8>, stealth_pubkey: Vec<u8>) -> Self {
         Self {
             stealth_address,
             ephemeral_pubkey,
+            stealth_pubkey,
         }
     }
 }
