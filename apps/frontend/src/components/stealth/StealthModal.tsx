@@ -61,6 +61,9 @@ export function StealthModal({
   
   // Spend state
   const [showSpendForm, setShowSpendForm] = useState(false);
+  
+  // Export state
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -91,6 +94,42 @@ export function StealthModal({
       setMetaAddress(keys.metaAddress);
     }
     setImportDialogOpen(false);
+  }, []);
+
+  const handleExportKeys = useCallback(async () => {
+    const password = prompt('バックアップのパスワードを入力してください（8文字以上推奨）:');
+    if (!password) return;
+    
+    if (password.length < 8) {
+      alert('セキュリティのため、8文字以上のパスワードを使用することをお勧めします。');
+    }
+    
+    setIsExporting(true);
+    try {
+      const encrypted = await stealthKeyManager.exportBackup(password);
+      
+      // Uint8ArrayをArrayBufferに変換してBlobを作成
+      const buffer = encrypted.buffer.slice(
+        encrypted.byteOffset,
+        encrypted.byteOffset + encrypted.byteLength
+      ) as ArrayBuffer;
+      const blob = new Blob([buffer], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `stealth-backup-${Date.now()}.bin`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      alert('バックアップが保存されました。このファイルを安全な場所に保管してください。');
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('エクスポートに失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setIsExporting(false);
+    }
   }, []);
 
   const handleClearKeys = useCallback(() => {
@@ -257,9 +296,10 @@ export function StealthModal({
                     <button
                       type="button"
                       className={styles.secondaryButton}
-                      onClick={() => setImportDialogOpen(true)}
+                      onClick={handleExportKeys}
+                      disabled={isExporting}
                     >
-                      鍵をエクスポート
+                      {isExporting ? 'エクスポート中...' : '鍵をエクスポート'}
                     </button>
                     <button
                       type="button"

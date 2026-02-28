@@ -9,6 +9,7 @@
 import React, { useState, useCallback } from 'react';
 import { stealthKeyManager } from '../../lib/stealth/keyManager';
 import type { StealthKeyPair } from '../../lib/stealth/types';
+import styles from './StealthAddressGenerator.module.css';
 
 export interface StealthAddressGeneratorProps {
   /** 生成完了時のコールバック */
@@ -100,15 +101,15 @@ export function StealthAddressGenerator({
   // 既存のメタアドレスがある場合は表示のみ
   if (existingMetaAddress && !keyPair) {
     return (
-      <div className="stealth-generator">
+      <div className={styles.stealthGenerator}>
         <h3>ステルスメタアドレス</h3>
-        <div className="meta-address-display">
+        <div className={styles.metaAddressDisplay}>
           <code>{existingMetaAddress}</code>
           <button onClick={handleCopyAddress} type="button">
             コピー
           </button>
         </div>
-        <p className="info-text">
+        <p className={styles.infoText}>
           このアドレスを送金者に共有してください。
         </p>
       </div>
@@ -116,11 +117,11 @@ export function StealthAddressGenerator({
   }
 
   return (
-    <div className="stealth-generator">
+    <div className={styles.stealthGenerator}>
       <h3>ステルスアドレス生成</h3>
 
       {!keyPair ? (
-        <div className="generate-section">
+        <div className={styles.generateSection}>
           <p>
             ステルスアドレスを使用すると、送金を受け取る際に
             ワンタイムアドレスが使用され、プライバシーが保護されます。
@@ -134,10 +135,10 @@ export function StealthAddressGenerator({
           </button>
         </div>
       ) : (
-        <div className="key-generated-section">
-          <div className="meta-address-display">
+        <div className={styles.keyGeneratedSection}>
+          <div className={styles.metaAddressDisplay}>
             <label>メタアドレス</label>
-            <div className="address-row">
+            <div className={styles.addressRow}>
               <code>{keyPair.metaAddress}</code>
               <button onClick={handleCopyAddress} type="button">
                 コピー
@@ -146,14 +147,14 @@ export function StealthAddressGenerator({
           </div>
 
           {!isBackedUp && (
-            <div className="backup-section">
+            <div className={styles.backupSection}>
               <h4>⚠️ バックアップを作成してください</h4>
-              <p className="warning-text">
+              <p className={styles.warningText}>
                 このバックアップなしでは資金を回復できません。
                 安全な場所に保管してください。
               </p>
 
-              <div className="password-inputs">
+              <div className={styles.passwordInputs}>
                 <input
                   type="password"
                   placeholder="バックアップパスワード（8文字以上）"
@@ -180,8 +181,8 @@ export function StealthAddressGenerator({
           )}
 
           {isBackedUp && (
-            <div className="backup-complete">
-              <p className="success-text">
+            <div className={styles.backupComplete}>
+              <p className={styles.successText}>
                 ✓ バックアップ完了
               </p>
               <p>
@@ -193,7 +194,7 @@ export function StealthAddressGenerator({
       )}
 
       {error && (
-        <div className="error-message">
+        <div className={styles.errorMessage}>
           {error}
         </div>
       )}

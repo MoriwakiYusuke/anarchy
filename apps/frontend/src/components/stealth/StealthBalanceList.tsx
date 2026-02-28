@@ -8,6 +8,7 @@
 
 import React from 'react';
 import type { DetectedStealthBalance, ScanProgress } from '@/lib/stealth/types';
+import styles from './StealthBalanceList.module.css';
 
 // MORAL token has 12 decimals
 const MORAL_DECIMALS = 12;
@@ -74,12 +75,12 @@ export default function StealthBalanceList({
     .reduce((sum, b) => sum + b.balance, BigInt(0));
 
   return (
-    <div className="stealth-balance-list">
+    <div className={styles.container}>
       {/* Header with total and scan controls */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="text-lg font-semibold">ステルス残高</h3>
-          <p className="text-sm text-gray-500">
+      <div className={styles.header}>
+        <div className={styles.headerInfo}>
+          <h3>ステルス残高</h3>
+          <p>
             合計: {formatBalance(totalBalance)} MORAL
           </p>
         </div>
@@ -87,14 +88,14 @@ export default function StealthBalanceList({
           {isScanning ? (
             <button
               onClick={onStopScan}
-              className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+              className={`${styles.scanButton} ${styles.scanButtonStop}`}
             >
               停止
             </button>
           ) : (
             <button
               onClick={onStartScan}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              className={`${styles.scanButton} ${styles.scanButtonStart}`}
             >
               スキャン
             </button>
@@ -104,17 +105,17 @@ export default function StealthBalanceList({
 
       {/* Scan progress */}
       {isScanning && scanProgress && (
-        <div className="mb-4 p-3 bg-blue-50 rounded-md">
-          <p className="text-sm text-blue-800">
+        <div className={styles.progressBox}>
+          <p className={styles.progressText}>
             スキャン中... {scanProgress.percentage}%
           </p>
-          <div className="mt-1 w-full bg-blue-200 rounded-full h-2">
+          <div className={styles.progressBar}>
             <div 
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+              className={styles.progressFill}
               style={{ width: `${scanProgress.percentage}%` }}
             />
           </div>
-          <p className="mt-1 text-xs text-blue-600">
+          <p className={styles.progressDetail}>
             ブロック {scanProgress.currentBlock} / {scanProgress.targetBlock}
             {scanProgress.detectedCount > 0 && ` (${scanProgress.detectedCount}件検出)`}
           </p>
@@ -123,14 +124,14 @@ export default function StealthBalanceList({
 
       {/* Balance list */}
       {displayBalances.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
+        <div className={styles.emptyState}>
           <p>残高がありません</p>
-          <p className="text-sm mt-1">
+          <p>
             スキャンを実行して送金を検出してください
           </p>
         </div>
       ) : (
-        <ul className="space-y-2">
+        <ul className={styles.balanceList}>
           {displayBalances.map((balance, index) => (
             <li
               key={`${balance.stealthAddress}-${index}`}
@@ -142,31 +143,21 @@ export default function StealthBalanceList({
                   onSelect?.(balance);
                 }
               }}
-              className={`
-                p-3 rounded-md border cursor-pointer transition-colors
-                ${balance.spent 
-                  ? 'bg-gray-50 border-gray-200 opacity-60' 
-                  : 'bg-white border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                }
-              `}
+              className={`${styles.balanceItem} ${balance.spent ? styles.balanceItemSpent : ''}`}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-mono text-sm">
-                    {truncateAddress(balance.stealthAddress)}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    ブロック #{balance.receivedAt}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold">
-                    {formatBalance(balance.balance)} MORAL
-                  </p>
-                  {balance.spent && (
-                    <span className="text-xs text-red-500">使用済み</span>
-                  )}
-                </div>
+              <div className={styles.balanceItemHeader}>
+                <span className={styles.balanceAddress}>
+                  {truncateAddress(balance.stealthAddress)}
+                </span>
+                <span className={styles.balanceAmount}>
+                  {formatBalance(balance.balance)} MORAL
+                </span>
+              </div>
+              <div className={styles.balanceItemFooter}>
+                <span>ブロック #{balance.receivedAt}</span>
+                {balance.spent && (
+                  <span className={styles.spentBadge}>使用済み</span>
+                )}
               </div>
             </li>
           ))}

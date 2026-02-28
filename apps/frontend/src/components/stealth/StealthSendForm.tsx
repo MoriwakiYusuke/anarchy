@@ -8,6 +8,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import styles from './StealthSendForm.module.css';
 
 // MORAL token has 12 decimals
 const MORAL_DECIMALS = 12;
@@ -21,7 +22,6 @@ export interface ValidationResult {
 export interface StealthSendFormProps {
   onSend: (metaAddress: string, amount: string, ephemeralPubkey: Uint8Array) => Promise<void>;
   disabled?: boolean;
-  className?: string;
 }
 
 /**
@@ -117,7 +117,6 @@ export function formatAmount(input: string): string | null {
 export function StealthSendForm({
   onSend,
   disabled = false,
-  className = '',
 }: StealthSendFormProps) {
   const [metaAddress, setMetaAddress] = useState('');
   const [amount, setAmount] = useState('');
@@ -211,13 +210,10 @@ export function StealthSendForm({
   const isDisabled = disabled || isSubmitting;
 
   return (
-    <form onSubmit={handleSubmit} className={`space-y-4 ${className}`}>
+    <form onSubmit={handleSubmit} className={styles.form}>
       {/* Meta-address input */}
-      <div>
-        <label
-          htmlFor="stealth-meta-address"
-          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-        >
+      <div className={styles.inputGroup}>
+        <label htmlFor="stealth-meta-address" className={styles.label}>
           受取人のメタアドレス
         </label>
         <input
@@ -228,30 +224,18 @@ export function StealthSendForm({
           onBlur={handleAddressBlur}
           placeholder="st:anarchy:..."
           disabled={isDisabled}
-          className={`
-            w-full px-3 py-2 rounded-lg border text-sm font-mono
-            ${addressError
-              ? 'border-red-500 focus:ring-red-500'
-              : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'
-            }
-            dark:bg-gray-800 dark:text-white
-            focus:outline-none focus:ring-2
-            disabled:opacity-50 disabled:cursor-not-allowed
-          `}
+          className={`${styles.input} ${addressError ? styles.inputError : ''}`}
         />
         {addressError && (
-          <p className="mt-1 text-sm text-red-500" role="alert">
+          <p className={styles.errorText} role="alert">
             {addressError}
           </p>
         )}
       </div>
 
       {/* Amount input */}
-      <div>
-        <label
-          htmlFor="stealth-amount"
-          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-        >
+      <div className={styles.inputGroup}>
+        <label htmlFor="stealth-amount" className={styles.label}>
           送金額 (MORAL)
         </label>
         <input
@@ -263,19 +247,10 @@ export function StealthSendForm({
           onBlur={handleAmountBlur}
           placeholder="10.0"
           disabled={isDisabled}
-          className={`
-            w-full px-3 py-2 rounded-lg border text-sm
-            ${amountError
-              ? 'border-red-500 focus:ring-red-500'
-              : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'
-            }
-            dark:bg-gray-800 dark:text-white
-            focus:outline-none focus:ring-2
-            disabled:opacity-50 disabled:cursor-not-allowed
-          `}
+          className={`${styles.input} ${amountError ? styles.inputError : ''}`}
         />
         {amountError && (
-          <p className="mt-1 text-sm text-red-500" role="alert">
+          <p className={styles.errorText} role="alert">
             {amountError}
           </p>
         )}
@@ -284,12 +259,11 @@ export function StealthSendForm({
       {/* Transaction status */}
       {txStatus !== 'idle' && txMessage && (
         <div
-          className={`
-            p-3 rounded-lg text-sm
-            ${txStatus === 'pending' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : ''}
-            ${txStatus === 'success' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200' : ''}
-            ${txStatus === 'error' ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200' : ''}
-          `}
+          className={`${styles.statusMessage} ${
+            txStatus === 'pending' ? styles.statusPending :
+            txStatus === 'success' ? styles.statusSuccess :
+            txStatus === 'error' ? styles.statusError : ''
+          }`}
           role="status"
         >
           {txMessage}
@@ -300,13 +274,7 @@ export function StealthSendForm({
       <button
         type="submit"
         disabled={isDisabled}
-        className={`
-          w-full py-2 px-4 rounded-lg font-medium
-          bg-blue-600 hover:bg-blue-700 text-white
-          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-          disabled:opacity-50 disabled:cursor-not-allowed
-          transition-colors
-        `}
+        className={styles.submitButton}
       >
         {isSubmitting ? '送信中...' : 'ステルス送金'}
       </button>

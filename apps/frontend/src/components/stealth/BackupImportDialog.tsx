@@ -8,6 +8,7 @@
 
 import React, { useState, useCallback, useRef } from 'react';
 import { stealthKeyManager } from '../../lib/stealth/keyManager';
+import styles from './BackupImportDialog.module.css';
 
 export interface BackupImportDialogProps {
   /** ダイアログの開閉状態 */
@@ -102,9 +103,9 @@ export function BackupImportDialog({
   }
 
   return (
-    <div className="backup-import-overlay" onClick={handleClose}>
+    <div className={styles.overlay} onClick={handleClose}>
       <div 
-        className="backup-import-dialog" 
+        className={styles.dialog} 
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -112,8 +113,8 @@ export function BackupImportDialog({
       >
         <h2 id="import-dialog-title">バックアップからインポート</h2>
 
-        <div className="import-form">
-          <div className="file-section">
+        <div className={styles.form}>
+          <div className={styles.fileSection}>
             <input
               ref={fileInputRef}
               type="file"
@@ -121,19 +122,24 @@ export function BackupImportDialog({
               onChange={handleFileSelect}
               style={{ display: 'none' }}
             />
-            <button onClick={handleSelectClick} type="button">
+            <button 
+              className={styles.fileButton}
+              onClick={handleSelectClick} 
+              type="button"
+            >
               ファイルを選択
             </button>
             {selectedFile && (
-              <span className="file-name">{selectedFile.name}</span>
+              <span className={styles.fileName}>{selectedFile.name}</span>
             )}
           </div>
 
-          <div className="password-section">
+          <div className={styles.passwordSection}>
             <label htmlFor="import-password">パスワード</label>
             <input
               id="import-password"
               type="password"
+              className={styles.passwordInput}
               placeholder="バックアップ作成時のパスワード"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -146,13 +152,14 @@ export function BackupImportDialog({
           </div>
 
           {error && (
-            <div className="error-message">
+            <div className={styles.errorMessage}>
               {error}
             </div>
           )}
 
-          <div className="dialog-actions">
+          <div className={styles.actions}>
             <button 
+              className={styles.cancelButton}
               onClick={handleClose} 
               type="button"
               disabled={isImporting}
@@ -160,6 +167,7 @@ export function BackupImportDialog({
               キャンセル
             </button>
             <button
+              className={styles.importButton}
               onClick={handleImport}
               disabled={isImporting || !selectedFile || !password}
               type="button"

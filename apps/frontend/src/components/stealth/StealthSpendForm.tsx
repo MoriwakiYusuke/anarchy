@@ -11,6 +11,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { DetectedStealthBalance } from '@/lib/stealth/types';
 import { selectCoins, LINKABILITY_WARNING_THRESHOLD } from '@/lib/stealth/coinSelection';
+import styles from './StealthSpendForm.module.css';
 
 /**
  * フォーム値の型
@@ -255,16 +256,16 @@ export function StealthSpendForm({
   }, [selectedBalances, recipientAddress, amountInput, onSpend]);
 
   return (
-    <div className="stealth-spend-form space-y-4">
+    <div className={styles.container}>
       {/* 残高選択 */}
-      <div className="balance-selection">
-        <div className="flex justify-between items-center mb-2">
-          <h3 className="text-lg font-semibold">使用する残高</h3>
-          <div className="space-x-2">
+      <div className={styles.balanceSelection}>
+        <div className={styles.balanceHeader}>
+          <h3>使用する残高</h3>
+          <div className={styles.headerActions}>
             <button
               type="button"
               onClick={selectAll}
-              className="text-sm text-blue-600 hover:underline"
+              className={styles.linkButton}
               disabled={isProcessing}
             >
               全選択
@@ -272,7 +273,7 @@ export function StealthSpendForm({
             <button
               type="button"
               onClick={clearSelection}
-              className="text-sm text-gray-600 hover:underline"
+              className={`${styles.linkButton} ${styles.linkButtonGray}`}
               disabled={isProcessing}
             >
               解除
@@ -281,28 +282,24 @@ export function StealthSpendForm({
         </div>
 
         {availableBalances.length === 0 ? (
-          <p className="text-gray-500">利用可能な残高がありません</p>
+          <p className={styles.emptyText}>利用可能な残高がありません</p>
         ) : (
-          <ul className="space-y-2">
+          <ul className={styles.balanceList}>
             {availableBalances.map(balance => (
               <li
                 key={balance.stealthAddress}
-                className={`p-3 border rounded cursor-pointer transition ${
-                  selectedAddresses.has(balance.stealthAddress)
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-400'
-                }`}
+                className={`${styles.balanceItem} ${selectedAddresses.has(balance.stealthAddress) ? styles.balanceItemSelected : ''}`}
                 onClick={() => !isProcessing && toggleBalance(balance.stealthAddress)}
               >
-                <div className="flex justify-between items-center">
-                  <span className="font-mono text-sm truncate max-w-[60%]">
+                <div className={styles.balanceItemRow}>
+                  <span className={styles.balanceAddress}>
                     {balance.stealthAddress.slice(0, 8)}...{balance.stealthAddress.slice(-8)}
                   </span>
-                  <span className="font-semibold">
+                  <span className={styles.balanceAmount}>
                     {formatMoral(balance.balance)}
                   </span>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className={styles.balanceBlock}>
                   Block #{balance.receivedAt}
                 </div>
               </li>
@@ -310,27 +307,27 @@ export function StealthSpendForm({
           </ul>
         )}
 
-        <div className="mt-2 text-right text-sm text-gray-600">
+        <div className={styles.selectedTotal}>
           選択中: {formatMoral(selectedTotal)}
         </div>
       </div>
 
       {/* 金額入力 */}
-      <div className="amount-input">
-        <label className="block text-sm font-medium mb-1">送金額 (MORAL)</label>
-        <div className="flex gap-2">
+      <div className={styles.inputGroup}>
+        <label className={styles.label}>送金額 (MORAL)</label>
+        <div className={styles.inputRow}>
           <input
             type="text"
             value={amountInput}
             onChange={e => setAmountInput(e.target.value)}
             placeholder="0.0"
-            className="flex-1 px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+            className={styles.input}
             disabled={isProcessing}
           />
           <button
             type="button"
             onClick={autoSelect}
-            className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+            className={styles.autoSelectButton}
             disabled={isProcessing || !amountInput}
           >
             自動選択
@@ -339,39 +336,37 @@ export function StealthSpendForm({
       </div>
 
       {/* 送金先入力 */}
-      <div className="recipient-input">
-        <label className="block text-sm font-medium mb-1">送金先アドレス</label>
+      <div className={styles.inputGroup}>
+        <label className={styles.label}>送金先アドレス</label>
         <input
           type="text"
           value={recipientAddress}
           onChange={e => setRecipientAddress(e.target.value)}
           placeholder="5Grwva..."
-          className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+          className={`${styles.input} ${styles.inputFull}`}
           disabled={isProcessing}
         />
       </div>
 
       {/* エラー表示 */}
       {error && (
-        <div className="text-red-600 text-sm">{error}</div>
+        <div className={styles.errorText}>{error}</div>
       )}
 
       {/* リンク可能性警告ダイアログ */}
       {showLinkabilityWarning && (
-        <div className="bg-yellow-50 border border-yellow-400 rounded p-4">
-          <h4 className="font-semibold text-yellow-800 mb-2">
-            ⚠️ プライバシー警告
-          </h4>
-          <p className="text-sm text-yellow-700 mb-3">
+        <div className={styles.warningBox}>
+          <h4>⚠️ プライバシー警告</h4>
+          <p>
             複数のステルスアドレスを同時に使用すると、それらが同じ受取人のもの
             であることがブロックチェーン上で明らかになります。
             これによりプライバシーが低下する可能性があります。
           </p>
-          <div className="flex gap-2">
+          <div className={styles.warningActions}>
             <button
               type="button"
               onClick={confirmLinkability}
-              className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
+              className={styles.warningConfirm}
               disabled={isProcessing}
             >
               理解して続行
@@ -379,7 +374,7 @@ export function StealthSpendForm({
             <button
               type="button"
               onClick={() => setShowLinkabilityWarning(false)}
-              className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+              className={styles.warningCancel}
               disabled={isProcessing}
             >
               キャンセル
@@ -389,12 +384,12 @@ export function StealthSpendForm({
       )}
 
       {/* ボタン */}
-      <div className="flex gap-3">
+      <div className={styles.actions}>
         <button
           type="button"
           onClick={handleSubmit}
           disabled={isProcessing || selectedBalances.length === 0}
-          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          className={styles.submitButton}
         >
           {isProcessing ? '処理中...' : '送金'}
         </button>
@@ -403,7 +398,7 @@ export function StealthSpendForm({
             type="button"
             onClick={onCancel}
             disabled={isProcessing}
-            className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+            className={styles.cancelButton}
           >
             キャンセル
           </button>
