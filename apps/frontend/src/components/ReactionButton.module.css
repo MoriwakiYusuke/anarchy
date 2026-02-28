@@ -91,3 +91,10 @@
 .badBtn.active svg {
   stroke: #f4212e;
 }
+
+/* Already reacted error message */
+.alreadyReactedMsg {
+  color: #f4212e;
+  font-size: 0.625rem;
+  margin-left: 0.25rem;
+}

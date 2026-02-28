@@ -81,11 +81,11 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
   const [selectedType, setSelectedType] = useState<ReactionType | null>(null)
   const [loading, setLoading] = useState<ReactionType | null>(null)
   const [localCounts, setLocalCounts] = useState({ likes, boosts, bads })
-  const [reacted, setReacted] = useState<{ like: boolean; boost: boolean; bad: boolean }>({
-    like: false,
-    boost: false,
-    bad: false,
-  })
+  // 投稿ごとに1回のみリアクション可能（Like/Boost/Badのいずれか）
+  const [hasReacted, setHasReacted] = useState(false)
+  const [reactedType, setReactedType] = useState<ReactionType | null>(null)
+  // チェーン側でAlreadyReactedエラーが返ってきた場合
+  const [alreadyReactedError, setAlreadyReactedError] = useState(false)
 
   const {
     status,
@@ -98,14 +98,14 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
     onSuccess: useCallback((result: ReactionResult) => {
       if (selectedType === ReactionType.Like) {
         setLocalCounts((c) => ({ ...c, likes: c.likes + 1 }))
-        setReacted((r) => ({ ...r, like: true }))
       } else if (selectedType === ReactionType.Boost) {
         setLocalCounts((c) => ({ ...c, boosts: c.boosts + 1 }))
-        setReacted((r) => ({ ...r, boost: true }))
       } else if (selectedType === ReactionType.Bad) {
         setLocalCounts((c) => ({ ...c, bads: c.bads + 1 }))
-        setReacted((r) => ({ ...r, bad: true }))
       }
+      // 1回でもリアクションしたら全ボタン無効化
+      setHasReacted(true)
+      setReactedType(selectedType)
       if (selectedType) {
         onReactionSuccess?.(selectedType, result.reward)
       }
@@ -114,6 +114,11 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
     }, [selectedType, onReactionSuccess]),
     onError: useCallback((err: MiningError) => {
       console.error('[ReactionButton] onError:', err)
+      // チェーン側でAlreadyReactedエラーの場合、全ボタン無効化 + エラー表示
+      if (err.code === 'AlreadyReacted') {
+        setHasReacted(true)
+        setAlreadyReactedError(true)
+      }
       setLoading(null)
     }, []),
   })
@@ -123,29 +128,22 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
   }
 
   const handleClick = useCallback((type: ReactionType) => {
-    console.log('[ReactionButton] handleClick called:', { type, status, reacted })
-    // 既にリアクション済みの場合は無視
-    if ((type === ReactionType.Like && reacted.like) ||
-        (type === ReactionType.Boost && reacted.boost) ||
-        (type === ReactionType.Bad && reacted.bad)) {
-      console.log('[ReactionButton] already reacted, skipping')
+    // 既にリアクション済みの場合は全て無視（投稿ごとに1回のみ）
+    if (hasReacted) {
       return
     }
     // mining or submitting中は無視（idleまたはerrorからは再試行可能）
     if (status === 'mining' || status === 'submitting') {
-      console.log('[ReactionButton] already processing:', status)
       return
     }
     if (!client || !unsafeApi || !account || !signer) {
-      console.log('[ReactionButton] not connected')
       return // 接続がない場合は何もしない
     }
 
-    console.log('[ReactionButton] starting mining for postId:', postId)
     setSelectedType(type)
     setLoading(type)
     startMining(BigInt(postId), type)
-  }, [reacted, status, client, unsafeApi, account, signer, postId, startMining])
+  }, [hasReacted, status, client, unsafeApi, account, signer, postId, startMining])
 
   const getButtonContent = (type: ReactionType, count: number, icon: React.ReactNode, activeIcon: React.ReactNode, isActive: boolean) => {
     if (isLoading(type)) {
@@ -165,66 +163,61 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
   }
 
   const isNotConnected = !client || !unsafeApi || !account || !signer
-  
-  // Debug: 接続状態を確認
-  console.log('[ReactionButton] connection state:', { 
-    hasClient: !!client, 
-    hasUnsafeApi: !!unsafeApi, 
-    account, 
-    hasSigner: !!signer,
-    isNotConnected,
-    status 
-  })
 
   return (
-    <div className={styles.container}>
-      <button
-        type="button"
-        className={`${styles.btn} ${styles.likeBtn} ${reacted.like ? styles.active : ''}`}
-        onClick={() => handleClick(ReactionType.Like)}
-        disabled={isNotConnected || reacted.like || isLoading(ReactionType.Like)}
-        aria-label="Like"
-      >
-        {getButtonContent(
-          ReactionType.Like,
-          localCounts.likes,
-          <HeartIcon filled={false} />,
-          <HeartIcon filled={true} />,
-          reacted.like
-        )}
-      </button>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <div className={styles.container}>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.likeBtn} ${reactedType === ReactionType.Like ? styles.active : ''}`}
+          onClick={() => handleClick(ReactionType.Like)}
+          disabled={isNotConnected || hasReacted || isLoading(ReactionType.Like)}
+          aria-label="Like"
+        >
+          {getButtonContent(
+            ReactionType.Like,
+            localCounts.likes,
+            <HeartIcon filled={false} />,
+            <HeartIcon filled={true} />,
+            reactedType === ReactionType.Like
+          )}
+        </button>
 
-      <button
-        type="button"
-        className={`${styles.btn} ${styles.boostBtn} ${reacted.boost ? styles.active : ''}`}
-        onClick={() => handleClick(ReactionType.Boost)}
-        disabled={isNotConnected || reacted.boost || isLoading(ReactionType.Boost)}
-        aria-label="Boost"
-      >
-        {getButtonContent(
-          ReactionType.Boost,
-          localCounts.boosts,
-          <BoostIcon />,
-          <BoostIcon />,
-          reacted.boost
-        )}
-      </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.boostBtn} ${reactedType === ReactionType.Boost ? styles.active : ''}`}
+          onClick={() => handleClick(ReactionType.Boost)}
+          disabled={isNotConnected || hasReacted || isLoading(ReactionType.Boost)}
+          aria-label="Boost"
+        >
+          {getButtonContent(
+            ReactionType.Boost,
+            localCounts.boosts,
+            <BoostIcon />,
+            <BoostIcon />,
+            reactedType === ReactionType.Boost
+          )}
+        </button>
 
-      <button
-        type="button"
-        className={`${styles.btn} ${styles.badBtn} ${reacted.bad ? styles.active : ''}`}
-        onClick={() => handleClick(ReactionType.Bad)}
-        disabled={isNotConnected || reacted.bad || isLoading(ReactionType.Bad)}
-        aria-label="Bad"
-      >
-        {getButtonContent(
-          ReactionType.Bad,
-          localCounts.bads,
-          <BadIcon />,
-          <BadIcon />,
-          reacted.bad
-        )}
-      </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.badBtn} ${reactedType === ReactionType.Bad ? styles.active : ''}`}
+          onClick={() => handleClick(ReactionType.Bad)}
+          disabled={isNotConnected || hasReacted || isLoading(ReactionType.Bad)}
+          aria-label="Bad"
+        >
+          {getButtonContent(
+            ReactionType.Bad,
+            localCounts.bads,
+            <BadIcon />,
+            <BadIcon />,
+            reactedType === ReactionType.Bad
+          )}
+        </button>
+      </div>
+      {alreadyReactedError && (
+        <span style={{ color: '#f4212e', fontSize: '0.625rem', marginTop: '0.25rem' }}>すでに反応済みです</span>
+      )}
     </div>
   )
 }

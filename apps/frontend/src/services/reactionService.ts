@@ -67,10 +67,10 @@ export interface ReactionResult {
 export async function getReactionChallenge(
   client: any,
   unsafeApi: any,
-  postId: bigint,
+  _postId: bigint,  // Not used in challenge computation (kept for API compatibility)
   userAddress: string
 ): Promise<{ challenge: Uint8Array; blockNumber: number; difficulty: number }> {
-  // Get finalized block info
+  // Get finalized block info (same as faucet)
   const blockHash = await withTimeout(
     client._request('chain_getFinalizedHead', []) as Promise<string>,
     RPC_TIMEOUT_MS,
@@ -98,33 +98,27 @@ export async function getReactionChallenge(
     'Reaction.CurrentDifficulty query'
   ) ?? 16 // Default to BaseDifficulty
   
-  // Compute challenge: blake2b(post_id ++ user_address ++ block_number)
-  // This matches the pallet's compute_challenge function
+  // Compute challenge: blake2b(block_hash ++ account_bytes)
+  // This matches the pallet's compute_challenge function in primitives_pow
   const { blake2b } = await import('blakejs')
   const { getSs58AddressInfo } = await import('@polkadot-api/substrate-bindings')
   
-  // Encode post_id as little-endian u64
-  const postIdBytes = new Uint8Array(8)
-  const postIdView = new DataView(postIdBytes.buffer)
-  postIdView.setBigUint64(0, postId, true)
+  // Convert block hash from hex string to bytes (remove 0x prefix)
+  const blockHashBytes = new Uint8Array(
+    (blockHash.slice(2).match(/.{2}/g) || []).map(byte => parseInt(byte, 16))
+  )
   
-  // Decode SS58 address to raw bytes
+  // Decode SS58 address to raw bytes (32 bytes public key)
   const addressInfo = getSs58AddressInfo(userAddress)
   if (!addressInfo.isValid) {
     throw new Error(`Invalid SS58 address: ${userAddress}`)
   }
   const accountBytes = addressInfo.publicKey
   
-  // Encode block_number as little-endian u32
-  const blockBytes = new Uint8Array(4)
-  const blockView = new DataView(blockBytes.buffer)
-  blockView.setUint32(0, blockNumber, true)
-  
-  // Concatenate: post_id (8) + account (32) + block (4) = 44 bytes
-  const input = new Uint8Array(44)
-  input.set(postIdBytes, 0)
-  input.set(accountBytes, 8)
-  input.set(blockBytes, 40)
+  // Concatenate: block_hash (32) + account (32) = 64 bytes
+  const input = new Uint8Array(blockHashBytes.length + accountBytes.length)
+  input.set(blockHashBytes, 0)
+  input.set(accountBytes, blockHashBytes.length)
   
   const challenge = blake2b(input, undefined, 32)
   
@@ -150,6 +144,13 @@ export async function submitReaction(
 ): Promise<ReactionResult> {
   const { postId, reactionType, nonce, challengeBlock } = params
   
+  console.log('[submitReaction] params:', {
+    postId: postId?.toString(),
+    reactionType,
+    nonce: nonce?.toString(),
+    challengeBlock,
+  })
+  
   try {
     // Map ReactionType to pallet enum variant
     const reactionVariant = {
@@ -157,16 +158,39 @@ export async function submitReaction(
     }
     
     // Call pallet-reaction's react extrinsic
-    // react(origin, post_id: u64, reaction_type: ReactionType, nonce: u64, challenge_block: BlockNumber)
+    // Signature: react(origin, post_id: u64, reaction_type: ReactionType, block_number: u32, nonce: u64, cpu_power: u64, stealth_recipient: Option<AccountId>)
+    console.log('[submitReaction] building tx with:', {
+      post_id: postId,
+      reaction_type: reactionVariant,
+      block_number: challengeBlock,
+      nonce: nonce,
+      cpu_power: BigInt(1000000),
+    })
+    
     const tx = unsafeApi.tx.Reaction.react({
       post_id: postId,
       reaction_type: reactionVariant,
+      block_number: challengeBlock, // u32, pass as number
       nonce: nonce,
-      challenge_block: challengeBlock,
+      cpu_power: BigInt(1000000),
+      stealth_recipient: undefined,
     })
     
     // Sign and submit transaction
     const result = await tx.signAndSubmit(signer)
+    console.log('[submitReaction] result:', result)
+    
+    // Check for dispatch error (faucet-style)
+    // signAndSubmit may succeed but dispatch can fail with pallet errors
+    if (result?.ok === false || result?.dispatchError) {
+      console.error('[submitReaction] Transaction dispatch failed:', result)
+      // Check if it's AlreadyReacted error
+      const errorStr = JSON.stringify(result.dispatchError || result)
+      if (errorStr.includes('AlreadyReacted') || errorStr.includes('Module')) {
+        return { success: false, error: 'AlreadyReacted: You have already reacted to this post' }
+      }
+      return { success: false, error: 'Transaction failed: ' + errorStr }
+    }
     
     // Extract events to find reward amount
     let reward: bigint | undefined
@@ -184,16 +208,25 @@ export async function submitReaction(
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err)
+    console.error('[submitReaction] error:', errorMessage)
     
-    // Map known pallet errors
-    if (errorMessage.includes('AlreadyReacted')) {
-      return { success: false, error: 'You have already reacted to this post' }
+    // Map known pallet errors (faucet-style error detection)
+    // AlreadyReacted is the most common error on reload
+    if (
+      errorMessage.includes('AlreadyReacted') ||
+      errorMessage.includes('Invalid Transaction') ||
+      errorMessage.includes('InvalidTransaction') ||
+      errorMessage.includes('Custom(1)') ||
+      errorMessage.includes('1010') ||
+      errorMessage.includes('dispatch')
+    ) {
+      return { success: false, error: 'AlreadyReacted: You have already reacted to this post' }
     }
-    if (errorMessage.includes('InvalidPoW')) {
-      return { success: false, error: 'Invalid proof of work - try mining again' }
+    if (errorMessage.includes('InvalidPoW') || errorMessage.includes('InvalidProof')) {
+      return { success: false, error: 'InvalidPoW: Invalid proof of work - try mining again' }
     }
-    if (errorMessage.includes('ChallengeExpired')) {
-      return { success: false, error: 'Challenge expired - please restart mining' }
+    if (errorMessage.includes('ChallengeExpired') || errorMessage.includes('Expired')) {
+      return { success: false, error: 'ChallengeExpired: Challenge expired - please restart mining' }
     }
     
     return { success: false, error: errorMessage }
