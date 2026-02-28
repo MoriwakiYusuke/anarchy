@@ -17,8 +17,15 @@ pub use pallet::*;
 #[cfg(test)]
 mod tests;
 
+/// Trait for getting post author from post pallet
+pub trait PostAuthorProvider<AccountId> {
+    /// Get the author of a post by post_id
+    fn get_post_author(post_id: u64) -> Option<AccountId>;
+}
+
 #[frame_support::pallet]
 pub mod pallet {
+    use super::PostAuthorProvider;
     use frame_support::pallet_prelude::*;
     use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::pallet_prelude::*;
@@ -87,6 +94,13 @@ pub mod pallet {
     pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
         /// Native token ($moral) for reward payouts
         type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
+
+        /// Provider for getting post authors
+        type PostAuthorProvider: PostAuthorProvider<Self::AccountId>;
+
+        /// Fixed reward per reaction (in smallest unit, e.g. 1 MORAL = 1_000_000_000_000)
+        #[pallet::constant]
+        type ReactionReward: Get<BalanceOf<Self>>;
 
         /// Base PoW difficulty (number of leading zero bits required)
         #[pallet::constant]
@@ -310,33 +324,35 @@ pub mod pallet {
                 *total = total.saturating_add(1);
             });
 
-            // Calculate and pay reward
-            // Reward = Weight × CPUPower × γ
-            // γ = ReactionRewardPool / TotalSupply (simplified: use pool balance directly)
-            let weight = reaction_type.weight();
-            let pool_balance = ReactionRewardPool::<T>::get();
+            // Pay reward to post author from reward pool (fixed amount per reaction)
+            // Bad reactions don't give rewards
+            let mut reward_paid: BalanceOf<T> = 0u32.into();
             
-            // Simplified reward: base_reward = weight * cpu_power / 1_000_000
-            // Capped by available pool
-            let base_reward = weight
-                .saturating_mul(cpu_power as u128)
-                .saturating_div(1_000_000);
-            let reward = base_reward.min(pool_balance);
-
-            // Pay reward if pool has funds and reward > 0
-            // Note: Post author lookup would require pallet-post integration
-            // For now, we emit the event with reward amount
-            if reward > 0 {
-                ReactionRewardPool::<T>::mutate(|pool| {
-                    *pool = pool.saturating_sub(reward);
-                });
+            if reaction_type != ReactionType::Bad {
+                if let Some(author) = T::PostAuthorProvider::get_post_author(post_id) {
+                    let reward = T::ReactionReward::get();
+                    let reward_u128: u128 = reward.try_into().unwrap_or(0u128);
+                    
+                    // Try to withdraw from pool first
+                    let pool_balance = ReactionRewardPool::<T>::get();
+                    if pool_balance >= reward_u128 {
+                        // Deduct from pool
+                        ReactionRewardPool::<T>::put(pool_balance.saturating_sub(reward_u128));
+                        
+                        // Mint reward to author
+                        if T::NativeToken::mint_into(&author, reward).is_ok() {
+                            reward_paid = reward;
+                        }
+                    }
+                    // If pool is empty, no reward is paid (reward_paid stays 0)
+                }
             }
 
             Self::deposit_event(Event::ReactionCreated {
                 post_id,
                 reactor,
                 reaction_type,
-                reward_paid: reward,
+                reward_paid: reward_paid.try_into().unwrap_or(0u128),
             });
 
             Ok(())

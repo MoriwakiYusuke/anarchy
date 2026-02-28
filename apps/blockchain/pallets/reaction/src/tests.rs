@@ -73,8 +73,23 @@ impl pallet_balances::Config for Test {
     type DoneSlashHandler = ();
 }
 
+/// Mock PostAuthorProvider for tests
+pub struct MockPostAuthorProvider;
+impl pallet_reaction::PostAuthorProvider<u64> for MockPostAuthorProvider {
+    fn get_post_author(post_id: u64) -> Option<u64> {
+        // For tests: post_id 1 is owned by account 100, post_id 2 by account 200
+        match post_id {
+            1 => Some(100),
+            2 => Some(200),
+            _ => None,
+        }
+    }
+}
+
 impl pallet_reaction::Config for Test {
     type NativeToken = Balances;
+    type PostAuthorProvider = MockPostAuthorProvider;
+    type ReactionReward = ConstU128<1_000_000_000_000>; // 1 MORAL
     type BaseDifficulty = ConstU8<8>;
     type MinDifficulty = ConstU8<4>;
     type MaxDifficulty = ConstU8<32>;
@@ -344,7 +359,7 @@ fn test_react_updates_stats() {
 }
 
 // =============================================================================
-// T022: react() pays author reward from pool
+// T022: react() pays author reward (fixed 1 MORAL per reaction)
 // =============================================================================
 #[test]
 fn test_react_pays_reward() {
@@ -352,14 +367,17 @@ fn test_react_pays_reward() {
         System::set_block_number(1);
         frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xAB));
         
-        let initial_pool = pallet_reaction::ReactionRewardPool::<Test>::get();
-        
+        // Post ID 1 is owned by account 100 (MockPostAuthorProvider)
         let reactor = 1u64;
-        let post_id = 100u64;
+        let post_id = 1u64;  // Author is account 100
+        let author = 100u64;
         let block_number = 1u64;
         let block_hash = frame_system::BlockHash::<Test>::get(block_number);
         let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
-        let cpu_power = 1_000_000u64;  // High CPU power for measurable reward
+        let cpu_power = 1_000_000u64;
+        
+        // Check author balance before
+        let author_balance_before = pallet_balances::Pallet::<Test>::free_balance(author);
         
         let nonce = find_valid_nonce(reactor, block_hash, difficulty);
         
@@ -373,14 +391,14 @@ fn test_react_pays_reward() {
             None,
         ));
         
-        // Pool balance should have decreased (reward paid)
-        let final_pool = pallet_reaction::ReactionRewardPool::<Test>::get();
-        assert!(final_pool < initial_pool, "Reward pool should decrease after reaction");
+        // Author should receive 1 MORAL (1_000_000_000_000 units)
+        let author_balance_after = pallet_balances::Pallet::<Test>::free_balance(author);
+        assert_eq!(author_balance_after - author_balance_before, 1_000_000_000_000u128, "Author should receive 1 MORAL reward");
     });
 }
 
 // =============================================================================
-// T023: react() records reaction but skips reward when pool empty
+// T023: react() skips reward for Bad reactions and non-existent posts
 // =============================================================================
 #[test]
 fn test_react_skips_reward_when_pool_empty() {
@@ -388,18 +406,16 @@ fn test_react_skips_reward_when_pool_empty() {
         System::set_block_number(1);
         frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xAB));
         
-        // Empty the reward pool
-        pallet_reaction::ReactionRewardPool::<Test>::put(0u128);
-        
+        // Post ID 100 does not exist in MockPostAuthorProvider
         let reactor = 1u64;
-        let post_id = 100u64;
+        let post_id = 100u64;  // No author for this post
         let block_number = 1u64;
         let block_hash = frame_system::BlockHash::<Test>::get(block_number);
         let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
         
         let nonce = find_valid_nonce(reactor, block_hash, difficulty);
         
-        // Reaction should still succeed
+        // Reaction should still succeed even without author
         assert_ok!(Reaction::react(
             RuntimeOrigin::signed(reactor),
             post_id,
@@ -412,9 +428,6 @@ fn test_react_skips_reward_when_pool_empty() {
         
         // Reaction should be recorded
         assert!(pallet_reaction::Reactions::<Test>::contains_key(post_id, reactor));
-        
-        // Pool should still be empty
-        assert_eq!(pallet_reaction::ReactionRewardPool::<Test>::get(), 0);
     });
 }
 

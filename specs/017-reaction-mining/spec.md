@@ -2,7 +2,8 @@
 
 **Feature Branch**: `017-reaction-mining`  
 **Created**: 2026-02-28  
-**Status**: Draft  
+**Status**: Implemented  
+**Last Updated**: 2026-03-01  
 **Input**: User description: "反応マイニング機能 - PoWベースの反応（いいね、ブースト等）と投稿者報酬システム"
 
 ## 概要
@@ -93,12 +94,12 @@
 - **FR-103**: システムは同一ユーザーによる同一投稿への二重反応を防止すること
 - **FR-104**: システムは反応時にPoW証明を検証し、難易度要件を満たさない場合は拒否すること
 - **FR-105**: システムは有効な反応に対して投稿者に$moral報酬を自動付与すること（Badは報酬なし）
-- **FR-106**: 報酬計算式: `Reward = ReactionWeight × CPUPower × γ`（Like=1, Boost=5, Bad=0）
+- **FR-106**: 報酬は固定1 MORAL/反応（Like/Boost共通、Bad=0）
 - **FR-107**: システムは投稿ごとの反応数をクエリ可能にすること
 - **FR-108**: システムはユーザーごとの反応履歴をクエリ可能にすること
-- **FR-109**: 報酬は投稿手数料プールから支払われること（投稿手数料の10%が報酬プールに蓄積、90%はストレージノード報酬）
+- **FR-109**: 報酬はReactionRewardPoolから支払われること（プール残高分mintして投稿者へ）
 - **FR-110**: 報酬プール残高が不足する場合、反応は記録されるが報酬は支払われないこと
-- **FR-111**: 反応報酬プールにはジェネシスで大量の初期ミントを行うこと（10,000,000 MORAL）
+- **FR-111**: 反応報酬プールにはジェネシスで初期ミントを行うこと（10,000,000 MORAL）
 - **FR-112**: PoWチャレンジの有効期限は100ブロック（約10分）とすること
 
 #### クライアント側PoW
@@ -155,6 +156,41 @@
 
 - Q: 報酬の財源モデル → A: 投稿手数料プール方式（投稿時の$moral消費の一部が報酬プールに蓄積、反応で分配）
 - Q: 報酬プール割当比率 → A: 投稿手数料の10%を報酬プールへ（90%はストレージノード報酬）、ジェネシスで大量初期ミント
-- Q: 反応種別ごとの報酬重み → A: Like=1, Boost=5, Bad=0（Badは記録のみ、将来ストレージ削除の指標）
+- Q: 反応種別ごとの報酬重み → A: Like=1, Boost=5, Bad=0（Badは記録のみ、将来ストレージ削除の指標）。実装では固定1 MORAL/反応に簡略化
 - Q: PoWチャレンジの有効期限 → A: 100ブロック（約10分）
-- Q: 初期報酬プールのミント量 → A: 10,000,000 MORAL（積極的、長期流動性確保）
+- Q: 初期報酬プールのミント量 → A: 10,000,000 MORAL
+
+## Implementation Notes (2026-03-01)
+
+### 完成した実装
+
+#### チェーン側 (pallet-reaction)
+
+- **ストレージ**: Reactions, ReactionStatsStorage, ReactionRewardPool, CurrentDifficulty
+- **エクストリンシック**: `react(post_id, reaction_type, block_number, nonce, cpu_power, stealth_recipient)`
+- **報酬フロー**: 
+  - Like/Boost時、ReactionRewardPool残高を確認
+  - 残高 >= 1 MORAL ならプールから1 MORAL差し引いて投稿者にmint
+  - 残高不足時は報酬なし（反応自体は記録）
+- **PostAuthorProvider**: pallet-postから投稿者を取得するtrait
+- **難易度**: 16ビット（faucetの18ビットより簡単）
+- **テスト**: 18テスト全てpass
+
+#### フロントエンド側
+
+- **ReactionButton.tsx**: X風のハート/リツイート/Badボタン
+- **useReactionMining.ts**: PoWマイニングフック
+- **miningWorker.ts**: WebWorkerでのBlake2bマイニング
+- **reactionService.ts**: チェーンインタラクション
+- **UI機能**:
+  - マイニング進捗表示（ハッシュレート、経過時間）
+  - エラー表示（すでに反応済み、接続してください）
+  - 反応数表示（Timelineから取得）
+  - 投稿ごとに1回のみ反応可能
+
+### 未実装
+
+- Page Visibility APIによるフォアグラウンド強制（バックグラウンドでマイニング停止）
+- ステルスアドレス報酬先指定
+- 投稿手数料から報酬プールへの自動補充
+- 動的難易度調整（ロジックはあるが未有効化）

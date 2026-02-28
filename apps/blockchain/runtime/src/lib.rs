@@ -311,9 +311,26 @@ impl pallet_stealth::Config for Runtime {
 }
 
 // Reaction Pallet設定
+/// PostAuthorProvider implementation for reaction pallet
+pub struct PostAuthorProviderImpl;
+impl pallet_reaction::PostAuthorProvider<AccountId> for PostAuthorProviderImpl {
+    fn get_post_author(post_id: u64) -> Option<AccountId> {
+        pallet_post::Posts::<Runtime>::get(post_id).map(|post| post.author)
+    }
+}
+
+/// 1 MORAL = 1_000_000_000_000 (12 decimals)
+parameter_types! {
+    pub const ReactionReward: Balance = 1_000_000_000_000;
+}
+
 impl pallet_reaction::Config for Runtime {
     /// Native token ($moral) for reward payouts
     type NativeToken = Balances;
+    /// Provider for getting post authors
+    type PostAuthorProvider = PostAuthorProviderImpl;
+    /// Fixed reward: 1 MORAL per reaction
+    type ReactionReward = ReactionReward;
     /// Base PoW difficulty: 16 leading zero bits
     type BaseDifficulty = ConstU8<16>;
     /// Minimum difficulty: 8 bits
