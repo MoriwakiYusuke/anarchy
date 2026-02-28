@@ -34,13 +34,13 @@ import { hybrid_split, merkle_build } from 'anarchy-wasm-engine'
 const DEFAULT_THRESHOLD = 3  // k: minimum shards to reconstruct
 const DEFAULT_SHARD_COUNT = 5  // n: total shards
 
-/** Default storage node URL */
-const DEFAULT_STORAGE_NODE_URL = process.env.NEXT_PUBLIC_STORAGE_NODE_URL || 'http://localhost:3030'
+/** RPC endpoint (blockchain node - all storage operations go through blockchain node) */
+const RPC_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944'
 
 /** Hook options */
 export interface UseMediaUploadOptions {
-  /** Storage node RPC URL (default: http://localhost:3030) */
-  storageNodeUrl?: string
+  /** RPC endpoint URL (default: blockchain node at 9944) */
+  rpcEndpoint?: string
   /** Strip EXIF data from images */
   stripExif?: boolean
   /** All files must succeed or all fail */
@@ -91,7 +91,7 @@ function toHexString(bytes: Uint8Array): string {
  */
 export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUploadReturn {
   const {
-    storageNodeUrl = DEFAULT_STORAGE_NODE_URL,
+    rpcEndpoint = RPC_ENDPOINT,
     stripExif = true,
     atomicUpload = false,
     maxFiles = MAX_FILES_PER_POST,
@@ -297,7 +297,7 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
         const shard = splitResult.get_shard(i)
         if (!shard) continue
         
-        const response = await fetch(`${storageNodeUrl}/rpc`, {
+        const response = await fetch(`${rpcEndpoint}/rpc`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -353,7 +353,7 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
       })
       return null
     }
-  }, [storageNodeUrl, stripExif, updateFile, onProgress])
+  }, [rpcEndpoint, stripExif, updateFile, onProgress])
 
   /**
    * Upload all pending files

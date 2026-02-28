@@ -25,8 +25,8 @@ import styles from './MediaUpload.module.css'
 export { type MediaFile } from '@/types/media'
 
 export interface MediaUploadProps {
-  /** Storage node URL (optional, uses default) */
-  storageNodeUrl?: string
+  /** RPC endpoint URL (optional, uses default) */
+  rpcEndpoint?: string
   /** Include video support */
   includeVideo?: boolean
   /** Maximum files allowed */
@@ -44,7 +44,7 @@ export interface MediaUploadProps {
 }
 
 export default function MediaUpload({
-  storageNodeUrl,
+  rpcEndpoint,
   includeVideo = false,
   maxFiles = MAX_FILES_PER_POST,
   disabled = false,
@@ -67,7 +67,7 @@ export default function MediaUpload({
     uploadAll,
     retryFailed,
   } = useMediaUpload({
-    storageNodeUrl,
+    rpcEndpoint,
     includeVideo,
     onUploadComplete,
     onError,

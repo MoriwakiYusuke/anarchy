@@ -86,7 +86,7 @@ import { useMediaUpload } from '@/hooks/useMediaUpload'
 
 describe('useMediaUpload Video Support', () => {
   // Test constants
-  const STORAGE_NODE_URL = 'http://localhost:3030'
+  const RPC_ENDPOINT = 'http://localhost:9944'
   const MAX_VIDEO_SIZE = 1000 * 1024 * 1024 // 1GB
   const MAX_FILES = 4
 

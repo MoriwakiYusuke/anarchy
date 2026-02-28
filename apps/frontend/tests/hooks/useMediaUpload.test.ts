@@ -58,7 +58,7 @@ import type { MediaFile, MediaType } from '@/types/media'
 
 describe('useMediaUpload Hook', () => {
   // Test constants
-  const STORAGE_NODE_URL = 'http://localhost:3030'
+  const RPC_ENDPOINT = 'http://localhost:9944'
   const MAX_IMAGE_SIZE = 256 * 1024 * 1024  // 256MB (actual limit)
   const MAX_VIDEO_SIZE = 256 * 1024 * 1024 // 256MB (actual limit)
   const MAX_FILES = 4
