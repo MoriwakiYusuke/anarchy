@@ -6,7 +6,7 @@
 
 'use client'
 
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { useReactionMining, type MiningError } from '@/hooks/useReactionMining'
 import { ReactionType, type ReactionResult } from '@/services/reactionService'
 import type { PolkadotSigner } from 'polkadot-api/signer'
@@ -87,8 +87,20 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
   // チェーン側でAlreadyReactedエラーが返ってきた場合
   const [alreadyReactedError, setAlreadyReactedError] = useState(false)
 
+  // disconnect時に状態リセット
+  useEffect(() => {
+    if (!account) {
+      setSelectedType(null)
+      setLoading(null)
+      setHasReacted(false)
+      setReactedType(null)
+      setAlreadyReactedError(false)
+    }
+  }, [account])
+
   const {
     status,
+    progress,
     startMining,
   } = useReactionMining({
     client,
@@ -163,6 +175,8 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
   }
 
   const isNotConnected = !client || !unsafeApi || !account || !signer
+  // マイニング/送信中は全ボタン無効化（同時押し防止）
+  const isProcessing = loading !== null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -171,7 +185,7 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
           type="button"
           className={`${styles.btn} ${styles.likeBtn} ${reactedType === ReactionType.Like ? styles.active : ''}`}
           onClick={() => handleClick(ReactionType.Like)}
-          disabled={isNotConnected || hasReacted || isLoading(ReactionType.Like)}
+          disabled={isNotConnected || hasReacted || isProcessing}
           aria-label="Like"
         >
           {getButtonContent(
@@ -187,7 +201,7 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
           type="button"
           className={`${styles.btn} ${styles.boostBtn} ${reactedType === ReactionType.Boost ? styles.active : ''}`}
           onClick={() => handleClick(ReactionType.Boost)}
-          disabled={isNotConnected || hasReacted || isLoading(ReactionType.Boost)}
+          disabled={isNotConnected || hasReacted || isProcessing}
           aria-label="Boost"
         >
           {getButtonContent(
@@ -203,7 +217,7 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
           type="button"
           className={`${styles.btn} ${styles.badBtn} ${reactedType === ReactionType.Bad ? styles.active : ''}`}
           onClick={() => handleClick(ReactionType.Bad)}
-          disabled={isNotConnected || hasReacted || isLoading(ReactionType.Bad)}
+          disabled={isNotConnected || hasReacted || isProcessing}
           aria-label="Bad"
         >
           {getButtonContent(
@@ -215,6 +229,14 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
           )}
         </button>
       </div>
+      {status === 'mining' && progress && (
+        <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>
+          {(progress.hashRate / 1000).toFixed(1)} kH/s · {(progress.elapsedMs / 1000).toFixed(1)}s
+        </span>
+      )}
+      {status === 'submitting' && (
+        <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>送信中...</span>
+      )}
       {alreadyReactedError && (
         <span style={{ color: '#f4212e', fontSize: '0.625rem', marginTop: '0.25rem' }}>すでに反応済みです</span>
       )}
