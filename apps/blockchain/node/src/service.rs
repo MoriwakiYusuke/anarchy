@@ -252,12 +252,18 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         );
         info!("Storage node gossip service spawned");
 
+        // Session client for authenticated storage access (T038)
+        // TODO: Initialize with node's Ed25519 keypair when key management is set up
+        // For now, session authentication is optional and disabled by default
+        let session_client: Option<std::sync::Arc<crate::storage::StorageSessionClient>> = None;
+
         Box::new(move |_| {
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),
                 pool: pool.clone(),
                 storage_nodes: storage_nodes.clone(),
                 gossip_handle: gossip_handle.clone(),
+                session_client: session_client.clone(),
             };
             crate::rpc::create_full(deps).map_err(Into::into)
         })

@@ -147,6 +147,84 @@ grep bootstrap_peers config.toml
 2. 署名ペイロードが`"anarchy-session-request:{timestamp}"`形式か確認
 3. 公開鍵と秘密鍵のペアが正しいか確認
 
+## 複数ノード同時セッションテスト (Concurrent Session Test)
+
+複数のブロックチェーンノードが同時にセッションを確立し、それぞれ独立して動作することを確認するシナリオ。
+
+### テスト環境
+
+```bash
+# ストレージノード1台 + ブロックチェーンノード2台
+./target/release/anarchy-storage-node --config config.toml
+./target/release/anarchy-node --dev --base-path /tmp/node1 --ws-port 9944
+./target/release/anarchy-node --dev --base-path /tmp/node2 --ws-port 9955
+```
+
+### テストステップ
+
+1. **両ノードがP2P接続を確立**
+
+```bash
+# node1のPeerIdを取得
+curl -s http://localhost:9944 -H "Content-Type: application/json" \
+  -d '{"id":1,"jsonrpc":"2.0","method":"system_localPeerId","params":[]}' \
+  | jq -r '.result'
+
+# node2も同様
+```
+
+2. **両ノードがそれぞれセッションを取得**
+
+```rust
+// Node 1
+let session1 = client1.request_session(&keypair1).await?;
+
+// Node 2 (同時実行)
+let session2 = client2.request_session(&keypair2).await?;
+
+// 両方のトークンが異なることを確認
+assert_ne!(session1.token, session2.token);
+```
+
+3. **両ノードが独立してフラグメント書き込み**
+
+```bash
+# Node 1からの書き込み
+curl -X POST http://localhost:3030/fragments \
+  -H "X-Session-Token: $SESSION1_TOKEN" \
+  -d '{"id": "frag_from_node1", ...}'
+
+# Node 2からの書き込み
+curl -X POST http://localhost:3030/fragments \
+  -H "X-Session-Token: $SESSION2_TOKEN" \
+  -d '{"id": "frag_from_node2", ...}'
+```
+
+4. **一方のセッションを失効させても他方は有効**
+
+```rust
+// Node 1のセッションを失効
+client1.revoke_session().await?;
+
+// Node 2はまだ有効
+let result = client2.upload_fragment(fragment).await;
+assert!(result.is_ok());
+```
+
+### 期待される結果
+
+- ✅ 両ノードが独立したセッショントークンを取得
+- ✅ 両ノードのトークンが同時に有効
+- ✅ 片方のセッション終了が他方に影響しない
+- ✅ 各ノードが24時間以上連続稼働可能（自動更新あり）
+
+### 検証コマンド
+
+```bash
+cd apps/storage-node
+cargo test test_multiple_peers -- --nocapture
+```
+
 ## API リファレンス
 
 - [JSON-RPC API](contracts/json-rpc.md)

@@ -20,6 +20,7 @@ use tracing::{info, warn, error};
 
 use crate::storage::FragmentStore;
 use crate::metrics::Metrics;
+use crate::session::{SessionRequest, SessionResponse, SessionError};
 use auth::{AuthState, auth_middleware, method_requires_auth, require_auth};
 
 /// Maximum fragment size: 1GB
@@ -117,6 +118,15 @@ pub struct RpcState {
 /// Create the HTTP RPC router (NFR-002: /metrics endpoint)
 pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics: Metrics) -> Router {
     let auth_state = AuthState::new(auth_enabled);
+    create_rpc_router_with_auth(store, auth_state, metrics)
+}
+
+/// Create the HTTP RPC router with a custom AuthState (for session registry injection)
+pub fn create_rpc_router_with_auth(
+    store: Arc<FragmentStore>,
+    auth_state: AuthState,
+    metrics: Metrics,
+) -> Router {
     let state = RpcState { 
         store,
         auth: auth_state.clone(),
@@ -128,7 +138,7 @@ pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics:
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Apply auth middleware only to JSON-RPC route, not to /metrics
+    // Apply auth middleware only to JSON-RPC route, not to /metrics or /session
     // This prevents 400/403 errors when clients send X-Anarchy-Auth header on non-JSON-RPC paths
     let jsonrpc_route = Router::new()
         .route("/", post(handle_rpc))
@@ -137,10 +147,95 @@ pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics:
     Router::new()
         .merge(jsonrpc_route)
         .route("/metrics", get(handle_metrics)) // NFR-002: Prometheus metrics endpoint
+        .route("/session", post(handle_session_request)) // Session request endpoint (no auth required)
+        .route("/health", get(handle_health)) // Health check endpoint (no auth required)
         .with_state(state)
         .layer(cors)
         // 2GB limit to accommodate base64-encoded 1GB fragments (33% overhead + margin)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024 * 1024))
+}
+
+/// Handle session request (POST /session)
+/// This endpoint allows blockchain nodes to request session tokens via HTTP
+/// by providing a signed request (same format as libp2p session protocol).
+async fn handle_session_request(
+    State(state): State<RpcState>,
+    Json(request): Json<SessionRequest>,
+) -> impl IntoResponse {
+    // Verify signature and get peer_id from the public key
+    let peer_id = match request.verify_signature() {
+        Ok(peer_id) => peer_id,
+        Err(err) => {
+            warn!(error = %err, "Session request signature verification failed");
+            return Json(SessionResponse::error(request.id, err));
+        }
+    };
+
+    // Get session registry from auth state
+    let registry = &state.auth.session_registry;
+
+    // Handle based on method
+    match request.method.as_str() {
+        "storage_requestSession" => {
+            // Create session
+            let token = registry.create_session(peer_id);
+            let expires_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                + 86400; // 24 hours
+
+            info!(peer_id = %peer_id, "Session created via HTTP");
+            Json(SessionResponse::success_session(request.id, token.to_string(), expires_at))
+        }
+        "storage_renewSession" => {
+            if let Some(token_str) = request.get_token() {
+                // Use renew_session which checks expiry and creates new token
+                if let Some(new_token) = registry.renew_session(token_str) {
+                    let expires_at = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                        + 86400;
+                    info!(peer_id = %peer_id, "Session renewed via HTTP");
+                    Json(SessionResponse::success_session(request.id, new_token.to_string(), expires_at))
+                } else {
+                    Json(SessionResponse::error(
+                        request.id,
+                        SessionError::InvalidToken, // Invalid or renewal not allowed
+                    ))
+                }
+            } else {
+                Json(SessionResponse::error(
+                    request.id,
+                    SessionError::InvalidToken,
+                ))
+            }
+        }
+        "storage_revokeSession" => {
+            if let Some(_token_str) = request.get_token() {
+                registry.revoke_for_peer(&peer_id);
+                Json(SessionResponse::success_revoked(request.id))
+            } else {
+                Json(SessionResponse::error(
+                    request.id,
+                    SessionError::InvalidToken,
+                ))
+            }
+        }
+        _ => Json(SessionResponse::error(
+            request.id,
+            SessionError::Internal,
+        )),
+    }
+}
+
+/// Handle health check (GET /health)
+async fn handle_health() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "status": "healthy",
+        "version": env!("CARGO_PKG_VERSION")
+    }))
 }
 
 /// Handle JSON-RPC requests
@@ -151,9 +246,9 @@ async fn handle_rpc(
 ) -> Result<Json<RpcResponse<serde_json::Value>>, (StatusCode, &'static str)> {
     let id = request.id;
     
-    // Check if method requires authentication (T048-T051)
+    // Check if method requires authentication (session token or legacy)
     if method_requires_auth(&request.method) {
-        require_auth(&headers, state.auth.enabled)?;
+        require_auth(&headers, &state.auth)?;
     }
     
     let response = match request.method.as_str() {

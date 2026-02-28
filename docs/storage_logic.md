@@ -425,6 +425,85 @@ pub struct ProofRecord<BlockNumber> {
 
 ---
 
+## 7. セッション認証システム
+
+ストレージノードへの書き込み・削除アクセスは、ブロックチェーンノードからのセッション認証を必要とする。フロントエンドからの直接アクセスを防ぎ、信頼されたノードのみが操作を行える。
+
+### 7.1 認証フロー
+
+```
+┌──────────────────┐                  ┌──────────────────┐
+│  Blockchain Node │                  │   Storage Node   │
+│  (Ed25519鍵保持)  │                  │  (認証サーバー)   │
+└────────┬─────────┘                  └────────┬─────────┘
+         │                                      │
+         │  ① POST /session                     │
+         │  SessionRequest {                    │
+         │    peer_id, action: "create",        │
+         │    timestamp, signature              │
+         │  }                                   │
+         │ ─────────────────────────────────────►
+         │                                      │
+         │                            ② 署名検証：
+         │                               - Ed25519.verify(...)
+         │                               - timestamp ±5分
+         │                                      │
+         │  ③ SessionResponse {                 │
+         │    token: "abc123...",               │
+         │    expires_at, idle_timeout          │
+         │  }                                   │
+         │ ◄─────────────────────────────────────
+         │                                      │
+         │  ④ POST /storage/store               │
+         │  Header: X-Session-Token: abc123...  │
+         │ ─────────────────────────────────────►
+         │                                      │
+         │                            ⑤ トークン検証
+         │                               → アイドルタイムアウト更新
+         │                                      │
+         │  ⑥ 操作成功                           │
+         │ ◄─────────────────────────────────────
+         │                                      │
+```
+
+### 7.2 設定パラメータ
+
+| パラメータ | デフォルト値 | 説明 |
+|-----------|-------------|------|
+| `session.ttl` | 24時間 | セッション有効期限 |
+| `session.idle_timeout` | 1時間 | アイドルタイムアウト |
+| `session.cleanup_interval` | 5分 | 期限切れセッションの削除間隔 |
+
+### 7.3 HTTPエンドポイント
+
+| メソッド | パス | 認証 | 説明 |
+|---------|------|------|------|
+| `GET` | `/health` | 不要 | ヘルスチェック |
+| `GET` | `/storage/list` | 不要 | 断片一覧（読み取り） |
+| `GET` | `/storage/get` | 不要 | 断片取得（読み取り） |
+| `POST` | `/session` | 署名 | セッション作成/更新/削除 |
+| `POST` | `/storage/store` | トークン | 断片保存（書き込み） |
+| `DELETE` | `/storage/delete` | トークン | 断片削除 |
+
+### 7.4 実装ファイル
+
+```
+apps/storage-node/src/session/
+├── mod.rs        # モジュール宣言
+├── token.rs      # SessionToken生成・SessionInfo構造体
+├── registry.rs   # SessionRegistry（トークン管理）
+├── peers.rs      # ConnectedPeers（アクティブ接続管理）
+├── protocol.rs   # SessionRequest/Response型、署名検証
+├── error.rs      # SessionError列挙型
+└── tests.rs      # ユニットテスト
+
+apps/blockchain/node/src/storage/
+├── mod.rs              # モジュール宣言
+└── session_client.rs   # StorageSessionClient（自動更新付き）
+```
+
+---
+
 ## 8. ストレージノード間通信 (P2P)
 
 ### 8.1 通信アーキテクチャ

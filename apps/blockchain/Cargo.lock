@@ -132,6 +132,7 @@ dependencies = [
  "pallet-storage",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
+ "parking_lot 0.12.5",
  "rand 0.8.5",
  "reqwest",
  "rs_merkle",

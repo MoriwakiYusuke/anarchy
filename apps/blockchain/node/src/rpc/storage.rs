@@ -587,6 +587,9 @@ impl StorageNodeClient {
     }
 }
 
+/// Shared session client type
+pub type SharedSessionClient = Option<Arc<crate::storage::StorageSessionClient>>;
+
 /// Storage RPC実装
 pub struct Storage<C> {
     /// Runtime Client（チェーン状態参照用）
@@ -595,6 +598,8 @@ pub struct Storage<C> {
     storage_nodes: SharedStorageNodes,
     /// Gossipハンドル (ノード登録のブロードキャスト用)
     gossip_handle: crate::gossip::StorageNodeGossipHandle,
+    /// Session client for authenticated storage access
+    session_client: SharedSessionClient,
 }
 
 impl<C> Storage<C>
@@ -610,6 +615,37 @@ where
             client, 
             storage_nodes,
             gossip_handle,
+            session_client: None,
+        }
+    }
+
+    /// Create with session client for authenticated storage access
+    pub fn new_with_session(
+        client: Arc<C>,
+        storage_nodes: SharedStorageNodes,
+        gossip_handle: crate::gossip::StorageNodeGossipHandle,
+        session_client: SharedSessionClient,
+    ) -> Self {
+        Self {
+            client,
+            storage_nodes,
+            gossip_handle,
+            session_client,
+        }
+    }
+    
+    /// Get session token for a storage node endpoint
+    async fn get_session_token(&self, endpoint: &str) -> Option<String> {
+        if let Some(ref client) = self.session_client {
+            match client.get_or_request_session(endpoint).await {
+                Ok(token) => Some(token),
+                Err(e) => {
+                    log::warn!("Failed to get session token for {}: {}", endpoint, e);
+                    None
+                }
+            }
+        } else {
+            None
         }
     }
     

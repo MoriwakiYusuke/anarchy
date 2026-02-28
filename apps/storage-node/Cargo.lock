@@ -81,6 +81,7 @@ dependencies = [
  "blake2",
  "bs58",
  "clap",
+ "ed25519-dalek",
  "futures",
  "hex",
  "kzg-constants",

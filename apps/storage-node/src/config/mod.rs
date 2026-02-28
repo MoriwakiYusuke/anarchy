@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 use anyhow::{Context, Result};
 
 /// CLI override options for configuration
@@ -15,6 +16,61 @@ pub struct ConfigOverrides {
     pub listen_addr: Option<String>,
     pub rpc_port: Option<u16>,
     pub auth_enabled: Option<bool>,
+}
+
+/// Session authentication configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionConfig {
+    /// Token TTL in seconds (default: 86400 = 24 hours)
+    #[serde(default = "default_session_ttl")]
+    pub token_ttl_secs: u64,
+
+    /// Idle timeout in seconds (default: 3600 = 1 hour)
+    #[serde(default = "default_session_idle_timeout")]
+    pub idle_timeout_secs: u64,
+
+    /// Cleanup interval in seconds (default: 300 = 5 minutes)
+    #[serde(default = "default_session_cleanup_interval")]
+    pub cleanup_interval_secs: u64,
+}
+
+fn default_session_ttl() -> u64 {
+    86400 // 24 hours
+}
+
+fn default_session_idle_timeout() -> u64 {
+    3600 // 1 hour
+}
+
+fn default_session_cleanup_interval() -> u64 {
+    300 // 5 minutes
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            token_ttl_secs: default_session_ttl(),
+            idle_timeout_secs: default_session_idle_timeout(),
+            cleanup_interval_secs: default_session_cleanup_interval(),
+        }
+    }
+}
+
+impl SessionConfig {
+    /// Get token TTL as Duration
+    pub fn ttl(&self) -> Duration {
+        Duration::from_secs(self.token_ttl_secs)
+    }
+
+    /// Get idle timeout as Duration
+    pub fn idle_timeout(&self) -> Duration {
+        Duration::from_secs(self.idle_timeout_secs)
+    }
+
+    /// Get cleanup interval as Duration
+    pub fn cleanup_interval(&self) -> Duration {
+        Duration::from_secs(self.cleanup_interval_secs)
+    }
 }
 
 /// Storage node configuration
@@ -47,6 +103,10 @@ pub struct Config {
     /// Enable authentication for write operations (default: true)
     #[serde(default = "default_auth_enabled")]
     pub auth_enabled: bool,
+
+    /// Session authentication configuration
+    #[serde(default)]
+    pub session: SessionConfig,
 
     /// Bootstrap peers for Gossipsub (multiaddr strings)
     #[serde(default = "default_bootstrap_peers")]
@@ -120,6 +180,7 @@ impl Default for Config {
             declare_rate_limit: default_declare_rate_limit(),
             rpc_port: default_rpc_port(),
             auth_enabled: default_auth_enabled(),
+            session: SessionConfig::default(),
             bootstrap_peers: default_bootstrap_peers(),
             srs_path: default_srs_path(),
             dev_mode: default_dev_mode(),
