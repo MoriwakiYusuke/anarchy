@@ -17,6 +17,12 @@ interface ContentRef {
   compressed: boolean
 }
 
+interface ReactionStats {
+  likes: number
+  boosts: number
+  bads: number
+}
+
 interface Post {
   id: number
   author: string
@@ -26,6 +32,7 @@ interface Post {
   parentId: number | null
   contentRef?: ContentRef
   nickname?: string
+  reactionStats?: ReactionStats
 }
 
 interface Props {
@@ -131,6 +138,27 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
           // ContentRefs storage not available (V2)
         }
 
+        // リアクション統計を取得
+        const reactionStatsMap = new Map<number, ReactionStats>()
+        try {
+          if (unsafeApi.query.Reaction?.ReactionStatsStorage) {
+            const statsEntries = await unsafeApi.query.Reaction.ReactionStatsStorage.getEntries()
+            for (const entry of statsEntries) {
+              const postId = Number(entry.keyArgs[0])
+              const stats = entry.value
+              if (stats) {
+                reactionStatsMap.set(postId, {
+                  likes: Number(stats.likes || 0),
+                  boosts: Number(stats.boosts || 0),
+                  bads: Number(stats.bads || 0),
+                })
+              }
+            }
+          }
+        } catch {
+          // Reaction pallet not available
+        }
+
         // 著者のニックネームを取得
         const nicknameMap = new Map<string, string>()
         try {
@@ -187,6 +215,7 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
             parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
             contentRef,
             nickname: nicknameMap.get(author),
+            reactionStats: reactionStatsMap.get(postId),
           }
         })
 
@@ -240,6 +269,9 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
           unsafeApi={unsafeApi}
           account={account}
           signer={signer}
+          likes={post.reactionStats?.likes}
+          boosts={post.reactionStats?.boosts}
+          bads={post.reactionStats?.bads}
         />
       ))}
     </div>

@@ -50,6 +50,10 @@ interface Props {
   account?: string | null
   /** Polkadot signer */
   signer?: PolkadotSigner | null
+  /** Reaction counts */
+  likes?: number
+  boosts?: number
+  bads?: number
 }
 
 /**
@@ -67,6 +71,9 @@ export function PostItem({
   unsafeApi,
   account,
   signer,
+  likes,
+  boosts,
+  bads,
 }: Props) {
   const { t } = useLocale()
   const { recoverContent, isReady } = useStorage()
@@ -273,6 +280,9 @@ export function PostItem({
           unsafeApi={unsafeApi}
           account={account}
           signer={signer}
+          likes={likes}
+          boosts={boosts}
+          bads={bads}
         />
       </footer>
 

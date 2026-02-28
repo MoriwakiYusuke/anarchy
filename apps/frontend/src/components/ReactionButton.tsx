@@ -6,7 +6,7 @@
 
 'use client'
 
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { useReactionMining, type MiningError } from '@/hooks/useReactionMining'
 import { ReactionType, type ReactionResult } from '@/services/reactionService'
 import type { PolkadotSigner } from 'polkadot-api/signer'
@@ -86,6 +86,8 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
   const [reactedType, setReactedType] = useState<ReactionType | null>(null)
   // チェーン側でAlreadyReactedエラーが返ってきた場合
   const [alreadyReactedError, setAlreadyReactedError] = useState(false)
+  // クロージャの問題を解決するため、現在処理中のタイプをrefで追跡
+  const pendingTypeRef = useRef<ReactionType | null>(null)
 
   // disconnect時に状態リセット
   useEffect(() => {
@@ -95,6 +97,7 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
       setHasReacted(false)
       setReactedType(null)
       setAlreadyReactedError(false)
+      pendingTypeRef.current = null
     }
   }, [account])
 
@@ -108,22 +111,24 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
     account,
     signer,
     onSuccess: useCallback((result: ReactionResult) => {
-      if (selectedType === ReactionType.Like) {
+      const type = pendingTypeRef.current
+      if (type === ReactionType.Like) {
         setLocalCounts((c) => ({ ...c, likes: c.likes + 1 }))
-      } else if (selectedType === ReactionType.Boost) {
+      } else if (type === ReactionType.Boost) {
         setLocalCounts((c) => ({ ...c, boosts: c.boosts + 1 }))
-      } else if (selectedType === ReactionType.Bad) {
+      } else if (type === ReactionType.Bad) {
         setLocalCounts((c) => ({ ...c, bads: c.bads + 1 }))
       }
       // 1回でもリアクションしたら全ボタン無効化
       setHasReacted(true)
-      setReactedType(selectedType)
-      if (selectedType) {
-        onReactionSuccess?.(selectedType, result.reward)
+      setReactedType(type)
+      if (type) {
+        onReactionSuccess?.(type, result.reward)
       }
       setSelectedType(null)
       setLoading(null)
-    }, [selectedType, onReactionSuccess]),
+      pendingTypeRef.current = null
+    }, [onReactionSuccess]),
     onError: useCallback((err: MiningError) => {
       console.error('[ReactionButton] onError:', err)
       // チェーン側でAlreadyReactedエラーの場合、全ボタン無効化 + エラー表示
@@ -154,6 +159,7 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
 
     setSelectedType(type)
     setLoading(type)
+    pendingTypeRef.current = type
     startMining(BigInt(postId), type)
   }, [hasReacted, status, client, unsafeApi, account, signer, postId, startMining])
 
@@ -229,6 +235,9 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
           )}
         </button>
       </div>
+      {isNotConnected && (
+        <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>接続してください</span>
+      )}
       {status === 'mining' && progress && (
         <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>
           {(progress.hashRate / 1000).toFixed(1)} kH/s · {(progress.elapsedMs / 1000).toFixed(1)}s
