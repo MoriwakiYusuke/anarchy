@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { PolkadotClient } from 'polkadot-api'
+import type { PolkadotSigner } from 'polkadot-api/signer'
 import { useLocale } from '@/i18n'
 import { PostItem } from './PostItem'
 import styles from './Timeline.module.css'
@@ -30,10 +31,12 @@ interface Post {
 interface Props {
   client: PolkadotClient | null
   unsafeApi: any
+  account: string | null
+  signer: PolkadotSigner | null
   refreshTrigger?: number
 }
 
-export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
+export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }: Props) {
   const { t } = useLocale()
   const [posts, setPosts] = useState<Post[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -233,6 +236,10 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
           parentId={post.parentId}
           inlineContent={post.content || undefined}
           contentRef={post.contentRef}
+          client={client}
+          unsafeApi={unsafeApi}
+          account={account}
+          signer={signer}
         />
       ))}
     </div>

@@ -137,7 +137,7 @@ export default function Home() {
               onPostSuccess={handlePostSuccess}
             />
           )}
-          <Timeline client={client} unsafeApi={unsafeApi} refreshTrigger={refreshTrigger} />
+          <Timeline client={client} unsafeApi={unsafeApi} account={account} signer={signer} refreshTrigger={refreshTrigger} />
         </section>
       </div>
 

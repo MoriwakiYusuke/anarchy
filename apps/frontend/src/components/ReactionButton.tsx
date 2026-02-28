@@ -1,307 +1,230 @@
 /**
- * ReactionButton Component
- * 
- * UI component for submitting PoW-verified reactions (Like/Boost/Bad) to posts.
- * Displays mining progress and handles the complete reaction workflow.
+ * ReactionButton Component - X-style minimal design with PoW mining
  * 
  * Feature: 017-reaction-mining
  */
 
 'use client'
 
-import React, { useCallback, useState } from 'react'
-import { useReactionMining, ReactionType, MiningStatus } from '@/hooks/useReactionMining'
-import type { ReactionResult } from '@/services/reactionService'
+import React, { useState, useCallback } from 'react'
+import { useReactionMining, type MiningError } from '@/hooks/useReactionMining'
+import { ReactionType, type ReactionResult } from '@/services/reactionService'
 import type { PolkadotSigner } from 'polkadot-api/signer'
+import styles from './ReactionButton.module.css'
 
-/** ReactionButton props */
-export interface ReactionButtonProps {
-  /** Target post ID */
-  postId: bigint
-  /** Current like count (from chain) */
-  likes?: number
-  /** Current boost count (from chain) */
-  boosts?: number
-  /** Current bad count (from chain) */
-  bads?: number
-  /** Whether user has already reacted */
-  hasReacted?: boolean
-  /** PAPI client */
-  client: any
-  /** PAPI unsafe API */
-  unsafeApi: any
-  /** User's account address */
-  account: string | null
-  /** Polkadot signer */
-  signer: PolkadotSigner | null
-  /** Callback after successful reaction */
-  onReactionSuccess?: (type: ReactionType, reward?: bigint) => void
-  /** Additional CSS class */
-  className?: string
-}
-
-/** Reaction option button */
-interface ReactionOptionProps {
-  type: ReactionType
-  count: number
-  icon: string
-  label: string
-  selected: boolean
-  disabled: boolean
-  onClick: () => void
-}
-
-const ReactionOption: React.FC<ReactionOptionProps> = ({
-  type: _type,
-  count,
-  icon,
-  label,
-  selected,
-  disabled,
-  onClick,
-}) => (
-  <button
-    onClick={onClick}
-    disabled={disabled}
-    className={`
-      flex items-center gap-1 px-3 py-1.5 rounded-full text-sm
-      transition-all duration-200
-      ${selected 
-        ? 'bg-primary-500 text-white' 
-        : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
-      }
-      ${disabled 
-        ? 'opacity-50 cursor-not-allowed' 
-        : 'hover:bg-primary-100 dark:hover:bg-gray-700 cursor-pointer'
-      }
-    `}
-    aria-label={`${label} (${count})`}
-  >
-    <span role="img" aria-hidden="true">{icon}</span>
-    <span>{count}</span>
-  </button>
+/** Loading spinner icon */
+const SpinnerIcon: React.FC = () => (
+  <svg className={styles.spinner} viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+    <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+  </svg>
 )
 
-/** Mining progress overlay */
-interface MiningOverlayProps {
-  status: MiningStatus
-  progress: {
-    hashRate: number
-    elapsedMs: number
-    difficulty: number
-  } | null
-  error: string | null
-  onCancel: () => void
-  onResume: () => void
+/** Like icon (heart outline) */
+const HeartIcon: React.FC<{ filled?: boolean }> = ({ filled }) => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+  </svg>
+)
+
+/** Boost icon (retweet/repost) */
+const BoostIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M17 1l4 4-4 4" />
+    <path d="M3 11V9a4 4 0 014-4h14" />
+    <path d="M7 23l-4-4 4-4" />
+    <path d="M21 13v2a4 4 0 01-4 4H3" />
+  </svg>
+)
+
+/** Bad icon (thumbs down) */
+const BadIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3zm7-13h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17" />
+  </svg>
+)
+
+export { ReactionType }
+
+export interface ReactionButtonProps {
+  /** Target post ID */
+  postId: number
+  /** Current like count */
+  likes?: number
+  /** Current boost count */
+  boosts?: number
+  /** Current bad count */
+  bads?: number
+  /** PAPI client */
+  client?: unknown
+  /** PAPI unsafe API */
+  unsafeApi?: unknown
+  /** User's account address */
+  account?: string | null
+  /** Polkadot signer */
+  signer?: PolkadotSigner | null
+  /** Callback after successful reaction */
+  onReactionSuccess?: (type: ReactionType, reward?: bigint) => void
 }
 
-const MiningOverlay: React.FC<MiningOverlayProps> = ({
-  status,
-  progress,
-  error,
-  onCancel,
-  onResume,
-}) => {
-  if (status === 'idle' || status === 'success') {
-    return null
-  }
-  
-  const formatTime = (ms: number): string => {
-    const seconds = Math.floor(ms / 1000)
-    const minutes = Math.floor(seconds / 60)
-    if (minutes > 0) {
-      return `${minutes}m ${seconds % 60}s`
-    }
-    return `${seconds}s`
-  }
-  
-  const formatHashRate = (rate: number): string => {
-    if (rate >= 1000000) {
-      return `${(rate / 1000000).toFixed(1)}M H/s`
-    }
-    if (rate >= 1000) {
-      return `${(rate / 1000).toFixed(1)}K H/s`
-    }
-    return `${rate} H/s`
-  }
-  
-  return (
-    <div className="mt-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-      {status === 'mining' && progress && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full" />
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Mining PoW...
-            </span>
-          </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-            <div className="flex justify-between">
-              <span>Hash Rate:</span>
-              <span className="font-mono">{formatHashRate(progress.hashRate)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Time:</span>
-              <span className="font-mono">{formatTime(progress.elapsedMs)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Difficulty:</span>
-              <span className="font-mono">{progress.difficulty} bits</span>
-            </div>
-          </div>
-          <button
-            onClick={onCancel}
-            className="w-full mt-2 px-3 py-1 text-xs text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-      
-      {status === 'paused' && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
-            <span>⏸</span>
-            <span className="text-sm font-medium">Mining Paused</span>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Mining pauses when this tab is in the background.
-          </p>
-          <button
-            onClick={onResume}
-            className="w-full px-3 py-1 text-xs text-primary-600 dark:text-primary-400 border border-primary-300 dark:border-primary-700 rounded hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
-          >
-            Resume Mining
-          </button>
-        </div>
-      )}
-      
-      {status === 'submitting' && (
-        <div className="flex items-center gap-2">
-          <div className="animate-pulse w-4 h-4 bg-primary-500 rounded-full" />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            Submitting transaction...
-          </span>
-        </div>
-      )}
-      
-      {status === 'error' && error && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-            <span>❌</span>
-            <span className="text-sm font-medium">Error</span>
-          </div>
-          <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
-          <button
-            onClick={onCancel}
-            className="w-full px-3 py-1 text-xs text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * ReactionButton component
- * 
- * Displays Like/Boost/Bad buttons and handles PoW mining workflow.
- */
 export const ReactionButton: React.FC<ReactionButtonProps> = ({
   postId,
   likes = 0,
   boosts = 0,
   bads = 0,
-  hasReacted = false,
   client,
   unsafeApi,
-  account,
-  signer,
+  account = null,
+  signer = null,
   onReactionSuccess,
-  className = '',
 }) => {
   const [selectedType, setSelectedType] = useState<ReactionType | null>(null)
-  
+  const [loading, setLoading] = useState<ReactionType | null>(null)
+  const [localCounts, setLocalCounts] = useState({ likes, boosts, bads })
+  const [reacted, setReacted] = useState<{ like: boolean; boost: boolean; bad: boolean }>({
+    like: false,
+    boost: false,
+    bad: false,
+  })
+
   const {
     status,
-    error,
-    progress,
-    result,
     startMining,
-    cancel,
-    resume,
   } = useReactionMining({
     client,
     unsafeApi,
     account,
     signer,
-    onSuccess: useCallback((res: ReactionResult) => {
+    onSuccess: useCallback((result: ReactionResult) => {
+      if (selectedType === ReactionType.Like) {
+        setLocalCounts((c) => ({ ...c, likes: c.likes + 1 }))
+        setReacted((r) => ({ ...r, like: true }))
+      } else if (selectedType === ReactionType.Boost) {
+        setLocalCounts((c) => ({ ...c, boosts: c.boosts + 1 }))
+        setReacted((r) => ({ ...r, boost: true }))
+      } else if (selectedType === ReactionType.Bad) {
+        setLocalCounts((c) => ({ ...c, bads: c.bads + 1 }))
+        setReacted((r) => ({ ...r, bad: true }))
+      }
       if (selectedType) {
-        onReactionSuccess?.(selectedType, res.reward)
+        onReactionSuccess?.(selectedType, result.reward)
       }
       setSelectedType(null)
+      setLoading(null)
     }, [selectedType, onReactionSuccess]),
+    onError: useCallback((err: MiningError) => {
+      console.error('[ReactionButton] onError:', err)
+      setLoading(null)
+    }, []),
   })
-  
-  const handleReactionClick = useCallback((type: ReactionType) => {
-    if (hasReacted || !account || !signer) {
+
+  const isLoading = (type: ReactionType): boolean => {
+    return loading === type
+  }
+
+  const handleClick = useCallback((type: ReactionType) => {
+    console.log('[ReactionButton] handleClick called:', { type, status, reacted })
+    // 既にリアクション済みの場合は無視
+    if ((type === ReactionType.Like && reacted.like) ||
+        (type === ReactionType.Boost && reacted.boost) ||
+        (type === ReactionType.Bad && reacted.bad)) {
+      console.log('[ReactionButton] already reacted, skipping')
       return
     }
-    
+    // mining or submitting中は無視（idleまたはerrorからは再試行可能）
+    if (status === 'mining' || status === 'submitting') {
+      console.log('[ReactionButton] already processing:', status)
+      return
+    }
+    if (!client || !unsafeApi || !account || !signer) {
+      console.log('[ReactionButton] not connected')
+      return // 接続がない場合は何もしない
+    }
+
+    console.log('[ReactionButton] starting mining for postId:', postId)
     setSelectedType(type)
-    startMining(postId, type)
-  }, [hasReacted, account, signer, postId, startMining])
+    setLoading(type)
+    startMining(BigInt(postId), type)
+  }, [reacted, status, client, unsafeApi, account, signer, postId, startMining])
+
+  const getButtonContent = (type: ReactionType, count: number, icon: React.ReactNode, activeIcon: React.ReactNode, isActive: boolean) => {
+    if (isLoading(type)) {
+      return (
+        <>
+          <SpinnerIcon />
+          {count > 0 && <span className={styles.count}>{count}</span>}
+        </>
+      )
+    }
+    return (
+      <>
+        {isActive ? activeIcon : icon}
+        {count > 0 && <span className={styles.count}>{count}</span>}
+      </>
+    )
+  }
+
+  const isNotConnected = !client || !unsafeApi || !account || !signer
   
-  const isDisabled = hasReacted || !account || !signer || status !== 'idle'
-  
+  // Debug: 接続状態を確認
+  console.log('[ReactionButton] connection state:', { 
+    hasClient: !!client, 
+    hasUnsafeApi: !!unsafeApi, 
+    account, 
+    hasSigner: !!signer,
+    isNotConnected,
+    status 
+  })
+
   return (
-    <div className={`reaction-button ${className}`}>
-      <div className="flex items-center gap-2">
-        <ReactionOption
-          type={ReactionType.Like}
-          count={likes + (result && selectedType === ReactionType.Like ? 1 : 0)}
-          icon="👍"
-          label="Like"
-          selected={selectedType === ReactionType.Like && status === 'success'}
-          disabled={isDisabled}
-          onClick={() => handleReactionClick(ReactionType.Like)}
-        />
-        <ReactionOption
-          type={ReactionType.Boost}
-          count={boosts + (result && selectedType === ReactionType.Boost ? 1 : 0)}
-          icon="🚀"
-          label="Boost"
-          selected={selectedType === ReactionType.Boost && status === 'success'}
-          disabled={isDisabled}
-          onClick={() => handleReactionClick(ReactionType.Boost)}
-        />
-        <ReactionOption
-          type={ReactionType.Bad}
-          count={bads + (result && selectedType === ReactionType.Bad ? 1 : 0)}
-          icon="👎"
-          label="Bad"
-          selected={selectedType === ReactionType.Bad && status === 'success'}
-          disabled={isDisabled}
-          onClick={() => handleReactionClick(ReactionType.Bad)}
-        />
-      </div>
-      
-      <MiningOverlay
-        status={status}
-        progress={progress}
-        error={error?.message || null}
-        onCancel={cancel}
-        onResume={resume}
-      />
-      
-      {status === 'success' && result?.reward && (
-        <div className="mt-2 text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-          <span>✓</span>
-          <span>Author received {Number(result.reward) / 1e12} MORAL reward!</span>
-        </div>
-      )}
+    <div className={styles.container}>
+      <button
+        type="button"
+        className={`${styles.btn} ${styles.likeBtn} ${reacted.like ? styles.active : ''}`}
+        onClick={() => handleClick(ReactionType.Like)}
+        disabled={isNotConnected || reacted.like || isLoading(ReactionType.Like)}
+        aria-label="Like"
+      >
+        {getButtonContent(
+          ReactionType.Like,
+          localCounts.likes,
+          <HeartIcon filled={false} />,
+          <HeartIcon filled={true} />,
+          reacted.like
+        )}
+      </button>
+
+      <button
+        type="button"
+        className={`${styles.btn} ${styles.boostBtn} ${reacted.boost ? styles.active : ''}`}
+        onClick={() => handleClick(ReactionType.Boost)}
+        disabled={isNotConnected || reacted.boost || isLoading(ReactionType.Boost)}
+        aria-label="Boost"
+      >
+        {getButtonContent(
+          ReactionType.Boost,
+          localCounts.boosts,
+          <BoostIcon />,
+          <BoostIcon />,
+          reacted.boost
+        )}
+      </button>
+
+      <button
+        type="button"
+        className={`${styles.btn} ${styles.badBtn} ${reacted.bad ? styles.active : ''}`}
+        onClick={() => handleClick(ReactionType.Bad)}
+        disabled={isNotConnected || reacted.bad || isLoading(ReactionType.Bad)}
+        aria-label="Bad"
+      >
+        {getButtonContent(
+          ReactionType.Bad,
+          localCounts.bads,
+          <BadIcon />,
+          <BadIcon />,
+          reacted.bad
+        )}
+      </button>
     </div>
   )
 }

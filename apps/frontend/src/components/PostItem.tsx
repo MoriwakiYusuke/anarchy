@@ -8,6 +8,7 @@ import type { MediaItem as PostMediaItem } from '@/lib/postCodec'
 import { CopyIcon, CheckIcon, ReplyIcon } from '@/components/Icons'
 import { ImageModal } from '@/components/ImageModal'
 import { ReactionButton } from '@/components/ReactionButton'
+import type { PolkadotSigner } from 'polkadot-api/signer'
 import styles from './Timeline.module.css'
 
 /**
@@ -41,6 +42,14 @@ interface Props {
   contentRef?: ContentRef
   /** Optional nickname for the author */
   nickname?: string
+  /** PAPI client */
+  client?: unknown
+  /** PAPI unsafe API */
+  unsafeApi?: unknown
+  /** User's account address */
+  account?: string | null
+  /** Polkadot signer */
+  signer?: PolkadotSigner | null
 }
 
 /**
@@ -54,6 +63,10 @@ export function PostItem({
   inlineContent,
   contentRef,
   nickname,
+  client,
+  unsafeApi,
+  account,
+  signer,
 }: Props) {
   const { t } = useLocale()
   const { recoverContent, isReady } = useStorage()
@@ -254,7 +267,13 @@ export function PostItem({
             </span>
           )}
         </div>
-        <ReactionButton postId={postId} />
+        <ReactionButton
+          postId={postId}
+          client={client}
+          unsafeApi={unsafeApi}
+          account={account}
+          signer={signer}
+        />
       </footer>
 
       {/* Image modal */}
