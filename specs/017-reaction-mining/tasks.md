@@ -73,7 +73,7 @@
 ### Pallet Implementation for User Story 1
 
 - [ ] T025 [US1] Implement `react()` extrinsic signature and basic validation in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T026 [US1] Implement PoW verification in react() using primitives/pow in apps/blockchain/pallets/reaction/src/lib.rs
+- [ ] T026 [US1] Implement PoW verification in react() using primitives/pow, including challenge expiry validation (100 blocks per FR-112) in apps/blockchain/pallets/reaction/src/lib.rs
 - [ ] T027 [US1] Implement duplicate reaction check in react() in apps/blockchain/pallets/reaction/src/lib.rs
 - [ ] T028 [US1] Implement reaction storage and stats update in react() in apps/blockchain/pallets/reaction/src/lib.rs
 - [ ] T029 [US1] Implement reward calculation (Weight × CPUPower × γ) in apps/blockchain/pallets/reaction/src/lib.rs
@@ -142,11 +142,12 @@
 - [ ] T054 [US3] Implement adjust_difficulty() internal function in apps/blockchain/pallets/reaction/src/lib.rs
 - [ ] T055 [US3] Call adjust_difficulty() in on_finalize hook in apps/blockchain/pallets/reaction/src/lib.rs
 - [ ] T056 [US3] Add ReactionHistory tracking per block in react() in apps/blockchain/pallets/reaction/src/lib.rs
+- [ ] T057 [US3] Implement gamma (γ) calculation: γ = ReactionRewardPool / TotalSupply (FR-304) in apps/blockchain/pallets/reaction/src/lib.rs
 
 ### Frontend Integration for User Story 3
 
-- [ ] T057 [US3] Fetch current difficulty before mining in reactionService.ts in apps/frontend/src/services/reactionService.ts
-- [ ] T058 [US3] Display current difficulty in ReactionButton UI in apps/frontend/src/components/ReactionButton.tsx
+- [ ] T058 [US3] Fetch current difficulty before mining in reactionService.ts in apps/frontend/src/services/reactionService.ts
+- [ ] T059 [US3] Display current difficulty in ReactionButton UI in apps/frontend/src/components/ReactionButton.tsx
 
 **Checkpoint**: Difficulty dynamically adjusts based on network reaction activity
 
@@ -160,15 +161,15 @@
 
 ### Tests for User Story 4
 
-- [ ] T059 [P] [US4] Unit test: react() with stealth_recipient sends reward to stealth in apps/blockchain/pallets/reaction/src/tests.rs
-- [ ] T060 [P] [US4] Unit test: react() without recipient sends reward to post author in apps/blockchain/pallets/reaction/src/tests.rs
+- [ ] T060 [P] [US4] Unit test: react() with stealth_recipient sends reward to stealth in apps/blockchain/pallets/reaction/src/tests.rs
+- [ ] T061 [P] [US4] Unit test: react() without recipient sends reward to post author in apps/blockchain/pallets/reaction/src/tests.rs
 
 ### Implementation for User Story 4
 
-- [ ] T061 [US4] Add optional stealth_recipient parameter to react() extrinsic in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T062 [US4] Update reward payout to use stealth_recipient if provided in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T063 [US4] Add stealth address UI option to ReactionButton in apps/frontend/src/components/ReactionButton.tsx
-- [ ] T064 [US4] Integrate stealth address generation (if pallet-stealth exists) in apps/frontend/src/services/reactionService.ts
+- [ ] T062 [US4] Add optional stealth_recipient parameter to react() extrinsic in apps/blockchain/pallets/reaction/src/lib.rs
+- [ ] T063 [US4] Update reward payout to use stealth_recipient if provided in apps/blockchain/pallets/reaction/src/lib.rs
+- [ ] T064 [US4] Add stealth address UI option to ReactionButton in apps/frontend/src/components/ReactionButton.tsx
+- [ ] T065 [US4] Integrate stealth address generation (if pallet-stealth exists) in apps/frontend/src/services/reactionService.ts
 
 **Checkpoint**: Rewards can be directed to stealth addresses
 
@@ -178,12 +179,12 @@
 
 **Purpose**: Cleanup, documentation, integration tests
 
-- [ ] T065 Add comprehensive rustdoc to pallet-reaction in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T066 [P] Add integration test: full reaction flow with reward in apps/blockchain/tests/integration/
-- [ ] T067 [P] Add frontend E2E test: reaction mining flow in apps/frontend/tests/e2e/
-- [ ] T068 Update README with reaction mining documentation in apps/blockchain/pallets/reaction/README.md
-- [ ] T069 [P] Benchmark weight calculations for react() extrinsic in apps/blockchain/pallets/reaction/src/benchmarks.rs
-- [ ] T070 Update CLAUDE.md with pallet-reaction information in /home/moriwaki-y/self/anarchy/CLAUDE.md
+- [ ] T066 Add comprehensive rustdoc to pallet-reaction in apps/blockchain/pallets/reaction/src/lib.rs
+- [ ] T067 [P] Add integration test: full reaction flow with reward in apps/blockchain/tests/integration/
+- [ ] T068 [P] Add frontend E2E test: reaction mining flow in apps/frontend/tests/e2e/
+- [ ] T069 Update README with reaction mining documentation in apps/blockchain/pallets/reaction/README.md
+- [ ] T070 [P] Benchmark weight calculations for react() extrinsic in apps/blockchain/pallets/reaction/src/benchmarks.rs
+- [ ] T071 Update CLAUDE.md with pallet-reaction information in /home/moriwaki-y/self/anarchy/CLAUDE.md
 
 **Checkpoint**: All tests pass, documentation complete, feature ready for merge
 
@@ -257,12 +258,12 @@ Phase 1-4 comprise the MVP:
 
 | Metric | Count |
 |--------|-------|
-| Total Tasks | 70 |
+| Total Tasks | 71 |
 | Setup Tasks | 6 |
 | Foundational Tasks | 12 |
 | US1 Tasks (MVP) | 22 |
 | US2 Tasks (MVP) | 7 |
-| US3 Tasks | 11 |
+| US3 Tasks | 12 |
 | US4 Tasks | 6 |
 | Polish Tasks | 6 |
 | Parallelizable Tasks | 32 |
