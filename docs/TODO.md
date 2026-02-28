@@ -480,27 +480,26 @@
 
 ### 3.2 反応マイニング
 
-- [ ] **Reaction Pallet** 作成
-  - [ ] 反応データ構造（いいね、ブースト等）
-  - [ ] 反応ストレージ（PostReactions, UserReactions）
-  - [ ] `react` エクストリンシック
-  - [ ] 二重反応防止チェック
-  - [ ] 投稿者への報酬付与
-  - [ ] PoW難易度検証
-  - [ ] 報酬計算: `Reward = Σ(Reaction × Power_cpu) × γ`
-  - [ ] γ（インフレ調整係数）の動的計算
-  - [ ] ステルスアドレス報酬先対応（名寄せ防止）
+- [x] + **Reaction Pallet** 作成
+  - [x] + 反応データ構造（いいね、ブースト、Bad）
+  - [x] + 反応ストレージ（Reactions, ReactionStatsStorage, ReactionHistory）
+  - [x] + `react` エクストリンシック
+  - [x] + 二重反応防止チェック
+  - [x] + 投稿者への報酬付与（ReactionRewardPoolから1 MORAL/反応）
+  - [x] + PoW難易度検証（16ビット）
+  - ~~報酬計算: `Reward = Σ(Reaction × Power_cpu) × γ`~~ → P4.4へ移動
+  - ~~γ（インフレ調整係数）の動的計算~~ → P4.4へ移動
+  - ~~ステルスアドレス報酬先対応（名寄せ防止）~~ → P3.5へ移動
 
-- [ ] クライアント側PoW
-  - [ ] WebWorkerでのマイニング実行
-  - [ ] Page Visibility API制御（フォアグラウンド強制）
-  - [ ] 難易度調整パラメータ取得
-  - [ ] マイニング報酬先の正当性検証
+- [x] + クライアント側PoW
+  - [x] + WebWorkerでのマイニング実行（miningWorker.ts）
+  - [x] + 難易度調整パラメータ取得
+  - ~~マイニング報酬先の正当性検証~~ → ステルスアドレススキップのため不要
 
-- [ ] 動的難易度調整
-  - [ ] ネットワーク全体の反応レート監視
-  - [ ] 難易度自動調整アルゴリズム
-  - [ ] インフレ/デフレ抑制メカニズム
+- [x] + 動的難易度調整
+  - [x] + ネットワーク全体の反応レート監視（ReactionHistory）
+  - [x] + 難易度自動調整アルゴリズム（on_finalize）
+  - [x] + インフレ/デフレ抑制メカニズム（Min/MaxDifficulty制限）
 
 ### 3.3 DM機能（Stealth Messaging）
 
@@ -542,6 +541,25 @@
   - [ ] 自演スコア操作の防止
   - [ ] 「永続化」オプション（追加料金で削除対象外）
 
+### 3.5 ステルスアドレス報酬先対応
+
+> **目的**: 反応マイニング報酬先にステルスアドレスを指定可能にし、反応者と報酬受取口座の名寄せを防止
+
+- [ ] **pallet-stealth 作成**
+  - [ ] ステルスアドレス生成（Ephemeral key + Recipient public key）
+  - [ ] ステルスアドレス検証
+  - [ ] 復号用スキャン機能
+
+- [ ] **pallet-reaction との統合**
+  - [ ] `react()` の `stealth_recipient` パラメータを有効化
+  - [ ] ステルスアドレスへの報酬送付
+  - [ ] 報酬先未指定時は投稿者メインアカウントへフォールバック
+
+- [ ] **フロントエンド対応**
+  - [ ] ステルスアドレス生成UI
+  - [ ] 反応時の報酬先指定オプション
+  - [ ] ステルス報酬スキャナー（受取確認）
+
 ---
 
 ## Phase 4: 本番デプロイ
@@ -567,9 +585,9 @@
   - [ ] Genesis設定最終化
   - [ ] バリデーター招集
 
-### 4.4 Mainnet設計・経済パラメータ
+### 4.4 Mainnet設計・経済パラメータ（トークノミクス統合）
 
-> 詳細設計は 4.5〜4.7 を参照。ここでは最終パラメータ決定のみ。
+> 4.6の経済設計と統合。詳細設計は 4.5, 4.7 を参照。
 
 - [ ] **経済合理性に基づく定数制定**
   - [ ] PostBaseCost / PostByteCost の最適値検証
@@ -578,6 +596,25 @@
   - [ ] インフレ/デフレ率シミュレーション
   - [ ] 適切なガス代の設定
   - [ ] 初期供給量・分配比率
+
+- [ ] **バリデーター報酬設計**
+  - [ ] 案A: ブロック報酬mint（シンプル、インフレ）
+  - [ ] 案D: Ethereum EIP-1559方式（Base Fee burn + Priority Fee → バリデーター）
+  - [ ] インフレ率とデフレ圧力のバランス検証
+
+- [ ] **ストレージ・反応報酬設計**
+  - [ ] ストレージノード報酬設計
+  - [ ] 反応マイニング報酬曲線
+  - [ ] 動的報酬計算: `Reward = Σ(Reaction × Power_cpu) × γ`
+  - [ ] γ（インフレ調整係数）の動的計算（ReactionRewardPool / TotalSupply）
+
+- [ ] **手数料モデル**
+  - [ ] TX手数料: 0維持 or Base Fee導入
+  - [ ] 投稿コスト: burn維持（デフレ圧力）
+  - [ ] Faucet: unsigned tx維持
+
+- [ ] **フロントエンド改善（後回し）**
+  - [ ] Page Visibility API制御（反応マイニングのフォアグラウンド強制）
 
 ### + 4.5 オンチェーンガバナンス
 
@@ -607,23 +644,7 @@
   - [ ] 最小投票期間の設定
   - [ ] 提案スパム防止（デポジット要求）
 
-### + 4.6 経済設計（トークノミクス）
-
-> **詳細**: [CONCEPTS.md](CONCEPTS.md#経済設計トークノミクス) を参照
-
-- [ ] **バリデーター報酬設計**
-  - [ ] 案A: ブロック報酬mint（シンプル、インフレ）
-  - [ ] 案D: Ethereum EIP-1559方式（Base Fee burn + Priority Fee → バリデーター）
-  - [ ] インフレ率とデフレ圧力のバランス検証
-
-- [ ] **ストレージ・反応報酬設計**
-  - [ ] ストレージノード報酬設計
-  - [ ] 反応マイニング報酬曲線
-
-- [ ] **手数料モデル**
-  - [ ] TX手数料: 0維持 or Base Fee導入
-  - [ ] 投稿コスト: burn維持（デフレ圧力）
-  - [ ] Faucet: unsigned tx維持
+### ~~+ 4.6 経済設計（トークノミクス）~~ → 4.4に統合
 
 ### + 4.7 コンセンサス方式の検討（PoA → PoW/NPoS）
 
@@ -717,7 +738,11 @@ Phase 2.1 (SSS/Wasm) ✅ ──── Phase 2.2 (Storage) ✅ ─┬─ + Phase 
                                                      │
                                                      └─ + 013-slashing-repair ✅ (2026-02-24)
 
-Phase 3.1 (Stealth) ✅ (2026-02-28) ─── Phase 3.2 (Reaction) ─── Phase 3.3 (DM)
+Phase 3.1 (Stealth) ✅ (2026-02-28) ─── Phase 3.2 (Reaction) ✅ (2026-03-01) ─┬─ Phase 3.3 (DM)
+                                                     │                         │
+                                                     │                         └─ Phase 3.4 (Popularity)
+                                                     │
+                                                     └── Phase 3.5 (Stealth Rewards) → P4.4 or 後続
 
 Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 ```
@@ -744,7 +769,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | + **KZG Proof & Rewards** | 高 | 高 | **12** | ✅完了 (2026-02-16) |
 | + **Slashing & Self-Repair** | 高 | 高 | **13** | ✅完了 (2026-02-24) |
 | + **ステルスアドレス** | 中 | 中 | **14** | ✅完了 (2026-02-28) |
-| 反応マイニング | 低 | 中 | 15 | 未着手 |
+| + **反応マイニング** | 中 | 中 | **15** | ✅完了 (2026-03-01) |
 | ~~ZKP回路~~ | ~~低~~ | ~~高~~ | ~~16~~ | →構想移動 |
 
 ---
@@ -842,6 +867,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
   - [x] + `hybrid_split()` / `hybrid_reconstruct()`
   - [x] + AES-256-GCM + Reed-Solomon + SSS鍵分割
   - [x] + KZG commitment / proof生成 (BLS12-381)
+  - [x] + Blake2b PoWマイニング (`compute_pow_js`, 反応マイニング用)
 
 - [x] + **pallet-storage KZG報酬システム**
   - [x] + `register_fragment_kzg`: commitment + deposit登録
@@ -894,3 +920,35 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
   - [x] + `storage_getAtRiskFragments`, `storage_getFragmentState`
   - [x] + `storage_getEvictionCandidates`, `storage_getFragmentsWithExcessHolders`
   - [x] + `storage_repairStatus` (storage-node)
+
+### + M10: 反応マイニング ✅完了 (2026-03-01)
+
+> **実装内容**: 017-reaction-mining仕様に基づくPoWベースの反応システムとクリエイター報酬
+
+- [x] + **pallet-reaction**
+  - [x] + 反応データ構造: Like, Boost, Bad
+  - [x] + ストレージ: Reactions, ReactionStatsStorage, ReactionHistory, ReactionRewardPool
+  - [x] + `react()` extrinsic: PoW検証 + 報酬付与
+  - [x] + 二重反応防止チェック
+  - [x] + PostAuthorProvider trait (pallet-postから投稿者取得)
+  - [x] + 報酬フロー: ReactionRewardPoolから1 MORAL/反応をmint
+  - [x] + 動的難易度調整 (on_finalize, AdjustmentWindow)
+
+- [x] + **報酬システム**
+  - [x] + Genesis: ReactionRewardPool 10,000,000 MORAL
+  - [x] + 投稿コスト: 80% Storage pool, 10% Reaction pool, 10% burn
+  - [x] + 固定報酬: 1 MORAL/反応 (Like/Boost共通, Bad=0)
+  - [x] + プール残高不足時: 反応は記録、報酬なし
+
+- [x] + **クライアント側PoW**
+  - [x] + miningWorker.ts: WebWorkerでBlake2bマイニング
+  - [x] + useReactionMining.ts: マイニングフック
+  - [x] + 難易度16ビット (faucetの18ビットより簡単)
+  - [x] + チャレンジ有効期限: 100ブロック
+
+- [x] + **フロントエンド統合**
+  - [x] + ReactionButton.tsx: X風ハート/リツイート/Badボタン
+  - [x] + マイニング進捗表示 (ハッシュレート, 経過時間)
+  - [x] + 反応数表示 (ReactionStatsStorage from chain)
+  - [x] + エラー表示 (すでに反応済み, 接続してください)
+  - [x] + 投稿ごとに1回のみ反応可能
