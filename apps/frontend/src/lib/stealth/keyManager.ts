@@ -13,13 +13,37 @@ type WasmModule = typeof import('anarchy-wasm-engine');
 let wasmModule: WasmModule | null = null;
 
 /**
- * Load wasm module lazily
+ * Load and initialize wasm module lazily
+ * 
+ * Next.jsのバンドリングではimport.meta.urlが正しく解決されない場合があるため、
+ * public/wasmフォルダにコピーされたWASMファイルを明示的にfetchして初期化する
  */
 async function getWasm(): Promise<WasmModule> {
-  if (!wasmModule) {
-    wasmModule = await import('anarchy-wasm-engine');
+  if (wasmModule) {
+    return wasmModule;
   }
-  return wasmModule;
+  
+  try {
+    const module = await import('anarchy-wasm-engine');
+    
+    // public/wasm/に配置されたWASMファイルを使用
+    const wasmUrl = new URL('/wasm/anarchy_wasm_engine_bg.wasm', window.location.origin);
+    const response = await fetch(wasmUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
+    }
+    
+    const wasmBytes = await response.arrayBuffer();
+    module.initSync({ module: new WebAssembly.Module(wasmBytes) });
+    
+    wasmModule = module;
+    console.log('[StealthKeyManager] Wasm module initialized');
+    return wasmModule;
+  } catch (error) {
+    console.error('[StealthKeyManager] Failed to initialize Wasm:', error);
+    throw error;
+  }
 }
 
 /**

@@ -107,6 +107,25 @@
   cursor: not-allowed;
 }
 
+.stealthBtn {
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.stealthBtn:hover {
+  background: rgba(255, 68, 68, 0.1);
+  border-color: var(--accent);
+}
+
 .cancelBtn {
   width: 100%;
   box-sizing: border-box;

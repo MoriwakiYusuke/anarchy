@@ -14,6 +14,7 @@ import { useTransfer } from '@/hooks/useTransfer'
 import { useLocale, type TranslationKey } from '@/i18n'
 import { formatMoralAmount, formatMoralBalance } from '@/types/transfer'
 import { shortenAddress } from '@/lib/addressValidation'
+import { StealthModal } from './stealth/StealthModal'
 import styles from './TransferForm.module.css'
 
 interface Props {
@@ -45,6 +46,7 @@ export function TransferForm({
   const [recipientTouched, setRecipientTouched] = useState(false)
   const [amountTouched, setAmountTouched] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [isStealthModalOpen, setStealthModalOpen] = useState(false)
   
   // For portal rendering
   useEffect(() => {
@@ -198,6 +200,13 @@ export function TransferForm({
           >
             {t('transfer.send')}
           </button>
+          <button
+            type="button"
+            className={styles.stealthBtn}
+            onClick={() => setStealthModalOpen(true)}
+          >
+            {'🔐 ステルス送金'}
+          </button>
         </div>
       </form>
 
@@ -270,6 +279,16 @@ export function TransferForm({
         </div>,
         document.body
       )}
+
+      {/* Stealth Address Modal */}
+      <StealthModal
+        isOpen={isStealthModalOpen}
+        onClose={() => setStealthModalOpen(false)}
+        unsafeApi={unsafeApi}
+        signer={signer}
+        accountAddress={senderAddress}
+        isConnected={!!signer}
+      />
     </div>
   )
 }

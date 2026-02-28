@@ -481,6 +481,9 @@ export default function StealthPage() {
           max-width: 600px;
           margin: 0 auto;
           padding: 24px;
+          position: relative;
+          z-index: 1;
+          min-height: 100vh;
         }
 
         .page-header {
@@ -489,23 +492,25 @@ export default function StealthPage() {
 
         .page-header h1 {
           margin: 0 0 8px;
+          color: var(--text-primary, #fff);
         }
 
         .page-header p {
-          color: #666;
+          color: var(--text-secondary, #888);
           margin: 0;
         }
 
         .setup-section {
-          background: #f5f5f5;
+          background: var(--bg-secondary, #141414);
           border-radius: 8px;
           padding: 24px;
+          border: 1px solid var(--border, #2a2a2a);
         }
 
         .divider {
           text-align: center;
           margin: 24px 0;
-          color: #999;
+          color: var(--text-secondary, #888);
         }
 
         .import-section {
@@ -513,7 +518,7 @@ export default function StealthPage() {
         }
 
         .import-button {
-          background: #333;
+          background: var(--accent, #ff4444);
           color: #fff;
           border: none;
           padding: 12px 24px;
@@ -528,14 +533,16 @@ export default function StealthPage() {
         }
 
         .actions-section {
-          background: #f5f5f5;
+          background: var(--bg-secondary, #141414);
           border-radius: 8px;
           padding: 16px;
+          border: 1px solid var(--border, #2a2a2a);
         }
 
         .actions-section h3 {
           margin: 0 0 12px;
           font-size: 14px;
+          color: var(--text-primary, #fff);
         }
 
         .actions-section button {
@@ -553,19 +560,22 @@ export default function StealthPage() {
         }
 
         .info-section {
-          background: #e3f2fd;
+          background: var(--bg-secondary, #141414);
           border-radius: 8px;
           padding: 16px;
+          border: 1px solid var(--border, #2a2a2a);
         }
 
         .info-section h3 {
           margin: 0 0 12px;
           font-size: 14px;
+          color: var(--text-primary, #fff);
         }
 
         .info-section ol {
           margin: 0;
           padding-left: 20px;
+          color: var(--text-secondary, #888);
         }
 
         .info-section li {
@@ -576,7 +586,7 @@ export default function StealthPage() {
           display: flex;
           gap: 8px;
           margin-bottom: 24px;
-          border-bottom: 1px solid #e0e0e0;
+          border-bottom: 1px solid var(--border, #2a2a2a);
           padding-bottom: 8px;
         }
 
@@ -586,40 +596,42 @@ export default function StealthPage() {
           padding: 8px 16px;
           cursor: pointer;
           font-size: 14px;
-          color: #666;
+          color: var(--text-secondary, #888);
           border-radius: 4px 4px 0 0;
           transition: background 0.2s, color 0.2s;
         }
 
         .tab-button:hover {
-          background: #f0f0f0;
+          background: var(--bg-secondary, #141414);
         }
 
         .tab-button.active {
-          color: #333;
+          color: var(--text-primary, #fff);
           font-weight: 600;
-          border-bottom: 2px solid #333;
+          border-bottom: 2px solid var(--accent, #ff4444);
         }
 
         .send-section {
-          background: #f5f5f5;
+          background: var(--bg-secondary, #141414);
           border-radius: 8px;
           padding: 24px;
+          border: 1px solid var(--border, #2a2a2a);
         }
 
         .send-section h2 {
           margin: 0 0 8px;
           font-size: 18px;
+          color: var(--text-primary, #fff);
         }
 
         .send-description {
-          color: #666;
+          color: var(--text-secondary, #888);
           margin: 0 0 16px;
           font-size: 14px;
         }
 
         .warning-box {
-          background: #fff3cd;
+          background: rgba(255, 193, 7, 0.1);
           border: 1px solid #ffc107;
           border-radius: 4px;
           padding: 12px;
@@ -628,25 +640,41 @@ export default function StealthPage() {
 
         .warning-box p {
           margin: 0;
-          color: #856404;
+          color: #ffc107;
           font-size: 14px;
         }
 
         .balance-section {
-          background: #f5f5f5;
+          background: var(--bg-secondary, #141414);
           border-radius: 8px;
           padding: 24px;
+          border: 1px solid var(--border, #2a2a2a);
         }
 
         .balance-section h2 {
           margin: 0 0 8px;
           font-size: 18px;
+          color: var(--text-primary, #fff);
         }
 
         .balance-description {
-          color: #666;
+          color: var(--text-secondary, #888);
           margin: 0 0 16px;
           font-size: 14px;
+        }
+
+        .spend-button {
+          background: var(--accent, #ff4444);
+          color: #fff;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-top: 16px;
+        }
+
+        .page-content {
+          color: var(--text-primary, #fff);
         }
       `}</style>
     </div>
