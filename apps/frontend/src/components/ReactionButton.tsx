@@ -11,6 +11,7 @@
 
 import React, { useCallback, useState } from 'react'
 import { useReactionMining, ReactionType, MiningStatus } from '@/hooks/useReactionMining'
+import type { ReactionResult } from '@/services/reactionService'
 import type { PolkadotSigner } from 'polkadot-api/signer'
 
 /** ReactionButton props */
@@ -236,7 +237,7 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
     unsafeApi,
     account,
     signer,
-    onSuccess: useCallback((res) => {
+    onSuccess: useCallback((res: ReactionResult) => {
       if (selectedType) {
         onReactionSuccess?.(selectedType, res.reward)
       }

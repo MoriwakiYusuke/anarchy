@@ -7,6 +7,7 @@ import { decodePostContent, mediaToDataUrl } from '@/lib/postCodec'
 import type { MediaItem as PostMediaItem } from '@/lib/postCodec'
 import { CopyIcon, CheckIcon, ReplyIcon } from '@/components/Icons'
 import { ImageModal } from '@/components/ImageModal'
+import { ReactionButton } from '@/components/ReactionButton'
 import styles from './Timeline.module.css'
 
 /**
@@ -133,6 +134,10 @@ export function PostItem({
 
   const [copied, setCopied] = useState(false)
   const [modalImage, setModalImage] = useState<{ src: string; filename: string } | null>(null)
+  const [expanded, setExpanded] = useState(false)
+
+  // テキストが長いかどうかを判定（200文字 or 5行以上）
+  const isLongContent = typeof content === 'string' && (content.length > 200 || content.split('\n').length > 5)
 
   const handleCopyAddress = useCallback(async () => {
     try {
@@ -166,7 +171,18 @@ export function PostItem({
         </span>
       </header>
       <div className={styles.content}>
-        <p className={styles.text}>{displayContent}</p>
+        <p className={`${styles.text} ${isLongContent && !expanded ? styles.textCollapsed : ''}`}>
+          {displayContent}
+        </p>
+        {isLongContent && (
+          <button
+            type="button"
+            className={styles.expandButton}
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? '折りたたむ' : 'もっと見る'}
+          </button>
+        )}
         {decodedMedia.length > 0 && (
           <div className={styles.mediaGrid}>
             {decodedMedia.map((item, idx) => {
@@ -228,14 +244,17 @@ export function PostItem({
         )}
       </div>
       <footer className={styles.postFooter}>
-        <span className={styles.postId}>
-          Post #{postId}
-        </span>
-        {parentId !== null && (
-          <span className={styles.reply}>
-            <ReplyIcon size={12} /> Reply to #{parentId}
+        <div className={styles.postMeta}>
+          <span className={styles.postId}>
+            Post #{postId}
           </span>
-        )}
+          {parentId !== null && (
+            <span className={styles.reply}>
+              <ReplyIcon size={12} /> Reply to #{parentId}
+            </span>
+          )}
+        </div>
+        <ReactionButton postId={postId} />
       </footer>
 
       {/* Image modal */}

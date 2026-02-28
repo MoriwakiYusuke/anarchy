@@ -96,7 +96,35 @@
   line-height: 1.6;
   color: var(--text-primary);
   word-break: break-word;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.textCollapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.expandButton {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  margin-top: 0.25rem;
+}
+
+.expandButton:hover {
+  text-decoration: underline;
+}
+
+.postMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .hash {
@@ -112,9 +140,12 @@
 
 .postFooter {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 1rem;
   font-size: 0.75rem;
   color: var(--text-secondary);
+  flex-wrap: wrap;
 }
 
 .postId {
