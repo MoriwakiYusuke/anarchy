@@ -7,6 +7,7 @@
 'use client';
 
 import React from 'react';
+import { useLocale } from '../../i18n/context';
 import type { DetectedStealthBalance, ScanProgress } from '@/lib/stealth/types';
 import { formatMoralBalance } from '@/hooks/useMoralBalance';
 import styles from './StealthBalanceList.module.css';
@@ -48,6 +49,7 @@ export default function StealthBalanceList({
   onStartScan,
   onStopScan,
 }: StealthBalanceListProps) {
+  const { t } = useLocale();
   // Filter balances based on showSpent
   const displayBalances = showSpent 
     ? balances 
@@ -63,9 +65,9 @@ export default function StealthBalanceList({
       {/* Header with total and scan controls */}
       <div className={styles.header}>
         <div className={styles.headerInfo}>
-          <h3>ステルス残高</h3>
+          <h3>{t('stealth.scan.title')}</h3>
           <p>
-            合計: {formatMoralBalance(totalBalance)}
+            {t('stealth.scan.total')}: {formatMoralBalance(totalBalance)}
           </p>
         </div>
         <div>
@@ -74,14 +76,14 @@ export default function StealthBalanceList({
               onClick={onStopScan}
               className={`${styles.scanButton} ${styles.scanButtonStop}`}
             >
-              停止
+              {t('stealth.scan.stop')}
             </button>
           ) : (
             <button
               onClick={onStartScan}
               className={`${styles.scanButton} ${styles.scanButtonStart}`}
             >
-              スキャン
+              {t('stealth.scan.start')}
             </button>
           )}
         </div>
@@ -91,7 +93,7 @@ export default function StealthBalanceList({
       {isScanning && scanProgress && (
         <div className={styles.progressBox}>
           <p className={styles.progressText}>
-            スキャン中... {scanProgress.percentage}%
+            {t('stealth.scan.scanning')} {scanProgress.percentage}%
           </p>
           <div className={styles.progressBar}>
             <div 
@@ -100,8 +102,8 @@ export default function StealthBalanceList({
             />
           </div>
           <p className={styles.progressDetail}>
-            ブロック {scanProgress.currentBlock} / {scanProgress.targetBlock}
-            {scanProgress.detectedCount > 0 && ` (${scanProgress.detectedCount}件検出)`}
+            {t('stealth.scan.block')} {scanProgress.currentBlock} / {scanProgress.targetBlock}
+            {scanProgress.detectedCount > 0 && ` (${t('stealth.scan.detected', { count: String(scanProgress.detectedCount) })})`}
           </p>
         </div>
       )}
@@ -109,9 +111,9 @@ export default function StealthBalanceList({
       {/* Balance list */}
       {displayBalances.length === 0 ? (
         <div className={styles.emptyState}>
-          <p>残高がありません</p>
+          <p>{t('stealth.scan.empty')}</p>
           <p>
-            スキャンを実行して送金を検出してください
+            {t('stealth.scan.emptyHint')}
           </p>
         </div>
       ) : (
@@ -138,9 +140,9 @@ export default function StealthBalanceList({
                 </span>
               </div>
               <div className={styles.balanceItemFooter}>
-                <span>ブロック #{balance.receivedAt}</span>
+                <span>{t('stealth.scan.block')} #{balance.receivedAt}</span>
                 {balance.spent && (
-                  <span className={styles.spentBadge}>使用済み</span>
+                  <span className={styles.spentBadge}>{t('stealth.balance.spent')}</span>
                 )}
               </div>
             </li>

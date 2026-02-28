@@ -9,6 +9,8 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
+import { useLocale } from '../../i18n/context';
+import type { TranslationKey } from '../../i18n/types';
 import { DetectedStealthBalance } from '@/lib/stealth/types';
 import { selectCoins, LINKABILITY_WARNING_THRESHOLD } from '@/lib/stealth/coinSelection';
 import styles from './StealthSpendForm.module.css';
@@ -37,29 +39,30 @@ export interface SpendFormValidation {
 
 /**
  * フォームバリデーション
+ * Returns translation keys for errors
  */
 export function validateSpendForm(values: SpendFormValues): SpendFormValidation {
   const errors: SpendFormValidation['errors'] = {};
   
   // 残高選択チェック
   if (values.selectedBalances.length === 0) {
-    errors.selectedBalances = '残高を選択してください';
+    errors.selectedBalances = 'stealth.spend.error.selectBalance';
   } else {
     // 使用済み残高のチェック
     const hasSpent = values.selectedBalances.some(b => b.spent);
     if (hasSpent) {
-      errors.selectedBalances = '使用済みの残高が含まれています';
+      errors.selectedBalances = 'stealth.spend.error.spentIncluded';
     }
   }
 
   // 送金先アドレスチェック
   if (!values.recipientAddress || values.recipientAddress.trim() === '') {
-    errors.recipientAddress = '送金先アドレスを入力してください';
+    errors.recipientAddress = 'stealth.spend.error.recipientRequired';
   }
 
   // 金額チェック
   if (values.amount <= BigInt(0)) {
-    errors.amount = '金額を入力してください';
+    errors.amount = 'stealth.spend.error.amountRequired';
   } else {
     // 残高不足チェック
     const totalSelected = values.selectedBalances.reduce(
@@ -67,7 +70,7 @@ export function validateSpendForm(values: SpendFormValues): SpendFormValidation 
       BigInt(0)
     );
     if (values.amount > totalSelected) {
-      errors.amount = '残高が不足しています';
+      errors.amount = 'stealth.spend.error.insufficientBalance';
     }
   }
 
@@ -151,6 +154,7 @@ export function StealthSpendForm({
   successMessage,
   errorMessage: externalError,
 }: StealthSpendFormProps) {
+  const { t } = useLocale();
   const [selectedAddresses, setSelectedAddresses] = useState<Set<string>>(new Set());
   const [recipientAddress, setRecipientAddress] = useState(defaultRecipientAddress);
   const [amountInput, setAmountInput] = useState('');
@@ -202,25 +206,25 @@ export function StealthSpendForm({
   const autoSelect = useCallback(() => {
     const amount = parseMoralInput(amountInput);
     if (!amount) {
-      setError('有効な金額を入力してください');
+      setError(t('stealth.spend.error.invalidAmount'));
       return;
     }
 
     const result = selectCoins(availableBalances, amount);
     if (!result.sufficient) {
-      setError('残高が不足しています');
+      setError(t('stealth.spend.error.insufficientBalance'));
       return;
     }
 
     setSelectedAddresses(new Set(result.selected.map(b => b.stealthAddress)));
     setError(null);
-  }, [availableBalances, amountInput]);
+  }, [availableBalances, amountInput, t]);
 
   // 送信処理
   const handleSubmit = useCallback(async () => {
     const amount = parseMoralInput(amountInput);
     if (!amount) {
-      setError('有効な金額を入力してください');
+      setError(t('stealth.spend.error.invalidAmount'));
       return;
     }
 
@@ -234,7 +238,7 @@ export function StealthSpendForm({
     
     if (!validation.valid) {
       const firstError = Object.values(validation.errors)[0];
-      setError(firstError ?? '入力内容を確認してください');
+      setError(firstError ? t(firstError as TranslationKey) : t('stealth.spend.error.checkInput'));
       return;
     }
 
@@ -246,7 +250,7 @@ export function StealthSpendForm({
 
     setError(null);
     await onSpend(values);
-  }, [selectedBalances, recipientAddress, amountInput, showLinkabilityWarning, onSpend]);
+  }, [selectedBalances, recipientAddress, amountInput, showLinkabilityWarning, onSpend, t]);
 
   // リンク可能性警告を無視して続行
   const confirmLinkability = useCallback(async () => {
@@ -269,7 +273,7 @@ export function StealthSpendForm({
       {/* 残高選択 */}
       <div className={styles.balanceSelection}>
         <div className={styles.balanceHeader}>
-          <h3>使用する残高</h3>
+          <h3>{t('stealth.spend.title')}</h3>
           <div className={styles.headerActions}>
             <button
               type="button"
@@ -277,7 +281,7 @@ export function StealthSpendForm({
               className={styles.linkButton}
               disabled={isProcessing}
             >
-              全選択
+              {t('stealth.spend.selectAll')}
             </button>
             <button
               type="button"
@@ -285,13 +289,13 @@ export function StealthSpendForm({
               className={`${styles.linkButton} ${styles.linkButtonGray}`}
               disabled={isProcessing}
             >
-              解除
+              {t('stealth.spend.clearSelection')}
             </button>
           </div>
         </div>
 
         {availableBalances.length === 0 ? (
-          <p className={styles.emptyText}>利用可能な残高がありません</p>
+          <p className={styles.emptyText}>{t('stealth.spend.noBalance')}</p>
         ) : (
           <ul className={styles.balanceList}>
             {availableBalances.map(balance => (
@@ -317,13 +321,13 @@ export function StealthSpendForm({
         )}
 
         <div className={styles.selectedTotal}>
-          選択中: {formatMoral(selectedTotal)}
+          {t('stealth.spend.selected')}: {formatMoral(selectedTotal)}
         </div>
       </div>
 
       {/* 金額入力 */}
       <div className={styles.inputGroup}>
-        <label className={styles.label}>送金額 (MORAL)</label>
+        <label className={styles.label}>{t('stealth.spend.amountLabel')}</label>
         <div className={styles.inputRow}>
           <input
             type="text"
@@ -339,14 +343,14 @@ export function StealthSpendForm({
             className={styles.autoSelectButton}
             disabled={isProcessing || !amountInput}
           >
-            自動選択
+            {t('stealth.spend.autoSelect')}
           </button>
         </div>
       </div>
 
       {/* 送金先入力 */}
       <div className={styles.inputGroup}>
-        <label className={styles.label}>送金先アドレス</label>
+        <label className={styles.label}>{t('stealth.spend.recipientLabel')}</label>
         <input
           type="text"
           value={recipientAddress}
@@ -365,11 +369,9 @@ export function StealthSpendForm({
       {/* リンク可能性警告ダイアログ */}
       {showLinkabilityWarning && (
         <div className={styles.warningBox}>
-          <h4>⚠️ プライバシー警告</h4>
+          <h4>{t('stealth.linkability.title')}</h4>
           <p>
-            複数のステルスアドレスを同時に使用すると、それらが同じ受取人のもの
-            であることがブロックチェーン上で明らかになります。
-            これによりプライバシーが低下する可能性があります。
+            {t('stealth.linkability.description')}
           </p>
           <div className={styles.warningActions}>
             <button
@@ -378,7 +380,7 @@ export function StealthSpendForm({
               className={styles.warningConfirm}
               disabled={isProcessing}
             >
-              理解して続行
+              {t('stealth.linkability.confirm')}
             </button>
             <button
               type="button"
@@ -386,7 +388,7 @@ export function StealthSpendForm({
               className={styles.warningCancel}
               disabled={isProcessing}
             >
-              キャンセル
+              {t('stealth.linkability.cancel')}
             </button>
           </div>
         </div>
@@ -414,7 +416,7 @@ export function StealthSpendForm({
           disabled={isProcessing || selectedBalances.length === 0}
           className={styles.submitButton}
         >
-          {isProcessing ? '処理中...' : '送金'}
+          {isProcessing ? t('stealth.spend.submitting') : t('stealth.spend.submit')}
         </button>
         {onCancel && (
           <button
@@ -423,7 +425,7 @@ export function StealthSpendForm({
             disabled={isProcessing}
             className={styles.cancelButton}
           >
-            キャンセル
+            {t('stealth.spend.cancel')}
           </button>
         )}
       </div>

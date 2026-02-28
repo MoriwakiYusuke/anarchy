@@ -8,6 +8,8 @@
  */
 
 import { useState, useCallback } from 'react';
+import { useLocale } from '../../i18n/context';
+import type { TranslationKey } from '../../i18n/types';
 import { deriveStealthAddress } from '@/lib/stealth/keyManager';
 import styles from './StealthSendForm.module.css';
 
@@ -27,23 +29,24 @@ export interface StealthSendFormProps {
 
 /**
  * Validate a meta-address format
+ * Returns translation keys for errors
  */
 export function validateMetaAddress(address: string): ValidationResult {
   if (!address || address.trim() === '') {
-    return { valid: false, error: 'メタアドレスを入力してください' };
+    return { valid: false, error: 'stealth.sendForm.error.metaAddressRequired' };
   }
 
   const trimmed = address.trim();
 
   // Check prefix
   if (!trimmed.startsWith('st:anarchy:')) {
-    return { valid: false, error: 'メタアドレスは st:anarchy: で始まる必要があります' };
+    return { valid: false, error: 'stealth.sendForm.error.metaAddressPrefix' };
   }
 
   const parts = trimmed.split(':');
   // Format: st:anarchy:<base58_encoded_keys>
   if (parts.length !== 3) {
-    return { valid: false, error: '無効なメタアドレス形式です' };
+    return { valid: false, error: 'stealth.sendForm.error.metaAddressFormat' };
   }
 
   const encoded = parts[2];
@@ -51,12 +54,12 @@ export function validateMetaAddress(address: string): ValidationResult {
   // Base58 character validation
   const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
   if (!base58Regex.test(encoded)) {
-    return { valid: false, error: '無効なBase58エンコーディングです' };
+    return { valid: false, error: 'stealth.sendForm.error.metaAddressBase58' };
   }
   
   // Base58 encoded 64 bytes should be around 87-88 characters
   if (encoded.length < 80 || encoded.length > 90) {
-    return { valid: false, error: 'メタアドレスの長さが不正です' };
+    return { valid: false, error: 'stealth.sendForm.error.metaAddressLength' };
   }
 
   return { valid: true };
@@ -115,6 +118,7 @@ export function StealthSendForm({
   onSend,
   disabled = false,
 }: StealthSendFormProps) {
+  const { t } = useLocale();
   const [metaAddress, setMetaAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [addressError, setAddressError] = useState<string | null>(null);
@@ -137,10 +141,10 @@ export function StealthSendForm({
     if (metaAddress) {
       const result = validateMetaAddress(metaAddress);
       if (!result.valid) {
-        setAddressError(result.error || '無効なアドレスです');
+        setAddressError(t((result.error || 'stealth.sendForm.error.invalidAddress') as TranslationKey));
       }
     }
-  }, [metaAddress]);
+  }, [metaAddress, t]);
 
   const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -156,10 +160,10 @@ export function StealthSendForm({
     if (amount) {
       const formatted = formatAmount(amount);
       if (formatted === null) {
-        setAmountError('有効な金額を入力してください');
+        setAmountError(t('stealth.sendForm.error.invalidAmount'));
       }
     }
-  }, [amount]);
+  }, [amount, t]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,20 +171,20 @@ export function StealthSendForm({
     // Validate address
     const addressValidation = validateMetaAddress(metaAddress);
     if (!addressValidation.valid) {
-      setAddressError(addressValidation.error || '無効なアドレスです');
+      setAddressError(t((addressValidation.error || 'stealth.sendForm.error.invalidAddress') as TranslationKey));
       return;
     }
 
     // Validate amount
     const formattedAmount = formatAmount(amount);
     if (formattedAmount === null) {
-      setAmountError('有効な金額を入力してください');
+      setAmountError(t('stealth.sendForm.error.invalidAmount'));
       return;
     }
 
     setIsSubmitting(true);
     setTxStatus('pending');
-    setTxMessage('トランザクションを送信中...');
+    setTxMessage(t('stealth.sendForm.sending'));
 
     try {
       // Derive stealth address using properly initialized wasm
@@ -191,18 +195,18 @@ export function StealthSendForm({
       await onSend(derivation.stealthAddress, formattedAmount, derivation.ephemeralPubkey);
 
       setTxStatus('success');
-      setTxMessage('送金が完了しました');
+      setTxMessage(t('stealth.sendForm.success'));
       
       // Clear form
       setMetaAddress('');
       setAmount('');
     } catch (error) {
       setTxStatus('error');
-      setTxMessage(error instanceof Error ? error.message : '送金に失敗しました');
+      setTxMessage(error instanceof Error ? error.message : t('stealth.sendForm.error'));
     } finally {
       setIsSubmitting(false);
     }
-  }, [metaAddress, amount, onSend]);
+  }, [metaAddress, amount, onSend, t]);
 
   const isDisabled = disabled || isSubmitting;
 
@@ -211,7 +215,7 @@ export function StealthSendForm({
       {/* Meta-address input */}
       <div className={styles.inputGroup}>
         <label htmlFor="stealth-meta-address" className={styles.label}>
-          受取人のメタアドレス
+          {t('stealth.sendForm.recipientLabel')}
         </label>
         <input
           id="stealth-meta-address"
@@ -233,7 +237,7 @@ export function StealthSendForm({
       {/* Amount input */}
       <div className={styles.inputGroup}>
         <label htmlFor="stealth-amount" className={styles.label}>
-          送金額 (MORAL)
+          {t('stealth.sendForm.amountLabel')}
         </label>
         <input
           id="stealth-amount"
@@ -273,7 +277,7 @@ export function StealthSendForm({
         disabled={isDisabled}
         className={styles.submitButton}
       >
-        {isSubmitting ? '送信中...' : 'ステルス送金'}
+        {isSubmitting ? t('stealth.sendForm.submitting') : t('stealth.sendForm.submit')}
       </button>
     </form>
   );

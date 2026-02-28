@@ -7,6 +7,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
+import { useLocale } from '../../i18n/context';
 import { stealthKeyManager } from '../../lib/stealth/keyManager';
 import type { StealthKeyPair } from '../../lib/stealth/types';
 import styles from './StealthAddressGenerator.module.css';
@@ -22,6 +23,7 @@ export function StealthAddressGenerator({
   onGenerated,
   existingMetaAddress,
 }: StealthAddressGeneratorProps) {
+  const { t } = useLocale();
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [keyPair, setKeyPair] = useState<StealthKeyPair | null>(null);
@@ -41,7 +43,7 @@ export function StealthAddressGenerator({
       setKeyPair(generated);
       onGenerated?.(generated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '鍵の生成に失敗しました');
+      setError(err instanceof Error ? err.message : t('stealth.generate.error'));
     } finally {
       setIsGenerating(false);
     }
@@ -53,11 +55,11 @@ export function StealthAddressGenerator({
   const handleDownloadBackup = useCallback(async () => {
     if (!keyPair) return;
     if (backupPassword.length < 8) {
-      setError('パスワードは8文字以上必要です');
+      setError(t('stealth.backup.passwordTooShort'));
       return;
     }
     if (backupPassword !== confirmPassword) {
-      setError('パスワードが一致しません');
+      setError(t('stealth.backup.passwordMismatch'));
       return;
     }
 
@@ -84,9 +86,9 @@ export function StealthAddressGenerator({
 
       setIsBackedUp(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'バックアップの作成に失敗しました');
+      setError(err instanceof Error ? err.message : t('stealth.backup.createError'));
     }
-  }, [keyPair, backupPassword, confirmPassword]);
+  }, [keyPair, backupPassword, confirmPassword, t]);
 
   /**
    * メタアドレスをコピー
@@ -102,15 +104,15 @@ export function StealthAddressGenerator({
   if (existingMetaAddress && !keyPair) {
     return (
       <div className={styles.stealthGenerator}>
-        <h3>ステルスメタアドレス</h3>
+        <h3>{t('stealth.metaAddress.title')}</h3>
         <div className={styles.metaAddressDisplay}>
           <code>{existingMetaAddress}</code>
           <button onClick={handleCopyAddress} type="button">
-            コピー
+            {t('stealth.metaAddress.copy')}
           </button>
         </div>
         <p className={styles.infoText}>
-          このアドレスを送金者に共有してください。
+          {t('stealth.metaAddress.shareHint')}
         </p>
       </div>
     );
@@ -118,53 +120,51 @@ export function StealthAddressGenerator({
 
   return (
     <div className={styles.stealthGenerator}>
-      <h3>ステルスアドレス生成</h3>
+      <h3>{t('stealth.generate.title')}</h3>
 
       {!keyPair ? (
         <div className={styles.generateSection}>
           <p>
-            ステルスアドレスを使用すると、送金を受け取る際に
-            ワンタイムアドレスが使用され、プライバシーが保護されます。
+            {t('stealth.generate.description')}
           </p>
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
             type="button"
           >
-            {isGenerating ? '生成中...' : 'ステルス鍵を生成'}
+            {isGenerating ? t('stealth.generate.generating') : t('stealth.generate.button')}
           </button>
         </div>
       ) : (
         <div className={styles.keyGeneratedSection}>
           <div className={styles.metaAddressDisplay}>
-            <label>メタアドレス</label>
+            <label>{t('stealth.metaAddress.label')}</label>
             <div className={styles.addressRow}>
               <code>{keyPair.metaAddress}</code>
               <button onClick={handleCopyAddress} type="button">
-                コピー
+                {t('stealth.metaAddress.copy')}
               </button>
             </div>
           </div>
 
           {!isBackedUp && (
             <div className={styles.backupSection}>
-              <h4>⚠️ バックアップを作成してください</h4>
+              <h4>{t('stealth.backup.title')}</h4>
               <p className={styles.warningText}>
-                このバックアップなしでは資金を回復できません。
-                安全な場所に保管してください。
+                {t('stealth.backup.warning')}
               </p>
 
               <div className={styles.passwordInputs}>
                 <input
                   type="password"
-                  placeholder="バックアップパスワード（8文字以上）"
+                  placeholder={t('stealth.backup.passwordPlaceholder')}
                   value={backupPassword}
                   onChange={(e) => setBackupPassword(e.target.value)}
                   minLength={8}
                 />
                 <input
                   type="password"
-                  placeholder="パスワード確認"
+                  placeholder={t('stealth.backup.confirmPlaceholder')}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
@@ -175,7 +175,7 @@ export function StealthAddressGenerator({
                 disabled={backupPassword.length < 8}
                 type="button"
               >
-                バックアップをダウンロード
+                {t('stealth.backup.download')}
               </button>
             </div>
           )}
@@ -183,10 +183,10 @@ export function StealthAddressGenerator({
           {isBackedUp && (
             <div className={styles.backupComplete}>
               <p className={styles.successText}>
-                ✓ バックアップ完了
+                {t('stealth.backup.complete')}
               </p>
               <p>
-                このアドレスを送金者に共有してください。
+                {t('stealth.metaAddress.shareHint')}
               </p>
             </div>
           )}

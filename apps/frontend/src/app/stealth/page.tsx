@@ -7,6 +7,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { useLocale } from '../../i18n/context';
 import { StealthAddressGenerator } from '../../components/stealth/StealthAddressGenerator';
 import { BackupImportDialog } from '../../components/stealth/BackupImportDialog';
 import { StealthSendForm } from '../../components/stealth/StealthSendForm';
@@ -21,6 +22,7 @@ import type { StealthKeyPair, ScanProgress, DetectedStealthBalance } from '../..
 import { useSmoldot } from '../../hooks/useSmoldot';
 
 export default function StealthPage() {
+  const { t } = useLocale();
   const [metaAddress, setMetaAddress] = useState<string | null>(null);
   const [isImportDialogOpen, setImportDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'receive' | 'send' | 'balance'>('receive');
@@ -333,21 +335,21 @@ export default function StealthPage() {
           className={`tab-button ${activeTab === 'receive' ? 'active' : ''}`}
           onClick={() => setActiveTab('receive')}
         >
-          受け取り設定
+          {t('stealth.receive')}
         </button>
         <button
           type="button"
           className={`tab-button ${activeTab === 'send' ? 'active' : ''}`}
           onClick={() => setActiveTab('send')}
         >
-          ステルス送金
+          {t('stealth.send')}
         </button>
         <button
           type="button"
           className={`tab-button ${activeTab === 'balance' ? 'active' : ''}`}
           onClick={() => setActiveTab('balance')}
         >
-          残高確認
+          {t('stealth.balance')}
         </button>
       </nav>
 
@@ -408,18 +410,18 @@ export default function StealthPage() {
 
         {activeTab === 'send' && (
           <div className="send-section">
-            <h2>ステルスアドレスへ送金</h2>
+            <h2>{t('stealth.sendForm.pageTitle')}</h2>
             <p className="send-description">
-              受取人のメタアドレスを入力して、プライベートな送金を行います。
+              {t('stealth.sendForm.description')}
             </p>
 
             {isSendDisabled && (
               <div className="warning-box">
                 {connectionState.status !== 'connected' && (
-                  <p>ブロックチェーンに接続中です...</p>
+                  <p>{t('stealth.sendForm.connecting')}</p>
                 )}
                 {connectionState.status === 'connected' && !isAuthenticated && (
-                  <p>送金機能は現在準備中です。</p>
+                  <p>{t('stealth.sendForm.notReady')}</p>
                 )}
               </div>
             )}
@@ -433,14 +435,14 @@ export default function StealthPage() {
 
         {activeTab === 'balance' && (
           <div className="balance-section">
-            <h2>ステルス残高</h2>
+            <h2>{t('stealth.balance.title')}</h2>
             <p className="balance-description">
-              受け取ったステルス送金を確認できます。スキャンを実行して新しい送金を検出してください。
+              {t('stealth.balance.description')}
             </p>
 
             {!metaAddress ? (
               <div className="warning-box">
-                <p>残高を確認するには、まず受け取り設定でメタアドレスを生成してください。</p>
+                <p>{t('stealth.balance.noMetaAddress')}</p>
               </div>
             ) : showSpendForm ? (
               <div className="spend-form-section">
@@ -449,7 +451,7 @@ export default function StealthPage() {
                   onClick={() => setShowSpendForm(false)}
                   className="back-button"
                 >
-                  ← 残高リストに戻る
+                  {t('stealth.balance.backToList')}
                 </button>
                 <StealthSpendForm
                   balances={balances}
@@ -474,7 +476,7 @@ export default function StealthPage() {
                     onClick={() => setShowSpendForm(true)}
                     className="spend-button"
                   >
-                    残高を送金
+                    {t('stealth.spend.sendBalance')}
                   </button>
                 )}
               </>

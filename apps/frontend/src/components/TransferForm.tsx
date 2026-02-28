@@ -208,7 +208,7 @@ export function TransferForm({
             className={styles.stealthBtn}
             onClick={() => setStealthModalOpen(true)}
           >
-            {'🔐 ステルス送金'}
+            {t('stealth.button')}
           </button>
         </div>
       </form>

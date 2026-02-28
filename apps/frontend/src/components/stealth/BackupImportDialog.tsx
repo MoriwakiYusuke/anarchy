@@ -7,6 +7,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef } from 'react';
+import { useLocale } from '../../i18n/context';
 import { stealthKeyManager } from '../../lib/stealth/keyManager';
 import styles from './BackupImportDialog.module.css';
 
@@ -24,6 +25,7 @@ export function BackupImportDialog({
   onClose,
   onImportSuccess,
 }: BackupImportDialogProps) {
+  const { t } = useLocale();
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -53,11 +55,11 @@ export function BackupImportDialog({
    */
   const handleImport = useCallback(async () => {
     if (!selectedFile) {
-      setError('バックアップファイルを選択してください');
+      setError(t('stealth.import.noFile'));
       return;
     }
     if (!password) {
-      setError('パスワードを入力してください');
+      setError(t('stealth.import.noPassword'));
       return;
     }
 
@@ -80,9 +82,7 @@ export function BackupImportDialog({
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('Import error:', err);
-      setError(
-        'インポートに失敗しました。パスワードが正しいか確認してください。'
-      );
+      setError(t('stealth.import.error'));
     } finally {
       setIsImporting(false);
     }
@@ -111,7 +111,7 @@ export function BackupImportDialog({
         aria-modal="true"
         aria-labelledby="import-dialog-title"
       >
-        <h2 id="import-dialog-title">バックアップからインポート</h2>
+        <h2 id="import-dialog-title">{t('stealth.import.title')}</h2>
 
         <div className={styles.form}>
           <div className={styles.fileSection}>
@@ -127,7 +127,7 @@ export function BackupImportDialog({
               onClick={handleSelectClick} 
               type="button"
             >
-              ファイルを選択
+              {t('stealth.import.selectFile')}
             </button>
             {selectedFile && (
               <span className={styles.fileName}>{selectedFile.name}</span>
@@ -135,12 +135,12 @@ export function BackupImportDialog({
           </div>
 
           <div className={styles.passwordSection}>
-            <label htmlFor="import-password">パスワード</label>
+            <label htmlFor="import-password">{t('stealth.import.password')}</label>
             <input
               id="import-password"
               type="password"
               className={styles.passwordInput}
-              placeholder="バックアップ作成時のパスワード"
+              placeholder={t('stealth.import.passwordPlaceholder')}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => {
@@ -164,7 +164,7 @@ export function BackupImportDialog({
               type="button"
               disabled={isImporting}
             >
-              キャンセル
+              {t('stealth.import.cancel')}
             </button>
             <button
               className={styles.importButton}
@@ -172,7 +172,7 @@ export function BackupImportDialog({
               disabled={isImporting || !selectedFile || !password}
               type="button"
             >
-              {isImporting ? 'インポート中...' : 'インポート'}
+              {isImporting ? t('stealth.import.importing') : t('stealth.import.importButton')}
             </button>
           </div>
         </div>

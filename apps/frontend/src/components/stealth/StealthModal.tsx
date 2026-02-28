@@ -10,6 +10,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { PolkadotSigner } from 'polkadot-api';
+import { useLocale } from '../../i18n/context';
 import { StealthAddressGenerator } from './StealthAddressGenerator';
 import { BackupImportDialog } from './BackupImportDialog';
 import { StealthSendForm } from './StealthSendForm';
@@ -48,6 +49,7 @@ export function StealthModal({
   isConnected,
   blockNumber,
 }: StealthModalProps) {
+  const { t } = useLocale();
   const [mounted, setMounted] = useState(false);
   const [metaAddress, setMetaAddress] = useState<string | null>(null);
   const [isImportDialogOpen, setImportDialogOpen] = useState(false);
@@ -360,7 +362,7 @@ export function StealthModal({
       
       // 成功メッセージを設定 (12桁精度でMORAL表示)
       const moralAmount = Number(values.amount) / 1_000_000_000_000;
-      setSpendSuccessMessage(`${moralAmount.toFixed(4)} MORAL を送金しました`);
+      setSpendSuccessMessage(t('stealth.spend.success', { amount: moralAmount.toFixed(4) }));
       
       // フォームリセット後に少し待ってからフォームを閉じる
       setTimeout(() => {
@@ -371,7 +373,7 @@ export function StealthModal({
     } catch (error) {
       console.error('[StealthModal] Spend error:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      setSpendErrorMessage(`送金に失敗しました: ${errorMsg}`);
+      setSpendErrorMessage(t('stealth.spend.failed', { error: errorMsg }));
       throw error;
     } finally {
       setIsSpending(false);
@@ -386,7 +388,7 @@ export function StealthModal({
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <header className={styles.header}>
-          <h2>ステルスアドレス</h2>
+          <h2>{t('stealth.title')}</h2>
           <button type="button" className={styles.closeBtn} onClick={onClose}>✕</button>
         </header>
 
@@ -396,21 +398,21 @@ export function StealthModal({
             className={`${styles.tabButton} ${activeTab === 'receive' ? styles.tabButtonActive : ''}`}
             onClick={() => setActiveTab('receive')}
           >
-            受け取り設定
+            {t('stealth.receive')}
           </button>
           <button
             type="button"
             className={`${styles.tabButton} ${activeTab === 'send' ? styles.tabButtonActive : ''}`}
             onClick={() => setActiveTab('send')}
           >
-            ステルス送金
+            {t('stealth.send')}
           </button>
           <button
             type="button"
             className={`${styles.tabButton} ${activeTab === 'balance' ? styles.tabButtonActive : ''}`}
             onClick={() => setActiveTab('balance')}
           >
-            残高確認
+            {t('stealth.balance')}
           </button>
         </nav>
 
@@ -420,42 +422,42 @@ export function StealthModal({
               {!metaAddress ? (
                 <div className={styles.setupSection}>
                   <StealthAddressGenerator onGenerated={handleGenerated} />
-                  <div className={styles.divider}><span>または</span></div>
+                  <div className={styles.divider}><span>{t('stealth.manage.or')}</span></div>
                   <div className={styles.importSection}>
                     <button
                       type="button"
                       className={styles.importButton}
                       onClick={() => setImportDialogOpen(true)}
                     >
-                      バックアップからインポート
+                      {t('stealth.import.button')}
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className={styles.activeSection}>
                   <div className={styles.metaAddressDisplay}>
-                    <label>あなたのメタアドレス</label>
+                    <label>{t('stealth.metaAddress.yourAddress')}</label>
                     <code className={styles.addressCode}>{metaAddress}</code>
                     <p className={styles.helpText}>
-                      このアドレスを送金者に共有してください。
+                      {t('stealth.metaAddress.shareHint')}
                     </p>
                   </div>
                   <div className={styles.actionsSection}>
-                    <h3>管理</h3>
+                    <h3>{t('stealth.manage.title')}</h3>
                     <button
                       type="button"
                       className={styles.secondaryButton}
                       onClick={handleExportKeys}
                       disabled={isExporting}
                     >
-                      {isExporting ? 'エクスポート中...' : '鍵をエクスポート'}
+                      {isExporting ? t('stealth.manage.exporting') : t('stealth.manage.export')}
                     </button>
                     <button
                       type="button"
                       className={styles.dangerButton}
                       onClick={handleClearKeys}
                     >
-                      鍵を破棄
+                      {t('stealth.manage.clear')}
                     </button>
                   </div>
                 </div>
@@ -466,11 +468,11 @@ export function StealthModal({
           {activeTab === 'send' && (
             <div className={styles.sendSection}>
               <p className={styles.description}>
-                受取人のステルスメタアドレスを入力して、プライバシーを保護した送金を行います。
+                {t('stealth.sendForm.description')}
               </p>
               {isSendDisabled && (
                 <div className={styles.warningBox}>
-                  <p>送金には接続とサインイン名が必要です。</p>
+                  <p>{t('stealth.sendForm.requireSignIn')}</p>
                 </div>
               )}
               <StealthSendForm
@@ -484,7 +486,7 @@ export function StealthModal({
             <div className={styles.balanceSection}>
               {!metaAddress ? (
                 <div className={styles.warningBox}>
-                  <p>残高を確認するには、まず受け取り設定で鍵を生成してください。</p>
+                  <p>{t('stealth.scan.needKeys')}</p>
                 </div>
               ) : (
                 <>
@@ -501,7 +503,7 @@ export function StealthModal({
                       onClick={() => setShowSpendForm(true)}
                       className={styles.spendButton}
                     >
-                      残高を送金
+                      {t('stealth.spend.sendBalance')}
                     </button>
                   )}
                   {showSpendForm && (
