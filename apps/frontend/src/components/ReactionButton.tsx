@@ -20,20 +20,17 @@ const SpinnerIcon: React.FC = () => (
   </svg>
 )
 
-/** Like icon (heart outline) */
-const HeartIcon: React.FC<{ filled?: boolean }> = ({ filled }) => (
+/** Like icon (thumbs up) */
+const ThumbsUpIcon: React.FC<{ filled?: boolean }> = ({ filled }) => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
-    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+    <path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3" />
   </svg>
 )
 
-/** Boost icon (retweet/repost) */
-const BoostIcon: React.FC = () => (
-  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M17 1l4 4-4 4" />
-    <path d="M3 11V9a4 4 0 014-4h14" />
-    <path d="M7 23l-4-4 4-4" />
-    <path d="M21 13v2a4 4 0 01-4 4H3" />
+/** Boost icon (heart) */
+const HeartIcon: React.FC<{ filled?: boolean }> = ({ filled }) => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
   </svg>
 )
 
@@ -197,8 +194,8 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
           {getButtonContent(
             ReactionType.Like,
             localCounts.likes,
-            <HeartIcon filled={false} />,
-            <HeartIcon filled={true} />,
+            <ThumbsUpIcon filled={false} />,
+            <ThumbsUpIcon filled={true} />,
             reactedType === ReactionType.Like
           )}
         </button>
@@ -213,8 +210,8 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
           {getButtonContent(
             ReactionType.Boost,
             localCounts.boosts,
-            <BoostIcon />,
-            <BoostIcon />,
+            <HeartIcon filled={false} />,
+            <HeartIcon filled={true} />,
             reactedType === ReactionType.Boost
           )}
         </button>
