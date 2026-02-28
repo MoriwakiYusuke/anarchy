@@ -26,6 +26,8 @@ export interface AddBalanceParams {
   blockNumber: number;
   ephemeralPubkey: Uint8Array;
   txHash: Uint8Array;
+  /** Optional: mark as already spent (auto-set if balance is 0) */
+  spent?: boolean;
 }
 
 export interface BalanceStore {
@@ -46,6 +48,9 @@ export interface BalanceStore {
   
   /** Mark a balance as spent */
   markSpent(address: string): void;
+  
+  /** Update balance after partial spend */
+  updateBalance(address: string, newBalance: bigint): void;
   
   /** Get total balance (sum of all unspent) */
   getTotalBalance(): bigint;
@@ -104,10 +109,17 @@ export function createBalanceStore(): BalanceStore {
         (b) => b.stealthAddress === params.stealthAddress
       );
       
+      // 残高が0の場合は自動的に使用済みとしてマーク
+      const isSpent = params.spent ?? params.balance <= BigInt(0);
+      
       if (existingIndex >= 0) {
         // Update existing balance
         balances[existingIndex].balance = params.balance.toString();
-        console.log(`[BalanceStore] Updated existing balance for ${params.stealthAddress}: ${params.balance.toString()}`);
+        balances[existingIndex].spent = isSpent;
+        if (isSpent) {
+          balances[existingIndex].spentAt = Date.now();
+        }
+        console.log(`[BalanceStore] Updated existing balance for ${params.stealthAddress}: ${params.balance.toString()} (spent: ${isSpent})`);
         notifySubscribers();
         return;
       }
@@ -119,9 +131,11 @@ export function createBalanceStore(): BalanceStore {
         ephemeralPubkey: Array.from(params.ephemeralPubkey),
         txHash: Array.from(params.txHash),
         detectedAt: Date.now(),
+        spent: isSpent,
+        spentAt: isSpent ? Date.now() : undefined,
       };
 
-      console.log(`[BalanceStore] Adding new balance for ${params.stealthAddress}: ${params.balance.toString()}`);
+      console.log(`[BalanceStore] Adding new balance for ${params.stealthAddress}: ${params.balance.toString()} (spent: ${isSpent})`);
       balances.push(newBalance);
       notifySubscribers();
     },
@@ -136,6 +150,22 @@ export function createBalanceStore(): BalanceStore {
       if (balance) {
         balance.spent = true;
         balance.spentAt = Date.now();
+        notifySubscribers();
+      }
+    },
+
+    updateBalance(address: string, newBalance: bigint): void {
+      const balance = balances.find((b) => b.stealthAddress === address);
+      if (balance) {
+        if (newBalance <= BigInt(0)) {
+          // 残高がゼロ以下なら使用済みとしてマーク
+          balance.spent = true;
+          balance.spentAt = Date.now();
+          balance.balance = '0';
+        } else {
+          balance.balance = newBalance.toString();
+        }
+        console.log(`[BalanceStore] Updated balance for ${address}: ${newBalance.toString()}`);
         notifySubscribers();
       }
     },

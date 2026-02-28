@@ -62,6 +62,9 @@ export function StealthModal({
   
   // Spend state
   const [showSpendForm, setShowSpendForm] = useState(false);
+  const [isSpending, setIsSpending] = useState(false);
+  const [spendSuccessMessage, setSpendSuccessMessage] = useState<string | null>(null);
+  const [spendErrorMessage, setSpendErrorMessage] = useState<string | null>(null);
   
   // Export state
   const [isExporting, setIsExporting] = useState(false);
@@ -285,14 +288,95 @@ export function StealthModal({
   }, [unsafeApi, signer]);
 
   const handleSpend = useCallback(async (values: SpendFormValues) => {
-    if (!signer || !unsafeApi) {
-      throw new Error('Not connected');
+    if (!unsafeApi) {
+      setSpendErrorMessage('ブロックチェーンに接続していません');
+      throw new Error('ブロックチェーンに接続していません');
     }
     
-    console.log('Spending from stealth:', values);
-    // TODO: Implement actual spending with derived stealth signer
-    setShowSpendForm(false);
-  }, [signer, unsafeApi]);
+    const keyPair = stealthKeyManager.getKeyPair();
+    if (!keyPair) {
+      setSpendErrorMessage('鍵が設定されていません');
+      throw new Error('鍵が設定されていません');
+    }
+    
+    console.log('[StealthModal] Spending from stealth:', values);
+    
+    setIsSpending(true);
+    setSpendErrorMessage(null);
+    setSpendSuccessMessage(null);
+    
+    try {
+      let totalSpent = BigInt(0);
+      
+      // 各選択残高に対してステルス秘密鍵を導出してトランザクションを作成
+      for (const balance of values.selectedBalances) {
+        const privateKey = await deriveKeyFromBalance(
+          balance,
+          keyPair.spendKey,
+          keyPair.viewKey
+        );
+        const stealthSigner = await createStealthSigner(privateKey);
+        
+        try {
+          // デバッグ: 署名者のアドレスを確認
+          const signerAddress = await stealthSigner.getAddress();
+          console.log('[StealthModal] Signer address:', signerAddress);
+          console.log('[StealthModal] Expected stealth address:', balance.stealthAddress);
+          console.log('[StealthModal] Addresses match:', signerAddress === balance.stealthAddress);
+          
+          // Polkadot互換のSignerを取得
+          const polkadotSigner = await stealthSigner.getPolkadotSigner();
+          
+          console.log('[StealthModal] Spending from:', balance.stealthAddress);
+          console.log('[StealthModal] To:', values.recipientAddress);
+          console.log('[StealthModal] Amount:', values.amount.toString());
+          
+          // Balances.transfer_allow_death トランザクションを作成・送信
+          const tx = unsafeApi.tx.Balances.transfer_allow_death({
+            dest: { type: 'Id', value: values.recipientAddress },
+            value: values.amount,
+          });
+          
+          const result = await tx.signAndSubmit(polkadotSigner);
+          console.log('[StealthModal] Transaction result:', result);
+          
+          totalSpent += values.amount;
+          
+          // 残高を更新（部分送金対応）
+          if (balanceStore) {
+            const currentBalance = balance.balance;
+            const newBalance = currentBalance - values.amount;
+            balanceStore.updateBalance(balance.stealthAddress, newBalance);
+          }
+        } finally {
+          stealthSigner.destroy();
+        }
+      }
+      
+      // 残高リストを更新
+      if (balanceStore) {
+        setBalances(balanceStore.getAllAsStealthBalance());
+      }
+      
+      // 成功メッセージを設定 (12桁精度でMORAL表示)
+      const moralAmount = Number(values.amount) / 1_000_000_000_000;
+      setSpendSuccessMessage(`${moralAmount.toFixed(4)} MORAL を送金しました`);
+      
+      // フォームリセット後に少し待ってからフォームを閉じる
+      setTimeout(() => {
+        setShowSpendForm(false);
+        setSpendSuccessMessage(null);
+      }, 3000);
+      
+    } catch (error) {
+      console.error('[StealthModal] Spend error:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      setSpendErrorMessage(`送金に失敗しました: ${errorMsg}`);
+      throw error;
+    } finally {
+      setIsSpending(false);
+    }
+  }, [unsafeApi, balanceStore]);
 
   const isSendDisabled = !isConnected || !signer;
 
@@ -425,8 +509,10 @@ export function StealthModal({
                       balances={balances}
                       onSpend={handleSpend}
                       onCancel={() => setShowSpendForm(false)}
-                      isProcessing={false}
+                      isProcessing={isSpending}
                       defaultRecipientAddress={accountAddress ?? ''}
+                      successMessage={spendSuccessMessage}
+                      errorMessage={spendErrorMessage}
                     />
                   )}
                 </>

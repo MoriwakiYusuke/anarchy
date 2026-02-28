@@ -133,6 +133,10 @@ export interface StealthSpendFormProps {
   isProcessing?: boolean;
   /** デフォルトの送金先アドレス（編集可） */
   defaultRecipientAddress?: string;
+  /** 成功ステータス */
+  successMessage?: string | null;
+  /** エラーステータス */
+  errorMessage?: string | null;
 }
 
 /**
@@ -144,6 +148,8 @@ export function StealthSpendForm({
   onCancel,
   isProcessing = false,
   defaultRecipientAddress = '',
+  successMessage,
+  errorMessage: externalError,
 }: StealthSpendFormProps) {
   const [selectedAddresses, setSelectedAddresses] = useState<Set<string>>(new Set());
   const [recipientAddress, setRecipientAddress] = useState(defaultRecipientAddress);
@@ -383,6 +389,20 @@ export function StealthSpendForm({
               キャンセル
             </button>
           </div>
+        </div>
+      )}
+
+      {/* 成功メッセージ */}
+      {successMessage && (
+        <div className={styles.successMessage}>
+          {successMessage}
+        </div>
+      )}
+
+      {/* 外部エラーメッセージ */}
+      {externalError && (
+        <div className={styles.errorText}>
+          {externalError}
         </div>
       )}
 

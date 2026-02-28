@@ -4,9 +4,11 @@
  * T068 [US4] Create stealth signer using derived private key
  * 
  * ステルスアドレスから導出した秘密鍵で署名するための機能
+ * wasm-engine の Ed25519 署名機能を直接使用
  */
 
 import { DetectedStealthBalance } from './types';
+import type { PolkadotSigner } from 'polkadot-api/signer';
 
 // デフォルトのwasm-engineモジュールをインポート
 let wasmModule: typeof import('anarchy-wasm-engine') | null = null;
@@ -69,27 +71,26 @@ export async function deriveKeyFromBalance(
 export async function createStealthSigner(
   privateKey: Uint8Array
 ): Promise<StealthSigner> {
-  // ed25519署名用のキーペアを生成
-  // Polkadot SDKはsr25519を使用するが、ステルスアドレスではed25519を使用
-  const wasm = await getWasmModule();
-  
-  return new StealthSigner(privateKey, wasm);
+  return new StealthSigner(privateKey);
 }
 
 /**
  * ステルス署名者クラス
+ * 
+ * wasm-engine の Ed25519 署名機能を使用して署名を実行
+ * 拡張秘密鍵フォーマット (64バイト: scalar || nonce_prefix) をサポート
  */
 export class StealthSigner {
-  private privateKey: Uint8Array;
-  private wasmModule: typeof import('anarchy-wasm-engine');
+  private expandedKey: Uint8Array;
   private destroyed: boolean = false;
+  private cachedPublicKey: Uint8Array | null = null;
+  private cachedAddress: string | null = null;
 
-  constructor(
-    privateKey: Uint8Array,
-    wasmModule: typeof import('anarchy-wasm-engine')
-  ) {
-    this.privateKey = new Uint8Array(privateKey);
-    this.wasmModule = wasmModule;
+  constructor(expandedKey: Uint8Array) {
+    if (expandedKey.length !== 64) {
+      throw new Error(`Invalid expanded key length: expected 64, got ${expandedKey.length}`);
+    }
+    this.expandedKey = new Uint8Array(expandedKey);
   }
 
   /**
@@ -100,18 +101,8 @@ export class StealthSigner {
       throw new Error('Signer has been destroyed');
     }
     
-    // wasm-engineのed25519_sign関数を呼び出す
-    // TODO: wasm-engineにed25519_sign関数を追加する必要あり
-    // 暫定的にplaceholder実装
-    const wasmAny = this.wasmModule as Record<string, unknown>;
-    if (typeof wasmAny.ed25519_sign === 'function') {
-      return (wasmAny.ed25519_sign as (key: Uint8Array, msg: Uint8Array) => Uint8Array)(
-        this.privateKey, message
-      );
-    }
-    // Fallback: 署名機能が未実装の場合
-    console.warn('[StealthSigner] ed25519_sign not available in wasm-engine');
-    return new Uint8Array(64);
+    const wasm = await getWasmModule();
+    return wasm.stealth_sign(this.expandedKey, message);
   }
 
   /**
@@ -122,15 +113,51 @@ export class StealthSigner {
       throw new Error('Signer has been destroyed');
     }
     
-    // ed25519の公開鍵を導出
-    // TODO: wasm-engineにed25519_pubkey関数を追加する必要あり
-    const wasmAny = this.wasmModule as Record<string, unknown>;
-    if (typeof wasmAny.ed25519_pubkey === 'function') {
-      return (wasmAny.ed25519_pubkey as (key: Uint8Array) => Uint8Array)(this.privateKey);
+    if (!this.cachedPublicKey) {
+      const wasm = await getWasmModule();
+      this.cachedPublicKey = wasm.stealth_get_public_key(this.expandedKey);
     }
-    // Fallback: 公開鍵導出が未実装の場合
-    console.warn('[StealthSigner] ed25519_pubkey not available in wasm-engine');
-    return new Uint8Array(32);
+    return this.cachedPublicKey;
+  }
+
+  /**
+   * SS58アドレスを取得
+   */
+  async getAddress(): Promise<string> {
+    if (this.destroyed) {
+      throw new Error('Signer has been destroyed');
+    }
+    
+    if (!this.cachedAddress) {
+      const publicKey = await this.getPublicKey();
+      // wasmのSS58エンコード関数を使用（一貫性のため）
+      const wasm = await getWasmModule();
+      this.cachedAddress = wasm.pubkey_to_ss58_address(publicKey);
+    }
+    return this.cachedAddress;
+  }
+
+  /**
+   * Polkadot API互換のSignerを取得
+   * 
+   * polkadot-apiのトランザクション送信に使用可能
+   */
+  async getPolkadotSigner(): Promise<PolkadotSigner> {
+    if (this.destroyed) {
+      throw new Error('Signer has been destroyed');
+    }
+    
+    // Dynamic import to avoid ESM issues in Jest
+    const { getPolkadotSigner } = await import('polkadot-api/signer');
+    
+    const publicKey = await this.getPublicKey();
+    return getPolkadotSigner(
+      publicKey,
+      'Ed25519',
+      async (input: Uint8Array) => {
+        return this.sign(input);
+      }
+    );
   }
 
   /**
@@ -139,7 +166,9 @@ export class StealthSigner {
   destroy(): void {
     if (!this.destroyed) {
       // 秘密鍵をゼロで上書き
-      this.privateKey.fill(0);
+      this.expandedKey.fill(0);
+      this.cachedPublicKey = null;
+      this.cachedAddress = null;
       this.destroyed = true;
     }
   }

@@ -225,15 +225,28 @@ export default function StealthPage() {
         const stealthSigner = await createStealthSigner(privateKey);
         
         try {
-          // TODO: 実際のトランザクション送信ロジック
-          // 現時点ではコンソールログのみ
-          console.log('Spending from:', balance.stealthAddress);
-          console.log('To:', values.recipientAddress);
-          console.log('Amount:', values.amount.toString());
+          // Polkadot互換のSignerを取得
+          const polkadotSigner = await stealthSigner.getPolkadotSigner();
           
-          // 残高を使用済みとしてマーク
+          console.log('[handleSpend] Spending from:', balance.stealthAddress);
+          console.log('[handleSpend] To:', values.recipientAddress);
+          console.log('[handleSpend] Amount:', values.amount.toString());
+          
+          // Balances.transfer_allow_death トランザクションを作成・送信
+          // transfer_allow_deathは全額転送でアカウント削除を許可
+          const tx = unsafeApi.tx.Balances.transfer_allow_death({
+            dest: { type: 'Id', value: values.recipientAddress },
+            value: values.amount,
+          });
+          
+          const result = await tx.signAndSubmit(polkadotSigner);
+          console.log('[handleSpend] Transaction result:', result);
+          
+          // 残高を更新（部分送金対応）
           if (balanceStore) {
-            balanceStore.markSpent(balance.stealthAddress);
+            const currentBalance = balance.balance;
+            const newBalance = currentBalance - values.amount;
+            balanceStore.updateBalance(balance.stealthAddress, newBalance);
           }
         } finally {
           stealthSigner.destroy();

@@ -106,7 +106,8 @@ pub fn encrypt_backup(
 /// 復元された鍵ペア
 #[wasm_bindgen]
 pub fn decrypt_backup(encrypted: &[u8], password: &str) -> Result<StealthKeyPairJs, JsError> {
-    use x25519_dalek::PublicKey;
+    use x25519_dalek::PublicKey as X25519PublicKey;
+    use ed25519_dalek::SigningKey;
 
     // JSONをパース
     let backup: serde_json::Value = serde_json::from_slice(encrypted)
@@ -170,18 +171,23 @@ pub fn decrypt_backup(encrypted: &[u8], password: &str) -> Result<StealthKeyPair
     }
 
     // 公開鍵を導出
-    let spend_secret = x25519_dalek::StaticSecret::from(<[u8; 32]>::try_from(spend_key).unwrap());
+    // spend_keyはEd25519シード、view_keyはX25519秘密鍵
+    let spend_signing_key = SigningKey::from_bytes(
+        &<[u8; 32]>::try_from(spend_key)
+            .map_err(|_| JsError::new("InvalidSpendKey"))?
+    );
+    let spend_pubkey = spend_signing_key.verifying_key().to_bytes();
+    
     let view_secret = x25519_dalek::StaticSecret::from(<[u8; 32]>::try_from(view_key).unwrap());
-    let spend_pubkey = PublicKey::from(&spend_secret);
-    let view_pubkey = PublicKey::from(&view_secret);
+    let view_pubkey = X25519PublicKey::from(&view_secret);
 
     // メタアドレスを生成
-    let meta_address = format_meta_address(spend_pubkey.as_bytes(), view_pubkey.as_bytes());
+    let meta_address = format_meta_address(&spend_pubkey, view_pubkey.as_bytes());
 
     Ok(StealthKeyPairJs::new(
         spend_key.to_vec(),
         view_key.to_vec(),
-        spend_pubkey.as_bytes().to_vec(),
+        spend_pubkey.to_vec(),
         view_pubkey.as_bytes().to_vec(),
         meta_address,
     ))

@@ -427,6 +427,47 @@ fn test_derive_stealth_private_key() {
         &result.ephemeral_pubkey(),
     ).unwrap();
     
-    // 秘密鍵が32バイトであることを確認
-    assert_eq!(stealth_private_key.len(), 32);
+    // 拡張秘密鍵が64バイトであることを確認 (scalar 32 + nonce_prefix 32)
+    assert_eq!(stealth_private_key.len(), 64);
+}
+
+#[test]
+fn test_stealth_signing_produces_valid_signature() {
+    use super::keys::{stealth_get_public_key, stealth_sign};
+    
+    let keys = generate_stealth_keys();
+    
+    // ステルスアドレスを導出
+    let result = derive_stealth_address(&keys.meta_address()).unwrap();
+    
+    // ステルス秘密鍵を導出
+    let expanded_key = derive_stealth_private_key(
+        &keys.spend_key(),
+        &keys.view_key(),
+        &result.ephemeral_pubkey(),
+    ).unwrap();
+    
+    // 公開鍵を取得
+    let public_key = stealth_get_public_key(&expanded_key).unwrap();
+    assert_eq!(public_key.len(), 32);
+    
+    // ステルス公開鍵と一致することを確認
+    assert_eq!(public_key, result.stealth_pubkey(), 
+        "Derived public key should match the stealth address pubkey");
+    
+    // メッセージに署名
+    let message = b"test message for signing";
+    let signature = stealth_sign(&expanded_key, message).unwrap();
+    assert_eq!(signature.len(), 64);
+    
+    // 署名を検証 (ed25519-dalek使用)
+    use ed25519_dalek::{Signature, VerifyingKey, Verifier};
+    let verifying_key = VerifyingKey::from_bytes(
+        &<[u8; 32]>::try_from(public_key.as_slice()).unwrap()
+    ).unwrap();
+    let sig = Signature::from_bytes(
+        &<[u8; 64]>::try_from(signature.as_slice()).unwrap()
+    );
+    assert!(verifying_key.verify(message, &sig).is_ok(), 
+        "Signature verification should succeed");
 }

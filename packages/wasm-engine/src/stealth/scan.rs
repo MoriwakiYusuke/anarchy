@@ -1,9 +1,10 @@
 //! Transaction scanning for stealth address detection
 
 use super::hash::blake2b_256;
-use super::address::derive_stealth_pubkey;
 use wasm_bindgen::prelude::*;
 use x25519_dalek::{PublicKey, StaticSecret};
+use curve25519_dalek::{edwards::CompressedEdwardsY, Scalar};
+use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::console;
@@ -40,8 +41,20 @@ pub fn scan_transaction(
     // ハッシュ化: h = H(s)
     let h = blake2b_256(shared_secret.as_bytes());
 
-    // 期待されるステルス公開鍵を計算
-    let expected_stealth_pubkey = derive_stealth_pubkey(spend_pubkey, &h);
+    // 期待されるステルス公開鍵を計算: P_stealth = K_spend + H(s)*G
+    let spend_bytes: [u8; 32] = spend_pubkey.try_into().unwrap();
+    let spend_point = match CompressedEdwardsY(spend_bytes).decompress() {
+        Some(p) => p,
+        None => {
+            #[cfg(target_arch = "wasm32")]
+            console::log_1(&"[scan_transaction] Invalid spend pubkey point".into());
+            return false;
+        }
+    };
+    let h_scalar = Scalar::from_bytes_mod_order(h);
+    let h_g = ED25519_BASEPOINT_TABLE * &h_scalar;
+    let expected_point = spend_point + h_g;
+    let expected_stealth_pubkey: [u8; 32] = expected_point.compress().to_bytes();
 
     // 公開鍵のバイト列を直接比較（SS58エンコーディングの差異を回避）
     let matches = expected_stealth_pubkey == stealth_pubkey;
@@ -75,7 +88,14 @@ pub fn debug_derive_expected_pubkey(
     let ephemeral_pub = PublicKey::from(<[u8; 32]>::try_from(ephemeral_pubkey).unwrap());
     let shared_secret = view_secret.diffie_hellman(&ephemeral_pub);
     let h = blake2b_256(shared_secret.as_bytes());
-    let expected_stealth_pubkey = derive_stealth_pubkey(spend_pubkey, &h);
+    
+    // P_stealth = K_spend + H(s)*G
+    let spend_bytes: [u8; 32] = spend_pubkey.try_into().ok()?;
+    let spend_point = CompressedEdwardsY(spend_bytes).decompress()?;
+    let h_scalar = Scalar::from_bytes_mod_order(h);
+    let h_g = ED25519_BASEPOINT_TABLE * &h_scalar;
+    let expected_point = spend_point + h_g;
+    let expected_stealth_pubkey: [u8; 32] = expected_point.compress().to_bytes();
     
     Some(expected_stealth_pubkey.to_vec())
 }

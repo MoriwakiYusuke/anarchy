@@ -60,6 +60,12 @@ reed-solomon-erasure = { version = "6.0", default-features = false }
 # Stealth address: X25519 key exchange
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 
+# Stealth address: Ed25519 signatures for proper pubkey derivation
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+
+# Stealth address: Curve25519 for EC point operations
+curve25519-dalek = { version = "4.1", default-features = false, features = ["alloc"] }
+
 # Random number generation
 rand_core = { version = "0.6", features = ["getrandom"] }
 

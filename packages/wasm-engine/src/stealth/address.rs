@@ -3,7 +3,11 @@
 use super::hash::blake2b_256;
 use super::types::{MetaAddressParts, StealthAddressResult};
 use wasm_bindgen::prelude::*;
-use x25519_dalek::{PublicKey, StaticSecret};
+use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
+#[allow(unused_imports)]
+use ed25519_dalek::VerifyingKey;
+use curve25519_dalek::{edwards::CompressedEdwardsY, Scalar};
+use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
 use rand_core::OsRng;
 
 /// メタアドレスのプレフィックス
@@ -55,35 +59,52 @@ pub fn parse_meta_address(meta_address: &str) -> Result<MetaAddressParts, JsErro
 ///
 /// 送信者がこの関数を使用して、受信者のメタアドレスから
 /// ワンタイムステルスアドレスとエフェメラル公開鍵を生成する。
+///
+/// EIP-5564準拠: P_stealth = K_spend + H(s) * G
 #[wasm_bindgen]
 pub fn derive_stealth_address(meta_address: &str) -> Result<StealthAddressResult, JsError> {
     // メタアドレスをパース
     let parts = parse_meta_address(meta_address)?;
     
-    // 公開鍵を復元
-    let spend_pubkey = PublicKey::from(
-        <[u8; 32]>::try_from(parts.spend_pubkey().as_slice())
-            .map_err(|_| JsError::new("InvalidSpendPubkey"))?
-    );
-    let view_pubkey = PublicKey::from(
-        <[u8; 32]>::try_from(parts.view_pubkey().as_slice())
-            .map_err(|_| JsError::new("InvalidViewPubkey"))?
-    );
+    // spend_pubkeyはEd25519 (32バイト compressed Edwards point)
+    let spend_bytes: [u8; 32] = parts.spend_pubkey()
+        .as_slice()
+        .try_into()
+        .map_err(|_| JsError::new("InvalidSpendPubkey: must be 32 bytes"))?;
+    
+    // view_pubkeyはX25519 (ECDH用)
+    let view_bytes: [u8; 32] = parts.view_pubkey()
+        .as_slice()
+        .try_into()
+        .map_err(|_| JsError::new("InvalidViewPubkey: must be 32 bytes"))?;
+    let view_pubkey = X25519PublicKey::from(view_bytes);
 
-    // ランダムなエフェメラル秘密鍵を生成
+    // ランダムなエフェメラル秘密鍵を生成 (X25519)
     let ephemeral_secret = StaticSecret::random_from_rng(OsRng);
-    let ephemeral_pubkey = PublicKey::from(&ephemeral_secret);
+    let ephemeral_pubkey = X25519PublicKey::from(&ephemeral_secret);
 
-    // 共有シークレットを計算: s = r * K_view
+    // 共有シークレットを計算: s = r * K_view (ECDH)
     let shared_secret = ephemeral_secret.diffie_hellman(&view_pubkey);
 
     // ハッシュ化: h = H(s)
     let h = blake2b_256(shared_secret.as_bytes());
 
-    // ステルス公開鍵を計算: P_stealth = K_spend + h * G
-    // Note: X25519では点のスカラー乗算が直接できないため、
-    // ここでは簡易的にハッシュとspend_pubkeyを組み合わせてアドレスを生成
-    let stealth_pubkey = derive_stealth_pubkey(spend_pubkey.as_bytes(), &h);
+    // Ed25519公開鍵をEdwardsPointに変換
+    let spend_point = CompressedEdwardsY(spend_bytes)
+        .decompress()
+        .ok_or_else(|| JsError::new("InvalidSpendPubkey: not a valid Edwards curve point"))?;
+    
+    // h をScalarに変換 (mod L)
+    let h_scalar = Scalar::from_bytes_mod_order(h);
+    
+    // h*G を計算 (ベースポイント乗算)
+    let h_g = ED25519_BASEPOINT_TABLE * &h_scalar;
+    
+    // P_stealth = K_spend + h*G (ECポイント加算)
+    let stealth_point = spend_point + h_g;
+    
+    // 圧縮形式に戻す (32バイト)
+    let stealth_pubkey: [u8; 32] = stealth_point.compress().to_bytes();
 
     // SS58アドレスに変換
     let stealth_address = pubkey_to_ss58(&stealth_pubkey);
@@ -93,16 +114,6 @@ pub fn derive_stealth_address(meta_address: &str) -> Result<StealthAddressResult
         ephemeral_pubkey.as_bytes().to_vec(),
         stealth_pubkey.to_vec(),
     ))
-}
-
-/// ステルス公開鍵を導出
-/// P_stealth = K_spend XOR H(s) (簡易実装)
-pub fn derive_stealth_pubkey(spend_pubkey: &[u8], hash: &[u8; 32]) -> [u8; 32] {
-    let mut result = [0u8; 32];
-    for i in 0..32 {
-        result[i] = spend_pubkey[i] ^ hash[i];
-    }
-    result
 }
 
 /// 公開鍵をSS58アドレスに変換
@@ -127,6 +138,17 @@ fn pubkey_to_ss58(pubkey: &[u8; 32]) -> String {
     
     // Base58 encode
     bs58::encode(payload).into_string()
+}
+
+/// 公開鍵をSS58アドレスに変換 (Wasm export)
+#[wasm_bindgen]
+pub fn pubkey_to_ss58_address(pubkey: &[u8]) -> Result<String, JsError> {
+    if pubkey.len() != 32 {
+        return Err(JsError::new("InvalidPubkey: must be 32 bytes"));
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(pubkey);
+    Ok(pubkey_to_ss58(&arr))
 }
 
 #[cfg(test)]
