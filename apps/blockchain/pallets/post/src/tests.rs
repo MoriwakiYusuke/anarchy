@@ -7,6 +7,7 @@ use frame_support::{
     dispatch::DispatchResult,
 };
 use pallet_storage::{FragmentId, StorageInterface};
+use pallet_reaction::ReactionInterface;
 use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
@@ -43,6 +44,23 @@ impl StorageInterface<u64, u64> for MockStorage {
 
     fn do_deposit_to_reward_pool(_amount: u128) {
         // No-op in pallet-post tests; reward pool logic tested in pallet-storage
+    }
+}
+
+/// Mock Reaction implementation for Post Pallet tests
+pub struct MockReaction;
+
+impl ReactionInterface for MockReaction {
+    fn do_deposit_to_reaction_pool(_amount: u128) {
+        // No-op in pallet-post tests; reaction pool logic tested in pallet-reaction
+    }
+
+    fn get_reaction_counts(_post_id: u64) -> Option<(u32, u32, u32)> {
+        Some((0, 0, 0))
+    }
+
+    fn get_bad_count(_post_id: u64) -> u32 {
+        0
     }
 }
 
@@ -108,6 +126,7 @@ impl pallet_balances::Config for Test {
 impl pallet_post::Config for Test {
     type NativeToken = Balances;
     type Storage = MockStorage;
+    type Reaction = MockReaction;
     type MaxContentLength = ConstU32<10000>;
     type PostBaseCost = ConstU128<100>; // テスト用: 基本100
     type PostByteCost = ConstU128<10>;  // テスト用: 1バイトあたり10

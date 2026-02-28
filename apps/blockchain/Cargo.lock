@@ -181,6 +181,7 @@ dependencies = [
  "pallet-grandpa",
  "pallet-nickname",
  "pallet-post",
+ "pallet-reaction",
  "pallet-stealth",
  "pallet-storage",
  "pallet-sudo",
@@ -5454,6 +5455,7 @@ dependencies = [
  "frame-system",
  "pallet-balances",
  "parity-scale-codec",
+ "primitives-pow",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -5505,11 +5507,28 @@ dependencies = [
  "frame-support",
  "frame-system",
  "pallet-balances",
+ "pallet-reaction",
  "pallet-storage",
  "parity-scale-codec",
  "scale-info",
  "sha2 0.10.9",
  "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "pallet-reaction"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "primitives-pow",
+ "scale-info",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -6123,6 +6142,15 @@ dependencies = [
  "impl-serde",
  "scale-info",
  "uint 0.10.0",
+]
+
+[[package]]
+name = "primitives-pow"
+version = "0.1.0"
+dependencies = [
+ "sp-core",
+ "sp-io",
+ "sp-std",
 ]
 
 [[package]]

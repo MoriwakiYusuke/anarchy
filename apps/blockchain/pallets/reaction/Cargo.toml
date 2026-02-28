@@ -1,10 +1,11 @@
 [package]
-name = "pallet-post"
+name = "pallet-reaction"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+description = "Reaction mining pallet with PoW-based rewards"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -17,14 +18,15 @@ frame-system = { workspace = true }
 sp-std = { workspace = true }
 sp-runtime = { workspace = true }
 sp-io = { workspace = true }
-sp-api = { workspace = true }
-sha2 = { workspace = true }
-pallet-storage = { path = "../storage", default-features = false }
-pallet-reaction = { path = "../reaction", default-features = false }
+sp-core = { workspace = true }
+pallet-balances = { workspace = true }
+
+# Shared PoW primitives
+primitives-pow = { path = "../../primitives/pow", default-features = false }
 
 [dev-dependencies]
 sp-core = { workspace = true, default-features = true }
-pallet-balances = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]
@@ -36,10 +38,17 @@ std = [
     "sp-std/std",
     "sp-runtime/std",
     "sp-io/std",
-    "sp-api/std",
-    "sha2/std",
-    "pallet-storage/std",
-    "pallet-reaction/std",
+    "sp-core/std",
+    "pallet-balances/std",
+    "primitives-pow/std",
 ]
-runtime-benchmarks = ["frame-support/runtime-benchmarks", "frame-system/runtime-benchmarks", "pallet-storage/runtime-benchmarks"]
-try-runtime = ["frame-support/try-runtime", "frame-system/try-runtime", "pallet-storage/try-runtime", "pallet-reaction/try-runtime"]
+runtime-benchmarks = [
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "pallet-balances/try-runtime",
+]

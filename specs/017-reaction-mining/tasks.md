@@ -19,14 +19,14 @@
 
 **Purpose**: Project initialization and pallet scaffolding
 
-- [ ] T001 Create pallet-reaction directory structure at apps/blockchain/pallets/reaction/
-- [ ] T002 Create Cargo.toml for pallet-reaction in apps/blockchain/pallets/reaction/Cargo.toml
-- [ ] T003 [P] Create skeleton lib.rs with pallet boilerplate in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T004 [P] Add pallet-reaction to workspace members in apps/blockchain/Cargo.toml
-- [ ] T005 [P] Create primitives/pow directory for shared PoW functions at apps/blockchain/primitives/pow/
-- [ ] T006 Add primitives/pow Cargo.toml with no_std dependencies at apps/blockchain/primitives/pow/Cargo.toml
+- [X] T001 Create pallet-reaction directory structure at apps/blockchain/pallets/reaction/
+- [X] T002 Create Cargo.toml for pallet-reaction in apps/blockchain/pallets/reaction/Cargo.toml
+- [X] T003 [P] Create skeleton lib.rs with pallet boilerplate in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T004 [P] Add pallet-reaction to workspace members in apps/blockchain/Cargo.toml
+- [X] T005 [P] Create primitives/pow directory for shared PoW functions at apps/blockchain/primitives/pow/
+- [X] T006 Add primitives/pow Cargo.toml with no_std dependencies at apps/blockchain/primitives/pow/Cargo.toml
 
-**Checkpoint**: Pallet scaffold compiles with `cargo check -p pallet-reaction`
+**Checkpoint**: Pallet scaffold compiles with `cargo check -p pallet-reaction` ✓
 
 ---
 
@@ -36,20 +36,20 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Extract `compute_challenge()` from pallet-faucet to primitives/pow/src/lib.rs
-- [ ] T008 Extract `verify_proof()` from pallet-faucet to primitives/pow/src/lib.rs
-- [ ] T009 [P] Extract `count_leading_zero_bits()` from pallet-faucet to primitives/pow/src/lib.rs
-- [ ] T010 [P] Add unit tests for primitives/pow in primitives/pow/src/tests.rs
-- [ ] T011 Update pallet-faucet to use primitives/pow (remove duplicated code) in apps/blockchain/pallets/faucet/src/lib.rs
-- [ ] T012 [P] Define ReactionType enum in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T013 [P] Define Reaction struct in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T014 [P] Define ReactionStats struct in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T015 Define storage items (Reactions, ReactionStatsStorage, ReactionRewardPool, etc.) in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T016 Define ReactionInterface trait in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T017 Implement ReactionInterface for Pallet<T> in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T018 Add genesis config for initial_reward_pool in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T007 Extract `compute_challenge()` from pallet-faucet to primitives/pow/src/lib.rs
+- [X] T008 Extract `verify_proof()` from pallet-faucet to primitives/pow/src/lib.rs
+- [X] T009 [P] Extract `count_leading_zero_bits()` from pallet-faucet to primitives/pow/src/lib.rs
+- [X] T010 [P] Add unit tests for primitives/pow in primitives/pow/src/tests.rs
+- [X] T011 Update pallet-faucet to use primitives/pow (remove duplicated code) in apps/blockchain/pallets/faucet/src/lib.rs
+- [X] T012 [P] Define ReactionType enum in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T013 [P] Define Reaction struct in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T014 [P] Define ReactionStats struct in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T015 Define storage items (Reactions, ReactionStatsStorage, ReactionRewardPool, etc.) in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T016 Define ReactionInterface trait in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T017 Implement ReactionInterface for Pallet<T> in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T018 Add genesis config for initial_reward_pool in apps/blockchain/pallets/reaction/src/lib.rs
 
-**Checkpoint**: `cargo test -p pallet-reaction` passes with storage definitions only
+**Checkpoint**: `cargo test -p pallet-reaction` passes with storage definitions only ✓
 
 ---
 
@@ -63,37 +63,37 @@
 
 > **Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T019 [P] [US1] Unit test: react() rejects duplicate reactions in apps/blockchain/pallets/reaction/src/tests.rs
-- [ ] T020 [P] [US1] Unit test: react() rejects invalid PoW in apps/blockchain/pallets/reaction/src/tests.rs
-- [ ] T021 [P] [US1] Unit test: react() updates ReactionStats correctly in apps/blockchain/pallets/reaction/src/tests.rs
-- [ ] T022 [P] [US1] Unit test: react() pays author reward from pool in apps/blockchain/pallets/reaction/src/tests.rs
-- [ ] T023 [P] [US1] Unit test: react() records reaction but skips reward when pool empty in apps/blockchain/pallets/reaction/src/tests.rs
-- [ ] T024 [P] [US1] Jest test: crypto.ts mine_reaction returns valid nonce in apps/frontend/tests/workers/crypto.test.ts
+- [X] T019 [P] [US1] Unit test: react() rejects duplicate reactions in apps/blockchain/pallets/reaction/src/tests.rs
+- [X] T020 [P] [US1] Unit test: react() rejects invalid PoW in apps/blockchain/pallets/reaction/src/tests.rs
+- [X] T021 [P] [US1] Unit test: react() updates ReactionStats correctly in apps/blockchain/pallets/reaction/src/tests.rs
+- [X] T022 [P] [US1] Unit test: react() pays author reward from pool in apps/blockchain/pallets/reaction/src/tests.rs
+- [X] T023 [P] [US1] Unit test: react() records reaction but skips reward when pool empty in apps/blockchain/pallets/reaction/src/tests.rs
+- [X] T024 [P] [US1] Jest test: crypto.ts mine_reaction returns valid nonce in apps/frontend/tests/workers/crypto.reaction.test.ts
 
 ### Pallet Implementation for User Story 1
 
-- [ ] T025 [US1] Implement `react()` extrinsic signature and basic validation in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T026 [US1] Implement PoW verification in react() using primitives/pow, including challenge expiry validation (100 blocks per FR-112) in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T027 [US1] Implement duplicate reaction check in react() in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T028 [US1] Implement reaction storage and stats update in react() in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T029 [US1] Implement reward calculation (Weight × CPUPower × γ) in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T030 [US1] Implement reward payout from ReactionRewardPool in apps/blockchain/pallets/reaction/src/lib.rs
-- [ ] T031 [US1] Emit ReactionCreated event with reaction details in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T025 [US1] Implement `react()` extrinsic signature and basic validation in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T026 [US1] Implement PoW verification in react() using primitives/pow, including challenge expiry validation (100 blocks per FR-112) in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T027 [US1] Implement duplicate reaction check in react() in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T028 [US1] Implement reaction storage and stats update in react() in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T029 [US1] Implement reward calculation (Weight × CPUPower × γ) in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T030 [US1] Implement reward payout from ReactionRewardPool in apps/blockchain/pallets/reaction/src/lib.rs
+- [X] T031 [US1] Emit ReactionCreated event with reaction details in apps/blockchain/pallets/reaction/src/lib.rs
 
 ### Frontend Implementation for User Story 1
 
-- [ ] T032 [P] [US1] Add mine_reaction case to WebWorker in apps/frontend/src/workers/crypto.ts
-- [ ] T033 [P] [US1] Implement countLeadingZeroBits helper in apps/frontend/src/workers/crypto.ts
-- [ ] T034 [US1] Create reactionService.ts with submitReaction() via PAPI in apps/frontend/src/services/reactionService.ts
-- [ ] T035 [US1] Create useReactionMining hook with basic state in apps/frontend/src/hooks/useReactionMining.ts
-- [ ] T036 [US1] Create ReactionButton component (Like/Boost UI) in apps/frontend/src/components/ReactionButton.tsx
-- [ ] T037 [US1] Add mining progress UI (hashrate, elapsed time) to ReactionButton in apps/frontend/src/components/ReactionButton.tsx
+- [X] T032 [P] [US1] Add mine_reaction case to WebWorker in apps/frontend/src/workers/crypto.ts
+- [X] T033 [P] [US1] Implement countLeadingZeroBits helper in apps/frontend/src/workers/crypto.ts
+- [X] T034 [US1] Create reactionService.ts with submitReaction() via PAPI in apps/frontend/src/services/reactionService.ts
+- [X] T035 [US1] Create useReactionMining hook with basic state in apps/frontend/src/hooks/useReactionMining.ts
+- [X] T036 [US1] Create ReactionButton component (Like/Boost UI) in apps/frontend/src/components/ReactionButton.tsx
+- [X] T037 [US1] Add mining progress UI (hashrate, elapsed time) to ReactionButton in apps/frontend/src/components/ReactionButton.tsx
 
 ### Runtime Integration for User Story 1
 
-- [ ] T038 [US1] Add pallet-reaction to runtime in apps/blockchain/runtime/src/lib.rs
-- [ ] T039 [US1] Add pallet-reaction genesis config to chain_spec in apps/blockchain/node/src/chain_spec.rs
-- [ ] T040 [US1] Update pallet-post to call ReactionInterface::do_deposit_to_reaction_pool in apps/blockchain/pallets/post/src/lib.rs
+- [X] T038 [US1] Add pallet-reaction to runtime in apps/blockchain/runtime/src/lib.rs
+- [X] T039 [US1] Add pallet-reaction genesis config to chain_spec in apps/blockchain/node/src/chain_spec.rs
+- [X] T040 [US1] Update pallet-post to call ReactionInterface::do_deposit_to_reaction_pool in apps/blockchain/pallets/post/src/lib.rs
 
 **Checkpoint**: User can Like a post from frontend, author receives MORAL reward
 
@@ -107,16 +107,16 @@
 
 ### Tests for User Story 2
 
-- [ ] T041 [P] [US2] Jest test: useReactionMining pauses on visibility change in apps/frontend/tests/hooks/useReactionMining.test.ts
-- [ ] T042 [P] [US2] Jest test: useReactionMining resumes on visibility return in apps/frontend/tests/hooks/useReactionMining.test.ts
-- [ ] T043 [P] [US2] Jest test: mining state correctly reflects isPaused in apps/frontend/tests/hooks/useReactionMining.test.ts
+- [X] T041 [P] [US2] Jest test: useReactionMining pauses on visibility change in apps/frontend/tests/hooks/useReactionMining.test.ts
+- [X] T042 [P] [US2] Jest test: useReactionMining resumes on visibility return in apps/frontend/tests/hooks/useReactionMining.test.ts
+- [X] T043 [P] [US2] Jest test: mining state correctly reflects isPaused in apps/frontend/tests/hooks/useReactionMining.test.ts
 
 ### Implementation for User Story 2
 
-- [ ] T044 [US2] Add Page Visibility API listener to useReactionMining in apps/frontend/src/hooks/useReactionMining.ts
-- [ ] T045 [US2] Implement AbortController for mining cancellation in apps/frontend/src/hooks/useReactionMining.ts
-- [ ] T046 [US2] Update mining UI to show paused state in apps/frontend/src/components/ReactionButton.tsx
-- [ ] T047 [US2] Implement auto-resume logic (or manual resume button) in apps/frontend/src/hooks/useReactionMining.ts
+- [X] T044 [US2] Add Page Visibility API listener to useReactionMining in apps/frontend/src/hooks/useReactionMining.ts
+- [X] T045 [US2] Implement AbortController for mining cancellation in apps/frontend/src/hooks/useReactionMining.ts
+- [X] T046 [US2] Update mining UI to show paused state in apps/frontend/src/components/ReactionButton.tsx
+- [X] T047 [US2] Implement auto-resume logic (or manual resume button) in apps/frontend/src/hooks/useReactionMining.ts
 
 **Checkpoint**: Mining correctly pauses when user switches tabs and resumes on return
 

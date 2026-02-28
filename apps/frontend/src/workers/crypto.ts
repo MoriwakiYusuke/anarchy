@@ -3,6 +3,8 @@
  *
  * Wasm暗号エンジン(anarchy-wasm-engine)をWeb Worker内で実行し、
  * メインスレッドをブロックせずにKZG-VSS Hybrid分割/復元、MerkleTree構築/検証を行う。
+ * 
+ * Also handles PoW mining for reaction mining (017-reaction-mining).
  */
 
 // Worker内でのWasmモジュール
@@ -17,6 +19,29 @@ const merkleCache = new Map<string, import("anarchy-wasm-engine").MerkleResult>(
  */
 function toHex(arr: Uint8Array): string {
   return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Count leading zero bits in a byte array (for PoW verification)
+ * @param hash - The hash to check
+ * @returns Number of leading zero bits
+ */
+function countLeadingZeroBits(hash: Uint8Array): number {
+  let zeroBits = 0;
+  for (const byte of hash) {
+    if (byte === 0) {
+      zeroBits += 8;
+    } else {
+      // Count leading zeros in this byte
+      let b = byte;
+      while ((b & 0x80) === 0) {
+        zeroBits++;
+        b <<= 1;
+      }
+      break;
+    }
+  }
+  return zeroBits;
 }
 
 /**
@@ -54,7 +79,7 @@ async function initWasm(): Promise<void> {
  */
 interface WorkerRequest {
   id: string;
-  type: "hybrid_split" | "hybrid_recover" | "merkle_build" | "merkle_generate_proof" | "merkle_verify" | "blake2b_hash";
+  type: "hybrid_split" | "hybrid_recover" | "merkle_build" | "merkle_generate_proof" | "merkle_verify" | "blake2b_hash" | "mine_reaction";
   payload: unknown;
 }
 
@@ -118,6 +143,33 @@ interface MerkleVerifyPayload {
  */
 interface Blake2bHashPayload {
   data: Uint8Array;
+}
+
+/**
+ * Reaction Mining リクエスト (017-reaction-mining)
+ * Client-side PoW mining for reaction submission
+ */
+interface MineReactionPayload {
+  /** Challenge = blake2b(post_id ++ user_address ++ block_number) from chain */
+  challenge: Uint8Array;
+  /** Required leading zero bits (difficulty) */
+  difficulty: number;
+  /** Maximum iterations before giving up (0 = unlimited) */
+  maxIterations?: number;
+}
+
+/**
+ * Reaction Mining 結果
+ */
+interface MineReactionResult {
+  /** Found nonce that satisfies difficulty */
+  nonce: bigint;
+  /** Iterations tried */
+  iterations: number;
+  /** Hash rate (hashes/second) */
+  hashRate: number;
+  /** Elapsed time in milliseconds */
+  elapsedMs: number;
 }
 
 /**
@@ -203,6 +255,54 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       case "blake2b_hash": {
         const { data } = payload as Blake2bHashPayload;
         result = new Uint8Array(wasmModule.blake2b_hash(data));
+        break;
+      }
+
+      case "mine_reaction": {
+        const { challenge, difficulty, maxIterations = 0 } = payload as MineReactionPayload;
+        const startTime = performance.now();
+        let nonce = BigInt(0);
+        let iterations = 0;
+        
+        // Pre-allocate buffer for challenge + nonce (challenge + 8 bytes for u64 nonce)
+        const inputBuffer = new Uint8Array(challenge.length + 8);
+        inputBuffer.set(challenge, 0);
+        
+        while (true) {
+          // Encode nonce as little-endian u64
+          const nonceBytes = new Uint8Array(8);
+          let n = nonce;
+          for (let i = 0; i < 8; i++) {
+            nonceBytes[i] = Number(n & BigInt(0xff));
+            n >>= BigInt(8);
+          }
+          inputBuffer.set(nonceBytes, challenge.length);
+          
+          // Compute Blake2b hash
+          const hash = wasmModule.blake2b_hash(inputBuffer);
+          iterations++;
+          
+          // Check leading zero bits
+          if (countLeadingZeroBits(new Uint8Array(hash)) >= difficulty) {
+            // Found valid nonce!
+            const elapsedMs = performance.now() - startTime;
+            const hashRate = elapsedMs > 0 ? (iterations / elapsedMs) * 1000 : 0;
+            result = {
+              nonce,
+              iterations,
+              hashRate: Math.round(hashRate),
+              elapsedMs: Math.round(elapsedMs),
+            } as MineReactionResult;
+            break;
+          }
+          
+          // Check iteration limit
+          if (maxIterations > 0 && iterations >= maxIterations) {
+            throw new Error(`Mining failed: reached max iterations (${maxIterations})`);
+          }
+          
+          nonce++;
+        }
         break;
       }
 

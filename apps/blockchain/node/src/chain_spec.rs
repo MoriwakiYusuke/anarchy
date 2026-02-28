@@ -162,6 +162,12 @@ fn testnet_genesis(
     
     // 報酬プール初期残高 (dev/testnet用: 1,000,000 MORAL)
     const INITIAL_REWARD_POOL: u128 = 1_000_000_000_000_000_000; // 1,000,000 $moral
+    
+    // Reaction報酬プール初期残高 (dev/testnet用: 10,000,000 MORAL)
+    const INITIAL_REACTION_REWARD_POOL: u128 = 10_000_000_000_000_000_000_000; // 10,000,000 $moral
+    
+    // Reaction初期難易度 (BaseDifficultyと同じ)
+    const INITIAL_REACTION_DIFFICULTY: u8 = 16;
 
     serde_json::json!({
         "balances": {
@@ -178,6 +184,10 @@ fn testnet_genesis(
         },
         "storage": {
             "initialRewardPool": INITIAL_REWARD_POOL
+        },
+        "reaction": {
+            "initialRewardPool": INITIAL_REACTION_REWARD_POOL,
+            "initialDifficulty": INITIAL_REACTION_DIFFICULTY
         }
     })
 }
