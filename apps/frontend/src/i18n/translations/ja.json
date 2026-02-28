@@ -252,5 +252,11 @@
   "stealth.balance.noMetaAddress": "残高を確認するには、まず受け取り設定でメタアドレスを生成してください。",
   "stealth.balance.backToList": "← 残高リストに戻る",
   
-  "stealth.button": "🔐 ステルス送金"
+  "stealth.button": "🔐 ステルス送金",
+  
+  "post.expand": "もっと見る",
+  "post.collapse": "折りたたむ",
+  "reaction.pleaseConnect": "接続してください",
+  "reaction.alreadyReacted": "すでに反応済みです",
+  "reaction.submitting": "送信中..."
 }

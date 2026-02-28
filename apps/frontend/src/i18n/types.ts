@@ -77,6 +77,12 @@ export type TranslationKey =
   | 'post.recording'
   | 'post.success'
   | 'post.defaultCostNote'
+  | 'post.expand'
+  | 'post.collapse'
+  // Reaction
+  | 'reaction.pleaseConnect'
+  | 'reaction.alreadyReacted'
+  | 'reaction.submitting'
   // Content
   | 'content.loading'
   | 'content.error'

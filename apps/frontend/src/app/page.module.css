@@ -86,6 +86,17 @@
   gap: 1.5rem;
 }
 
+.postFormWrapper {
+  flex-shrink: 0;
+}
+
+.timelineWrapper {
+  max-height: calc(100vh);
+  min-height: 400px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
 .error {
   position: fixed;
   bottom: 1rem;
@@ -100,6 +111,9 @@
 @media (max-width: 768px) {
   .main {
     padding: 1rem;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .headerBg {
@@ -132,10 +146,23 @@
   .container {
     grid-template-columns: 1fr;
     gap: 1rem;
+    overflow: visible;
   }
 
   .sidebar {
     position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .content {
+    height: auto;
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .timelineWrapper {
+    overflow: visible;
   }
 
   .error {

@@ -23,6 +23,7 @@ cargo test --all
 cargo test -p pallet-post
 cargo test -p pallet-faucet
 cargo test -p pallet-storage
+cargo test -p pallet-reaction
 
 # Lint
 cargo clippy
@@ -96,6 +97,7 @@ pnpm testnet:purge            # Purge chain data
   - `pallets/post/` — Post pallet (`create_post_v2`: records MerkleRoot on-chain, content stored off-chain)
   - `pallets/faucet/` — PoW faucet pallet (token claiming with client-side proof-of-work)
   - `pallets/storage/` — Distributed storage pallet (on-chain storage commitments, KZG proof verification, reward distribution)
+  - `pallets/reaction/` — Reaction mining pallet (Like/Boost/Bad with PoW, dynamic difficulty, author rewards)
   - `tests/integration/` — Shell-based integration tests
 - **apps/storage-node/** — Off-chain distributed storage daemon (libp2p P2P + axum HTTP JSON-RPC on port 3030, separate Cargo project). Auto-registers with blockchain node on startup.
 - **apps/frontend/** — Next.js 14 (App Router) + React 18 + TypeScript
@@ -159,6 +161,17 @@ Storage nodes receive MORAL rewards for provable fragment holding. Key concepts:
 - **Reward Pool**: Post fees flow 90% to reward pool, 10% burned
 - **Score System**: `ScoreProvider` trait for node reputation (default: score=1000, threshold=100)
 - **GC Lifecycle**: Fragment lifecycle StateProposed → Active → ForgettingCandidate → deleted
+
+### Reaction Mining (pallet-reaction)
+
+Users react to posts (Like/Boost/Bad) with PoW proof, authors receive MORAL rewards:
+
+- **PoW Mining**: Client-side Blake2b mining in Web Worker (`apps/frontend/src/workers/miningWorker.ts`)
+- **Difficulty Adjustment**: Dynamic based on network reaction rate (adjusted every `AdjustmentWindow` blocks)
+- **Reward**: Fixed 1 MORAL per successful reaction (capped by pool balance)
+- **Foreground Enforcement**: Page Visibility API pauses mining when tab loses focus
+- **Challenge Expiry**: PoW challenge valid for `ChallengeValidity` blocks (default: 100)
+- **Stealth Recipients**: Optional stealth address for reward destination (pallet-stealth pending)
 
 ### Spec-Driven Development
 

@@ -250,5 +250,11 @@
   "stealth.balance.noMetaAddress": "要查看余额，请先在接收设置中生成元地址。",
   "stealth.balance.backToList": "← 返回余额列表",
   
-  "stealth.button": "🔐 隐身转账"
+  "stealth.button": "🔐 隐身转账",
+  
+  "post.expand": "显示更多",
+  "post.collapse": "收起",
+  "reaction.pleaseConnect": "请先连接",
+  "reaction.alreadyReacted": "已反应过",
+  "reaction.submitting": "提交中..."
 }

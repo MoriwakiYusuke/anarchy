@@ -1,0 +1,100 @@
+.container {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: transparent;
+  border: none;
+  padding: 0.375rem 0.5rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+  font-size: 0.8125rem;
+}
+
+.btn:hover:not(:disabled) {
+  background: rgba(128, 128, 128, 0.1);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn svg {
+  flex-shrink: 0;
+}
+
+.count {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Spinner animation */
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Like button (green - thumbs up) */
+.likeBtn:hover:not(:disabled) {
+  color: #00ba7c;
+  background: rgba(0, 186, 124, 0.1);
+}
+
+.likeBtn.active {
+  color: #00ba7c;
+}
+
+.likeBtn.active svg {
+  fill: #00ba7c;
+}
+
+/* Boost button (pink - heart) */
+.boostBtn:hover:not(:disabled) {
+  color: #f91880;
+  background: rgba(249, 24, 128, 0.1);
+}
+
+.boostBtn.active {
+  color: #f91880;
+}
+
+.boostBtn.active svg {
+  fill: #f91880;
+}
+
+/* Bad button */
+.badBtn:hover:not(:disabled) {
+  color: #f4212e;
+  background: rgba(244, 33, 46, 0.1);
+}
+
+.badBtn.active {
+  color: #f4212e;
+}
+
+.badBtn.active svg {
+  stroke: #f4212e;
+}
+
+/* Already reacted error message */
+.alreadyReactedMsg {
+  color: #f4212e;
+  font-size: 0.625rem;
+  margin-left: 0.25rem;
+}

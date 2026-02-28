@@ -8,6 +8,8 @@ members = [
     "pallets/storage",
     "pallets/nickname",
     "pallets/stealth",
+    "pallets/reaction",
+    "primitives/pow",
 ]
 
 [workspace.lints.rust]
@@ -94,6 +96,8 @@ pallet-faucet = { path = "pallets/faucet", default-features = false }
 pallet-storage = { path = "pallets/storage", default-features = false }
 pallet-nickname = { path = "pallets/nickname", default-features = false }
 pallet-stealth = { path = "pallets/stealth", default-features = false }
+pallet-reaction = { path = "pallets/reaction", default-features = false }
+primitives-pow = { path = "primitives/pow", default-features = false }
 anarchy-runtime = { path = "runtime" }
 
 [profile.release]

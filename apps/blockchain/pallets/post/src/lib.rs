@@ -47,6 +47,7 @@ pub mod pallet {
     use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::pallet_prelude::*;
     use pallet_storage::StorageInterface;
+    use pallet_reaction::ReactionInterface;
 
     /// $moral残高型（ネイティブトークン）
     pub type BalanceOf<T> = <<T as Config>::NativeToken as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -99,6 +100,9 @@ pub mod pallet {
 
         /// Storage Pallet for atomic fragment registration (FR-401, FR-402).
         type Storage: pallet_storage::StorageInterface<Self::AccountId, BlockNumberFor<Self>>;
+
+        /// Reaction Pallet for reward pool deposits.
+        type Reaction: pallet_reaction::ReactionInterface;
 
         /// 投稿の最大長（バイト）
         #[pallet::constant]
@@ -236,7 +240,7 @@ pub mod pallet {
             let current_posts = UserPosts::<T>::get(&who);
             ensure!(!current_posts.is_full(), Error::<T>::TooManyPosts);
 
-            // コスト計算: 50% base + 30% size + 20% deposit
+            // コスト計算: base_cost + size_cost
             let base_cost: u128 = T::PostBaseCost::get()
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
@@ -244,8 +248,7 @@ pub mod pallet {
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
             let size_cost = (total_size as u128).saturating_mul(byte_cost);
-            let deposit = base_cost.saturating_add(size_cost) / 5;
-            let total_cost = base_cost.saturating_add(size_cost).saturating_add(deposit);
+            let total_cost = base_cost.saturating_add(size_cost);
             let cost: BalanceOf<T> = total_cost
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
@@ -259,9 +262,11 @@ pub mod pallet {
                 frame_support::traits::tokens::Fortitude::Polite,
             ).map_err(|_| Error::<T>::InsufficientMoralBalance)?;
 
-            // FR-113: 90%を報酬プールに蓄積、10%は永久にburn
-            let reward_pool_amount = total_cost.saturating_mul(90) / 100;
-            T::Storage::do_deposit_to_reward_pool(reward_pool_amount);
+            // FR-113: 80%をStorage報酬プールに蓄積、10%をReaction報酬プールに蓄積、10%は永久にburn
+            let storage_pool_amount = total_cost.saturating_mul(80) / 100;
+            let reaction_pool_amount = total_cost.saturating_mul(10) / 100;
+            T::Storage::do_deposit_to_reward_pool(storage_pool_amount);
+            T::Reaction::do_deposit_to_reaction_pool(reaction_pool_amount);
 
             // 投稿IDを取得・インクリメント（オーバーフロー防止）
             let post_id = NextPostId::<T>::get();

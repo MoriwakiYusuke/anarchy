@@ -7,6 +7,8 @@ import { decodePostContent, mediaToDataUrl } from '@/lib/postCodec'
 import type { MediaItem as PostMediaItem } from '@/lib/postCodec'
 import { CopyIcon, CheckIcon, ReplyIcon } from '@/components/Icons'
 import { ImageModal } from '@/components/ImageModal'
+import { ReactionButton } from '@/components/ReactionButton'
+import type { PolkadotSigner } from 'polkadot-api/signer'
 import styles from './Timeline.module.css'
 
 /**
@@ -40,6 +42,18 @@ interface Props {
   contentRef?: ContentRef
   /** Optional nickname for the author */
   nickname?: string
+  /** PAPI client */
+  client?: unknown
+  /** PAPI unsafe API */
+  unsafeApi?: unknown
+  /** User's account address */
+  account?: string | null
+  /** Polkadot signer */
+  signer?: PolkadotSigner | null
+  /** Reaction counts */
+  likes?: number
+  boosts?: number
+  bads?: number
 }
 
 /**
@@ -53,6 +67,13 @@ export function PostItem({
   inlineContent,
   contentRef,
   nickname,
+  client,
+  unsafeApi,
+  account,
+  signer,
+  likes,
+  boosts,
+  bads,
 }: Props) {
   const { t } = useLocale()
   const { recoverContent, isReady } = useStorage()
@@ -133,6 +154,10 @@ export function PostItem({
 
   const [copied, setCopied] = useState(false)
   const [modalImage, setModalImage] = useState<{ src: string; filename: string } | null>(null)
+  const [expanded, setExpanded] = useState(false)
+
+  // テキストが長いかどうかを判定（200文字 or 5行以上）
+  const isLongContent = typeof content === 'string' && (content.length > 200 || content.split('\n').length > 5)
 
   const handleCopyAddress = useCallback(async () => {
     try {
@@ -166,7 +191,18 @@ export function PostItem({
         </span>
       </header>
       <div className={styles.content}>
-        <p className={styles.text}>{displayContent}</p>
+        <p className={`${styles.text} ${isLongContent && !expanded ? styles.textCollapsed : ''}`}>
+          {displayContent}
+        </p>
+        {isLongContent && (
+          <button
+            type="button"
+            className={styles.expandButton}
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? t('post.collapse') : t('post.expand')}
+          </button>
+        )}
         {decodedMedia.length > 0 && (
           <div className={styles.mediaGrid}>
             {decodedMedia.map((item, idx) => {
@@ -228,14 +264,26 @@ export function PostItem({
         )}
       </div>
       <footer className={styles.postFooter}>
-        <span className={styles.postId}>
-          Post #{postId}
-        </span>
-        {parentId !== null && (
-          <span className={styles.reply}>
-            <ReplyIcon size={12} /> Reply to #{parentId}
+        <div className={styles.postMeta}>
+          <span className={styles.postId}>
+            Post #{postId}
           </span>
-        )}
+          {parentId !== null && (
+            <span className={styles.reply}>
+              <ReplyIcon size={12} /> Reply to #{parentId}
+            </span>
+          )}
+        </div>
+        <ReactionButton
+          postId={postId}
+          client={client}
+          unsafeApi={unsafeApi}
+          account={account}
+          signer={signer}
+          likes={likes}
+          boosts={boosts}
+          bads={bads}
+        />
       </footer>
 
       {/* Image modal */}

@@ -21,7 +21,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::pallet_prelude::*;
-    use sp_io::hashing::blake2_256;
+    use primitives_pow::{compute_challenge as pow_compute_challenge, verify_proof as pow_verify_proof};
     use sp_runtime::Saturating;
     use sp_runtime::transaction_validity::{
         InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
@@ -271,34 +271,20 @@ pub mod pallet {
             block_hash: &T::Hash,
             account_id: &T::AccountId,
         ) -> [u8; 32] {
-            let mut data = block_hash.as_ref().to_vec();
-            data.extend(account_id.encode());
-            blake2_256(&data)
+            pow_compute_challenge(block_hash.as_ref(), &account_id.encode())
         }
 
         /// Verify PoW proof.
         /// hash = blake2_256(challenge || nonce.to_le_bytes())
         /// valid = leading_zeros(hash) >= difficulty
         pub fn verify_proof(challenge: &[u8; 32], nonce: u64, difficulty: u8) -> bool {
-            let mut data = challenge.to_vec();
-            data.extend(nonce.to_le_bytes());
-            let hash = blake2_256(&data);
-            Self::count_leading_zero_bits(&hash) >= difficulty
+            pow_verify_proof(challenge, nonce, difficulty)
         }
 
         /// Count leading zero bits in a 32-byte hash.
         /// Uses saturating_add to prevent overflow (32 bytes * 8 bits = 256 > u8::MAX).
         pub fn count_leading_zero_bits(hash: &[u8; 32]) -> u8 {
-            let mut count = 0u8;
-            for byte in hash.iter() {
-                if *byte == 0 {
-                    count = count.saturating_add(8);
-                } else {
-                    count = count.saturating_add(byte.leading_zeros() as u8);
-                    break;
-                }
-            }
-            count
+            primitives_pow::count_leading_zero_bits(hash)
         }
     }
 }

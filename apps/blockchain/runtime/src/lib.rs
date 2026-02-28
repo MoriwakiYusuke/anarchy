@@ -230,6 +230,7 @@ impl pallet_sudo::Config for Runtime {
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
     type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
+    type Reaction = Reaction;  // Reaction Pallet for reward pool deposits
     type MaxContentLength = ConstU32<1_073_741_824>; // 1GB (画像含むコンテンツ対応)
     /// 基本コスト: 100 MORAL
     type PostBaseCost = ConstU128<100_000_000_000_000>;
@@ -309,6 +310,43 @@ impl pallet_stealth::Config for Runtime {
     type WeightInfo = pallet_stealth::weights::SubstrateWeight<Runtime>;
 }
 
+// Reaction Pallet設定
+/// PostAuthorProvider implementation for reaction pallet
+pub struct PostAuthorProviderImpl;
+impl pallet_reaction::PostAuthorProvider<AccountId> for PostAuthorProviderImpl {
+    fn get_post_author(post_id: u64) -> Option<AccountId> {
+        pallet_post::Posts::<Runtime>::get(post_id).map(|post| post.author)
+    }
+}
+
+// 1 MORAL = 1_000_000_000_000 (12 decimals)
+parameter_types! {
+    pub const ReactionReward: Balance = 1_000_000_000_000;
+}
+
+impl pallet_reaction::Config for Runtime {
+    /// Native token ($moral) for reward payouts
+    type NativeToken = Balances;
+    /// Provider for getting post authors
+    type PostAuthorProvider = PostAuthorProviderImpl;
+    /// Fixed reward: 1 MORAL per reaction
+    type ReactionReward = ReactionReward;
+    /// Base PoW difficulty: 16 leading zero bits
+    type BaseDifficulty = ConstU8<16>;
+    /// Minimum difficulty: 8 bits
+    type MinDifficulty = ConstU8<8>;
+    /// Maximum difficulty: 32 bits
+    type MaxDifficulty = ConstU8<32>;
+    /// Challenge validity: 100 blocks
+    type ChallengeValidity = ConstU32<100>;
+    /// Target reactions per block: 10
+    type TargetReactionRate = ConstU32<10>;
+    /// Adjustment window: 10 blocks
+    type AdjustmentWindow = ConstU32<10>;
+    /// Adjustment divisor: 4 (smooth changes)
+    type AdjustmentDivisor = ConstU32<4>;
+}
+
 // Runtime構築
 construct_runtime!(
     pub struct Runtime {
@@ -325,6 +363,7 @@ construct_runtime!(
         Faucet: pallet_faucet,
         Nickname: pallet_nickname,
         Stealth: pallet_stealth,
+        Reaction: pallet_reaction,
     }
 );
 

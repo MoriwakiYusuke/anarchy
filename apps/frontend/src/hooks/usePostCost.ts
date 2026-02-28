@@ -8,8 +8,8 @@ const UNIT = BigInt(10 ** DECIMALS)
 
 // フォールバック値（runtime設定と同期させる）
 // ブロックチェーンから取得できない場合に使用
-const FALLBACK_BASE_COST = 10  // 10 MORAL
-const FALLBACK_BYTE_COST = 0.1 // 0.1 MORAL/byte
+const FALLBACK_BASE_COST = 100   // 100 MORAL
+const FALLBACK_BYTE_COST = 0.001 // 0.001 MORAL/byte
 
 export interface PostCostConfig {
   baseCost: number      // 基本コスト (human readable)

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { PolkadotClient } from 'polkadot-api'
+import type { PolkadotSigner } from 'polkadot-api/signer'
 import { useLocale } from '@/i18n'
 import { PostItem } from './PostItem'
 import styles from './Timeline.module.css'
@@ -16,6 +17,12 @@ interface ContentRef {
   compressed: boolean
 }
 
+interface ReactionStats {
+  likes: number
+  boosts: number
+  bads: number
+}
+
 interface Post {
   id: number
   author: string
@@ -25,15 +32,18 @@ interface Post {
   parentId: number | null
   contentRef?: ContentRef
   nickname?: string
+  reactionStats?: ReactionStats
 }
 
 interface Props {
   client: PolkadotClient | null
   unsafeApi: any
+  account: string | null
+  signer: PolkadotSigner | null
   refreshTrigger?: number
 }
 
-export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
+export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }: Props) {
   const { t } = useLocale()
   const [posts, setPosts] = useState<Post[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -184,13 +194,53 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
             parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
             contentRef,
             nickname: nicknameMap.get(author),
+            // reactionStatsは後でスライス後に取得する
+            reactionStats: undefined,
           }
         })
 
         // 最新順（作成ブロック番号の降順）でソート
         fetchedPosts.sort((a, b) => b.createdAt - a.createdAt)
 
-        setPosts(fetchedPosts.slice(0, 50))
+        // 表示する投稿を50件に制限
+        const displayPosts = fetchedPosts.slice(0, 50)
+
+        // リアクション統計を取得（表示する投稿のみ）
+        try {
+          if (unsafeApi.query.Reaction?.ReactionStatsStorage?.getValue) {
+            const statsPromises = displayPosts.map(async (post) => {
+              try {
+                const stats = await unsafeApi.query.Reaction.ReactionStatsStorage.getValue(post.id)
+                if (stats) {
+                  return {
+                    postId: post.id,
+                    stats: {
+                      likes: Number(stats.likes || 0),
+                      boosts: Number(stats.boosts || 0),
+                      bads: Number(stats.bads || 0),
+                    }
+                  }
+                }
+              } catch {
+                // Individual stats fetch failed
+              }
+              return null
+            })
+            const statsResults = await Promise.all(statsPromises)
+            for (const result of statsResults) {
+              if (result) {
+                const post = displayPosts.find(p => p.id === result.postId)
+                if (post) {
+                  post.reactionStats = result.stats
+                }
+              }
+            }
+          }
+        } catch {
+          // Reaction pallet not available
+        }
+
+        setPosts(displayPosts)
       } catch (err) {
         console.error('Failed to fetch posts:', err)
       } finally {
@@ -233,6 +283,13 @@ export function Timeline({ client, unsafeApi, refreshTrigger }: Props) {
           parentId={post.parentId}
           inlineContent={post.content || undefined}
           contentRef={post.contentRef}
+          client={client}
+          unsafeApi={unsafeApi}
+          account={account}
+          signer={signer}
+          likes={post.reactionStats?.likes}
+          boosts={post.reactionStats?.boosts}
+          bads={post.reactionStats?.bads}
         />
       ))}
     </div>
