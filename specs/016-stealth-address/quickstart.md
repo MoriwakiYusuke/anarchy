@@ -7,7 +7,7 @@
 | Wasm Engine (stealth module) | ✅ Complete | Key generation, address derivation, scanning, backup |
 | Frontend Components | ✅ Complete | StealthPage, StealthSendForm, StealthBalanceList, etc. |
 | Frontend Scanner | ✅ Complete | StealthScanner with batch processing, retry logic |
-| Blockchain Pallet | ⏳ Future | pallet-stealth not yet implemented |
+| Blockchain Pallet | ✅ Complete | pallet-stealth with send_to_stealth extrinsic |
 
 ## Prerequisites
 
@@ -33,9 +33,7 @@ grep "stealth" pkg/anarchy_wasm_engine.d.ts
 
 ---
 
-## 2. Build Blockchain (Current - No Stealth Pallet)
-
-> **Note**: The stealth pallet is not yet implemented. Current frontend uses the existing balances pallet.
+## 2. Build Blockchain
 
 ```bash
 cd apps/blockchain
@@ -45,6 +43,13 @@ cargo build --release
 
 # Start dev node
 ./target/release/anarchy-node --dev
+```
+
+The stealth pallet is included in the runtime. Verify with:
+
+```bash
+# Check pallet is loaded (after node starts)
+curl -s localhost:9944 | grep -i stealth
 ```
 
 ---
@@ -222,8 +227,14 @@ apps/frontend/src/
 └── app/stealth/
     └── page.tsx         # Main stealth page (tabs: generate, send, balance)
 
-apps/blockchain/pallets/stealth/  # NOT YET IMPLEMENTED
-└── (future work)
+apps/blockchain/pallets/stealth/
+├── src/
+│   ├── lib.rs           # Pallet core (send_to_stealth extrinsic)
+│   ├── types.rs         # EphemeralKeyEntry type
+│   ├── weights.rs       # WeightInfo implementation
+│   ├── mock.rs          # Test mock runtime
+│   └── tests.rs         # Unit tests
+└── Cargo.toml
 ```
 
 ---
@@ -270,13 +281,19 @@ Error: WebSocket connection failed
 pnpm dev:node
 ```
 
-### 3. Stealth pallet not found
+### 3. API not found errors
 
 ```
-Error: Cannot find pallet 'stealthPallet'
+Error: Cannot find pallet method
 ```
 
-**Note**: The stealth pallet is not yet implemented. Current implementation uses frontend-only stealth address derivation and scanning. On-chain stealth transactions require future pallet implementation.
+**Solution**: Ensure you're using PAPI (not @polkadot/api) and calling the correct method:
+
+```typescript
+import { createClient } from 'polkadot-api';
+const api = client.getUnsafeApi();
+await api.tx.stealthPallet.sendToStealth(stealthAddr, ephemeralPubkey, amount);
+```
 
 ---
 
@@ -308,7 +325,8 @@ const stealthAddress = stealthResult.stealth_address();
 const ephemeralPubkey = stealthResult.ephemeral_pubkey();
 
 // 4. Bob sends tokens to stealthAddress and publishes ephemeralPubkey
-// (This step requires pallet-stealth - currently simulated)
+import { sendToStealth } from '../../lib/stealth/api';
+await sendToStealth(stealthAddress, ephemeralPubkey, amount);
 
 // 5. Alice scans for payments
 import { scan_transaction } from 'anarchy-wasm-engine';

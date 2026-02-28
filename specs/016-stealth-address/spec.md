@@ -2,7 +2,7 @@
 
 **Feature Branch**: `016-stealth-address`  
 **Created**: 2026-02-27  
-**Status**: Draft  
+**Status**: Implemented  
 **Input**: ステルスアドレス統合機能：クライアント側暗号実装（X25519鍵交換、ワンタイムアドレス導出、スキャン鍵/閲覧鍵ペア生成、Wasm実装 + Web Worker）、Stealth Pallet作成（ステルスアドレス宛トランザクション、エフェメラル公開鍵格納）、クライアント側スキャナー（バックグラウンドスキャン処理、自分宛トランザクション検出、復号・残高更新）
 
 ## 概要

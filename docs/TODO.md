@@ -446,22 +446,37 @@
 
 ## Phase 3: 自律エコシステム
 
-### 3.1 ステルスアドレス統合
+### 3.1 ステルスアドレス統合 ✅
 
-- [ ] **クライアント側暗号実装** (`apps/frontend/`)
-  - [ ] X25519鍵交換
-  - [ ] ワンタイムアドレス導出
-  - [ ] スキャン鍵/閲覧鍵ペア生成
-  - [ ] Wasm実装 + Web Worker
+- [x] **クライアント側暗号実装** (`packages/wasm-engine/src/stealth/`)
+  - [x] X25519鍵交換 (`keys.rs`)
+  - [x] ワンタイムアドレス導出 (`address.rs`)
+  - [x] スキャン鍵/閲覧鍵ペア生成 (`keys.rs`)
+  - [x] Wasm実装 + Web Worker (`worker.ts`)
+  - [x] + バックアップ暗号化/復号 (`backup.rs`)
 
-- [ ] **Stealth Pallet** 作成
-  - [ ] ステルスアドレス宛トランザクション
-  - [ ] エフェメラル公開鍵の格納
+- [x] **Stealth Pallet** 作成 (`apps/blockchain/pallets/stealth/`)
+  - [x] ステルスアドレス宛トランザクション (`send_to_stealth`)
+  - [x] エフェメラル公開鍵の格納 (`EphemeralKeys` StorageMap)
 
-- [ ] クライアント側スキャナー
-  - [ ] バックグラウンドスキャン処理
-  - [ ] 自分宛トランザクション検出
-  - [ ] 復号・残高更新
+- [x] クライアント側スキャナー (`apps/frontend/src/lib/stealth/`)
+  - [x] バックグラウンドスキャン処理 (`scanner.ts`)
+  - [x] 自分宛トランザクション検出 (`scan_transaction`)
+  - [x] 復号・残高更新 (`balanceStore.ts`)
+  - [x] + コインセレクション (`coinSelection.ts`)
+  - [x] + ステルス署名 (`signer.ts`)
+
+- [x] **フロントエンドUI** (`apps/frontend/src/components/stealth/`)
+  - [x] + メタアドレス生成 (`StealthAddressGenerator.tsx`)
+  - [x] + 送金フォーム (`StealthSendForm.tsx`)
+  - [x] + 残高一覧 (`StealthBalanceList.tsx`)
+  - [x] + 使用フォーム (`StealthSpendForm.tsx`)
+  - [x] + バックアップインポート (`BackupImportDialog.tsx`)
+  - [x] + i18n対応 (ja/en/zh)
+
+- ~~スキャナー設定管理 (P3優先度のためMVPスコープ外)~~
+  - ~~スキャン頻度オプション~~
+  - ~~バッテリー節約モード~~
 
 ### 3.2 反応マイニング
 
@@ -503,45 +518,7 @@
   - [ ] 復号・表示UI
   - [ ] 送信フロー
 
-### + 3.4 経済設計（トークノミクス）
-
-> **詳細**: [CONCEPTS.md](CONCEPTS.md#経済設計トークノミクス) を参照
-
-- [ ] **バリデーター報酬設計**
-  - [ ] 案A: ブロック報酬mint（シンプル、インフレ）
-  - [ ] 案D: Ethereum EIP-1559方式（Base Fee burn + Priority Fee → バリデーター）
-  - [ ] インフレ率とデフレ圧力のバランス検証
-
-- [ ] **手数料モデル**
-  - [ ] TX手数料: 0維持 or Base Fee導入
-  - [ ] 投稿コスト: burn維持（デフレ圧力）
-  - [ ] Faucet: unsigned tx維持
-
-- [ ] **ステーキング設計**（NPoS検討時）
-  - [ ] pallet_staking 導入の是非
-  - [ ] 最小ステーク額の設定
-  - [ ] スラッシング条件の定義
-
-### + 3.5 コンセンサス方式の検討（PoA → PoW/NPoS）
-
-> **詳細**: [CONCEPTS.md](CONCEPTS.md#コンセンサス方式の検討poa--pow) を参照
-
-- [ ] **PoW移行検討**
-  - [ ] アルゴリズム選定: sha3pow / RandomX / Ethash
-  - [ ] ASIC耐性の要否判断
-  - [ ] 難易度調整アルゴリズム実装
-  - [ ] ファイナリティ方式変更（GRANDPA → 確率的）
-
-- [ ] **NPoS（Hybrid）検討**
-  - [ ] pallet_staking / pallet_election_provider 導入
-  - [ ] $moralステークによるバリデーター候補参加
-  - [ ] Polkadot/Kusamaモデルの適用検討
-
-- [ ] **移行計画**
-  - [ ] テストネット後期でPoW/NPoSテスト
-  - [ ] メインネットでの最終選択（ハードフォーク）
-
-### + 3.6 投稿人気度システム
+### + 3.4 投稿人気度システム
 
 > **詳細**: [CONCEPTS.md](CONCEPTS.md#投稿人気度システム) を参照
 
@@ -592,22 +569,15 @@
 
 ### 4.4 Mainnet設計・経済パラメータ
 
+> 詳細設計は 4.5〜4.7 を参照。ここでは最終パラメータ決定のみ。
+
 - [ ] **経済合理性に基づく定数制定**
   - [ ] PostBaseCost / PostByteCost の最適値検証
   - [ ] Faucet報酬額・難易度の調整
   - [ ] ストレージ報酬レート設計
   - [ ] インフレ/デフレ率シミュレーション
   - [ ] 適切なガス代の設定
-
-- [ ] **トークノミクス最終設計**
   - [ ] 初期供給量・分配比率
-  - [ ] バリデーター報酬設計
-  - [ ] ストレージノード報酬設計
-  - [ ] 反応マイニング報酬曲線
-
-- [ ] **ガバナンスパラメータ**
-  - [ ] 投票期間・クォーラム閾値
-  - [ ] パラメータ変更プロセス
 
 ### + 4.5 オンチェーンガバナンス
 
@@ -629,11 +599,52 @@
   - [ ] Conviction voting（ロック期間に応じた投票力増加）
   - [ ] Track別投票システム（技術提案 vs コミュニティ提案）
   - [ ] 緊急時対応（セキュリティパッチ等）の特別ルート
+  - [ ] 投票期間・クォーラム閾値の設定
+  - [ ] パラメータ変更プロセス
 
 - [ ] **セキュリティ考慮**
   - [ ] 経済的攻撃（$moral買い占め）対策
   - [ ] 最小投票期間の設定
   - [ ] 提案スパム防止（デポジット要求）
+
+### + 4.6 経済設計（トークノミクス）
+
+> **詳細**: [CONCEPTS.md](CONCEPTS.md#経済設計トークノミクス) を参照
+
+- [ ] **バリデーター報酬設計**
+  - [ ] 案A: ブロック報酬mint（シンプル、インフレ）
+  - [ ] 案D: Ethereum EIP-1559方式（Base Fee burn + Priority Fee → バリデーター）
+  - [ ] インフレ率とデフレ圧力のバランス検証
+
+- [ ] **ストレージ・反応報酬設計**
+  - [ ] ストレージノード報酬設計
+  - [ ] 反応マイニング報酬曲線
+
+- [ ] **手数料モデル**
+  - [ ] TX手数料: 0維持 or Base Fee導入
+  - [ ] 投稿コスト: burn維持（デフレ圧力）
+  - [ ] Faucet: unsigned tx維持
+
+### + 4.7 コンセンサス方式の検討（PoA → PoW/NPoS）
+
+> **詳細**: [CONCEPTS.md](CONCEPTS.md#コンセンサス方式の検討poa--pow) を参照
+
+- [ ] **PoW移行検討**
+  - [ ] アルゴリズム選定: sha3pow / RandomX / Ethash
+  - [ ] ASIC耐性の要否判断
+  - [ ] 難易度調整アルゴリズム実装
+  - [ ] ファイナリティ方式変更（GRANDPA → 確率的）
+
+- [ ] **NPoS（Hybrid）検討**
+  - [ ] pallet_staking / pallet_election_provider 導入
+  - [ ] $moralステークによるバリデーター候補参加
+  - [ ] Polkadot/Kusamaモデルの適用検討
+  - [ ] 最小ステーク額の設定
+  - [ ] スラッシング条件の定義
+
+- [ ] **移行計画**
+  - [ ] テストネット後期でPoW/NPoSテスト
+  - [ ] メインネットでの最終選択（ハードフォーク）
 
 ---
 
@@ -641,12 +652,12 @@
 
 > **別ドキュメントに移動**: [CONCEPTS.md](CONCEPTS.md) を参照
 >
-> - ~~経済設計（トークノミクス）~~ → Phase 3.4へ移動
-> - ~~コンセンサス方式の検討（PoA → PoW）~~ → Phase 3.5へ移動
+> - ~~経済設計（トークノミクス）~~ → Phase 4.6へ移動
+> - ~~コンセンサス方式の検討（PoA → PoW）~~ → Phase 4.7へ移動
 > - ブラウザ拡張ウォレット連携
 > - ~~オンチェーンガバナンス~~ → Phase 4.5へ移動
 > - 残高保護機能（Keep Alive強制）
-> - ~~投稿人気度システム~~ → Phase 3.6へ移動
+> - ~~投稿人気度システム~~ → Phase 3.4へ移動
 > - ZKP匿名人間証明（Circom/Noir回路、Groth16/PLONK検証）
 
 ---
@@ -663,6 +674,7 @@
 | **4** | + **010-multi-node-storage** | マルチノード対応 & セキュリティ強化 | [spec.md](../specs/010-multi-node-storage/spec.md) | ✅完了 (2026-02-14) |
 | **5** | + **011-kzg-proof-rewards** | KZG証明 & 報酬システム | [spec.md](../specs/011-kzg-proof-rewards/spec.md) | ✅完了 (2026-02-16) |
 | **6** | + **013-slashing-repair** | Slashing & 自己修復プロトコル | [spec.md](../specs/013-slashing-repair/spec.md) | ✅完了 (2026-02-24) |
+| **7** | + **016-stealth-address** | ステルスアドレス統合 | [spec.md](../specs/016-stealth-address/spec.md) | ✅完了 (2026-02-28) |
 
 ### Phase 1 スコープ（まず繋がるだけ） → ✅完了 (2026-02-10)
 
@@ -705,7 +717,7 @@ Phase 2.1 (SSS/Wasm) ✅ ──── Phase 2.2 (Storage) ✅ ─┬─ + Phase 
                                                      │
                                                      └─ + 013-slashing-repair ✅ (2026-02-24)
 
-Phase 3.1 (Stealth) ─── Phase 3.2 (Reaction) ─── Phase 3.3 (DM)
+Phase 3.1 (Stealth) ✅ (2026-02-28) ─── Phase 3.2 (Reaction) ─── Phase 3.3 (DM)
 
 Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 ```
@@ -731,7 +743,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 | + **マルチノード対応** | 高 | 高 | **11** | ✅完了 (2026-02-14) |
 | + **KZG Proof & Rewards** | 高 | 高 | **12** | ✅完了 (2026-02-16) |
 | + **Slashing & Self-Repair** | 高 | 高 | **13** | ✅完了 (2026-02-24) |
-| ステルスアドレス | 中 | 中 | 14 | 未着手 |
+| + **ステルスアドレス** | 中 | 中 | **14** | ✅完了 (2026-02-28) |
 | 反応マイニング | 低 | 中 | 15 | 未着手 |
 | ~~ZKP回路~~ | ~~低~~ | ~~高~~ | ~~16~~ | →構想移動 |
 
@@ -770,9 +782,9 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 - [x] 匿名通信 (`--tor-mode=forced`, Onion Service)
 - [x] 統合テスト18件パス (`tests/integration/tor_connectivity_test.sh`)
 
-### M5: プライバシー機能（4週間）
+### M5: プライバシー機能 ✅完了 (2026-02-28)
 - ~~SSS断片化~~ → ✅完了 (2026-02-10)
-- ステルスアドレス
+- ステルスアドレス → ✅完了 (2026-02-28)
 
 ### M6: 分散ストレージ ✅完了 (2026-02-10)
 
