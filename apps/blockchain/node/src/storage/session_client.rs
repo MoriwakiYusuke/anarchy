@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use parking_lot::RwLock;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sp_core::{ed25519, Pair};
 use log::{info, warn, debug};
@@ -39,6 +40,7 @@ pub struct SessionRequest {
 pub struct SessionRequestParams {
     pub public_key: String,
     pub timestamp: u64,
+    pub nonce: String,
     pub signature: String,
 }
 
@@ -186,6 +188,12 @@ impl StorageSessionClient {
         hex::encode(signature.0)
     }
 
+    /// Generate a random nonce (16 bytes = 32 hex chars)
+    fn generate_nonce() -> String {
+        let nonce: [u8; 16] = rand::rngs::OsRng.gen();
+        hex::encode(nonce)
+    }
+
     /// Request a new session from a storage node
     pub async fn request_session(&self, endpoint: &str) -> Result<SessionInfo, SessionClientError> {
         let timestamp = SystemTime::now()
@@ -193,8 +201,11 @@ impl StorageSessionClient {
             .unwrap_or_default()
             .as_secs();
 
-        // Create signed request
-        let message = format!("anarchy-session-request:{}", timestamp);
+        // Generate random nonce for replay attack prevention
+        let nonce = Self::generate_nonce();
+
+        // Create signed request: "anarchy-session-request:{timestamp}:{nonce}"
+        let message = format!("anarchy-session-request:{}:{}", timestamp, nonce);
         let signature = self.sign_message(&message);
 
         let request = SessionRequest {
@@ -202,6 +213,7 @@ impl StorageSessionClient {
             params: SessionRequestParams {
                 public_key: self.public_key_hex(),
                 timestamp,
+                nonce,
                 signature,
             },
             id: self.next_request_id(),

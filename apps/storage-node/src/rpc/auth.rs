@@ -34,7 +34,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use schnorrkel::{PublicKey, Signature, signing_context};
 
-use crate::session::SessionRegistry;
+use crate::session::{SessionRegistry, NonceCache as SessionNonceCache};
 
 /// Maximum request body size for auth hashing (2GB to accommodate base64-encoded 1GB fragments)
 const MAX_AUTH_BODY_SIZE: usize = 2 * 1024 * 1024 * 1024;
@@ -348,6 +348,8 @@ pub fn parse_auth_header(headers: &HeaderMap) -> Result<SignedRequest, AuthError
 pub struct AuthState {
     /// Nonce cache for replay prevention (legacy auth)
     pub nonce_cache: Arc<NonceCache>,
+    /// Nonce cache for session request replay prevention
+    pub session_nonce_cache: SessionNonceCache,
     /// Session registry for token-based auth
     pub session_registry: SessionRegistry,
     /// Whether authentication is enabled
@@ -359,6 +361,7 @@ impl AuthState {
     pub fn new(enabled: bool) -> Self {
         Self {
             nonce_cache: Arc::new(NonceCache::default()),
+            session_nonce_cache: SessionNonceCache::new(),
             session_registry: SessionRegistry::new(),
             enabled,
         }
@@ -368,6 +371,7 @@ impl AuthState {
     pub fn with_session_registry(enabled: bool, session_registry: SessionRegistry) -> Self {
         Self {
             nonce_cache: Arc::new(NonceCache::default()),
+            session_nonce_cache: SessionNonceCache::new(),
             session_registry,
             enabled,
         }

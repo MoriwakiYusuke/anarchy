@@ -162,14 +162,20 @@ async fn handle_session_request(
     State(state): State<RpcState>,
     Json(request): Json<SessionRequest>,
 ) -> impl IntoResponse {
-    // Verify signature and get peer_id from the public key
-    let peer_id = match request.verify_signature() {
-        Ok(peer_id) => peer_id,
+    // Verify signature and get peer_id + nonce from the public key
+    let (peer_id, nonce) = match request.verify_signature() {
+        Ok((peer_id, nonce)) => (peer_id, nonce),
         Err(err) => {
             warn!(error = %err, "Session request signature verification failed");
             return Json(SessionResponse::error(request.id, err));
         }
     };
+
+    // Check nonce for replay attack prevention
+    if state.auth.session_nonce_cache.check_and_mark(&nonce) {
+        warn!(nonce = %nonce, "Session request nonce already used (replay attack detected)");
+        return Json(SessionResponse::error(request.id, SessionError::NonceReused));
+    }
 
     // Get session registry from auth state
     let registry = &state.auth.session_registry;

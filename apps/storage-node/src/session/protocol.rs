@@ -44,6 +44,8 @@ pub enum SessionRequestParams {
         public_key: String,
         /// Unix timestamp (seconds)
         timestamp: u64,
+        /// Unique nonce (hex, 32 characters) to prevent replay attacks
+        nonce: String,
         /// Ed25519 signature (hex, 128 characters)
         signature: String,
     },
@@ -132,18 +134,25 @@ impl SessionResponse {
 }
 
 impl SessionRequest {
-    /// Verify the session request signature and extract peer_id
+    /// Verify the session request signature and extract peer_id and nonce
     ///
-    /// Returns the PeerId derived from the public key if verification succeeds.
-    pub fn verify_signature(&self) -> Result<PeerId, SessionError> {
-        let (public_key_hex, timestamp, signature_hex) = match &self.params {
+    /// Returns the (PeerId, nonce) derived from the public key if verification succeeds.
+    /// The caller MUST check the nonce against a cache to prevent replay attacks.
+    pub fn verify_signature(&self) -> Result<(PeerId, String), SessionError> {
+        let (public_key_hex, timestamp, nonce_hex, signature_hex) = match &self.params {
             SessionRequestParams::Request {
                 public_key,
                 timestamp,
+                nonce,
                 signature,
-            } => (public_key, *timestamp, signature),
+            } => (public_key, *timestamp, nonce, signature),
             _ => return Err(SessionError::InvalidSignature),
         };
+
+        // Validate nonce format (16 bytes = 32 hex chars)
+        if nonce_hex.len() != 32 || !nonce_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(SessionError::InvalidNonce);
+        }
 
         // Validate timestamp (±30 seconds)
         let now = SystemTime::now()
@@ -175,8 +184,8 @@ impl SessionRequest {
 
         let signature = Signature::from_bytes(&signature_bytes);
 
-        // Construct the signed message: "anarchy-session-request:{timestamp}"
-        let message = format!("anarchy-session-request:{}", timestamp);
+        // Construct the signed message: "anarchy-session-request:{timestamp}:{nonce}"
+        let message = format!("anarchy-session-request:{}:{}", timestamp, nonce_hex);
 
         // Verify signature
         verifying_key
@@ -190,7 +199,7 @@ impl SessionRequest {
             &libp2p::identity::PublicKey::from(ed25519_pubkey)
         );
 
-        Ok(peer_id)
+        Ok((peer_id, nonce_hex.clone()))
     }
 
     /// Get the token from a renewal or revocation request

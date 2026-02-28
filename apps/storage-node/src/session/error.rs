@@ -30,6 +30,14 @@ pub enum SessionError {
     #[error("Invalid public key format")]
     InvalidPublicKey,
 
+    /// Invalid nonce format
+    #[error("Invalid nonce format")]
+    InvalidNonce,
+
+    /// Nonce already used (replay attack detected)
+    #[error("Nonce already used")]
+    NonceReused,
+
     /// Session renewal not allowed (more than 1 hour until expiry)
     #[error("Session renewal not allowed yet")]
     RenewalNotAllowed,
@@ -49,6 +57,8 @@ impl SessionError {
             SessionError::InvalidSignature => StatusCode::FORBIDDEN,
             SessionError::InvalidTimestamp => StatusCode::FORBIDDEN,
             SessionError::InvalidPublicKey => StatusCode::BAD_REQUEST,
+            SessionError::InvalidNonce => StatusCode::BAD_REQUEST,
+            SessionError::NonceReused => StatusCode::FORBIDDEN,
             SessionError::RenewalNotAllowed => StatusCode::FORBIDDEN,
             SessionError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -63,6 +73,8 @@ impl SessionError {
             SessionError::InvalidPublicKey => -32004,
             SessionError::InvalidToken => -32005,
             SessionError::RenewalNotAllowed => -32006,
+            SessionError::InvalidNonce => -32007,
+            SessionError::NonceReused => -32008,
             SessionError::MissingToken => -32000,
             SessionError::Internal => -32099,
         }

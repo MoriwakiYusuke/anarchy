@@ -29,6 +29,7 @@ mod registry;
 mod peers;
 mod protocol;
 mod error;
+mod nonce;
 
 pub use token::{SessionToken, SessionInfo};
 pub use registry::SessionRegistry;
@@ -38,6 +39,7 @@ pub use protocol::{
     SESSION_PROTOCOL,
 };
 pub use error::SessionError;
+pub use nonce::NonceCache;
 
 #[cfg(test)]
 mod tests;

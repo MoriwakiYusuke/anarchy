@@ -433,7 +433,10 @@ async fn main() -> anyhow::Result<()> {
                             "storage_requestSession" => {
                                 // Verify Ed25519 signature and check PeerId matches
                                 match request.verify_signature() {
-                                    Ok(derived_peer_id) => {
+                                    Ok((derived_peer_id, _nonce)) => {
+                                        // Note: nonce replay check for P2P sessions is handled by
+                                        // the session registry (one session per peer)
+                                        
                                         // Verify the derived peer_id matches the actual peer
                                         if derived_peer_id != peer {
                                             warn!(
