@@ -319,7 +319,7 @@ impl pallet_reaction::PostAuthorProvider<AccountId> for PostAuthorProviderImpl {
     }
 }
 
-/// 1 MORAL = 1_000_000_000_000 (12 decimals)
+// 1 MORAL = 1_000_000_000_000 (12 decimals)
 parameter_types! {
     pub const ReactionReward: Balance = 1_000_000_000_000;
 }

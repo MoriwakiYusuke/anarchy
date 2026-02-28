@@ -240,7 +240,7 @@ pub mod pallet {
             let current_posts = UserPosts::<T>::get(&who);
             ensure!(!current_posts.is_full(), Error::<T>::TooManyPosts);
 
-            // コスト計算: 50% base + 30% size + 20% deposit
+            // コスト計算: base_cost + size_cost
             let base_cost: u128 = T::PostBaseCost::get()
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
@@ -248,8 +248,7 @@ pub mod pallet {
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
             let size_cost = (total_size as u128).saturating_mul(byte_cost);
-            let deposit = base_cost.saturating_add(size_cost) / 5;
-            let total_cost = base_cost.saturating_add(size_cost).saturating_add(deposit);
+            let total_cost = base_cost.saturating_add(size_cost);
             let cost: BalanceOf<T> = total_cost
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;

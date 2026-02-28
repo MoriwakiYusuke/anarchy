@@ -514,12 +514,11 @@ fn test_cost_calculation_ratio() {
 
         // コスト計算: 
         // PostBaseCost = 100, PostByteCost = 10, size = 10000
-        // base_cost (50%) = 100
-        // size_cost (30%) = 10000 * 10 = 100000
-        // deposit (20%) = (100 + 100000) / 5 = 20020
-        // total = 100 + 100000 + 20020 = 120120
+        // base_cost = 100
+        // size_cost = 10000 * 10 = 100000
+        // total = 100 + 100000 = 100100
         let new_balance = Balances::free_balance(author);
-        let expected_cost: u128 = 100 + 10_000 * 10 + (100 + 100_000) / 5;
+        let expected_cost: u128 = 100 + 10_000 * 10;
         assert_eq!(new_balance, initial_balance - expected_cost);
     });
 }
