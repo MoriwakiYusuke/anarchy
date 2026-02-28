@@ -2,7 +2,6 @@
 
 use crate::{mock::*, *};
 use frame_support::{assert_noop, assert_ok};
-use sp_runtime::TokenError;
 
 /// T037: send_to_stealth works correctly
 #[test]
@@ -108,7 +107,7 @@ fn send_to_stealth_fails_with_insufficient_balance() {
                 ephemeral_pubkey,
                 amount,
             ),
-            TokenError::FundsUnavailable
+            Error::<Test>::InsufficientBalance
         );
     });
 }

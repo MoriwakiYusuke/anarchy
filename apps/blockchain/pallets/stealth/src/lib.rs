@@ -111,7 +111,13 @@ pub mod pallet {
                 &stealth_address,
                 amount,
                 ExistenceRequirement::KeepAlive,
-            )?;
+            )
+            .map_err(|e| match e {
+                sp_runtime::DispatchError::Token(sp_runtime::TokenError::FundsUnavailable) => {
+                    Error::<T>::InsufficientBalance.into()
+                }
+                _ => e,
+            })?;
 
             // エフェメラル公開鍵を記録
             let current_block = <frame_system::Pallet<T>>::block_number();

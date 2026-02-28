@@ -125,7 +125,10 @@ export default function StealthBalanceList({
               tabIndex={0}
               onClick={() => onSelect?.(balance)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                if (e.key === 'Enter') {
+                  onSelect?.(balance);
+                } else if (e.key === ' ' || e.key === 'Spacebar') {
+                  e.preventDefault();
                   onSelect?.(balance);
                 }
               }}

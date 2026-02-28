@@ -15,7 +15,6 @@ import styles from './StealthSendForm.module.css';
 
 // MORAL token has 12 decimals
 const MORAL_DECIMALS = 12;
-const MORAL_MULTIPLIER = BigInt(10 ** MORAL_DECIMALS);
 
 export interface ValidationResult {
   valid: boolean;
