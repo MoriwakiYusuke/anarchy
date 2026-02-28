@@ -56,11 +56,11 @@ export interface ReactionResult {
 
 /**
  * Get the current challenge for reaction PoW mining
- * Challenge = blake2b(post_id ++ user_address ++ block_number)
+ * Challenge = blake2b(block_hash ++ account_bytes)
  * 
  * @param client - PAPI client for RPC calls
  * @param unsafeApi - PAPI unsafe API for pallet queries
- * @param postId - Target post ID
+ * @param postId - Target post ID (kept for API compatibility, not used in challenge)
  * @param userAddress - User's account address
  * @returns Challenge bytes and block number
  */
@@ -186,7 +186,7 @@ export async function submitReaction(
       console.error('[submitReaction] Transaction dispatch failed:', result)
       // Check if it's AlreadyReacted error
       const errorStr = JSON.stringify(result.dispatchError || result)
-      if (errorStr.includes('AlreadyReacted') || errorStr.includes('Module')) {
+      if (errorStr.includes('AlreadyReacted')) {
         return { success: false, error: 'AlreadyReacted: You have already reacted to this post' }
       }
       return { success: false, error: 'Transaction failed: ' + errorStr }

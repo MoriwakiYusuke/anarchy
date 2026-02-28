@@ -154,6 +154,11 @@ export function useReactionMining({
   const cancel = useCallback(() => {
     pendingRequestIdRef.current = null
     miningParamsRef.current = null
+    // Terminate worker to stop mining immediately
+    if (workerRef.current) {
+      workerRef.current.terminate()
+      workerRef.current = null
+    }
     setStatus('idle')
     setProgress(null)
     setError(null)

@@ -336,15 +336,14 @@ pub mod pallet {
                     // Try to withdraw from pool first
                     let pool_balance = ReactionRewardPool::<T>::get();
                     if pool_balance >= reward_u128 {
-                        // Deduct from pool
-                        ReactionRewardPool::<T>::put(pool_balance.saturating_sub(reward_u128));
-                        
-                        // Mint reward to author
+                        // Mint reward to author first
                         if T::NativeToken::mint_into(&author, reward).is_ok() {
                             reward_paid = reward;
+                            // Deduct from pool only after successful mint
+                            ReactionRewardPool::<T>::put(pool_balance.saturating_sub(reward_u128));
                         }
                     }
-                    // If pool is empty, no reward is paid (reward_paid stays 0)
+                    // If pool is empty or mint fails, no reward is paid (reward_paid stays 0)
                 }
             }
 
@@ -448,6 +447,14 @@ pub mod pallet {
             let window = T::AdjustmentWindow::get();
             if _n % window == 0u32.into() {
                 Self::adjust_difficulty();
+            }
+            
+            // Prune old reaction history entries to prevent unbounded state growth
+            // Keep only the last AdjustmentWindow * 2 blocks of history
+            let prune_window = window.saturating_mul(2u32.into());
+            if _n > prune_window {
+                let prune_block = _n.saturating_sub(prune_window);
+                ReactionHistory::<T>::remove(prune_block);
             }
         }
     }

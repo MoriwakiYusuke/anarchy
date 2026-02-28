@@ -138,27 +138,6 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
           // ContentRefs storage not available (V2)
         }
 
-        // リアクション統計を取得
-        const reactionStatsMap = new Map<number, ReactionStats>()
-        try {
-          if (unsafeApi.query.Reaction?.ReactionStatsStorage) {
-            const statsEntries = await unsafeApi.query.Reaction.ReactionStatsStorage.getEntries()
-            for (const entry of statsEntries) {
-              const postId = Number(entry.keyArgs[0])
-              const stats = entry.value
-              if (stats) {
-                reactionStatsMap.set(postId, {
-                  likes: Number(stats.likes || 0),
-                  boosts: Number(stats.boosts || 0),
-                  bads: Number(stats.bads || 0),
-                })
-              }
-            }
-          }
-        } catch {
-          // Reaction pallet not available
-        }
-
         // 著者のニックネームを取得
         const nicknameMap = new Map<string, string>()
         try {
@@ -215,14 +194,53 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
             parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
             contentRef,
             nickname: nicknameMap.get(author),
-            reactionStats: reactionStatsMap.get(postId),
+            // reactionStatsは後でスライス後に取得する
+            reactionStats: undefined,
           }
         })
 
         // 最新順（作成ブロック番号の降順）でソート
         fetchedPosts.sort((a, b) => b.createdAt - a.createdAt)
 
-        setPosts(fetchedPosts.slice(0, 50))
+        // 表示する投稿を50件に制限
+        const displayPosts = fetchedPosts.slice(0, 50)
+
+        // リアクション統計を取得（表示する投稿のみ）
+        try {
+          if (unsafeApi.query.Reaction?.ReactionStatsStorage?.getValue) {
+            const statsPromises = displayPosts.map(async (post) => {
+              try {
+                const stats = await unsafeApi.query.Reaction.ReactionStatsStorage.getValue(post.id)
+                if (stats) {
+                  return {
+                    postId: post.id,
+                    stats: {
+                      likes: Number(stats.likes || 0),
+                      boosts: Number(stats.boosts || 0),
+                      bads: Number(stats.bads || 0),
+                    }
+                  }
+                }
+              } catch {
+                // Individual stats fetch failed
+              }
+              return null
+            })
+            const statsResults = await Promise.all(statsPromises)
+            for (const result of statsResults) {
+              if (result) {
+                const post = displayPosts.find(p => p.id === result.postId)
+                if (post) {
+                  post.reactionStats = result.stats
+                }
+              }
+            }
+          }
+        } catch {
+          // Reaction pallet not available
+        }
+
+        setPosts(displayPosts)
       } catch (err) {
         console.error('Failed to fetch posts:', err)
       } finally {

@@ -8,12 +8,12 @@ This pallet enables users to react to posts (Like/Boost/Bad) with client-side Po
 
 ## Features
 
-- **Reaction Types**: Like (weight 1x), Boost (weight 5x), Bad (weight 0x)
+- **Reaction Types**: Like (weight 1x), Boost (weight 5x), Bad (weight 0x, no reward)
 - **PoW Verification**: Client mines nonce, pallet verifies leading-zero-bits
 - **Dynamic Difficulty**: Adjusts based on network reaction rate
-- **Reward Distribution**: Authors receive rewards from pool based on reaction weight × CPU power
+- **Reward Distribution**: Authors receive fixed 1 MORAL per reaction (capped by pool balance)
 - **Foreground Enforcement**: Client-side Page Visibility API ensures mining only in active tabs
-- **Stealth Recipients**: Optional stealth address for reward destination
+- **Stealth Recipients**: Planned feature (not yet implemented, awaiting pallet-stealth)
 
 ## Configuration
 

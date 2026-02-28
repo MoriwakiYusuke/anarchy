@@ -166,12 +166,12 @@ Storage nodes receive MORAL rewards for provable fragment holding. Key concepts:
 
 Users react to posts (Like/Boost/Bad) with PoW proof, authors receive MORAL rewards:
 
-- **PoW Mining**: Client-side Blake2b mining in Web Worker (`apps/frontend/src/workers/crypto.ts`)
+- **PoW Mining**: Client-side Blake2b mining in Web Worker (`apps/frontend/src/workers/miningWorker.ts`)
 - **Difficulty Adjustment**: Dynamic based on network reaction rate (adjusted every `AdjustmentWindow` blocks)
-- **Reward Formula**: `reward = weight × cpu_power / 1_000_000` (capped by pool balance)
+- **Reward**: Fixed 1 MORAL per successful reaction (capped by pool balance)
 - **Foreground Enforcement**: Page Visibility API pauses mining when tab loses focus
 - **Challenge Expiry**: PoW challenge valid for `ChallengeValidity` blocks (default: 100)
-- **Stealth Recipients**: Optional stealth address for reward destination
+- **Stealth Recipients**: Optional stealth address for reward destination (pallet-stealth pending)
 
 ### Spec-Driven Development
 

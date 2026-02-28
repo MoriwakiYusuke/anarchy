@@ -58,7 +58,7 @@ pub fn verify_proof(challenge: &[u8; 32], nonce: u64, difficulty: u8) -> bool {
 /// * `hash` - 32-byte hash
 ///
 /// # Returns
-/// Number of leading zero bits (0-256)
+/// Number of leading zero bits (0-255, saturating at 255)
 pub fn count_leading_zero_bits(hash: &[u8; 32]) -> u8 {
     let mut count = 0u8;
     for byte in hash.iter() {

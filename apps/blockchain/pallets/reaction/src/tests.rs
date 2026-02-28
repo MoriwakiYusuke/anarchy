@@ -267,7 +267,11 @@ fn test_react_rejects_invalid_pow() {
         let reactor = 1u64;
         let post_id = 100u64;
         let block_number = 1u64;
-        let invalid_nonce = 12345u64; // Very unlikely to be valid
+        
+        // Use difficulty 64 bits (impossible to pass with any nonce)
+        // This ensures the test is deterministic
+        pallet_reaction::CurrentDifficulty::<Test>::put(64u8);
+        let invalid_nonce = 0u64; // Any nonce will fail with difficulty 64
         
         // Should fail with InvalidProof
         assert_noop!(
