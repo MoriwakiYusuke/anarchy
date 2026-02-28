@@ -166,7 +166,7 @@
 
 #### チェーン側 (pallet-reaction)
 
-- **ストレージ**: Reactions, ReactionStatsStorage, ReactionRewardPool, CurrentDifficulty
+- **ストレージ**: Reactions, ReactionStatsStorage, ReactionRewardPool, CurrentDifficulty, ReactionHistory
 - **エクストリンシック**: `react(post_id, reaction_type, block_number, nonce, cpu_power, stealth_recipient)`
 - **報酬フロー**: 
   - Like/Boost時、ReactionRewardPool残高を確認
@@ -174,6 +174,7 @@
   - 残高不足時は報酬なし（反応自体は記録）
 - **PostAuthorProvider**: pallet-postから投稿者を取得するtrait
 - **難易度**: 16ビット（faucetの18ビットより簡単）
+- **動的難易度調整**: on_finalizeフックでAdjustmentWindowブロックごとに自動調整
 - **テスト**: 18テスト全てpass
 
 #### フロントエンド側
@@ -191,6 +192,5 @@
 ### 未実装
 
 - Page Visibility APIによるフォアグラウンド強制（バックグラウンドでマイニング停止）
-- ステルスアドレス報酬先指定
+- ステルスアドレス報酬先指定（pallet-stealth未実装のため保留）
 - 投稿手数料から報酬プールへの自動補充
-- 動的難易度調整（ロジックはあるが未有効化）

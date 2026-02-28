@@ -153,23 +153,25 @@
 
 ---
 
-## Phase 6: User Story 4 - ステルスアドレス報酬先 (Priority: P3)
+## Phase 6: User Story 4 - ステルスアドレス報酬先 (Priority: P3) [SKIPPED]
 
 **Goal**: Users can specify stealth address as reward recipient
+
+**Status**: Skipped - pallet-stealthが未実装のため、将来の拡張として保留
 
 **Independent Test**: Generate stealth address, react with stealth as recipient, verify reward reaches stealth address
 
 ### Tests for User Story 4
 
-- [X] T060 [P] [US4] Unit test: react() with stealth_recipient sends reward to stealth in apps/blockchain/pallets/reaction/src/tests.rs
-- [X] T061 [P] [US4] Unit test: react() without recipient sends reward to post author in apps/blockchain/pallets/reaction/src/tests.rs
+- [ ] T060 [P] [US4] Unit test: react() with stealth_recipient sends reward to stealth in apps/blockchain/pallets/reaction/src/tests.rs [SKIPPED]
+- [ ] T061 [P] [US4] Unit test: react() without recipient sends reward to post author in apps/blockchain/pallets/reaction/src/tests.rs [SKIPPED]
 
 ### Implementation for User Story 4
 
-- [X] T062 [US4] Add optional stealth_recipient parameter to react() extrinsic in apps/blockchain/pallets/reaction/src/lib.rs
-- [X] T063 [US4] Update reward payout to use stealth_recipient if provided in apps/blockchain/pallets/reaction/src/lib.rs
-- [X] T064 [US4] Add stealth address UI option to ReactionButton in apps/frontend/src/components/ReactionButton.tsx
-- [X] T065 [US4] Integrate stealth address generation (if pallet-stealth exists) in apps/frontend/src/services/reactionService.ts
+- [ ] T062 [US4] Add optional stealth_recipient parameter to react() extrinsic in apps/blockchain/pallets/reaction/src/lib.rs [SKIPPED]
+- [ ] T063 [US4] Update reward payout to use stealth_recipient if provided in apps/blockchain/pallets/reaction/src/lib.rs [SKIPPED]
+- [ ] T064 [US4] Add stealth address UI option to ReactionButton in apps/frontend/src/components/ReactionButton.tsx [SKIPPED]
+- [ ] T065 [US4] Integrate stealth address generation (if pallet-stealth exists) in apps/frontend/src/services/reactionService.ts [SKIPPED]
 
 **Checkpoint**: Rewards can be directed to stealth addresses
 
