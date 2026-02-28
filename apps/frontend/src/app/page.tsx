@@ -130,14 +130,18 @@ export default function Home() {
 
         <section className={styles.content}>
           {account && signer && (
-            <PostForm 
-              unsafeApi={unsafeApi} 
-              signer={signer}
-              derivePath={accountSeed || '//Alice'}
-              onPostSuccess={handlePostSuccess}
-            />
+            <div className={styles.postFormWrapper}>
+              <PostForm 
+                unsafeApi={unsafeApi} 
+                signer={signer}
+                derivePath={accountSeed || '//Alice'}
+                onPostSuccess={handlePostSuccess}
+              />
+            </div>
           )}
-          <Timeline client={client} unsafeApi={unsafeApi} account={account} signer={signer} refreshTrigger={refreshTrigger} />
+          <div className={styles.timelineWrapper}>
+            <Timeline client={client} unsafeApi={unsafeApi} account={account} signer={signer} refreshTrigger={refreshTrigger} />
+          </div>
         </section>
       </div>
 
