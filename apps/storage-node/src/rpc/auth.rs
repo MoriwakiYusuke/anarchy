@@ -376,9 +376,8 @@ pub async fn auth_middleware(
     }
 
     // --- X-Chain-Auth validation (lightweight chain-node signature) ---
-    // If present, validate; if invalid, reject immediately.
-    // If absent, allow through (backward compatible).
-    if headers.get(CHAIN_AUTH_HEADER).is_some() {
+    // Required for all requests. Rejects if absent or invalid.
+    if let Some(_header) = headers.get(CHAIN_AUTH_HEADER) {
         match parse_chain_auth_header(&headers) {
             Ok(chain_auth) => {
                 if let Err(e) = validate_chain_auth(&chain_auth) {
@@ -397,6 +396,8 @@ pub async fn auth_middleware(
                 return (e.status_code(), e.message()).into_response();
             }
         }
+    } else {
+        return (StatusCode::UNAUTHORIZED, "X-Chain-Auth header required").into_response();
     }
 
     // --- X-Anarchy-Auth validation (user signature) ---
