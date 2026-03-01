@@ -16,6 +16,7 @@ pub mod reputation;
 pub mod storage_node_cache;
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Duration;
 use libp2p::{
     gossipsub::{self, IdentTopic, MessageAuthenticity},
@@ -26,10 +27,12 @@ use libp2p::{
     tcp, Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 use futures::prelude::*;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn, debug};
 use anyhow::{Context, Result};
 
+use crate::session::{ConnectedPeers, SessionProtocolCodec, SessionRequest, SessionResponse, SESSION_PROTOCOL};
 use crate::storage::{FragmentId, FragmentStore};
 use endpoint_cache::BlockchainEndpoint;
 use storage_node_cache::StorageNodeEndpoint;
@@ -169,6 +172,8 @@ impl Codec for FragmentCodec {
 #[behaviour(to_swarm = "StorageNodeEvent")]
 pub struct StorageNodeBehaviour {
     pub fragment_protocol: request_response::Behaviour<FragmentCodec>,
+    /// Session authentication protocol (018-storage-node-auth)
+    pub session_protocol: request_response::Behaviour<SessionProtocolCodec>,
     pub identify: libp2p::identify::Behaviour,
     pub gossipsub: gossipsub::Behaviour,
 }
@@ -177,6 +182,8 @@ pub struct StorageNodeBehaviour {
 #[derive(Debug)]
 pub enum StorageNodeEvent {
     Fragment(request_response::Event<FragmentRequest, FragmentResponse>),
+    /// Session request events (018-storage-node-auth)
+    Session(request_response::Event<SessionRequest, SessionResponse>),
     Identify(Box<libp2p::identify::Event>),
     Gossipsub(gossipsub::Event),
 }
@@ -184,6 +191,12 @@ pub enum StorageNodeEvent {
 impl From<request_response::Event<FragmentRequest, FragmentResponse>> for StorageNodeEvent {
     fn from(e: request_response::Event<FragmentRequest, FragmentResponse>) -> Self {
         StorageNodeEvent::Fragment(e)
+    }
+}
+
+impl From<request_response::Event<SessionRequest, SessionResponse>> for StorageNodeEvent {
+    fn from(e: request_response::Event<SessionRequest, SessionResponse>) -> Self {
+        StorageNodeEvent::Session(e)
     }
 }
 
@@ -202,7 +215,10 @@ impl From<gossipsub::Event> for StorageNodeEvent {
 /// P2P Network manager
 pub struct Network {
     swarm: Swarm<StorageNodeBehaviour>,
+    /// Legacy peer tracking (kept for backward compatibility)
     connected_peers: HashSet<PeerId>,
+    /// Shared connected peers for session authentication (018-storage-node-auth T010)
+    shared_connected_peers: Arc<RwLock<ConnectedPeers>>,
     keypair: Keypair,
     endpoint_topic: IdentTopic,
     /// Storage node endpoint sharing topic (FR-520)
@@ -233,6 +249,13 @@ impl Network {
                         .with_request_timeout(Duration::from_secs(30)),
                 );
 
+                // Session authentication protocol (018-storage-node-auth)
+                let session_protocol = request_response::Behaviour::new(
+                    vec![(SESSION_PROTOCOL, ProtocolSupport::Full)],
+                    request_response::Config::default()
+                        .with_request_timeout(Duration::from_secs(10)),
+                );
+
                 let identify = libp2p::identify::Behaviour::new(
                     libp2p::identify::Config::new(
                         "/anarchy/storage/1.0.0".to_string(),
@@ -249,6 +272,7 @@ impl Network {
 
                 StorageNodeBehaviour {
                     fragment_protocol,
+                    session_protocol,
                     identify,
                     gossipsub,
                 }
@@ -261,6 +285,7 @@ impl Network {
         Ok(Self {
             swarm,
             connected_peers: HashSet::new(),
+            shared_connected_peers: Arc::new(RwLock::new(ConnectedPeers::new())),
             keypair,
             endpoint_topic,
             storage_node_topic,
@@ -341,10 +366,31 @@ impl Network {
         self.connected_peers.len()
     }
 
+    /// Get shared connected peers for session authentication (018-storage-node-auth T010)
+    /// 
+    /// Returns a cloned Arc that can be shared with the RPC/session layer.
+    /// The ConnectedPeers instance is automatically updated when peers connect/disconnect.
+    pub fn shared_connected_peers(&self) -> Arc<RwLock<ConnectedPeers>> {
+        Arc::clone(&self.shared_connected_peers)
+    }
+
     /// Request a fragment from a peer
     pub fn request_fragment(&mut self, peer: PeerId, fragment_id: FragmentId) {
         let request = FragmentRequest::Get { fragment_id };
         self.swarm.behaviour_mut().fragment_protocol.send_request(&peer, request);
+    }
+
+    /// Send a session response (018-storage-node-auth)
+    /// 
+    /// Called by the main event loop after processing a SessionRequest event.
+    pub fn send_session_response(
+        &mut self,
+        channel: request_response::ResponseChannel<SessionResponse>,
+        response: SessionResponse,
+    ) {
+        if let Err(e) = self.swarm.behaviour_mut().session_protocol.send_response(channel, response) {
+            warn!(error = ?e, "Failed to send session response");
+        }
     }
 
     /// Process incoming events (call in event loop)
@@ -359,11 +405,15 @@ impl Network {
             }
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 self.connected_peers.insert(peer_id);
+                // Update shared peers for session auth (018-storage-node-auth T010)
+                self.shared_connected_peers.write().add(peer_id);
                 info!(peer = %peer_id, "Peer connected");
                 Ok(Some(NetworkEvent::PeerConnected(peer_id)))
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 self.connected_peers.remove(&peer_id);
+                // Update shared peers for session auth (018-storage-node-auth T010)
+                self.shared_connected_peers.write().remove(&peer_id);
                 info!(peer = %peer_id, "Peer disconnected");
                 Ok(Some(NetworkEvent::PeerDisconnected(peer_id)))
             }
@@ -467,6 +517,31 @@ impl Network {
                 // Other gossipsub events (unsubscribed, etc.)
                 Ok(None)
             }
+            // Handle session protocol requests (018-storage-node-auth)
+            SwarmEvent::Behaviour(StorageNodeEvent::Session(
+                request_response::Event::Message { peer, message }
+            )) => {
+                match message {
+                    request_response::Message::Request { request, channel, .. } => {
+                        debug!(peer = %peer, "Received session request");
+                        // Return event for main.rs to handle with SessionRegistry
+                        return Ok(Some(NetworkEvent::SessionRequest {
+                            peer,
+                            request,
+                            channel,
+                        }));
+                    }
+                    request_response::Message::Response { .. } => {
+                        // We don't expect responses here (we're the server)
+                        debug!(peer = %peer, "Received unexpected session response");
+                    }
+                }
+                Ok(None)
+            }
+            SwarmEvent::Behaviour(StorageNodeEvent::Session(_)) => {
+                // Other session protocol events (outbound failures, etc.)
+                Ok(None)
+            }
             _ => Ok(None),
         }
     }
@@ -522,6 +597,13 @@ pub enum NetworkEvent {
     StorageNodeUpdate {
         from: PeerId,
         nodes: Vec<StorageNodeEndpoint>,
+    },
+    /// Session request received via P2P (018-storage-node-auth)
+    SessionRequest {
+        peer: PeerId,
+        request: SessionRequest,
+        /// Response channel - must be used to send response
+        channel: request_response::ResponseChannel<SessionResponse>,
     },
 }
 

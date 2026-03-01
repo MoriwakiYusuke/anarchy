@@ -39,8 +39,8 @@ export interface MediaItem {
 export interface MediaDisplayProps {
   /** Array of media items to display */
   media: MediaItem[]
-  /** Storage node URL for fetching media */
-  storageNodeUrl?: string
+  /** RPC endpoint URL for fetching media */
+  rpcEndpoint?: string
   /** Custom class name */
   className?: string
   /** Alt text prefix */
@@ -48,10 +48,10 @@ export interface MediaDisplayProps {
 }
 
 /**
- * Get media URL from storage node
+ * Get media URL from RPC endpoint
  */
-function getMediaUrl(merkleRoot: string, storageNodeUrl: string): string {
-  return `${storageNodeUrl}/media/${merkleRoot}`
+function getMediaUrl(merkleRoot: string, rpcEndpoint: string): string {
+  return `${rpcEndpoint}/media/${merkleRoot}`
 }
 
 /**
@@ -71,9 +71,12 @@ function getGridClass(count: number): string {
   }
 }
 
+/** RPC endpoint (blockchain node - all storage operations go through blockchain node) */
+const RPC_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944'
+
 export default function MediaDisplay({
   media,
-  storageNodeUrl = process.env.NEXT_PUBLIC_STORAGE_NODE_URL || 'http://localhost:3030',
+  rpcEndpoint = RPC_ENDPOINT,
   className,
   altPrefix = 'Post media',
 }: MediaDisplayProps): React.ReactElement | null {
@@ -138,7 +141,7 @@ export default function MediaDisplay({
     <>
       <div className={containerClasses}>
         {allMedia.map((item, index) => {
-          const url = getMediaUrl(item.merkleRoot, storageNodeUrl)
+          const url = getMediaUrl(item.merkleRoot, rpcEndpoint)
           const hasError = loadError[item.merkleRoot]
 
           // Render video
@@ -190,7 +193,7 @@ export default function MediaDisplay({
       {lightboxIndex !== null && (
         <Lightbox
           images={images.map(m => ({
-            src: getMediaUrl(m.merkleRoot, storageNodeUrl),
+            src: getMediaUrl(m.merkleRoot, rpcEndpoint),
             width: m.width,
             height: m.height,
           }))}

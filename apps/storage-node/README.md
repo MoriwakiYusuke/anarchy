@@ -133,6 +133,84 @@ Response:
 - **FR-108**: Rate limiting on `declare_holding` (max 10/min default)
 - **Hash Verification**: All stored fragments verified against their ID
 
+## Session Authentication (018-storage-node-auth)
+
+### Overview
+
+Write and delete operations require session-based authentication. This prevents
+frontends from directly accessing storage nodes, ensuring all mutations go through
+blockchain nodes.
+
+### Architecture
+
+```
+┌──────────────────────┐          ┌─────────────────────┐
+│  Blockchain Node     │          │  Storage Node       │
+└──────────┬───────────┘          └─────────┬───────────┘
+           │                                  │
+           │ ① POST /session (signed)         │
+           │   { public_key, timestamp, sig } │
+           │─────────────────────────────────>│
+           │                                  │ Verify Ed25519 signature
+           │ ② { token, expires_at }          │ Create session
+           │<─────────────────────────────────│
+           │                                  │
+           │ ③ HTTP RPC + X-Session-Token     │
+           │─────────────────────────────────>│
+           │                                  │ Token validation (fast)
+```
+
+### Configuration
+
+```toml
+[session]
+# Token TTL (24 hours default)
+token_ttl_secs = 86400
+
+# Idle timeout (1 hour default)
+idle_timeout_secs = 3600
+
+# Cleanup interval (5 minutes default)
+cleanup_interval_secs = 300
+```
+
+### HTTP Endpoints
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `POST /session` | Signature | Request session token |
+| `POST /` (JSON-RPC) | Token | Fragment write operations |
+| `GET /fragments/:id` | None | Read fragments (public) |
+| `GET /health` | None | Health check |
+| `GET /metrics` | None | Prometheus metrics |
+
+### Usage
+
+```bash
+# Request session (from blockchain node)
+# Note: The requesting peer must be connected via libp2p (P2P connection required)
+curl -X POST http://localhost:3030/session \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "storage_requestSession",
+    "params": {
+      "public_key": "<ed25519_pubkey_hex_64chars>",
+      "timestamp": 1234567890,
+      "nonce": "<random_hex_32chars>",
+      "signature": "<ed25519_signature_hex_128chars>"
+    },
+    "id": 1
+  }'
+
+# Signature payload format: "anarchy-session-request:{timestamp}:{nonce}"
+
+# Use session token for fragment upload
+curl -X POST http://localhost:3030/ \
+  -H "X-Session-Token: <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"method": "storage_storeFragment", ...}'
+```
+
 ## Multi-Node Storage (010-multi-node-storage)
 
 ### Overview

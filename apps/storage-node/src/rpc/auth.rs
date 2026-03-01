@@ -1,8 +1,17 @@
 //! HTTP request authentication middleware
 //!
-//! Implements signature-based authentication for write operations (FR-201-207).
+//! Implements two authentication methods:
+//! 1. Session-based auth (X-Session-Token) - for blockchain nodes via P2P
+//! 2. Signature-based auth (X-Anarchy-Auth) - legacy fallback
 //!
-//! ## Authentication Flow
+//! ## Session Authentication Flow (preferred)
+//!
+//! 1. Blockchain node requests session via P2P `storage_requestSession`
+//! 2. Storage node validates Ed25519 signature and issues token
+//! 3. Blockchain node uses token in X-Session-Token header for HTTP requests
+//! 4. Storage node validates token (fast lookup, no signature verification)
+//!
+//! ## Legacy Authentication Flow
 //!
 //! 1. Client creates SignedRequest with timestamp, nonce, payload hash
 //! 2. Client signs with Sr25519 key (via WebAuthn/Secure Enclave)
@@ -25,6 +34,9 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use schnorrkel::{PublicKey, Signature, signing_context};
 
+use crate::session::{SessionRegistry, NonceCache as SessionNonceCache, ConnectedPeers};
+use std::sync::Arc as StdArc;
+
 /// Maximum request body size for auth hashing (2GB to accommodate base64-encoded 1GB fragments)
 const MAX_AUTH_BODY_SIZE: usize = 2 * 1024 * 1024 * 1024;
 
@@ -34,7 +46,10 @@ pub const SIGNATURE_VALIDITY_SECS: u64 = 300;
 /// Nonce cache TTL (same as signature validity)
 pub const NONCE_TTL_SECS: u64 = SIGNATURE_VALIDITY_SECS;
 
-/// HTTP header name for authentication
+/// HTTP header name for session token authentication (preferred)
+pub const SESSION_TOKEN_HEADER: &str = "X-Session-Token";
+
+/// HTTP header name for legacy signature authentication
 pub const AUTH_HEADER: &str = "X-Anarchy-Auth";
 
 /// Sr25519 signing context - must match @polkadot/keyring default
@@ -332,8 +347,14 @@ pub fn parse_auth_header(headers: &HeaderMap) -> Result<SignedRequest, AuthError
 /// Shared state for authentication middleware
 #[derive(Clone)]
 pub struct AuthState {
-    /// Nonce cache for replay prevention
+    /// Nonce cache for replay prevention (legacy auth)
     pub nonce_cache: Arc<NonceCache>,
+    /// Nonce cache for session request replay prevention
+    pub session_nonce_cache: SessionNonceCache,
+    /// Session registry for token-based auth
+    pub session_registry: SessionRegistry,
+    /// Connected peers from libp2p network (for session auth)
+    pub connected_peers: StdArc<parking_lot::RwLock<ConnectedPeers>>,
     /// Whether authentication is enabled
     pub enabled: bool,
 }
@@ -343,13 +364,43 @@ impl AuthState {
     pub fn new(enabled: bool) -> Self {
         Self {
             nonce_cache: Arc::new(NonceCache::default()),
+            session_nonce_cache: SessionNonceCache::new(),
+            session_registry: SessionRegistry::new(),
+            connected_peers: StdArc::new(parking_lot::RwLock::new(ConnectedPeers::new())),
+            enabled,
+        }
+    }
+
+    /// Create new auth state with custom session registry
+    pub fn with_session_registry(enabled: bool, session_registry: SessionRegistry) -> Self {
+        Self {
+            nonce_cache: Arc::new(NonceCache::default()),
+            session_nonce_cache: SessionNonceCache::new(),
+            session_registry,
+            connected_peers: StdArc::new(parking_lot::RwLock::new(ConnectedPeers::new())),
+            enabled,
+        }
+    }
+
+    /// Create new auth state with connected peers reference
+    pub fn with_connected_peers(
+        enabled: bool,
+        session_registry: SessionRegistry,
+        connected_peers: StdArc<parking_lot::RwLock<ConnectedPeers>>,
+    ) -> Self {
+        Self {
+            nonce_cache: Arc::new(NonceCache::default()),
+            session_nonce_cache: SessionNonceCache::new(),
+            session_registry,
+            connected_peers,
             enabled,
         }
     }
     
-    /// Run periodic garbage collection on nonce cache
+    /// Run periodic garbage collection on nonce cache and sessions
     pub fn gc(&self) {
         self.nonce_cache.gc();
+        self.session_registry.cleanup_expired();
     }
 }
 
@@ -417,19 +468,61 @@ pub async fn auth_middleware(
     next.run(request).await
 }
 
-/// Require authentication for the request
+/// Require authentication for the request (session token or legacy auth)
+/// 
+/// Checks in order:
+/// 1. X-Session-Token header (session-based auth) - preferred
+/// 2. X-Anarchy-Auth header (legacy signature auth) - fallback
+///
 /// Call this in handlers that need auth
-pub fn require_auth(headers: &HeaderMap, auth_enabled: bool) -> Result<(), (StatusCode, &'static str)> {
-    if !auth_enabled {
+pub fn require_auth(
+    headers: &HeaderMap,
+    auth_state: &AuthState,
+) -> Result<(), (StatusCode, &'static str)> {
+    if !auth_state.enabled {
         return Ok(());
     }
     
-    if headers.get(AUTH_HEADER).is_none() {
-        return Err((StatusCode::UNAUTHORIZED, "Authentication required"));
+    // Check session token first (preferred)
+    if let Some(token_header) = headers.get(SESSION_TOKEN_HEADER) {
+        let token = token_header
+            .to_str()
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid session token format"))?;
+        
+        if auth_state.session_registry.validate(token).is_some() {
+            return Ok(());
+        }
+        
+        return Err((StatusCode::FORBIDDEN, "Invalid or expired session token"));
     }
     
-    // If we got here, auth header was already validated by middleware
-    Ok(())
+    // Fall back to legacy auth header
+    if headers.get(AUTH_HEADER).is_some() {
+        // If we got here, auth header was already validated by middleware
+        return Ok(());
+    }
+    
+    Err((StatusCode::UNAUTHORIZED, "Authentication required"))
+}
+
+/// Require session token authentication (no legacy fallback)
+/// 
+/// Use this when ONLY session tokens should be accepted.
+pub fn require_session_auth(
+    headers: &HeaderMap,
+    session_registry: &SessionRegistry,
+) -> Result<libp2p::PeerId, (StatusCode, &'static str)> {
+    let token_header = headers
+        .get(SESSION_TOKEN_HEADER)
+        .ok_or((StatusCode::UNAUTHORIZED, "X-Session-Token header required"))?;
+    
+    let token = token_header
+        .to_str()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid session token format"))?;
+    
+    session_registry
+        .validate(token)
+        .ok_or((StatusCode::FORBIDDEN, "Invalid or expired session token"))
 }
 
 /// Check if a method requires authentication

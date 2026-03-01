@@ -77,6 +77,26 @@ bootstrap_peers = []
 auth_enabled = true
 
 # ============================================================
+# Session Authentication (018-storage-node-auth)
+# ============================================================
+[session]
+
+# Session token TTL in seconds
+# How long a session token remains valid after creation
+# Default: 86400 (24 hours)
+token_ttl_secs = 86400
+
+# Session idle timeout in seconds
+# Session expires if no activity for this duration
+# Default: 3600 (1 hour)
+idle_timeout_secs = 3600
+
+# Session cleanup interval in seconds
+# How often to check and remove expired sessions
+# Default: 300 (5 minutes)
+cleanup_interval_secs = 300
+
+# ============================================================
 # Signer Configuration (Extrinsic Signing)
 # ============================================================
 

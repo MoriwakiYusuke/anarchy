@@ -58,7 +58,7 @@ import { useMediaUpload } from '@/hooks/useMediaUpload'
 
 describe('MediaUpload Component', () => {
   const defaultProps = {
-    storageNodeUrl: 'http://localhost:3030',
+    rpcEndpoint: 'http://localhost:9944',
     onUploadComplete: jest.fn(),
   }
 

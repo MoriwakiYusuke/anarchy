@@ -5,7 +5,14 @@
 import { useCallback, useState } from 'react'
 import { getSharedWorkerPool } from '@/workers/WorkerPool'
 
-const RPC_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944'
+// Multiple RPC endpoints for failover (add more nodes as they become available)
+// フェイルオーバー用の複数RPCエンドポイント（ノード追加時はここに追加）
+const RPC_ENDPOINTS: string[] = [
+  process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944',
+  // TODO: Add more full nodes for redundancy
+  // 'http://node2.anarchy.network:9944',
+  // 'http://node3.anarchy.network:9944',
+]
 const MAX_RETRIES = 3
 const RETRY_DELAY_MS = 1000
 
@@ -31,25 +38,38 @@ export interface UseFragmentsResult {
 }
 
 /**
- * RPC呼び出しユーティリティ
+ * RPC呼び出しユーティリティ（フェイルオーバー対応）
+ * Tries each endpoint in order until one succeeds
  */
 async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
-  const response = await fetch(RPC_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method,
-      params,
-    }),
-  })
+  let lastError: Error | null = null
+  
+  for (const endpoint of RPC_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method,
+          params,
+        }),
+      })
 
-  const json = await response.json()
-  if (json.error) {
-    throw new Error(json.error.message || 'RPC error')
+      const json = await response.json()
+      if (json.error) {
+        throw new Error(json.error.message || 'RPC error')
+      }
+      return json.result
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      // Try next endpoint
+      continue
+    }
   }
-  return json.result
+  
+  throw lastError || new Error('All RPC endpoints unreachable')
 }
 
 async function rpcCallWithRetry<T>(

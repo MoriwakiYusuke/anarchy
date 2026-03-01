@@ -425,6 +425,105 @@ pub struct ProofRecord<BlockNumber> {
 
 ---
 
+## 7. セッション認証システム
+
+ストレージノードへの書き込み・削除アクセスは、ブロックチェーンノードからのセッション認証を必要とする。フロントエンドからの直接アクセスを防ぎ、信頼されたノードのみが操作を行える。
+
+### 7.1 認証フロー
+
+```
+┌──────────────────┐                  ┌──────────────────┐
+│  Blockchain Node │                  │   Storage Node   │
+│  (Ed25519鍵保持)  │                  │  (認証サーバー)   │
+└────────┬─────────┘                  └────────┬─────────┘
+         │                                      │
+         │  ① libp2p P2P接続を確立               │
+         │ ─────────────────────────────────────►
+         │                            connected_peersに追加
+         │                                      │
+         │  ② POST /session または libp2p       │
+         │  SessionRequest {                    │
+         │    method: "storage_requestSession", │
+         │    params: {                         │
+         │      public_key, timestamp,          │
+         │      nonce, signature                │
+         │    }                                 │
+         │  }                                   │
+         │ ─────────────────────────────────────►
+         │                                      │
+         │                            ③ 検証：
+         │                               - peer_id ∈ connected_peers
+         │                               - Ed25519.verify(message, sig)
+         │                               - message = "anarchy-session-request:{ts}:{nonce}"
+         │                               - timestamp ±30秒
+         │                               - nonce未使用（リプレイ防止）
+         │                                      │
+         │  ④ SessionResponse {                 │
+         │    token: "abc123...",               │
+         │    expires_at                        │
+         │  }                                   │
+         │ ◄─────────────────────────────────────
+         │                                      │
+         │  ⑤ POST / (JSON-RPC)                 │
+         │  Header: X-Session-Token: abc123...  │
+         │ ─────────────────────────────────────►
+         │                                      │
+         │                            ⑥ トークン検証
+         │                               → アイドルタイムアウト更新
+         │                                      │
+         │  ⑦ 操作成功                           │
+         │ ◄─────────────────────────────────────
+         │                                      │
+```
+
+### 7.2 設定パラメータ
+
+| パラメータ | デフォルト値 | 説明 |
+|-----------|-------------|------|
+| `session.ttl` | 24時間 | セッション有効期限 |
+| `session.idle_timeout` | 1時間 | アイドルタイムアウト |
+| `session.cleanup_interval` | 5分 | 期限切れセッションの削除間隔 |
+| `session.timestamp_tolerance` | 30秒 | タイムスタンプ許容範囲 |
+
+### 7.3 セキュリティ要件
+
+| 要件 | 実装 |
+|------|------|
+| P2P接続必須 | `POST /session` は `connected_peers` に含まれる peer_id のみ許可 |
+| リプレイ防止 | nonce をキャッシュし、使用済み nonce は拒否 |
+| タイムスタンプ検証 | 署名時刻が現在時刻 ±30秒 以内 |
+| 署名形式 | `"anarchy-session-request:{timestamp}:{nonce}"` |
+
+### 7.4 HTTPエンドポイント
+
+| メソッド | パス | 認証 | 説明 |
+|---------|------|------|------|
+| `GET` | `/health` | 不要 | ヘルスチェック |
+| `GET` | `/storage/list` | 不要 | 断片一覧（読み取り） |
+| `GET` | `/storage/get` | 不要 | 断片取得（読み取り） |
+| `POST` | `/session` | 署名 + P2P接続 | セッション作成/更新/削除 |
+| `POST` | `/storage/store` | トークン | 断片保存（書き込み） |
+| `DELETE` | `/storage/delete` | トークン | 断片削除 |
+
+### 7.5 実装ファイル
+
+```
+apps/storage-node/src/session/
+├── mod.rs        # モジュール宣言
+├── token.rs      # SessionToken生成・SessionInfo構造体
+├── registry.rs   # SessionRegistry（トークン管理）
+├── peers.rs      # ConnectedPeers（アクティブ接続管理）
+├── protocol.rs   # SessionRequest/Response型、署名検証
+├── error.rs      # SessionError列挙型
+└── tests.rs      # ユニットテスト
+
+apps/blockchain/node/src/storage/
+├── mod.rs              # モジュール宣言
+└── session_client.rs   # StorageSessionClient（自動更新付き）
+```
+
+---
+
 ## 8. ストレージノード間通信 (P2P)
 
 ### 8.1 通信アーキテクチャ
