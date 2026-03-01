@@ -1,17 +1,8 @@
 //! HTTP request authentication middleware
 //!
-//! Implements two authentication methods:
-//! 1. Session-based auth (X-Session-Token) - for blockchain nodes via P2P
-//! 2. Signature-based auth (X-Anarchy-Auth) - legacy fallback
+//! Implements signature-based authentication for write operations.
 //!
-//! ## Session Authentication Flow (preferred)
-//!
-//! 1. Blockchain node requests session via P2P `storage_requestSession`
-//! 2. Storage node validates Ed25519 signature and issues token
-//! 3. Blockchain node uses token in X-Session-Token header for HTTP requests
-//! 4. Storage node validates token (fast lookup, no signature verification)
-//!
-//! ## Legacy Authentication Flow
+//! ## Authentication Flow
 //!
 //! 1. Client creates SignedRequest with timestamp, nonce, payload hash
 //! 2. Client signs with Sr25519 key (via WebAuthn/Secure Enclave)
@@ -34,9 +25,6 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use schnorrkel::{PublicKey, Signature, signing_context};
 
-use crate::session::{SessionRegistry, NonceCache as SessionNonceCache, ConnectedPeers};
-use std::sync::Arc as StdArc;
-
 /// Maximum request body size for auth hashing (2GB to accommodate base64-encoded 1GB fragments)
 const MAX_AUTH_BODY_SIZE: usize = 2 * 1024 * 1024 * 1024;
 
@@ -46,11 +34,11 @@ pub const SIGNATURE_VALIDITY_SECS: u64 = 300;
 /// Nonce cache TTL (same as signature validity)
 pub const NONCE_TTL_SECS: u64 = SIGNATURE_VALIDITY_SECS;
 
-/// HTTP header name for session token authentication (preferred)
-pub const SESSION_TOKEN_HEADER: &str = "X-Session-Token";
-
-/// HTTP header name for legacy signature authentication
+/// HTTP header name for signature authentication
 pub const AUTH_HEADER: &str = "X-Anarchy-Auth";
+
+/// HTTP header name for chain node authentication
+pub const CHAIN_AUTH_HEADER: &str = "X-Chain-Auth";
 
 /// Sr25519 signing context - must match @polkadot/keyring default
 const SIGNING_CONTEXT: &[u8] = b"substrate";
@@ -74,15 +62,16 @@ pub struct SignedRequest {
     pub signature: String,
 }
 
+/// Strip optional "0x" or "0X" prefix from hex string
+fn strip_hex_prefix(s: &str) -> &str {
+    s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s)
+}
+
 impl SignedRequest {
-    /// Strip optional "0x" or "0X" prefix from hex string
-    fn strip_hex_prefix(s: &str) -> &str {
-        s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s)
-    }
 
     /// Parse account_id from hex string (with optional 0x prefix)
     pub fn get_account_id_bytes(&self) -> Result<[u8; 32], AuthError> {
-        hex::decode(Self::strip_hex_prefix(&self.account_id))
+        hex::decode(strip_hex_prefix(&self.account_id))
             .map_err(|_| AuthError::MalformedRequest)?
             .try_into()
             .map_err(|_| AuthError::MalformedRequest)
@@ -90,7 +79,7 @@ impl SignedRequest {
     
     /// Parse nonce from hex string (with optional 0x prefix)
     pub fn get_nonce_bytes(&self) -> Result<[u8; 16], AuthError> {
-        hex::decode(Self::strip_hex_prefix(&self.nonce))
+        hex::decode(strip_hex_prefix(&self.nonce))
             .map_err(|_| AuthError::MalformedRequest)?
             .try_into()
             .map_err(|_| AuthError::MalformedRequest)
@@ -98,7 +87,7 @@ impl SignedRequest {
     
     /// Parse signature from hex string (with optional 0x prefix)
     pub fn get_signature_bytes(&self) -> Result<[u8; 64], AuthError> {
-        hex::decode(Self::strip_hex_prefix(&self.signature))
+        hex::decode(strip_hex_prefix(&self.signature))
             .map_err(|_| AuthError::MalformedRequest)?
             .try_into()
             .map_err(|_| AuthError::MalformedRequest)
@@ -106,7 +95,7 @@ impl SignedRequest {
     
     /// Parse payload hash from hex string (with optional 0x prefix)
     pub fn get_payload_hash_bytes(&self) -> Result<[u8; 32], AuthError> {
-        hex::decode(Self::strip_hex_prefix(&self.payload_hash))
+        hex::decode(strip_hex_prefix(&self.payload_hash))
             .map_err(|_| AuthError::MalformedRequest)?
             .try_into()
             .map_err(|_| AuthError::MalformedRequest)
@@ -347,14 +336,8 @@ pub fn parse_auth_header(headers: &HeaderMap) -> Result<SignedRequest, AuthError
 /// Shared state for authentication middleware
 #[derive(Clone)]
 pub struct AuthState {
-    /// Nonce cache for replay prevention (legacy auth)
+    /// Nonce cache for replay prevention
     pub nonce_cache: Arc<NonceCache>,
-    /// Nonce cache for session request replay prevention
-    pub session_nonce_cache: SessionNonceCache,
-    /// Session registry for token-based auth
-    pub session_registry: SessionRegistry,
-    /// Connected peers from libp2p network (for session auth)
-    pub connected_peers: StdArc<parking_lot::RwLock<ConnectedPeers>>,
     /// Whether authentication is enabled
     pub enabled: bool,
 }
@@ -364,43 +347,13 @@ impl AuthState {
     pub fn new(enabled: bool) -> Self {
         Self {
             nonce_cache: Arc::new(NonceCache::default()),
-            session_nonce_cache: SessionNonceCache::new(),
-            session_registry: SessionRegistry::new(),
-            connected_peers: StdArc::new(parking_lot::RwLock::new(ConnectedPeers::new())),
-            enabled,
-        }
-    }
-
-    /// Create new auth state with custom session registry
-    pub fn with_session_registry(enabled: bool, session_registry: SessionRegistry) -> Self {
-        Self {
-            nonce_cache: Arc::new(NonceCache::default()),
-            session_nonce_cache: SessionNonceCache::new(),
-            session_registry,
-            connected_peers: StdArc::new(parking_lot::RwLock::new(ConnectedPeers::new())),
-            enabled,
-        }
-    }
-
-    /// Create new auth state with connected peers reference
-    pub fn with_connected_peers(
-        enabled: bool,
-        session_registry: SessionRegistry,
-        connected_peers: StdArc<parking_lot::RwLock<ConnectedPeers>>,
-    ) -> Self {
-        Self {
-            nonce_cache: Arc::new(NonceCache::default()),
-            session_nonce_cache: SessionNonceCache::new(),
-            session_registry,
-            connected_peers,
             enabled,
         }
     }
     
-    /// Run periodic garbage collection on nonce cache and sessions
+    /// Run periodic garbage collection on nonce cache
     pub fn gc(&self) {
         self.nonce_cache.gc();
-        self.session_registry.cleanup_expired();
     }
 }
 
@@ -421,7 +374,32 @@ pub async fn auth_middleware(
     if !auth_state.enabled {
         return next.run(request).await;
     }
-    
+
+    // --- X-Chain-Auth validation (lightweight chain-node signature) ---
+    // If present, validate; if invalid, reject immediately.
+    // If absent, allow through (backward compatible).
+    if headers.get(CHAIN_AUTH_HEADER).is_some() {
+        match parse_chain_auth_header(&headers) {
+            Ok(chain_auth) => {
+                if let Err(e) = validate_chain_auth(&chain_auth) {
+                    tracing::warn!(
+                        "X-Chain-Auth validation failed: {}",
+                        e.message()
+                    );
+                    return (e.status_code(), e.message()).into_response();
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "X-Chain-Auth parse error: {}",
+                    e.message()
+                );
+                return (e.status_code(), e.message()).into_response();
+            }
+        }
+    }
+
+    // --- X-Anarchy-Auth validation (user signature) ---
     // Try to parse auth header - if not present, let the request through
     // The handler will decide if auth is required for the specific method
     let auth_header = headers.get(AUTH_HEADER);
@@ -468,13 +446,10 @@ pub async fn auth_middleware(
     next.run(request).await
 }
 
-/// Require authentication for the request (session token or legacy auth)
-/// 
-/// Checks in order:
-/// 1. X-Session-Token header (session-based auth) - preferred
-/// 2. X-Anarchy-Auth header (legacy signature auth) - fallback
+/// Require authentication for the request
 ///
-/// Call this in handlers that need auth
+/// Validates X-Anarchy-Auth header if present (already validated by middleware).
+/// Call this in handlers that need auth.
 pub fn require_auth(
     headers: &HeaderMap,
     auth_state: &AuthState,
@@ -483,46 +458,12 @@ pub fn require_auth(
         return Ok(());
     }
     
-    // Check session token first (preferred)
-    if let Some(token_header) = headers.get(SESSION_TOKEN_HEADER) {
-        let token = token_header
-            .to_str()
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid session token format"))?;
-        
-        if auth_state.session_registry.validate(token).is_some() {
-            return Ok(());
-        }
-        
-        return Err((StatusCode::FORBIDDEN, "Invalid or expired session token"));
-    }
-    
-    // Fall back to legacy auth header
+    // Check if auth header was present (already validated by middleware)
     if headers.get(AUTH_HEADER).is_some() {
-        // If we got here, auth header was already validated by middleware
         return Ok(());
     }
     
     Err((StatusCode::UNAUTHORIZED, "Authentication required"))
-}
-
-/// Require session token authentication (no legacy fallback)
-/// 
-/// Use this when ONLY session tokens should be accepted.
-pub fn require_session_auth(
-    headers: &HeaderMap,
-    session_registry: &SessionRegistry,
-) -> Result<libp2p::PeerId, (StatusCode, &'static str)> {
-    let token_header = headers
-        .get(SESSION_TOKEN_HEADER)
-        .ok_or((StatusCode::UNAUTHORIZED, "X-Session-Token header required"))?;
-    
-    let token = token_header
-        .to_str()
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid session token format"))?;
-    
-    session_registry
-        .validate(token)
-        .ok_or((StatusCode::FORBIDDEN, "Invalid or expired session token"))
 }
 
 /// Check if a method requires authentication
@@ -530,6 +471,76 @@ pub fn method_requires_auth(method: &str) -> bool {
     // Only write operations require auth
     // Read operations (get_fragment) are public
     matches!(method, "storage_storeFragment" | "storage_deleteFragment" | "storage_storeKzgShard")
+}
+
+/// チェーンノード認証ヘッダー構造体
+///
+/// チェーンノードがエフェメラルSr25519鍵で署名し、`X-Chain-Auth` ヘッダーに付与する。
+/// ストレージノード側で署名の妥当性のみ検証する（なりすましは許容＝公開鍵の
+/// オンチェーン確認はしない）。ミスや無関係なリクエストを弾くための軽量認証。
+///
+/// 署名対象メッセージ: `"chain-auth:{timestamp}:{method}"`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChainAuthHeader {
+    /// チェーンノードSr25519公開鍵 (hex 32バイト)
+    pub public_key: String,
+    /// Unixタイムスタンプ（秒）
+    pub timestamp: u64,
+    /// RPCメソッド名
+    pub method: String,
+    /// Sr25519署名 (hex 64バイト)
+    pub signature: String,
+}
+
+/// X-Chain-Auth ヘッダーを解析する
+pub fn parse_chain_auth_header(headers: &HeaderMap) -> Result<ChainAuthHeader, AuthError> {
+    let header_value = headers
+        .get(CHAIN_AUTH_HEADER)
+        .ok_or(AuthError::MissingAuth)?
+        .to_str()
+        .map_err(|_| AuthError::MalformedRequest)?;
+
+    serde_json::from_str(header_value).map_err(|_| AuthError::MalformedRequest)
+}
+
+/// チェーンノード認証を検証する
+///
+/// 1. タイムスタンプが5分以内か確認
+/// 2. Sr25519署名を検証（`"chain-auth:{timestamp}:{method}"`）
+///
+/// 公開鍵のオンチェーン確認は行わない（なりすまし許容）。
+pub fn validate_chain_auth(auth: &ChainAuthHeader) -> Result<(), AuthError> {
+    // 1. タイムスタンプ確認
+    let now = current_timestamp();
+    if now.saturating_sub(auth.timestamp) > SIGNATURE_VALIDITY_SECS {
+        return Err(AuthError::ExpiredTimestamp);
+    }
+    // 未来のタイムスタンプも30秒以上先なら拒否
+    if auth.timestamp.saturating_sub(now) > 30 {
+        return Err(AuthError::ExpiredTimestamp);
+    }
+
+    // 2. 公開鍵パース
+    let pk_hex = strip_hex_prefix(&auth.public_key);
+    let pk_bytes: [u8; 32] = hex::decode(pk_hex)
+        .map_err(|_| AuthError::MalformedRequest)?
+        .try_into()
+        .map_err(|_| AuthError::MalformedRequest)?;
+
+    // 3. 署名パース
+    let sig_hex = strip_hex_prefix(&auth.signature);
+    let sig_bytes: [u8; 64] = hex::decode(sig_hex)
+        .map_err(|_| AuthError::MalformedRequest)?
+        .try_into()
+        .map_err(|_| AuthError::MalformedRequest)?;
+
+    // 4. 署名検証: "chain-auth:{timestamp}:{method}"
+    let message = format!("chain-auth:{}:{}", auth.timestamp, auth.method);
+    if !verify_sr25519_signature(&pk_bytes, message.as_bytes(), &sig_bytes) {
+        return Err(AuthError::InvalidSignature);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -726,6 +737,111 @@ mod tests {
         
         let state_disabled = AuthState::new(false);
         assert!(!state_disabled.enabled);
+    }
+
+    // --- X-Chain-Auth tests ---
+
+    /// schnorrkelキーペアでChainAuthHeaderを生成するヘルパー
+    fn create_test_chain_auth(keypair: &Keypair, method: &str, timestamp: u64) -> ChainAuthHeader {
+        let message = format!("chain-auth:{}:{}", timestamp, method);
+        let ctx = signing_context(SIGNING_CONTEXT);
+        let signature = keypair.sign(ctx.bytes(message.as_bytes()));
+        ChainAuthHeader {
+            public_key: hex::encode(keypair.public.to_bytes()),
+            timestamp,
+            method: method.to_string(),
+            signature: hex::encode(signature.to_bytes()),
+        }
+    }
+
+    #[test]
+    fn test_chain_auth_valid_signature_accepted() {
+        let keypair = Keypair::generate();
+        let now = current_timestamp();
+        let auth = create_test_chain_auth(&keypair, "storage_storeFragment", now);
+        assert!(validate_chain_auth(&auth).is_ok());
+    }
+
+    #[test]
+    fn test_chain_auth_invalid_signature_rejected() {
+        let keypair = Keypair::generate();
+        let now = current_timestamp();
+        let mut auth = create_test_chain_auth(&keypair, "storage_storeFragment", now);
+        // Corrupt signature
+        auth.signature = "ff".repeat(64);
+        assert_eq!(validate_chain_auth(&auth), Err(AuthError::InvalidSignature));
+    }
+
+    #[test]
+    fn test_chain_auth_expired_timestamp_rejected() {
+        let keypair = Keypair::generate();
+        let old = current_timestamp().saturating_sub(600); // 10 min ago
+        let auth = create_test_chain_auth(&keypair, "storage_storeFragment", old);
+        assert_eq!(validate_chain_auth(&auth), Err(AuthError::ExpiredTimestamp));
+    }
+
+    #[test]
+    fn test_chain_auth_future_timestamp_rejected() {
+        let keypair = Keypair::generate();
+        let future = current_timestamp() + 120; // 2 min in the future
+        let auth = create_test_chain_auth(&keypair, "storage_storeFragment", future);
+        assert_eq!(validate_chain_auth(&auth), Err(AuthError::ExpiredTimestamp));
+    }
+
+    #[test]
+    fn test_chain_auth_wrong_method_rejected() {
+        let keypair = Keypair::generate();
+        let now = current_timestamp();
+        let mut auth = create_test_chain_auth(&keypair, "storage_storeFragment", now);
+        // Tamper with method after signing
+        auth.method = "storage_deleteFragment".to_string();
+        assert_eq!(validate_chain_auth(&auth), Err(AuthError::InvalidSignature));
+    }
+
+    #[test]
+    fn test_chain_auth_different_keypairs_both_accepted() {
+        // Impersonation tolerated: any valid keypair should work
+        let keypair1 = Keypair::generate();
+        let keypair2 = Keypair::generate();
+        let now = current_timestamp();
+        let auth1 = create_test_chain_auth(&keypair1, "storage_storeFragment", now);
+        let auth2 = create_test_chain_auth(&keypair2, "storage_storeFragment", now);
+        assert!(validate_chain_auth(&auth1).is_ok());
+        assert!(validate_chain_auth(&auth2).is_ok());
+    }
+
+    #[test]
+    fn test_chain_auth_malformed_public_key() {
+        let auth = ChainAuthHeader {
+            public_key: "not-valid-hex".to_string(),
+            timestamp: current_timestamp(),
+            method: "storage_storeFragment".to_string(),
+            signature: "ff".repeat(64),
+        };
+        assert_eq!(validate_chain_auth(&auth), Err(AuthError::MalformedRequest));
+    }
+
+    #[test]
+    fn test_parse_chain_auth_header_missing() {
+        let headers = HeaderMap::new();
+        assert_eq!(parse_chain_auth_header(&headers), Err(AuthError::MissingAuth));
+    }
+
+    #[test]
+    fn test_parse_chain_auth_header_valid() {
+        let keypair = Keypair::generate();
+        let now = current_timestamp();
+        let auth = create_test_chain_auth(&keypair, "storage_storeFragment", now);
+        let json = serde_json::to_string(&auth).unwrap();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CHAIN_AUTH_HEADER, json.parse().unwrap());
+
+        let parsed = parse_chain_auth_header(&headers).unwrap();
+        assert_eq!(parsed.public_key, auth.public_key);
+        assert_eq!(parsed.timestamp, auth.timestamp);
+        assert_eq!(parsed.method, auth.method);
+        assert_eq!(parsed.signature, auth.signature);
     }
 }
 

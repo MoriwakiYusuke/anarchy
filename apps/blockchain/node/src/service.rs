@@ -252,15 +252,18 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         );
         info!("Storage node gossip service spawned");
 
-        // Session client for authenticated storage access (T038)
-        // Generate Ed25519 keypair for storage node sessions
-        // Each node has its own identity for storage access
-        let session_client = {
-            use sp_core::{ed25519, Pair};
-            // Generate keypair from random seed (or derive from node identity in production)
-            let (keypair, _) = ed25519::Pair::generate();
-            info!("Storage session client initialized with public key: 0x{}", hex::encode(keypair.public().0));
-            Some(std::sync::Arc::new(crate::storage::StorageSessionClient::new(keypair)))
+        // ストレージノード通信用のSr25519キーペアを起動時に生成
+        // このキーペアでX-Chain-Authヘッダーを署名し、ストレージノード側で検証する
+        // なりすましは許容（公開鍵のオンチェーン確認はしない）、ミス防止用の軽量認証
+        let chain_keypair = {
+            use sp_core::Pair;
+            let (pair, _) = sp_core::sr25519::Pair::generate();
+            let keypair = std::sync::Arc::new(pair);
+            info!(
+                "Generated Sr25519 keypair for X-Chain-Auth: {}",
+                hex::encode(keypair.public().0)
+            );
+            keypair
         };
 
         Box::new(move |_| {
@@ -269,7 +272,7 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
                 pool: pool.clone(),
                 storage_nodes: storage_nodes.clone(),
                 gossip_handle: gossip_handle.clone(),
-                session_client: session_client.clone(),
+                chain_keypair: Some(chain_keypair.clone()),
             };
             crate::rpc::create_full(deps).map_err(Into::into)
         })

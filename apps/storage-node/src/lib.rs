@@ -13,5 +13,4 @@ pub mod network;
 pub mod prover;
 pub mod repair;
 pub mod rpc;
-pub mod session;
 pub mod storage;

@@ -1,5 +1,7 @@
 # Specification Quality Checklist: 初回署名 + セッショントークンによるストレージノードアクセス制限
 
+> **ABANDONED (2026-03)**: セッション認証は不要と判断され撤去済み。詳細は [../spec.md](../spec.md) の冒頭を参照。
+
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-03-01
 **Feature**: [spec.md](../spec.md)
