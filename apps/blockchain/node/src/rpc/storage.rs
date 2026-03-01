@@ -29,6 +29,7 @@ use pallet_storage::StorageApi as StorageRuntimeApi;
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
+use sp_core::{Pair as PairT, sr25519};
 use std::sync::Arc;
 
 // ============================================================================
@@ -48,6 +49,46 @@ pub const MAX_PROOF_SIZE: usize = 8 * 1024;
 
 /// Maximum timestamp skew allowed (5 minutes in seconds)
 pub const MAX_TIMESTAMP_SKEW_SECS: u64 = 300;
+
+/// チェーンノードSr25519キーペアの共有型
+pub type SharedChainKeyPair = Arc<sr25519::Pair>;
+
+/// チェーンノード認証ヘッダー構造体
+///
+/// チェーンノードが自身のSr25519鍵で署名し、`X-Chain-Auth` ヘッダーに付与する。
+/// ストレージノード側で署名の妥当性を検証する（なりすましは許容＝公開鍵の
+/// オンチェーン確認はしない）。ミスや無関係なリクエストを弾くための軽量認証。
+///
+/// 署名対象メッセージ: `"chain-auth:{timestamp}:{method}"`
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChainAuth {
+    /// チェーンノードSr25519公開鍵 (hex 32バイト)
+    pub public_key: String,
+    /// Unixタイムスタンプ（秒）
+    pub timestamp: u64,
+    /// RPCメソッド名
+    pub method: String,
+    /// Sr25519署名 (hex 64バイト)
+    pub signature: String,
+}
+
+impl ChainAuth {
+    /// チェーンノードのキーペアでChainAuthを生成
+    pub fn create(keypair: &sr25519::Pair, method: &str) -> Self {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let message = format!("chain-auth:{}:{}", timestamp, method);
+        let signature = keypair.sign(message.as_bytes());
+        Self {
+            public_key: hex::encode(keypair.public().0),
+            timestamp,
+            method: method.to_string(),
+            signature: hex::encode(signature.0),
+        }
+    }
+}
 
 /// 署名付きリクエスト（認証用）
 /// Storage Nodeの認証ミドルウェアが検証するJSON構造体
@@ -368,6 +409,8 @@ pub struct StorageNodeClient {
     http_client: reqwest::Client,
     /// Storage NodeのベースURL
     storage_node_url: String,
+    /// チェーンノードSr25519キーペア (X-Chain-Auth用)
+    chain_keypair: Option<SharedChainKeyPair>,
 }
 
 impl StorageNodeClient {
@@ -376,7 +419,25 @@ impl StorageNodeClient {
         Self {
             http_client: reqwest::Client::new(),
             storage_node_url,
+            chain_keypair: None,
         }
+    }
+
+    /// チェーンノードキーペア付きでクライアントを作成
+    pub fn new_with_chain_auth(storage_node_url: String, keypair: SharedChainKeyPair) -> Self {
+        Self {
+            http_client: reqwest::Client::new(),
+            storage_node_url,
+            chain_keypair: Some(keypair),
+        }
+    }
+
+    /// X-Chain-Auth ヘッダー値を生成（キーペアがあれば）
+    fn chain_auth_header(&self, method: &str) -> Option<String> {
+        self.chain_keypair.as_ref().map(|kp| {
+            let auth = ChainAuth::create(kp, method);
+            serde_json::to_string(&auth).expect("ChainAuth serialization cannot fail")
+        })
     }
 
     /// 断片をStorage Nodeにアップロード
@@ -422,6 +483,11 @@ impl StorageNodeClient {
             let auth_json = serde_json::to_string(&auth)
                 .map_err(|e| format!("Failed to serialize auth: {}", e))?;
             http_request = http_request.header("X-Anarchy-Auth", auth_json);
+        }
+
+        // Add X-Chain-Auth header (chain node identity)
+        if let Some(chain_auth) = self.chain_auth_header("storage_storeFragment") {
+            http_request = http_request.header("X-Chain-Auth", chain_auth);
         }
 
         let response = http_request
@@ -485,9 +551,16 @@ impl StorageNodeClient {
             },
         };
 
-        let response = self.http_client
+        let mut http_request = self.http_client
             .post(&self.storage_node_url)
-            .json(&rpc_request)
+            .json(&rpc_request);
+
+        // Add X-Chain-Auth header (chain node identity)
+        if let Some(chain_auth) = self.chain_auth_header("storage_getFragment") {
+            http_request = http_request.header("X-Chain-Auth", chain_auth);
+        }
+
+        let response = http_request
             .send()
             .await
             .map_err(|e| format!("HTTP request failed: {}", e))?;
@@ -563,6 +636,11 @@ impl StorageNodeClient {
             http_request = http_request.header("X-Anarchy-Auth", auth_json);
         }
 
+        // Add X-Chain-Auth header (chain node identity)
+        if let Some(chain_auth) = self.chain_auth_header("storage_storeKzgShard") {
+            http_request = http_request.header("X-Chain-Auth", chain_auth);
+        }
+
         let response = http_request
             .send()
             .await
@@ -595,6 +673,8 @@ pub struct Storage<C> {
     storage_nodes: SharedStorageNodes,
     /// Gossipハンドル (ノード登録のブロードキャスト用)
     gossip_handle: crate::gossip::StorageNodeGossipHandle,
+    /// チェーンノードSr25519キーペア（X-Chain-Auth用）
+    chain_keypair: Option<SharedChainKeyPair>,
 }
 
 impl<C> Storage<C>
@@ -610,6 +690,22 @@ where
             client, 
             storage_nodes,
             gossip_handle,
+            chain_keypair: None,
+        }
+    }
+
+    /// チェーンノードキーペア付きでStorage RPCハンドラを作成
+    pub fn new_with_chain_auth(
+        client: Arc<C>,
+        storage_nodes: SharedStorageNodes,
+        gossip_handle: crate::gossip::StorageNodeGossipHandle,
+        chain_keypair: SharedChainKeyPair,
+    ) -> Self {
+        Self { 
+            client, 
+            storage_nodes,
+            gossip_handle,
+            chain_keypair: Some(chain_keypair),
         }
     }
     
@@ -638,7 +734,7 @@ where
         {
             let registry = self.storage_nodes.read().await;
             if let Some(node) = registry.select_node_for_fragment(merkle_root, fragment_index) {
-                return Some(StorageNodeClient::new(node.endpoint.clone()));
+                return Some(self.make_storage_client(node.endpoint.clone()));
             }
         }
         
@@ -651,7 +747,7 @@ where
         // オンチェーンノードからもmerkle_rootベースで選択（プライバシー保護）
         let seed = u64::from_le_bytes(merkle_root[..8].try_into().unwrap());
         let node_index = (seed as usize).wrapping_add(fragment_index) % on_chain_urls.len();
-        Some(StorageNodeClient::new(on_chain_urls[node_index].clone()))
+        Some(self.make_storage_client(on_chain_urls[node_index].clone()))
     }
     
     /// 全てのオンラインノードへのクライアントを取得（取得時のフォールバック用）
@@ -676,8 +772,16 @@ where
         }
         
         endpoints.into_iter()
-            .map(StorageNodeClient::new)
+            .map(|url| self.make_storage_client(url))
             .collect()
+    }
+
+    /// StorageNodeClientを作成（chain_keypairがあれば付与）
+    fn make_storage_client(&self, endpoint: String) -> StorageNodeClient {
+        match &self.chain_keypair {
+            Some(kp) => StorageNodeClient::new_with_chain_auth(endpoint, Arc::clone(kp)),
+            None => StorageNodeClient::new(endpoint),
+        }
     }
 }
 

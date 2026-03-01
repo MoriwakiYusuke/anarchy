@@ -137,6 +137,8 @@ pub struct FullDeps<C, P> {
     pub storage_nodes: SharedStorageNodes,
     /// Gossipハンドル (ノード登録のブロードキャスト用)
     pub gossip_handle: crate::gossip::StorageNodeGossipHandle,
+    /// チェーンノードSr25519キーペア (X-Chain-Auth署名用, Optionで互換性維持)
+    pub chain_keypair: Option<storage::SharedChainKeyPair>,
 }
 
 /// フルRPC拡張をインスタンス化
@@ -158,7 +160,7 @@ where
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
     let mut module = RpcModule::new(());
-    let FullDeps { client, pool, storage_nodes, gossip_handle } = deps;
+    let FullDeps { client, pool, storage_nodes, gossip_handle, chain_keypair } = deps;
 
     module.merge(System::new(client.clone(), pool).into_rpc())?;
     module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
@@ -166,7 +168,11 @@ where
     // Storage RPC (T034: StorageApi登録)
     // Storage Nodeは起動時に自動登録される (storage_registerEndpoint RPC)
     // マルチノード対応：複数ノードを登録し、断片を分散配置
-    module.merge(Storage::new(client, storage_nodes, gossip_handle).into_rpc())?;
+    let storage_rpc = match chain_keypair {
+        Some(kp) => Storage::new_with_chain_auth(client, storage_nodes, gossip_handle, kp),
+        None => Storage::new(client, storage_nodes, gossip_handle),
+    };
+    module.merge(storage_rpc.into_rpc())?;
 
     Ok(module)
 }

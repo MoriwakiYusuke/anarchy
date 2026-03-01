@@ -252,12 +252,27 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         );
         info!("Storage node gossip service spawned");
 
+        // ストレージノード通信用のSr25519キーペアを起動時に生成
+        // このキーペアでX-Chain-Authヘッダーを署名し、ストレージノード側で検証する
+        // なりすましは許容（公開鍵のオンチェーン確認はしない）、ミス防止用の軽量認証
+        let chain_keypair = {
+            use sp_core::Pair;
+            let (pair, _) = sp_core::sr25519::Pair::generate();
+            let keypair = std::sync::Arc::new(pair);
+            info!(
+                "Generated Sr25519 keypair for X-Chain-Auth: {}",
+                hex::encode(keypair.public().0)
+            );
+            keypair
+        };
+
         Box::new(move |_| {
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),
                 pool: pool.clone(),
                 storage_nodes: storage_nodes.clone(),
                 gossip_handle: gossip_handle.clone(),
+                chain_keypair: Some(chain_keypair.clone()),
             };
             crate::rpc::create_full(deps).map_err(Into::into)
         })
