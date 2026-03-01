@@ -1,5 +1,7 @@
 # HTTP API Contract: Session-Authenticated Operations
 
+> **ABANDONED (2026-03)**: セッション認証は不要と判断され撤去済み。詳細は [../spec.md](../spec.md) の冒頭を参照。
+
 **Version**: 1.0.0  
 **Base URL**: `http://localhost:3030`  
 **Content-Type**: `application/json`

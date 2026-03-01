@@ -1,5 +1,7 @@
 # Tasks: ストレージノードアクセス制限（セッショントークン認証）
 
+> **ABANDONED (2026-03)**: セッション認証は不要と判断され撤去済み。詳細は [spec.md](spec.md) の冒頭を参照。
+
 **Input**: Design documents from `/specs/018-storage-node-auth/`  
 **Prerequisites**: plan.md ✅, spec.md ✅, research.md ✅, data-model.md ✅, contracts/ ✅
 

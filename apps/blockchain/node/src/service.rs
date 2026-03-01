@@ -252,24 +252,12 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         );
         info!("Storage node gossip service spawned");
 
-        // Session client for authenticated storage access (T038)
-        // Generate Ed25519 keypair for storage node sessions
-        // Each node has its own identity for storage access
-        let session_client = {
-            use sp_core::{ed25519, Pair};
-            // Generate keypair from random seed (or derive from node identity in production)
-            let (keypair, _) = ed25519::Pair::generate();
-            info!("Storage session client initialized with public key: 0x{}", hex::encode(keypair.public().0));
-            Some(std::sync::Arc::new(crate::storage::StorageSessionClient::new(keypair)))
-        };
-
         Box::new(move |_| {
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),
                 pool: pool.clone(),
                 storage_nodes: storage_nodes.clone(),
                 gossip_handle: gossip_handle.clone(),
-                session_client: session_client.clone(),
             };
             crate::rpc::create_full(deps).map_err(Into::into)
         })

@@ -3,7 +3,7 @@
 //! A distributed storage node for the Anarchy network.
 //! Stores fragments and communicates via libp2p.
 
-use anarchy_storage_node::{config, identity, storage, network, chain, rpc, metrics::Metrics, prover, gc, challenge, session};
+use anarchy_storage_node::{config, identity, storage, network, chain, rpc, metrics::Metrics, prover, gc, challenge};
 
 use clap::Parser;
 use std::sync::Arc;
@@ -149,34 +149,9 @@ async fn main() -> anyhow::Result<()> {
     network.subscribe_storage_nodes()?;  // FR-520: Subscribe to storage node topic
     info!("Network listening on {}", config.listen_addr);
 
-    // Initialize session authentication (018-storage-node-auth)
-    let session_registry = session::SessionRegistry::with_config(
-        config.session.ttl(),
-        config.session.idle_timeout(),
-    );
-    let connected_peers = network.shared_connected_peers();
-    
-    // Initialize nonce cache for P2P session requests (replay attack prevention)
-    let session_nonce_cache = session::NonceCache::new();
-    
-    // Spawn session cleanup task (T012)
-    let _session_cleanup_handle = session_registry.spawn_cleanup_task(
-        config.session.cleanup_interval(),
-    );
-    info!(
-        ttl_secs = config.session.token_ttl_secs,
-        idle_timeout_secs = config.session.idle_timeout_secs,
-        "Session authentication initialized"
-    );
-
-    // Start HTTP RPC server with connected_peers for session auth (B案)
+    // Start HTTP RPC server
     let rpc_addr = format!("0.0.0.0:{}", config.rpc_port);
-    let auth_state = rpc::AuthState::with_connected_peers(
-        config.auth_enabled,
-        session_registry.clone(),
-        connected_peers.clone(),
-    );
-    let rpc_router = rpc::create_rpc_router_with_auth(Arc::clone(&store), auth_state, metrics.clone());
+    let rpc_router = rpc::create_rpc_router(Arc::clone(&store), config.auth_enabled, metrics.clone());
     let rpc_listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
     info!(addr = %rpc_addr, auth = config.auth_enabled, "HTTP RPC server started (NFR-002: /metrics endpoint enabled)");
     
@@ -419,141 +394,6 @@ async fn main() -> anyhow::Result<()> {
                                 debug!(url = %node.url, "Added storage node to cache");
                             }
                         }
-                    }
-                    // Handle session request (018-storage-node-auth)
-                    Ok(Some(network::NetworkEvent::SessionRequest { peer, request, channel })) => {
-                        debug!(peer = %peer, method = %request.method, "Processing session request");
-                        let request_id = request.id;
-                        
-                        // Check if peer is connected (FR-301)
-                        if !connected_peers.read().contains(&peer) {
-                            warn!(peer = %peer, "Session request from non-connected peer");
-                            let response = session::SessionResponse::error(
-                                request_id,
-                                session::SessionError::NotConnected,
-                            );
-                            network.send_session_response(channel, response);
-                            continue;
-                        }
-                        
-                        // Route based on method
-                        let response = match request.method.as_str() {
-                            "storage_requestSession" => {
-                                // Verify Ed25519 signature and check PeerId matches
-                                match request.verify_signature() {
-                                    Ok((derived_peer_id, nonce)) => {
-                                        // Check nonce for replay attack prevention
-                                        if session_nonce_cache.check_and_mark(&nonce) {
-                                            warn!(
-                                                peer = %peer,
-                                                nonce = %nonce,
-                                                "Session request nonce already used (replay attack detected)"
-                                            );
-                                            session::SessionResponse::error(
-                                                request_id,
-                                                session::SessionError::NonceReused,
-                                            )
-                                        } else if derived_peer_id != peer {
-                                            // Verify the derived peer_id matches the actual peer
-                                            warn!(
-                                                peer = %peer, 
-                                                derived = %derived_peer_id, 
-                                                "Session request public key doesn't match peer"
-                                            );
-                                            session::SessionResponse::error(
-                                                request_id,
-                                                session::SessionError::InvalidPublicKey,
-                                            )
-                                        } else {
-                                            // Create session and send token
-                                            let token = session_registry.create_session(peer);
-                                            let expires_at = session_registry.get_expiration(token.as_str())
-                                                .unwrap_or(0);
-                                            
-                                            info!(
-                                                peer = %peer,
-                                                expires_at = expires_at,
-                                                "Session created"
-                                            );
-                                            
-                                            session::SessionResponse::success_session(
-                                                request_id,
-                                                token.to_string(),
-                                                expires_at,
-                                            )
-                                        }
-                                    }
-                                    Err(e) => {
-                                        warn!(peer = %peer, error = ?e, "Session request signature verification failed");
-                                        session::SessionResponse::error(request_id, e)
-                                    }
-                                }
-                            }
-                            "storage_renewSession" => {
-                                // T024: Renew existing session
-                                if let Some(token) = request.get_token() {
-                                    match session_registry.renew_session(token) {
-                                        Some(new_token) => {
-                                            let expires_at = session_registry.get_expiration(new_token.as_str())
-                                                .unwrap_or(0);
-                                            
-                                            info!(
-                                                peer = %peer,
-                                                expires_at = expires_at,
-                                                "Session renewed"
-                                            );
-                                            
-                                            session::SessionResponse::success_session(
-                                                request_id,
-                                                new_token.to_string(),
-                                                expires_at,
-                                            )
-                                        }
-                                        None => {
-                                            warn!(peer = %peer, "Session renewal not allowed");
-                                            session::SessionResponse::error(
-                                                request_id,
-                                                session::SessionError::RenewalNotAllowed,
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    session::SessionResponse::error(
-                                        request_id,
-                                        session::SessionError::MissingToken,
-                                    )
-                                }
-                            }
-                            "storage_revokeSession" => {
-                                // T025: Revoke existing session
-                                if let Some(token_str) = request.get_token() {
-                                    if let Some(token) = session::SessionToken::from_hex(token_str) {
-                                        session_registry.revoke_token(&token);
-                                        info!(peer = %peer, "Session revoked");
-                                        session::SessionResponse::success_revoked(request_id)
-                                    } else {
-                                        session::SessionResponse::error(
-                                            request_id,
-                                            session::SessionError::InvalidToken,
-                                        )
-                                    }
-                                } else {
-                                    session::SessionResponse::error(
-                                        request_id,
-                                        session::SessionError::MissingToken,
-                                    )
-                                }
-                            }
-                            _ => {
-                                warn!(peer = %peer, method = %request.method, "Unknown session method");
-                                session::SessionResponse::error(
-                                    request_id,
-                                    session::SessionError::Internal,
-                                )
-                            }
-                        };
-                        
-                        network.send_session_response(channel, response);
                     }
                     Ok(None) => {}
                     Err(e) => {
