@@ -722,6 +722,10 @@ where
     /// 全てのオンラインノードへのクライアントを取得（取得時のフォールバック用）
     /// 選択戦略に基づいた順序でノードを返す (FR-101)
     /// インメモリノードとオンチェーンノードの両方を含む
+    /// 
+    /// NOTE: 読み取り系（storage_getFragmentなど）は認証不要のため、
+    /// キャッシュ済みセッショントークンのみを使用し、新規リクエストはしない。
+    /// これにより、セッション取得によるブロッキングを回避する。
     async fn get_all_storage_clients(&self) -> Vec<StorageNodeClient> {
         let mut endpoints: Vec<String> = Vec::new();
         
@@ -740,10 +744,17 @@ where
             }
         }
         
-        // Create clients with session tokens where available
+        // Create clients with cached session tokens only (no blocking requests)
+        // This is appropriate for read-only operations like storage_getFragment
+        // which don't require authentication per method_requires_auth().
         let mut clients = Vec::with_capacity(endpoints.len());
         for endpoint in endpoints {
-            if let Some(token) = self.get_session_token(&endpoint).await {
+            // Use cached session token if available, otherwise create client without token
+            let token = self.session_client
+                .as_ref()
+                .and_then(|c| c.get_session(&endpoint));
+            
+            if let Some(token) = token {
                 clients.push(StorageNodeClient::new_with_session(endpoint, token));
             } else {
                 clients.push(StorageNodeClient::new(endpoint));

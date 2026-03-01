@@ -196,37 +196,36 @@ impl StorageSessionClient {
 
     /// Request a new session from a storage node
     pub async fn request_session(&self, endpoint: &str) -> Result<SessionInfo, SessionClientError> {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        // Generate random nonce for replay attack prevention
-        let nonce = Self::generate_nonce();
-
-        // Create signed request: "anarchy-session-request:{timestamp}:{nonce}"
-        let message = format!("anarchy-session-request:{}:{}", timestamp, nonce);
-        let signature = self.sign_message(&message);
-
-        let request = SessionRequest {
-            method: "storage_requestSession".to_string(),
-            params: SessionRequestParams {
-                public_key: self.public_key_hex(),
-                timestamp,
-                nonce,
-                signature,
-            },
-            id: self.next_request_id(),
-        };
-
         let session_url = format!("{}/session", endpoint.trim_end_matches('/'));
 
-        // Send request with retries
+        // Send request with retries - regenerate nonce/signature for each attempt
         let mut last_error = None;
         for attempt in 0..MAX_RETRIES {
             if attempt > 0 {
                 tokio::time::sleep(RETRY_INTERVAL).await;
             }
+
+            // Generate fresh timestamp, nonce, and signature for EACH attempt
+            // This prevents "Nonce already used" errors on retries
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let nonce = Self::generate_nonce();
+            let message = format!("anarchy-session-request:{}:{}", timestamp, nonce);
+            let signature = self.sign_message(&message);
+
+            let request = SessionRequest {
+                method: "storage_requestSession".to_string(),
+                params: SessionRequestParams {
+                    public_key: self.public_key_hex(),
+                    timestamp,
+                    nonce,
+                    signature,
+                },
+                id: self.next_request_id(),
+            };
 
             match self.send_session_request(&session_url, &request).await {
                 Ok(info) => {
