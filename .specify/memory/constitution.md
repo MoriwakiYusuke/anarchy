@@ -6,17 +6,18 @@
 ## Core Principles
 
 ### I. Network Anonymity（ネットワーク秘匿）【NON-NEGOTIABLE】
-libp2pトランスポート層にTor/I2Pを**強制統合**し、IPアドレス等のメタデータを物理的に遮断する。
-- 「オプションとしての匿名」ではなく、プロトコルレベルで「匿名以外を許可しない」設計
-- ノード間通信は必ず匿名化レイヤーを経由
-- フロントエンドへのIP露出は「許容」するが、オンチェーンデータとの紐付けは「数学的に切断」
+ノード間通信を匿名化レイヤー経由で行い、IPアドレス等のメタデータがオンチェーンデータと紐付かないようにする。
+- **mainnet では匿名通信を強制**: `chain_id` に `mainnet` を含む場合 `TorMode::Forced` を自動適用（開発/テストネットは `Off | OutboundOnly | Forced` から選択可）
+- 実装: システム Tor デーモン + torsocks 方式（①外向きロック: `ANARCHY_RUNNING_UNDER_TORSOCKS` 環境変数チェック、②内向きロック: 127.0.0.1 バインド強制、③Onion Service 対応）
+- Arti（Rust Tor）は no_std 非対応・実験的段階のため 2026-02-08 に採用を見送り
+- フロントエンドへの IP 露出は「許容」するが、オンチェーンデータとの紐付けは「数学的に切断」
 
-### II. Keyless UX（秘密鍵の排除）【NON-NEGOTIABLE】
-ユーザーに秘密鍵（シードフレーズ）を扱わせない。
-- WebAuthn（パスキー）+ アカウント抽象化（AA）でSecure Enclave署名を前提
-- 秘密鍵はハードウェアから一歩も出さない
-- 1 Identity ID → N Passkeys（マルチデバイス対応）
-- パスワードやシードフレーズを排除し、Web2.0同等の利便性で暗号学的安全性を実現
+### II. Minimal Key Exposure（秘密鍵のアプリ非露出）【NON-NEGOTIABLE】
+秘密鍵をアプリケーション層から直接扱わせない。署名は既存ウォレット（`polkadot-api` の signer インターフェース）経由のみ。
+- シードフレーズベースの Substrate AccountId 認証を採用（polkadot.js / Nova wallet 等と互換）
+- フロントエンド／バックエンドのコードで生の秘密鍵やシードフレーズを保持・参照しない
+- 署名は都度 WYSIWYS（What You See Is What You Sign）で検証
+- 将来的な WebAuthn / Account Abstraction への移行は選択肢として維持（v1.0.0 で前提としていた WebAuthn 強制は、ブラウザ互換性と COSE/CBOR 実装の複雑性を理由に 2026-02-08 に取り下げ）
 
 ### III. Client-Side Completion（クライアントサイド完結）【NON-NEGOTIABLE】
 暗号化、断片化（SSS）、メタデータ削除は**必ずクライアント側で実行してから送信**。
@@ -47,10 +48,11 @@ libp2pトランスポート層にTor/I2Pを**強制統合**し、IPアドレス�
 | レイヤー | 技術 |
 |---------|------|
 | L1 Core | Rust + Polkadot SDK (stable2503) |
-| Consensus | Aura (dev) → NPoS (production) |
-| Networking | libp2p + Tor/I2P (Arti) |
-| Frontend | Next.js 15 + TypeScript + PAPI |
-| Crypto | WebAuthn, SSS, X25519, ZKP (Circom/Noir) |
+| Consensus | Aura (dev) → NPoS/PoW (Phase 4.7 で最終決定) |
+| Networking | libp2p + システム Tor + torsocks（mainnet 強制） |
+| Light Client | smoldot（ブラウザ内トラストレス接続） |
+| Frontend | Next.js 14 + TypeScript + PAPI |
+| Crypto | Sr25519（署名）, SSS + Reed-Solomon（断片化）, AES-256-GCM（暗号化）, KZG-BLS12-381（保持証明）, X25519（ステルスアドレス鍵交換）, Blake2b（PoW/ハッシュ）, ZKP（将来: Circom/Noir） |
 
 **重要**: @polkadot/api は使用禁止。メタデータv16対応の PAPI (polkadot-api) を使用すること。
 
@@ -59,8 +61,9 @@ libp2pトランスポート層にTor/I2Pを**強制統合**し、IPアドレス�
 | 信頼の対象 | セキュリティの根拠 |
 |-----------|------------------|
 | フロントエンド | 信頼しない（IP/投稿内容は一時的に露出） |
-| 秘密鍵 | ハードウェア（Passkey）で物理的に保護 |
-| オンチェーンデータ | ステルスアドレスとTor/I2Pで切断 |
+| 秘密鍵 | 既存ウォレットの signer 層で管理。アプリケーションコードには生の鍵・シードフレーズを保持させない |
+| オンチェーンデータ | ステルスアドレス（X25519 + Ephemeral Key）と Tor（mainnet 強制）で切断 |
+| 断片ストレージ | KZG-VSS ハイブリッド暗号化 + 自己修復プロトコル（k=3, n=5 SSS + Reed-Solomon） |
 | システム全体 | SBOMによる検証可能性 |
 
 ## Development Workflow
@@ -74,8 +77,17 @@ libp2pトランスポート層にTor/I2Pを**強制統合**し、IPアドレス�
 ## Governance
 
 - この Constitution は他の全ての慣行に優先する
-- 原則 I〜III（NON-NEGOTIABLE）の変更は禁止
+- 原則 I〜III（NON-NEGOTIABLE）の**本旨**（匿名通信・鍵の非露出・クライアントサイド完結）を損なう変更は禁止。実装手段（使用する技術・プロトコル）の変更は影響分析と改訂履歴への記録を経て許容
 - 修正には: ドキュメント更新、影響分析、マイグレーション計画が必要
 - 全ての PR/レビューは Constitution 準拠を検証すること
 
-**Version**: 1.0.0 | **Ratified**: 2026-02-07 | **Last Amended**: 2026-02-07
+## 改訂履歴
+
+- **v1.1.0 (2026-04-20)**: 実装実態との整合
+  - 原則I「Network Anonymity」: Arti 強制統合 → システム Tor + torsocks 方式（mainnet 強制は維持）
+  - 原則II「Keyless UX」→「Minimal Key Exposure」に再定義。WebAuthn + Account Abstraction 強制要件を取り下げ、シードフレーズベースの AccountId 認証（polkadot.js / Nova wallet 互換）を容認
+  - Technology Stack / Security Requirements を現行実装（SSS + Reed-Solomon / KZG-BLS12-381 / AES-256-GCM / Blake2b PoW / smoldot Light Client）に追随
+  - Governance: NON-NEGOTIABLE の解釈を「本旨の不変」に明確化（実装手段の変更は許容）
+- **v1.0.0 (2026-02-07)**: 初版
+
+**Version**: 1.1.0 | **Ratified**: 2026-02-07 | **Last Amended**: 2026-04-20

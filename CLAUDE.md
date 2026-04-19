@@ -176,3 +176,8 @@ Users react to posts (Like/Boost/Bad) with PoW proof, authors receive MORAL rewa
 ### Spec-Driven Development
 
 Feature specifications live in `specs/NNN-feature-name/` with a standard structure: `spec.md`, `plan.md`, `tasks.md`, `research.md`, `quickstart.md`, `contracts/`, `checklists/`. The `.github/agents/` and `.github/prompts/` directories contain SpecKit agents for automated spec workflows.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->
