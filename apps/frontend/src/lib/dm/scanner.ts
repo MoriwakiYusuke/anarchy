@@ -12,6 +12,7 @@ import type {
   DmMessageRecord,
   ScanDmResult,
 } from './types';
+import { decodeReceiptBody, type DmReceiptPayload } from './receipt';
 
 type WasmModule = typeof import('anarchy-wasm-engine');
 let wasmModule: WasmModule | null = null;
@@ -103,10 +104,12 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
       scannedFromBlock: fromBlock,
       scannedToBlock: ctx.lastScannedBlock,
       newMessages: [],
+      newReceipts: [],
     };
   }
 
   const newMessages: DmMessageRecord[] = [];
+  const newReceipts: ScanDmResult['newReceipts'] = [];
   let cursor = fromBlock;
   while (cursor <= bestHead) {
     const pageEnd = cursor + SCAN_PAGE_SIZE - 1n > bestHead
@@ -138,13 +141,27 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
         if (!decrypted) continue;
         if (!decrypted.signature_valid) continue; // FR-004
 
+        const body = new Uint8Array(decrypted.body);
+        const counterparty = bytesToSs58Sync(decrypted.sender_main_account);
+
+        // T077: body が receipt フォーマットなら通常メッセージではなく receipt として分類。
+        const receipt: DmReceiptPayload | null = decodeReceiptBody(body);
+        if (receipt) {
+          newReceipts.push({
+            counterparty,
+            refMessageId: receipt.refMessageId,
+            kind: receipt.kind,
+          });
+          continue;
+        }
+
         newMessages.push({
           messageId: deriveMessageId(blockNumber, dispatch),
           blockNumber: BigInt(blockNumber),
           direction: 'incoming',
-          counterparty: bytesToSs58Sync(decrypted.sender_main_account),
+          counterparty,
           timestampMs: Number(decrypted.timestamp_ms),
-          body: new Uint8Array(decrypted.body),
+          body,
           bodyState: 'plaintext',
           signatureValid: true,
         });
@@ -157,6 +174,7 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
     scannedFromBlock: fromBlock,
     scannedToBlock: bestHead,
     newMessages,
+    newReceipts,
   };
 }
 

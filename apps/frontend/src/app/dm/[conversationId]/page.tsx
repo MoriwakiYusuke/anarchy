@@ -14,7 +14,6 @@ import { useSmoldot } from '@/hooks/useSmoldot';
 import { useApi } from '@/hooks/useApi';
 import { stealthKeyManager } from '@/lib/stealth/keyManager';
 import { ConversationView } from '@/components/dm/ConversationView';
-import { MessageComposer } from '@/components/dm/MessageComposer';
 import { hydrateDmStoreFromIndexedDb } from '@/lib/dm/persistence';
 import type { SendDmContext } from '@/lib/dm/sender';
 import type { AccountId } from '@/lib/dm/types';
@@ -67,17 +66,13 @@ export default function ConversationPage(): JSX.Element {
         <Link href="/dm">← インボックスへ戻る</Link>
       </header>
 
-      <ConversationView conversationId={conversationId} />
-
       {sendCtx ? (
-        <div
-          className="dm-conversation-page__composer"
-          style={{ position: 'sticky', bottom: 0 }}
-        >
-          <MessageComposer counterparty={conversationId} context={sendCtx} />
-        </div>
+        <ConversationView conversationId={conversationId} context={sendCtx} />
       ) : (
-        <p>接続中…</p>
+        <>
+          <ConversationView conversationId={conversationId} />
+          <p>接続中…</p>
+        </>
       )}
     </main>
   );

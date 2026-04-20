@@ -14,13 +14,23 @@ interface DmStoreState {
   lastScannedBlock: bigint;
   isScanning: boolean;
 
+  /** FR-016c: 受信者が read receipt 送信を抑止する設定 (ローカルのみ)。 */
+  receiptOptOut: boolean;
+
+  /** 送信済み receipt を identify するキー集合 ("counterparty|messageId|kind")。
+   *  T078: 同じ受信メッセージに対して receipt を重複送信しないための idempotent guard。 */
+  sentReceipts: Set<string>;
+
   addIncoming: (message: DmMessageRecord) => void;
   addOutgoing: (message: DmMessageRecord) => void;
+  markAsDelivered: (counterparty: AccountId, messageId: bigint) => void;
   markAsRead: (counterparty: AccountId, messageId: bigint) => void;
   blockSender: (account: AccountId) => void;
   unblockSender: (account: AccountId) => void;
   setLastScannedBlock: (block: bigint) => void;
   setIsScanning: (scanning: boolean) => void;
+  setReceiptOptOut: (optOut: boolean) => void;
+  rememberReceiptSent: (key: string) => void;
 }
 
 const cloneConversations = (
@@ -64,11 +74,48 @@ const upsertMessage = (
   return next;
 };
 
+/**
+ * outgoing message の deliveryState を「前進のみ」更新する。
+ *
+ * FR-016a: 'sent' → 'delivered' → 'read' の一方向遷移。
+ *  - 既に 'read' のものに 'delivered' を当てても退行させない。
+ *  - 既に 'delivered' のものに 'delivered' を当てても no-op (exactly once)。
+ */
+const RANK: Record<'sent' | 'delivered' | 'read', number> = {
+  sent: 0,
+  delivered: 1,
+  read: 2,
+};
+
+const advanceDeliveryState = (
+  conversations: Map<AccountId, ConversationState>,
+  counterparty: AccountId,
+  messageId: bigint,
+  target: 'delivered' | 'read',
+): Map<AccountId, ConversationState> => {
+  const conv = conversations.get(counterparty);
+  if (!conv) return conversations;
+  let changed = false;
+  const messages = conv.messages.map((m) => {
+    if (m.direction !== 'outgoing' || m.messageId !== messageId) return m;
+    const current = m.deliveryState ?? 'sent';
+    if (RANK[current] >= RANK[target]) return m;
+    changed = true;
+    return { ...m, deliveryState: target };
+  });
+  if (!changed) return conversations;
+  const next = cloneConversations(conversations);
+  next.set(counterparty, { ...conv, messages });
+  return next;
+};
+
 export const useDmStore = create<DmStoreState>((set) => ({
   conversations: new Map(),
   blockList: new Set(),
   lastScannedBlock: 0n,
   isScanning: false,
+  receiptOptOut: false,
+  sentReceipts: new Set<string>(),
 
   addIncoming: (message) =>
     set((state) => ({
@@ -88,21 +135,29 @@ export const useDmStore = create<DmStoreState>((set) => ({
       ),
     })),
 
+  markAsDelivered: (counterparty, messageId) =>
+    set((state) => ({
+      conversations: advanceDeliveryState(
+        state.conversations,
+        counterparty,
+        messageId,
+        'delivered',
+      ),
+    })),
+
   markAsRead: (counterparty, messageId) =>
     set((state) => {
-      const conv = state.conversations.get(counterparty);
-      if (!conv) return state;
-      const messages = conv.messages.map((m) =>
-        m.direction === 'outgoing' && m.messageId === messageId
-          ? { ...m, deliveryState: 'read' as const }
-          : m,
+      const advanced = advanceDeliveryState(
+        state.conversations,
+        counterparty,
+        messageId,
+        'read',
       );
-      const next = cloneConversations(state.conversations);
-      next.set(counterparty, {
-        ...conv,
-        messages,
-        unreadCount: 0,
-      });
+      // 受信側が自分のスレッドを開いた際の既読クリアも従来通り実行。
+      const conv = advanced.get(counterparty);
+      if (!conv || conv.unreadCount === 0) return { conversations: advanced };
+      const next = cloneConversations(advanced);
+      next.set(counterparty, { ...conv, unreadCount: 0 });
       return { conversations: next };
     }),
 
@@ -132,4 +187,25 @@ export const useDmStore = create<DmStoreState>((set) => ({
 
   setLastScannedBlock: (block) => set({ lastScannedBlock: block }),
   setIsScanning: (scanning) => set({ isScanning: scanning }),
+  setReceiptOptOut: (optOut) => set({ receiptOptOut: optOut }),
+  rememberReceiptSent: (key) =>
+    set((state) => {
+      if (state.sentReceipts.has(key)) return state;
+      const next = new Set(state.sentReceipts);
+      next.add(key);
+      return { sentReceipts: next };
+    }),
 }));
+
+/**
+ * T078: incoming message に対して送った receipt を identify するキー。
+ *  "counterparty|messageId|kind" 形式。store.sentReceipts に蓄積して idempotent
+ *  にする (ConversationView の再マウント / worker の scan リトライで再送しない)。
+ */
+export function receiptKey(
+  counterparty: AccountId,
+  messageId: bigint,
+  kind: 'delivered' | 'read',
+): string {
+  return `${counterparty}|${messageId.toString()}|${kind}`;
+}

@@ -158,6 +158,9 @@ interface DmBackupJson {
     version: 1;
     entries: string[];
   };
+  /** T079 / FR-016c: read-receipt opt-out 設定をデバイス間で引き継ぐ。
+   *  旧バックアップ (undefined) は false 扱い。 */
+  receipt_opt_out?: boolean;
   exported_at_ms: number;
   device_id: string;
 }
@@ -294,6 +297,7 @@ export async function exportDmBackup(password: string): Promise<Uint8Array> {
       version: 1,
       entries: Array.from(state.blockList),
     },
+    receipt_opt_out: state.receiptOptOut,
     exported_at_ms: Date.now(),
     device_id: generateDeviceId(),
   };
@@ -418,5 +422,9 @@ export async function importDmBackup(
     conversations: nextConversations,
     blockList: nextBlockList,
     lastScannedBlock: BigInt(payload.dm_scan_index.lastScannedBlock),
+    // T079: backup に記録があれば優先。無い (旧版バックアップ) なら現値を維持。
+    ...(payload.receipt_opt_out !== undefined
+      ? { receiptOptOut: payload.receipt_opt_out }
+      : {}),
   });
 }

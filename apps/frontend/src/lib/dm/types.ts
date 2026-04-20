@@ -97,11 +97,19 @@ export interface SendDmResult {
 
 /**
  * スキャン結果。contracts/frontend-ui.md §1.2。
+ *
+ * `newReceipts` は US4 で追加: 受信者から届いた delivered/read receipt を
+ * そのまま列挙する。store 側で `markAsDelivered` / `markAsRead` に変換する。
  */
 export interface ScanDmResult {
   scannedFromBlock: bigint;
   scannedToBlock: bigint;
   newMessages: DmMessageRecord[];
+  newReceipts: Array<{
+    counterparty: AccountId;
+    refMessageId: bigint;
+    kind: 'delivered' | 'read';
+  }>;
 }
 
 /**

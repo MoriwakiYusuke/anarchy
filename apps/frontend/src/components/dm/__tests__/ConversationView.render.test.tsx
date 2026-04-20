@@ -85,6 +85,9 @@ describe('<ConversationView />', () => {
 
     render(<ConversationView conversationId={'5Alice' as AccountId} />);
     const bubble = screen.getByTestId('dm-message-bubble');
-    expect(within(bubble).getByLabelText('配信状態').textContent).toBe('sent');
+    const badge = within(bubble).getByLabelText('配信状態');
+    // T080: badge は data-delivery-state に state、表示は日本語ラベル。
+    expect(badge.getAttribute('data-delivery-state')).toBe('sent');
+    expect(badge.textContent).toBe('送信済み');
   });
 });

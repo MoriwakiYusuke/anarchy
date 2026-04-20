@@ -80,6 +80,15 @@ export function startDmScanLoop(options: DmScanLoopOptions): DmScanLoopHandle {
       for (const msg of result.newMessages) {
         store.addIncoming(msg);
       }
+      // T077/T078: receipt は送信側の outgoing 履歴に当たる。送信側 (= 自分) から見て
+      // counterparty へ向けた outgoing message の deliveryState を前進させる。
+      for (const r of result.newReceipts) {
+        if (r.kind === 'delivered') {
+          store.markAsDelivered(r.counterparty, r.refMessageId);
+        } else {
+          store.markAsRead(r.counterparty, r.refMessageId);
+        }
+      }
       if (result.scannedToBlock >= ctx.lastScannedBlock) {
         store.setLastScannedBlock(result.scannedToBlock);
       }

@@ -15,6 +15,7 @@ import {
   publishDmKey,
   revokeDmKey,
 } from '@/lib/dm/keyManager';
+import { useDmStore } from '@/lib/dm/store';
 import type { PolkadotSigner } from 'polkadot-api/signer';
 
 export interface DmKeyManagerProps {
@@ -36,6 +37,10 @@ type ActionState =
 export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyManagerProps): JSX.Element {
   const [published, setPublished] = useState<boolean>(initialPublished);
   const [state, setState] = useState<ActionState>({ kind: 'idle' });
+  const receiptOptOut = useDmStore((s: { receiptOptOut: boolean }) => s.receiptOptOut);
+  const setReceiptOptOut = useDmStore(
+    (s: { setReceiptOptOut: (v: boolean) => void }) => s.setReceiptOptOut,
+  );
 
   const meta = getDmMetaAddressFromStealth();
 
@@ -111,6 +116,18 @@ export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyMan
           {state.message}
         </p>
       )}
+
+      <fieldset aria-label="受信確認設定" style={{ marginTop: '1em' }}>
+        <legend>受信確認 (read receipt)</legend>
+        <label>
+          <input
+            type="checkbox"
+            checked={receiptOptOut}
+            onChange={(e) => setReceiptOptOut(e.target.checked)}
+          />
+          既読通知を送信しない (FR-016b)
+        </label>
+      </fieldset>
     </div>
   );
 }

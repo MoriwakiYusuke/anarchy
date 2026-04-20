@@ -41,8 +41,15 @@ impl StealthRewardInterface for () {
 
 // Runtime API: フロントエンド scanner が効率的に DmDispatchesByBlock を取得
 // するためのインターフェース。contracts/pallet-messaging-extrinsics.md §RA 参照。
+//
+// 注: `decl_runtime_apis!` マクロが `where` 節を内部で再付与するため、
+// bound はトレイトヘッダ側ではなく `where` 節に書く (clippy
+// `multiple_bound_locations` 警告回避)。
 sp_api::decl_runtime_apis! {
-    pub trait DmScanApi<AccountId: parity_scale_codec::Codec> {
+    pub trait DmScanApi<AccountId>
+    where
+        AccountId: parity_scale_codec::Codec,
+    {
         /// 指定ブロックの DM 発行エントリを取得。
         fn dispatches_at(block_number: u32) -> sp_std::vec::Vec<DmDispatch<AccountId>>;
 
