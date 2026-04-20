@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import Link from 'next/link'
 import { useApi } from '@/hooks/useApi'
 import { useLocale } from '@/i18n'
 import { PostForm } from '@/components/PostForm'
@@ -103,7 +104,7 @@ export default function Home() {
           />
           {account && signer && (
             <div className={styles.collapsibleSection}>
-              <button 
+              <button
                 className={styles.collapsibleHeader}
                 onClick={() => setIsTransferOpen(!isTransferOpen)}
                 aria-expanded={isTransferOpen}
@@ -124,6 +125,14 @@ export default function Home() {
                   />
                 </div>
               )}
+            </div>
+          )}
+          {account && signer && (
+            <div className={styles.collapsibleSection}>
+              <Link href="/dm" className={styles.collapsibleHeader}>
+                <span>{t('nav.dm')}</span>
+                <span className={styles.collapseIcon}>→</span>
+              </Link>
             </div>
           )}
         </aside>

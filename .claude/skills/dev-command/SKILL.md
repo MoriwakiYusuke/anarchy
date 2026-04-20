@@ -67,6 +67,10 @@ pnpm build:frontend          # production build
 # apps/frontend/ から
 cd apps/frontend && pnpm test     # Jest ユニット/統合
 cd apps/frontend && pnpm lint     # ESLint
+
+# Playwright E2E (実ブラウザ。dev:node 起動必須。詳細は playwright-e2e skill)
+pnpm test:e2e                # root から (= --filter @anarchy/frontend test:e2e)
+cd apps/frontend && pnpm test:e2e:ui    # UI モード
 ```
 
 ## Integration Tests (shell, ノード起動必須)

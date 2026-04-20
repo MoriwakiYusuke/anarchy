@@ -44,6 +44,7 @@ export type TranslationKey =
   // Navigation
   | 'nav.home'
   | 'nav.about'
+  | 'nav.dm'
   // Wallet
   | 'wallet.connect'
   | 'wallet.disconnect'

@@ -1,0 +1,16 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - heading "Direct Messages" [level=1] [ref=e4]
+      - navigation "DM navigation" [ref=e5]:
+        - link "設定" [ref=e6] [cursor=pointer]:
+          - /url: /dm/settings
+    - status [ref=e7]:
+      - heading "DM 鍵が読み込まれていません" [level=3] [ref=e8]
+      - paragraph [ref=e9]: このブラウザでは DM を復号する鍵がまだ読み込まれていません。 既にバックアップファイルを持っている場合はインポート、 新規利用なら DM 鍵を発行してください。
+      - generic [ref=e10]:
+        - button "バックアップをインポート" [ref=e11]
+        - button "DM 鍵を発行" [ref=e12]
+  - button "Open Next.js Dev Tools" [ref=e18] [cursor=pointer]:
+    - img [ref=e19]
+  - alert [ref=e22]

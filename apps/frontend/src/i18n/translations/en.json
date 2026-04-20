@@ -6,6 +6,7 @@
   "app.connecting": "Connecting...",
   "nav.home": "Home",
   "nav.about": "About",
+  "nav.dm": "Messages",
   "wallet.title": "Wallet",
   "wallet.connect": "Connect",
   "wallet.disconnect": "Disconnect",

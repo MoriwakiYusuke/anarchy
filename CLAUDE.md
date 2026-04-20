@@ -37,6 +37,15 @@ See [`.claude/skills/dev-command/SKILL.md`](.claude/skills/dev-command/SKILL.md)
 
 **Rust toolchain**: Stable channel with `wasm32v1-none` target and `rust-src` component (configured in [apps/blockchain/rust-toolchain.toml](apps/blockchain/rust-toolchain.toml)).
 
+### Compatibility Policy
+
+**Forward and backward compatibility are NOT a concern.** This project is in early development. When making breaking changes to storage formats, extrinsic signatures, RPCs, chain state, or DB schemas, **discard existing data and rebuild from scratch** — do not write migration code or compatibility shims.
+
+- No Substrate runtime `StorageVersion` migrations, legacy field retention, or deprecated API preservation
+- When chain state changes, regenerate the chainspec / dev chain rather than migrating
+- Frontend IndexedDB / localStorage schemas may be wiped and recreated the same way
+- Prefer code simplicity over "let old data still load" considerations
+
 ### AI Agent Rules (non-negotiable)
 
 The following rules must NEVER be violated. Violations completely destroy trustworthiness.

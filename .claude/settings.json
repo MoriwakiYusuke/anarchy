@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit(/.claude/skills/playwright-e2e/**)",
+      "Bash(rm -rf /home/moriwaki-y/.cache/ms-playwright/__dirlock)",
+      "Read(//home/moriwaki-y/.cache/ms-playwright/**)",
+      "Read(//home/moriwaki-y/**)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('mcpServers',{}\\), indent=2\\)\\)\")",
+      "Bash(curl -sS http://localhost:3000/dm)",
+      "Bash(curl -sS -I http://localhost:3000/dm)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(open\\('/home/moriwaki-y/.claude.json'\\)\\); m=d.get\\('mcpServers',{}\\); print\\('GLOBAL:', list\\(m.keys\\(\\)\\)\\); proj=d.get\\('projects',{}\\).get\\('/home/moriwaki-y/self/anarchy',{}\\); print\\('PROJECT:', list\\(proj.get\\('mcpServers',{}\\).keys\\(\\)\\)\\)\")",
+      "Bash(python3 -c \"import json; print\\('mcp.json:', json.load\\(open\\('/home/moriwaki-y/self/anarchy/.mcp.json'\\)\\)\\); print\\('settings.json:', json.load\\(open\\('/home/moriwaki-y/self/anarchy/.claude/settings.json'\\)\\)\\)\")",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_close",
+      "mcp__playwright__browser_select_option",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_evaluate"
+    ],
+    "additionalDirectories": [
+      "/home/moriwaki-y/self/anarchy/.claude/skills",
+      "/home/moriwaki-y/.cache/ms-playwright/__dirlock"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "playwright"
+  ]
+}

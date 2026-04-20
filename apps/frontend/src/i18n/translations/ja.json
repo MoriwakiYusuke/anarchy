@@ -6,6 +6,7 @@
   "app.connecting": "接続中...",
   "nav.home": "ホーム",
   "nav.about": "概要",
+  "nav.dm": "メッセージ",
   "wallet.title": "ウォレット",
   "wallet.connect": "接続",
   "wallet.disconnect": "切断",

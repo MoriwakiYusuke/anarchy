@@ -6,6 +6,7 @@
   "app.connecting": "连接中...",
   "nav.home": "首页",
   "nav.about": "关于",
+  "nav.dm": "消息",
   "wallet.title": "钱包",
   "wallet.connect": "连接",
   "wallet.disconnect": "断开连接",
