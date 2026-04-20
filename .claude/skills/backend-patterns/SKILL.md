@@ -1,587 +1,272 @@
 ---
 name: backend-patterns
-description: Backend architecture patterns, API design, database optimization, and server-side best practices for Node.js, Express, and Next.js API routes.
+description: Anarchy L1 のバックエンド = Substrate pallet (FRAME) + Rust storage node の設計・実装パターン。新規 pallet 追加、extrinsic 設計、Storage/Event/Error 定義、tight coupling (pallet_balances / pallet_storage / pallet_reaction との連携)、Runtime API 宣言、weight/benchmarking、runtime 合成時に使用する。
 ---
 
-# Backend Development Patterns
+# Backend Patterns — Anarchy Substrate Pallets
 
-Backend architecture patterns and best practices for scalable server-side applications.
+Anarchy の「バックエンド」は Substrate ベースの L1 blockchain と、それを支える off-chain Rust storage node。**従来型 Web サーバ (Express / Supabase / Prisma) は一切存在しない**。このスキルは FRAME pallet 実装の骨格と、Anarchy 固有の tight coupling / trait 分離パターンを扱う。
 
-## API Design Patterns
+## Pallet ディレクトリ規約
 
-### RESTful API Structure
-
-```typescript
-// ✅ Resource-based URLs
-GET    /api/markets                 # List resources
-GET    /api/markets/:id             # Get single resource
-POST   /api/markets                 # Create resource
-PUT    /api/markets/:id             # Replace resource
-PATCH  /api/markets/:id             # Update resource
-DELETE /api/markets/:id             # Delete resource
-
-// ✅ Query parameters for filtering, sorting, pagination
-GET /api/markets?status=active&sort=volume&limit=20&offset=0
+```
+apps/blockchain/pallets/<name>/
+├── Cargo.toml
+└── src/
+    ├── lib.rs             # #[frame_support::pallet] 本体 + Config/Storage/Event/Error/Call
+    ├── types.rs           # Encode/Decode 対象の公開型 (BoundedVec / MaxEncodedLen 必須)
+    ├── weights.rs         # WeightInfo trait + 実測 or stub 実装
+    ├── mock.rs            # #[cfg(test)] test runtime
+    ├── tests.rs           # #[cfg(test)] ユニットテスト
+    └── benchmarking.rs    # #[cfg(feature = "runtime-benchmarks")]
 ```
 
-### Repository Pattern
+参考: [pallets/messaging/](apps/blockchain/pallets/messaging/)、[pallets/post/](apps/blockchain/pallets/post/)
 
-```typescript
-// Abstract data access logic
-interface MarketRepository {
-  findAll(filters?: MarketFilters): Promise<Market[]>
-  findById(id: string): Promise<Market | null>
-  create(data: CreateMarketDto): Promise<Market>
-  update(id: string, data: UpdateMarketDto): Promise<Market>
-  delete(id: string): Promise<void>
-}
+## 基本スケルトン
 
-class SupabaseMarketRepository implements MarketRepository {
-  async findAll(filters?: MarketFilters): Promise<Market[]> {
-    let query = supabase.from('markets').select('*')
+```rust
+#![cfg_attr(not(feature = "std"), no_std)]          // no_std 必須 (wasm32v1-none target)
 
-    if (filters?.status) {
-      query = query.eq('status', filters.status)
+pub use pallet::*;
+pub use types::*;
+pub use weights::WeightInfo;
+
+mod types;
+pub mod weights;
+
+#[cfg(test)] mod mock;
+#[cfg(test)] mod tests;
+
+#[frame_support::pallet]
+pub mod pallet {
+    use super::*;
+    use frame_support::{pallet_prelude::*, traits::fungible::{Inspect, Mutate}};
+    use frame_system::pallet_prelude::*;
+
+    pub type BalanceOf<T> = <<T as Config>::NativeToken as Inspect<
+        <T as frame_system::Config>::AccountId,
+    >>::Balance;
+
+    #[pallet::pallet]
+    pub struct Pallet<T>(_);
+
+    #[pallet::config]
+    pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
+        type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
+        #[pallet::constant] type SomeConst: Get<BalanceOf<Self>>;
+        type WeightInfo: WeightInfo;
     }
 
-    if (filters?.limit) {
-      query = query.limit(filters.limit)
+    #[pallet::storage]
+    pub type Items<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, SomeValue>;
+
+    #[pallet::event]
+    #[pallet::generate_deposit(pub(super) fn deposit_event)]
+    pub enum Event<T: Config> { ItemAdded { who: T::AccountId } }
+
+    #[pallet::error]
+    pub enum Error<T> { AlreadyExists, Overflow }
+
+    #[pallet::call]
+    impl<T: Config> Pallet<T> {
+        #[pallet::call_index(0)]
+        #[pallet::weight(T::WeightInfo::add_item())]
+        pub fn add_item(origin: OriginFor<T>, value: SomeValue) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            ensure!(!Items::<T>::contains_key(&who), Error::<T>::AlreadyExists);
+            Items::<T>::insert(&who, value);
+            Self::deposit_event(Event::ItemAdded { who });
+            Ok(())
+        }
     }
-
-    const { data, error } = await query
-
-    if (error) throw new Error(error.message)
-    return data
-  }
-
-  // Other methods...
 }
 ```
 
-### Service Layer Pattern
+**非妥協ルール**:
+- `#![cfg_attr(not(feature = "std"), no_std)]` を省略しない (runtime build が `wasm32v1-none` で落ちる)
+- 全カスタム型に `Encode, Decode, TypeInfo, MaxEncodedLen` (Storage に入れる場合) を必ず derive
+- `sp_std::vec::Vec` / `BoundedVec` を使う (`std::vec::Vec` は no_std 環境で不可)
+- Extrinsic は `call_index` を明示 (後方互換のため番号を入れ替えない)
 
-```typescript
-// Business logic separated from data access
-class MarketService {
-  constructor(private marketRepo: MarketRepository) {}
+## Extrinsic 設計パターン
 
-  async searchMarkets(query: string, limit: number = 10): Promise<Market[]> {
-    // Business logic
-    const embedding = await generateEmbedding(query)
-    const results = await this.vectorSearch(embedding, limit)
+### 1. validate → charge → mutate → emit の順序
 
-    // Fetch full data
-    const markets = await this.marketRepo.findByIds(results.map(r => r.id))
+[pallets/messaging/src/lib.rs:187-260](apps/blockchain/pallets/messaging/src/lib.rs#L187-L260) の `send_dm` が典型例:
 
-    // Sort by similarity
-    return markets.sort((a, b) => {
-      const scoreA = results.find(r => r.id === a.id)?.score || 0
-      const scoreB = results.find(r => r.id === b.id)?.score || 0
-      return scoreA - scoreB
-    })
-  }
+```rust
+pub fn send_dm(origin, /* ... */) -> DispatchResult {
+    let who = ensure_signed(origin)?;
 
-  private async vectorSearch(embedding: number[], limit: number) {
-    // Vector search implementation
-  }
+    // 1. 純粋バリデーション (fail fast、storage read 最小)
+    ensure!(k > 0 && k <= n && n <= 255, Error::<T>::InvalidKNParameters);
+    ensure!(DM_PADDING_BUCKETS.contains(&ciphertext_len), Error::<T>::InvalidPaddingBucket);
+
+    // 2. Storage read による状態チェック
+    ensure!(!DmMessagesByRoot::<T>::contains_key(merkle_root), Error::<T>::DuplicateContent);
+
+    // 3. 料金計算 (overflow チェック必須)
+    let cost = T::DmBaseCost::get()
+        .checked_add(&byte_cost)
+        .ok_or(Error::<T>::CostCalculationOverflow)?;
+
+    // 4. トークン burn / transfer (失敗するなら早めに)
+    T::NativeToken::burn_from(&who, cost, /* ... */)?;
+
+    // 5. Storage mutate
+    DmMessagesByRoot::<T>::insert(merkle_root, message_id);
+
+    // 6. Event 発火 (最後)
+    Self::deposit_event(Event::DmDispatched { /* ... */ });
+    Ok(())
 }
 ```
 
-### Middleware Pattern
+重要: `ensure!` を使うとエラー時に自動で全 storage 変更が revert される。**`ensure!` の後に任意の mutation が許される**。mutate してから ensure! するとキャッシュされた書き込みが残る可能性があるため順序を守る。
 
-```typescript
-// Request/response processing pipeline
-export function withAuth(handler: NextApiHandler): NextApiHandler {
-  return async (req, res) => {
-    const token = req.headers.authorization?.replace('Bearer ', '')
+### 2. コスト計算は常に `checked_*`
 
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized' })
+Anarchy は $moral 12 decimals (1_000_000_000_000 units/token)。掛け算がオーバーフローしやすいため:
+
+```rust
+let byte_cost = T::DmByteCost::get()
+    .checked_mul(&(ciphertext_len as u128).saturated_into())
+    .ok_or(Error::<T>::CostCalculationOverflow)?;
+```
+
+## tight coupling (pallet 間依存)
+
+Anarchy は複数 pallet が強く結合しているため、trait を pallet 側で宣言 → runtime で具象実装を配線する方式を徹底する。
+
+### パターン A: Config の tight bound (balances に密結合)
+
+pallet-post は `pallet_balances::Config` に tight coupling していない。代わりに `fungible` trait abstraction を使う:
+
+```rust
+pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
+    type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
+}
+```
+
+### パターン B: trait を自分で定義して他 pallet に公開
+
+[pallets/storage/](apps/blockchain/pallets/storage/) は `StorageInterface` を公開し、[pallet-post](apps/blockchain/pallets/post/src/lib.rs#L101-L102) がそれを Config 経由で依存する:
+
+```rust
+// pallet-storage 側
+pub trait StorageInterface<AccountId, BlockNumber> {
+    fn do_register_fragment(/* ... */) -> DispatchResult;
+    fn do_register_kzg_fragment(/* ... */) -> DispatchResult;
+    fn do_deposit_to_reward_pool(amount: u128);
+}
+
+// pallet-post 側 (Config で要求)
+type Storage: pallet_storage::StorageInterface<Self::AccountId, BlockNumberFor<Self>>;
+```
+
+### パターン C: 2 pallet 以上で共有する interface は単一 pallet が所有
+
+- reward pool への流入は `pallet-reaction::ReactionInterface::do_deposit_to_reaction_pool`
+- ステルス報酬プールへの流入は `pallet-messaging::StealthRewardInterface::do_deposit_to_stealth_reward_pool`
+
+**新 pallet 追加時のルール**: 他 pallet から呼ばれる API が必要なら、自 pallet 内で trait を定義し `impl for ()` で no-op 実装を一緒に置く (テストや未配線 runtime で動く)。
+
+```rust
+pub trait StealthRewardInterface {
+    fn do_deposit_to_stealth_reward_pool(amount: u128);
+}
+impl StealthRewardInterface for () {
+    fn do_deposit_to_stealth_reward_pool(_amount: u128) {}
+}
+```
+
+## Storage 設計
+
+### Map キーハッシャの選び方
+
+| ハッシャ | 用途 |
+|---|---|
+| `Blake2_128Concat` | ユーザー由来のキー (AccountId, user-submitted hash)。安全かつ enumerable |
+| `Twox64Concat` | enumerate 必要で内部生成キー (post_id, message_id) |
+| `Identity` | キーが既に hash であることが保証される場合のみ |
+
+**ユーザー由来入力には絶対 `Identity` を使わない** (storage-bloat 攻撃が可能)。
+
+### BoundedVec でサイズ境界を必ず宣言
+
+```rust
+#[pallet::storage]
+pub type DmDispatchesByBlock<T: Config> = StorageMap<
+    _,
+    Blake2_128Concat,
+    BlockNumberFor<T>,
+    BoundedVec<DmDispatch<T::AccountId>, T::MaxDispatchesPerBlock>,
+    ValueQuery,
+>;
+```
+
+`Vec` を Storage に直接入れると実行時 weight が予測不能になり benchmarking も通らない。必ず `BoundedVec<_, MaxN>` + `MaxN` は Config constant に。
+
+## Runtime API 宣言
+
+フロントエンド (PAPI) からの効率的クエリのために runtime API を定義する。[pallets/messaging/src/lib.rs:44-59](apps/blockchain/pallets/messaging/src/lib.rs#L44-L59):
+
+```rust
+sp_api::decl_runtime_apis! {
+    pub trait DmScanApi<AccountId: parity_scale_codec::Codec> {
+        fn dispatches_at(block_number: u32) -> sp_std::vec::Vec<DmDispatch<AccountId>>;
+        fn reception_key(account: AccountId) -> Option<DmMetaAddress>;
+        fn dispatches_range(from_block: u32, to_block: u32)
+            -> sp_std::vec::Vec<(u32, sp_std::vec::Vec<DmDispatch<AccountId>>)>;
     }
-
-    try {
-      const user = await verifyToken(token)
-      req.user = user
-      return handler(req, res)
-    } catch (error) {
-      return res.status(401).json({ error: 'Invalid token' })
-    }
-  }
-}
-
-// Usage
-export default withAuth(async (req, res) => {
-  // Handler has access to req.user
-})
-```
-
-## Database Patterns
-
-### Query Optimization
-
-```typescript
-// ✅ GOOD: Select only needed columns
-const { data } = await supabase
-  .from('markets')
-  .select('id, name, status, volume')
-  .eq('status', 'active')
-  .order('volume', { ascending: false })
-  .limit(10)
-
-// ❌ BAD: Select everything
-const { data } = await supabase
-  .from('markets')
-  .select('*')
-```
-
-### N+1 Query Prevention
-
-```typescript
-// ❌ BAD: N+1 query problem
-const markets = await getMarkets()
-for (const market of markets) {
-  market.creator = await getUser(market.creator_id)  // N queries
-}
-
-// ✅ GOOD: Batch fetch
-const markets = await getMarkets()
-const creatorIds = markets.map(m => m.creator_id)
-const creators = await getUsers(creatorIds)  // 1 query
-const creatorMap = new Map(creators.map(c => [c.id, c]))
-
-markets.forEach(market => {
-  market.creator = creatorMap.get(market.creator_id)
-})
-```
-
-### Transaction Pattern
-
-```typescript
-async function createMarketWithPosition(
-  marketData: CreateMarketDto,
-  positionData: CreatePositionDto
-) {
-  // Use Supabase transaction
-  const { data, error } = await supabase.rpc('create_market_with_position', {
-    market_data: marketData,
-    position_data: positionData
-  })
-
-  if (error) throw new Error('Transaction failed')
-  return data
-}
-
-// SQL function in Supabase
-CREATE OR REPLACE FUNCTION create_market_with_position(
-  market_data jsonb,
-  position_data jsonb
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  -- Start transaction automatically
-  INSERT INTO markets VALUES (market_data);
-  INSERT INTO positions VALUES (position_data);
-  RETURN jsonb_build_object('success', true);
-EXCEPTION
-  WHEN OTHERS THEN
-    -- Rollback happens automatically
-    RETURN jsonb_build_object('success', false, 'error', SQLERRM);
-END;
-$$;
-```
-
-## Caching Strategies
-
-### Redis Caching Layer
-
-```typescript
-class CachedMarketRepository implements MarketRepository {
-  constructor(
-    private baseRepo: MarketRepository,
-    private redis: RedisClient
-  ) {}
-
-  async findById(id: string): Promise<Market | null> {
-    // Check cache first
-    const cached = await this.redis.get(`market:${id}`)
-
-    if (cached) {
-      return JSON.parse(cached)
-    }
-
-    // Cache miss - fetch from database
-    const market = await this.baseRepo.findById(id)
-
-    if (market) {
-      // Cache for 5 minutes
-      await this.redis.setex(`market:${id}`, 300, JSON.stringify(market))
-    }
-
-    return market
-  }
-
-  async invalidateCache(id: string): Promise<void> {
-    await this.redis.del(`market:${id}`)
-  }
 }
 ```
 
-### Cache-Aside Pattern
+Runtime 側の実装は [runtime/src/lib.rs の `impl_runtime_apis!`](apps/blockchain/runtime/src/lib.rs) に追記。**範囲クエリには必ず上限ガードを入れる** (例: `to_block - from_block > 1024` で空返却)、さもないと full-node が DoS される。
 
-```typescript
-async function getMarketWithCache(id: string): Promise<Market> {
-  const cacheKey = `market:${id}`
+## Runtime 合成 (runtime/src/lib.rs)
 
-  // Try cache
-  const cached = await redis.get(cacheKey)
-  if (cached) return JSON.parse(cached)
+新規 pallet 追加時:
 
-  // Cache miss - fetch from DB
-  const market = await db.markets.findUnique({ where: { id } })
+1. `Cargo.toml` に依存追加 (`default-features = false` + `std` feature に含める)
+2. `impl pallet_<name>::Config for Runtime { /* 型配線 */ }` を追記
+3. `construct_runtime!` マクロに `<Name>: pallet_<name>` を追加 (pallet index は **絶対に入れ替えない**)
+4. runtime API を追加する場合は `impl_runtime_apis!` に追記
+5. **`spec_version` を bump** (`runtime_version!` マクロ内)。forget すると新 extrinsic が decode できない
 
-  if (!market) throw new Error('Market not found')
+## Benchmarking / Weights
 
-  // Update cache
-  await redis.setex(cacheKey, 300, JSON.stringify(market))
+- プレースホルダ (stub) は `weights.rs` に `0.into()` / `Weight::zero()` で置き、`MaxEncodedLen` 影響を受ける extrinsic には最低でも read/write の概算を入れる
+- 本番用には `cargo build --release --features=runtime-benchmarks` + `frame-omni-bencher` 実行で実測値を生成
+- weight 式は extrinsic 引数ベース: `#[pallet::weight(T::WeightInfo::send_dm(*ciphertext_len as u32))]`
 
-  return market
-}
-```
+## Storage Node (apps/storage-node/)
 
-## Error Handling Patterns
+別 Cargo workspace。blockchain node とは独立したバイナリ。
+- HTTP JSON-RPC on `:3030` (axum)
+- libp2p P2P transport (Tor over onion option あり)
+- 起動時に blockchain node へ自己登録 (sr25519 keypair で X-Chain-Auth 署名、[apps/blockchain/node/src/rpc/storage.rs](apps/blockchain/node/src/rpc/storage.rs))
 
-### Centralized Error Handler
+Storage node に pallet 概念は無いが、チェーン側の `pallet-storage` が期待するデータ形式 (fragment_id, KZG commitment) に合わせて保存する。
 
-```typescript
-class ApiError extends Error {
-  constructor(
-    public statusCode: number,
-    public message: string,
-    public isOperational = true
-  ) {
-    super(message)
-    Object.setPrototypeOf(this, ApiError.prototype)
-  }
-}
+## よくある失敗
 
-export function errorHandler(error: unknown, req: Request): Response {
-  if (error instanceof ApiError) {
-    return NextResponse.json({
-      success: false,
-      error: error.message
-    }, { status: error.statusCode })
-  }
+| 症状 | 原因 |
+|---|---|
+| `error[E0425]: cannot find type Vec` | `use sp_std::vec::Vec;` 不足 (no_std 環境で `std::vec::Vec` は使えない) |
+| Runtime wasm build が膨張 | `debug_assert!` / `log::debug!` を runtime code に入れている |
+| `spec_version` 忘れで古い client が decode 失敗 | 新 extrinsic 追加時は必ず bump |
+| `BoundedVec` insertion 失敗 | `try_mutate` + `try_push` を使い、溢れをエラーにマップ |
+| tight coupling の循環依存 | 共有 trait は片方の pallet (呼ばれる側) で定義して他方が使う。Config に直接 `pallet_X::Config` を bound しない |
 
-  if (error instanceof z.ZodError) {
-    return NextResponse.json({
-      success: false,
-      error: 'Validation failed',
-      details: error.errors
-    }, { status: 400 })
-  }
+## 参考実装
 
-  // Log unexpected errors
-  console.error('Unexpected error:', error)
-
-  return NextResponse.json({
-    success: false,
-    error: 'Internal server error'
-  }, { status: 500 })
-}
-
-// Usage
-export async function GET(request: Request) {
-  try {
-    const data = await fetchData()
-    return NextResponse.json({ success: true, data })
-  } catch (error) {
-    return errorHandler(error, request)
-  }
-}
-```
-
-### Retry with Exponential Backoff
-
-```typescript
-async function fetchWithRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries = 3
-): Promise<T> {
-  let lastError: Error
-
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await fn()
-    } catch (error) {
-      lastError = error as Error
-
-      if (i < maxRetries - 1) {
-        // Exponential backoff: 1s, 2s, 4s
-        const delay = Math.pow(2, i) * 1000
-        await new Promise(resolve => setTimeout(resolve, delay))
-      }
-    }
-  }
-
-  throw lastError!
-}
-
-// Usage
-const data = await fetchWithRetry(() => fetchFromAPI())
-```
-
-## Authentication & Authorization
-
-### JWT Token Validation
-
-```typescript
-import jwt from 'jsonwebtoken'
-
-interface JWTPayload {
-  userId: string
-  email: string
-  role: 'admin' | 'user'
-}
-
-export function verifyToken(token: string): JWTPayload {
-  try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload
-    return payload
-  } catch (error) {
-    throw new ApiError(401, 'Invalid token')
-  }
-}
-
-export async function requireAuth(request: Request) {
-  const token = request.headers.get('authorization')?.replace('Bearer ', '')
-
-  if (!token) {
-    throw new ApiError(401, 'Missing authorization token')
-  }
-
-  return verifyToken(token)
-}
-
-// Usage in API route
-export async function GET(request: Request) {
-  const user = await requireAuth(request)
-
-  const data = await getDataForUser(user.userId)
-
-  return NextResponse.json({ success: true, data })
-}
-```
-
-### Role-Based Access Control
-
-```typescript
-type Permission = 'read' | 'write' | 'delete' | 'admin'
-
-interface User {
-  id: string
-  role: 'admin' | 'moderator' | 'user'
-}
-
-const rolePermissions: Record<User['role'], Permission[]> = {
-  admin: ['read', 'write', 'delete', 'admin'],
-  moderator: ['read', 'write', 'delete'],
-  user: ['read', 'write']
-}
-
-export function hasPermission(user: User, permission: Permission): boolean {
-  return rolePermissions[user.role].includes(permission)
-}
-
-export function requirePermission(permission: Permission) {
-  return (handler: (request: Request, user: User) => Promise<Response>) => {
-    return async (request: Request) => {
-      const user = await requireAuth(request)
-
-      if (!hasPermission(user, permission)) {
-        throw new ApiError(403, 'Insufficient permissions')
-      }
-
-      return handler(request, user)
-    }
-  }
-}
-
-// Usage - HOF wraps the handler
-export const DELETE = requirePermission('delete')(
-  async (request: Request, user: User) => {
-    // Handler receives authenticated user with verified permission
-    return new Response('Deleted', { status: 200 })
-  }
-)
-```
-
-## Rate Limiting
-
-### Simple In-Memory Rate Limiter
-
-```typescript
-class RateLimiter {
-  private requests = new Map<string, number[]>()
-
-  async checkLimit(
-    identifier: string,
-    maxRequests: number,
-    windowMs: number
-  ): Promise<boolean> {
-    const now = Date.now()
-    const requests = this.requests.get(identifier) || []
-
-    // Remove old requests outside window
-    const recentRequests = requests.filter(time => now - time < windowMs)
-
-    if (recentRequests.length >= maxRequests) {
-      return false  // Rate limit exceeded
-    }
-
-    // Add current request
-    recentRequests.push(now)
-    this.requests.set(identifier, recentRequests)
-
-    return true
-  }
-}
-
-const limiter = new RateLimiter()
-
-export async function GET(request: Request) {
-  const ip = request.headers.get('x-forwarded-for') || 'unknown'
-
-  const allowed = await limiter.checkLimit(ip, 100, 60000)  // 100 req/min
-
-  if (!allowed) {
-    return NextResponse.json({
-      error: 'Rate limit exceeded'
-    }, { status: 429 })
-  }
-
-  // Continue with request
-}
-```
-
-## Background Jobs & Queues
-
-### Simple Queue Pattern
-
-```typescript
-class JobQueue<T> {
-  private queue: T[] = []
-  private processing = false
-
-  async add(job: T): Promise<void> {
-    this.queue.push(job)
-
-    if (!this.processing) {
-      this.process()
-    }
-  }
-
-  private async process(): Promise<void> {
-    this.processing = true
-
-    while (this.queue.length > 0) {
-      const job = this.queue.shift()!
-
-      try {
-        await this.execute(job)
-      } catch (error) {
-        console.error('Job failed:', error)
-      }
-    }
-
-    this.processing = false
-  }
-
-  private async execute(job: T): Promise<void> {
-    // Job execution logic
-  }
-}
-
-// Usage for indexing markets
-interface IndexJob {
-  marketId: string
-}
-
-const indexQueue = new JobQueue<IndexJob>()
-
-export async function POST(request: Request) {
-  const { marketId } = await request.json()
-
-  // Add to queue instead of blocking
-  await indexQueue.add({ marketId })
-
-  return NextResponse.json({ success: true, message: 'Job queued' })
-}
-```
-
-## Logging & Monitoring
-
-### Structured Logging
-
-```typescript
-interface LogContext {
-  userId?: string
-  requestId?: string
-  method?: string
-  path?: string
-  [key: string]: unknown
-}
-
-class Logger {
-  log(level: 'info' | 'warn' | 'error', message: string, context?: LogContext) {
-    const entry = {
-      timestamp: new Date().toISOString(),
-      level,
-      message,
-      ...context
-    }
-
-    console.log(JSON.stringify(entry))
-  }
-
-  info(message: string, context?: LogContext) {
-    this.log('info', message, context)
-  }
-
-  warn(message: string, context?: LogContext) {
-    this.log('warn', message, context)
-  }
-
-  error(message: string, error: Error, context?: LogContext) {
-    this.log('error', message, {
-      ...context,
-      error: error.message,
-      stack: error.stack
-    })
-  }
-}
-
-const logger = new Logger()
-
-// Usage
-export async function GET(request: Request) {
-  const requestId = crypto.randomUUID()
-
-  logger.info('Fetching markets', {
-    requestId,
-    method: 'GET',
-    path: '/api/markets'
-  })
-
-  try {
-    const markets = await fetchMarkets()
-    return NextResponse.json({ success: true, data: markets })
-  } catch (error) {
-    logger.error('Failed to fetch markets', error as Error, { requestId })
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
-  }
-}
-```
-
-**Remember**: Backend patterns enable scalable, maintainable server-side applications. Choose patterns that fit your complexity level.
+| やりたいこと | 参照 pallet |
+|---|---|
+| fungible token 消費 + 報酬プール配分 | [pallet-post](apps/blockchain/pallets/post/src/lib.rs) |
+| PoW 検証 + 動的難易度調整 | [pallet-reaction](apps/blockchain/pallets/reaction/) |
+| off-chain storage commitment + KZG 証明 | [pallet-storage](apps/blockchain/pallets/storage/) |
+| ephemeral key + stealth 導出 | [pallet-stealth](apps/blockchain/pallets/stealth/) |
+| Runtime API + 範囲クエリガード | [pallet-messaging](apps/blockchain/pallets/messaging/src/lib.rs#L44-L59) |
+| PoW client-side + on-chain validation | [pallet-faucet](apps/blockchain/pallets/faucet/) |

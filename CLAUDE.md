@@ -10,118 +10,32 @@ Anarchy is an L1 blockchain-based decentralized SNS protocol built on Polkadot S
 
 ## Build & Development Commands
 
-### Blockchain (Rust/Substrate)
-
-```bash
-# Build (from apps/blockchain/)
-cargo build --release
-
-# Run all pallet unit tests
-cargo test --all
-
-# Run a single pallet's tests
-cargo test -p pallet-post
-cargo test -p pallet-faucet
-cargo test -p pallet-storage
-cargo test -p pallet-reaction
-
-# Lint
-cargo clippy
-
-# Start dev node (single, ephemeral)
-./target/release/anarchy-node --dev
-
-# From repo root via pnpm:
-pnpm build:blockchain
-pnpm dev:node
-```
-
-### Storage Node (Rust, separate workspace)
-
-```bash
-cd apps/storage-node
-cargo build --release
-cargo test
-
-# Run with config
-./target/release/anarchy-storage-node --config config.toml
-```
-
-### Wasm Crypto Engine
-
-```bash
-cd packages/wasm-engine
-cargo install wasm-pack          # First time only
-wasm-pack build --target web --out-dir pkg
-```
-
-The frontend depends on the Wasm engine (`"anarchy-wasm-engine": "file:../../packages/wasm-engine/pkg"`), so this must be built before `pnpm install`.
-
-### Frontend (Next.js)
-
-```bash
-pnpm install                  # Install all workspace deps
-pnpm dev:frontend             # Dev server at http://localhost:3000
-pnpm build:frontend           # Production build
-cd apps/frontend && pnpm test # Jest unit tests
-cd apps/frontend && pnpm lint # ESLint
-```
-
-### Integration Tests (shell-based, requires running nodes)
-
-```bash
-pnpm test:integration         # All tests
-pnpm test:sync                # Block sync
-pnpm test:consensus           # Consensus/fork resolution
-pnpm test:invalid             # Invalid data rejection
-pnpm test:recovery            # Node crash recovery
-pnpm test:scalability         # 10-node scalability
-```
-
-### Multi-Node Testnet
-
-```bash
-pnpm testnet:start            # Start 3-node testnet
-pnpm testnet:stop             # Stop all nodes
-pnpm testnet:status           # Check status
-pnpm testnet:purge            # Purge chain data
-```
+See [`.claude/skills/dev-command/SKILL.md`](.claude/skills/dev-command/SKILL.md) for all build, test, and dev commands.
 
 ## Architecture
 
 ### Monorepo Structure
 
-- **apps/blockchain/** — Substrate L1 chain (Cargo workspace)
-  - `node/` — Node binary (networking, RPC, consensus orchestration)
-  - `runtime/` — FRAME runtime (pallet composition, genesis config)
-  - `pallets/post/` — Post pallet (`create_post_v2`: records MerkleRoot on-chain, content stored off-chain)
-  - `pallets/faucet/` — PoW faucet pallet (token claiming with client-side proof-of-work)
-  - `pallets/storage/` — Distributed storage pallet (on-chain storage commitments, KZG proof verification, reward distribution)
-  - `pallets/reaction/` — Reaction mining pallet (Like/Boost/Bad with PoW, dynamic difficulty, author rewards)
-  - `tests/integration/` — Shell-based integration tests
-- **apps/storage-node/** — Off-chain distributed storage daemon (libp2p P2P + axum HTTP JSON-RPC on port 3030, separate Cargo project). Auto-registers with blockchain node on startup.
-- **apps/frontend/** — Next.js 14 (App Router) + React 18 + TypeScript
-- **packages/wasm-engine/** — Wasm crypto engine (KZG-VSS hybrid via `ark-bls12-381`, Merkle tree via `rs_merkle`, Blake2b hashing). Built with `wasm-pack`, consumed by frontend as file dependency.
-  - **KZG-VSS hybrid scheme**: Combines verifiable secret sharing with KZG polynomial commitments for efficient storage proofs
-  - Key functions: `hybrid_split()`, `hybrid_reconstruct()`, `generate_kzg_proof()`, `verify_kzg_proof()`
-- **scripts/** — Token minting utilities (sudo-mint, transfer scripts using PAPI)
-- **specs/** — Feature specifications (numbered: 001-identity, 002-webauthn, ..., 009-post-storage-migration)
+- **apps/blockchain/** — Substrate L1 chain (Cargo workspace): `node/`, `runtime/`, `pallets/` (post / faucet / storage / reaction / stealth / nickname / messaging), `tests/integration/` (shell E2E)
+- **apps/storage-node/** — Off-chain distributed storage daemon (libp2p P2P + axum HTTP JSON-RPC on `:3030`). Auto-registers with blockchain node on startup
+- **apps/frontend/** — Next.js 14 App Router + React 18 + TypeScript. Uses PAPI + smoldot light client
+- **packages/wasm-engine/** — Wasm crypto engine (KZG-VSS hybrid via `ark-bls12-381`, Merkle via `rs_merkle`, Blake2b). Built with `wasm-pack`, consumed by frontend as file dependency
+- **scripts/** — PAPI CLI scripts (sudo-mint, transfer, seed mint)
+- **specs/** — Numbered feature specifications (001-identity … 019-direct-messages)
 - **docs/** — Architecture docs, Tor deployment guides
+
+詳細な pallet 実装パターンは [`.claude/skills/backend-patterns/SKILL.md`](.claude/skills/backend-patterns/SKILL.md)、Wasm エンジン内部は [`.claude/skills/wasm-engine/SKILL.md`](.claude/skills/wasm-engine/SKILL.md)、フロント側は [`.claude/skills/frontend-patterns/SKILL.md`](.claude/skills/frontend-patterns/SKILL.md)、セキュリティチェックは [`.claude/skills/security-review/SKILL.md`](.claude/skills/security-review/SKILL.md) を参照。
 
 ### Key Technical Constraints
 
 **PAPI required, not @polkadot/api**: Polkadot SDK stable2503 uses metadata v16. The legacy `@polkadot/api` does NOT work (produces signature errors). Always use `polkadot-api` (PAPI) with `getUnsafeApi()` for chain interaction.
 
-```typescript
-import { createClient } from 'polkadot-api'
-import { getWsProvider } from 'polkadot-api/ws-provider/node'
-const client = createClient(getWsProvider('ws://127.0.0.1:9944'))
-const api = client.getUnsafeApi()
-```
+- **Frontend**: smoldot light client via `getSmProvider` ([apps/frontend/src/lib/smoldot-provider.ts](apps/frontend/src/lib/smoldot-provider.ts))
+- **Node CLI scripts**: WebSocket via `getWsProvider` ([scripts/](scripts/))
 
-**Moral token precision**: 12 decimals (1 MORAL = 1_000_000_000_000 units). Post costs: base 10 MORAL + 0.1 MORAL/byte.
+**MORAL token precision**: 12 decimals (1 MORAL = 1_000_000_000_000 units). Post costs: `PostBaseCost + content_bytes × PostByteCost` (defaults: 10 MORAL + 0.1 MORAL/byte).
 
-**Rust toolchain**: Stable channel with `wasm32v1-none` target and `rust-src` component (configured in `apps/blockchain/rust-toolchain.toml`).
+**Rust toolchain**: Stable channel with `wasm32v1-none` target and `rust-src` component (configured in [apps/blockchain/rust-toolchain.toml](apps/blockchain/rust-toolchain.toml)).
 
 ### AI Agent Rules (non-negotiable)
 
@@ -144,34 +58,11 @@ The following rules must NEVER be violated. Violations completely destroy trustw
 ### Security Principles (non-negotiable)
 
 1. **Network anonymity**: Tor/I2P enforced at libp2p transport layer — no IP metadata leakage
-2. **No raw private keys for users**: WebAuthn + Account Abstraction with Secure Enclave signing
+2. **Client-side key management**: Private keys are held in session memory only. Users authenticate via seed-phrase-derived AccountId (sr25519). Keys are never persisted to browser storage; cross-device access requires a user-exported, password-encrypted backup file.
 3. **Client-side only crypto**: Encryption, SSS fragmentation, metadata stripping must happen client-side before transmission
 4. **Foreground PoW only**: Reaction mining controlled via Page Visibility API
 
-### Pallet Inter-dependencies
-
-The Post pallet depends on `pallet_balances` (via tight coupling with `Config: pallet_balances::Config`) for burning MORAL tokens on post creation. Cost formula: `PostBaseCost + (content_bytes × PostByteCost)`.
-
-### KZG Reward System (pallet-storage)
-
-Storage nodes receive MORAL rewards for provable fragment holding. Key concepts:
-
-- **KZG Commitment**: Polynomial commitment generated from post content shards
-- **Proof Verification**: Storage nodes submit `prove_holding_kzg(fragment_id, kzg_proof)` to claim rewards
-- **Reward Pool**: Post fees flow 90% to reward pool, 10% burned
-- **Score System**: `ScoreProvider` trait for node reputation (default: score=1000, threshold=100)
-- **GC Lifecycle**: Fragment lifecycle StateProposed → Active → ForgettingCandidate → deleted
-
-### Reaction Mining (pallet-reaction)
-
-Users react to posts (Like/Boost/Bad) with PoW proof, authors receive MORAL rewards:
-
-- **PoW Mining**: Client-side Blake2b mining in Web Worker (`apps/frontend/src/workers/miningWorker.ts`)
-- **Difficulty Adjustment**: Dynamic based on network reaction rate (adjusted every `AdjustmentWindow` blocks)
-- **Reward**: Fixed 1 MORAL per successful reaction (capped by pool balance)
-- **Foreground Enforcement**: Page Visibility API pauses mining when tab loses focus
-- **Challenge Expiry**: PoW challenge valid for `ChallengeValidity` blocks (default: 100)
-- **Stealth Recipients**: Optional stealth address for reward destination (pallet-stealth pending)
+詳細チェックリストは [`.claude/skills/security-review/SKILL.md`](.claude/skills/security-review/SKILL.md)。
 
 ### Spec-Driven Development
 

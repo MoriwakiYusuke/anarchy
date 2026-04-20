@@ -74,6 +74,15 @@ pbkdf2 = "0.12"
 hmac = "0.12"
 sha2 = "0.10"
 
+# DM: HKDF key derivation (feature 019)
+hkdf = "0.12"
+
+# DM: Sr25519 inner signature (feature 019)
+schnorrkel = { version = "0.11", default-features = false, features = ["getrandom"] }
+
+# DM: SCALE codec for DmEnvelope encode/decode (feature 019)
+parity-scale-codec = { version = "3", default-features = false, features = ["derive"] }
+
 # Stealth address: Base58 encoding for meta-address
 bs58 = "0.5"
 

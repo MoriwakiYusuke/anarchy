@@ -21,7 +21,8 @@
     "test:consensus": "cd apps/blockchain/tests/integration && ./test_consensus.sh",
     "test:invalid": "cd apps/blockchain/tests/integration && ./test_invalid_data.sh",
     "test:recovery": "cd apps/blockchain/tests/integration && ./test_node_recovery.sh",
-    "test:scalability": "cd apps/blockchain/tests/integration && ./test_scalability.sh"
+    "test:scalability": "cd apps/blockchain/tests/integration && ./test_scalability.sh",
+    "test:dm": "cd apps/blockchain/tests/integration/dm && for t in dm-send-receive.sh dm-stealth-linkage.sh dm-multi-device.sh; do ./$t || exit $?; done"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

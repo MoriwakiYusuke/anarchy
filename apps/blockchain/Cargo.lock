@@ -180,6 +180,7 @@ dependencies = [
  "pallet-balances",
  "pallet-faucet",
  "pallet-grandpa",
+ "pallet-messaging",
  "pallet-nickname",
  "pallet-post",
  "pallet-reaction",
@@ -5485,6 +5486,24 @@ dependencies = [
  "sp-runtime",
  "sp-session",
  "sp-staking",
+]
+
+[[package]]
+name = "pallet-messaging"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "pallet-stealth",
+ "pallet-storage",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]

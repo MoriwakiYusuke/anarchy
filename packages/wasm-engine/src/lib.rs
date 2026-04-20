@@ -5,6 +5,7 @@
 //! - Hybrid: AES-256-GCM暗号 + KZG-VSS鍵分散
 //! - Stealth: EIP-5564互換ステルスアドレス
 
+pub mod dm;
 pub mod kzg;
 mod merkle;
 pub mod stealth;
@@ -47,3 +48,12 @@ pub use stealth::{
     format_meta_address_wasm, generate_stealth_keys, parse_meta_address, scan_transaction,
     MetaAddressParts, StealthAddressResult, StealthKeyPairJs,
 };
+
+// Re-export DM APIs (feature 019)
+pub use dm::decrypt::{dm_decrypt_scan, DmDecryptedEnvelope};
+pub use dm::encrypt::{
+    dm_derive_recipient_stealth, dm_encrypt_and_pad, dm_fragment_ciphertext,
+    dm_generate_sender_stealth, DmEncryptedOutput, DmFragmentedOutput, DmSenderStealth,
+    DmStealthDerivation,
+};
+pub use dm::envelope::dm_compute_inner_signed_hash;

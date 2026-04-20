@@ -1,520 +1,205 @@
 ---
 name: coding-standards
-description: Universal coding standards, best practices, and patterns for TypeScript, JavaScript, React, and Node.js development.
+description: Anarchy プロジェクトのコーディング規約。Rust (FRAME pallet / no_std / wasm32v1-none ランタイム), TypeScript (Next.js + PAPI), 命名、コメント言語 (日本語優先)、ログ/デバッグ規則、エラー処理、import 順、型安全性の指針。新規ファイル追加・既存コード修正時に使用する。
 ---
 
-# Coding Standards & Best Practices
+# Coding Standards — Anarchy
 
-Universal coding standards applicable across all projects.
+プロジェクト共通の非交渉ルールと、言語ごとの規約。
 
-## Code Quality Principles
+## 言語横断ルール
 
-### 1. Readability First
-- Code is read more than written
-- Clear variable and function names
-- Self-documenting code preferred over comments
-- Consistent formatting
+### コメント言語
+- **ドキュメントコメント (doc comment)、インラインコメントとも日本語優先**
+- 外部 OSS 由来のパターンの理由説明は英語で可 (例: frame_support の attribute 意味)
+- ユーザー向けエラーメッセージは i18n key で、**`error.<domain>.<key>`** 形式
 
-### 2. KISS (Keep It Simple, Stupid)
-- Simplest solution that works
-- Avoid over-engineering
-- No premature optimization
-- Easy to understand > clever code
+### 命名
+- Rust: `snake_case` (関数/変数/モジュール), `PascalCase` (型/トレイト/enum/struct), `SCREAMING_SNAKE_CASE` (const)
+- TypeScript: `camelCase` (変数/関数), `PascalCase` (型/クラス/React コンポーネント), `SCREAMING_SNAKE_CASE` (モジュールレベル const), ファイル名は `camelCase.ts` / コンポーネントは `PascalCase.tsx`
+- Extrinsic / runtime API 名は **snake_case** で統一 (例: `publish_dm_key`, `dispatches_at`)、TS 側からも同じ名前で呼ぶ
 
-### 3. DRY (Don't Repeat Yourself)
-- Extract common logic into functions
-- Create reusable components
-- Share utilities across modules
-- Avoid copy-paste programming
+### コメントは「なぜ」を書く
+「何をするか」は識別子で読めるべき。残すべきコメント例:
+- 仕様書への参照 (`// contracts/pallet-messaging-extrinsics.md §R4`)
+- 非自明な制約 (`// MerkleRoot が既存の場合は重複送信 → reject`)
+- パフォーマンス・セキュリティ上の選択理由
 
-### 4. YAGNI (You Aren't Gonna Need It)
-- Don't build features before they're needed
-- Avoid speculative generality
-- Add complexity only when required
-- Start simple, refactor when needed
-
-## TypeScript/JavaScript Standards
-
-### Variable Naming
-
-```typescript
-// ✅ GOOD: Descriptive names
-const marketSearchQuery = 'election'
-const isUserAuthenticated = true
-const totalRevenue = 1000
-
-// ❌ BAD: Unclear names
-const q = 'election'
-const flag = true
-const x = 1000
+消すべきコメント例:
+```rust
+// ❌ 変数を初期化
+let x = 0;
+// ❌ errorの場合は失敗を返す
+return Err(...);
 ```
 
-### Function Naming
+### ログ出力
+- **秘密情報 (private key, seed phrase, session key, signed payload の中身) を絶対に出力しない**
+- Rust runtime: `log::info!/warn!` のみ、`log::debug!` は release build で除去される保証無く wasm binary を肥やすため必要最小限
+- Frontend: `console.log` は PR 前に削除。永続ログは `logger.info()` ラッパ経由で環境変数制御
 
-```typescript
-// ✅ GOOD: Verb-noun pattern
-async function fetchMarketData(marketId: string) { }
-function calculateSimilarity(a: number[], b: number[]) { }
-function isValidEmail(email: string): boolean { }
+## Rust (FRAME Pallet / Runtime)
 
-// ❌ BAD: Unclear or noun-only
-async function market(id: string) { }
-function similarity(a, b) { }
-function email(e) { }
+### no_std 厳守
+全 pallet crate の lib.rs 冒頭:
+```rust
+#![cfg_attr(not(feature = "std"), no_std)]
 ```
 
-### Immutability Pattern (CRITICAL)
+**禁止**:
+- `std::vec::Vec` → `sp_std::vec::Vec`
+- `std::collections::HashMap` → `sp_std::collections::btree_map::BTreeMap`
+- `println!` / `dbg!` → `log::info!`
+- `thread::spawn` / I/O / filesystem アクセス
 
-```typescript
-// ✅ ALWAYS use spread operator
-const updatedUser = {
-  ...user,
-  name: 'New Name'
-}
+### 型安全
+- 全 Storage 型に `MaxEncodedLen` を derive (state growth upper bound 必須)
+- extrinsic 引数の境界値は Config const で明示 (`MaxContentLength`, `MaxDispatchesPerBlock`)
+- overflow 可能な算術は `checked_add` / `checked_mul` + `Error::Overflow` マップ
+- Option は `?` で早期 return、`unwrap` は `#[cfg(test)]` 内のみ許可
 
-const updatedArray = [...items, newItem]
+### Error / Event 定義
+- Error variant は引数無し (Event と分離)
+- Event には副作用の結果を載せる (送信者・受信者・id 等)
+- Error メッセージ文字列は持たせない (variant 名で説明)
 
-// ❌ NEVER mutate directly
-user.name = 'New Name'  // BAD
-items.push(newItem)     // BAD
+### Import 順
+```rust
+// 1. 外部 crate (alphabetical)
+use codec::{Decode, Encode};
+use frame_support::{pallet_prelude::*, traits::fungible::Inspect};
+use frame_system::pallet_prelude::*;
+use sp_runtime::traits::Saturating;
+
+// 2. 兄弟 pallet
+use pallet_storage::StorageInterface;
+
+// 3. 自 crate 内
+use super::*;
+use crate::types::DmDispatch;
 ```
 
-### Error Handling
-
-```typescript
-// ✅ GOOD: Comprehensive error handling
-async function fetchData(url: string) {
-  try {
-    const response = await fetch(url)
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
-
-    return await response.json()
-  } catch (error) {
-    console.error('Fetch failed:', error)
-    throw new Error('Failed to fetch data')
-  }
-}
-
-// ❌ BAD: No error handling
-async function fetchData(url) {
-  const response = await fetch(url)
-  return response.json()
+### doc comment
+```rust
+/// 受信者がステルスアドレスを公開する。
+///
+/// # 失敗条件
+/// - `InvalidMetaAddress`: scan_pub または spend_pub が all-zero
+///
+/// # Events
+/// - `DmKeyPublished { account }`
+///
+/// 契約: contracts/pallet-messaging-extrinsics.md §E1
+pub fn publish_dm_key(origin: OriginFor<T>, meta_address: DmMetaAddress) -> DispatchResult {
+    ...
 }
 ```
 
-### Async/Await Best Practices
+### unsafe
+- runtime コードに `unsafe` は原則禁止
+- wasm-engine 内で `unsafe` を使う場合は **関数単位でガードを SAFETY コメントに書く**
 
+### clippy
+```bash
+cd apps/blockchain && cargo clippy -- -D warnings
+```
+CI で warning = error。新規コードは警告ゼロで merge。
+
+## TypeScript (Next.js Frontend)
+
+### strict モード固定
+`tsconfig.json` で `"strict": true`。`any` / 暗黙 any 禁止 (PAPI の `getUnsafeApi()` 戻り値は暫定 `any` 許容、ただし新規ヘルパ関数で型付けして局所化)。
+
+### 型定義の位置
+- Domain 型は `src/types/<domain>.ts` に集約
+- React コンポーネントの props は同ファイル内 `interface XxxProps`
+- API 境界型 (Wasm / PAPI ↔ app) は別ファイルで定義、そこからだけ import
+
+### React
+- **Server Component デフォルト**。`'use client'` は必要時のみ、ファイル先頭に必ず記載
+- hook 名は `useXxx`、1 hook 1 責務
+- `useEffect` の cleanup を省略しない (特に subscription / timer)
+- key は index を避け、安定な id を使う
+
+### Import 順
 ```typescript
-// ✅ GOOD: Parallel execution when possible
-const [users, markets, stats] = await Promise.all([
-  fetchUsers(),
-  fetchMarkets(),
-  fetchStats()
-])
-
-// ❌ BAD: Sequential when unnecessary
-const users = await fetchUsers()
-const markets = await fetchMarkets()
-const stats = await fetchStats()
+// 1. 標準 / 外部
+import { useState, useCallback } from 'react'
+import { createClient } from 'polkadot-api'
+// 2. alias import (@/...)
+import type { TransferState } from '@/types/transfer'
+import { parseMoralAmount } from '@/types/transfer'
+import { validateSS58Address } from '@/lib/addressValidation'
+// 3. 相対 import
+import { MyLocalHelper } from './helper'
 ```
 
-### Type Safety
+### BigInt リテラル
+- u64/u128 値は必ず BigInt (`1_000_000_000_000n`)
+- 表示時は `formatMoral()` ヘルパ経由で 12 decimal 適用
 
+### 非同期エラー
 ```typescript
-// ✅ GOOD: Proper types
-interface Market {
-  id: string
-  name: string
-  status: 'active' | 'resolved' | 'closed'
-  created_at: Date
-}
-
-function getMarket(id: string): Promise<Market> {
-  // Implementation
-}
-
-// ❌ BAD: Using 'any'
-function getMarket(id: any): Promise<any> {
-  // Implementation
-}
-```
-
-## React Best Practices
-
-### Component Structure
-
-```typescript
-// ✅ GOOD: Functional component with types
-interface ButtonProps {
-  children: React.ReactNode
-  onClick: () => void
-  disabled?: boolean
-  variant?: 'primary' | 'secondary'
-}
-
-export function Button({
-  children,
-  onClick,
-  disabled = false,
-  variant = 'primary'
-}: ButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`btn btn-${variant}`}
-    >
-      {children}
-    </button>
-  )
-}
-
-// ❌ BAD: No types, unclear structure
-export function Button(props) {
-  return <button onClick={props.onClick}>{props.children}</button>
+try {
+  const result = await unsafeApi.tx.Foo.bar().signAndSubmit(signer)
+} catch (err) {
+  // raw message は UI に出さない
+  const userMsg = mapRpcError(err)
+  setError(userMsg)
 }
 ```
 
-### Custom Hooks
-
-```typescript
-// ✅ GOOD: Reusable custom hook
-export function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value)
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value)
-    }, delay)
-
-    return () => clearTimeout(handler)
-  }, [value, delay])
-
-  return debouncedValue
-}
-
-// Usage
-const debouncedQuery = useDebounce(searchQuery, 500)
+### ESLint
+```bash
+cd apps/frontend && pnpm lint
 ```
+CI で error 扱い。`// eslint-disable-next-line` は理由コメント必須。
 
-### State Management
+## Rust ⇄ TypeScript 境界 (Wasm)
 
-```typescript
-// ✅ GOOD: Proper state updates
-const [count, setCount] = useState(0)
+### 型シリアライゼーション
+- `#[wasm_bindgen]` 関数は `Vec<u8>` / `String` / number primitives に限定
+- 複雑構造は JSON serialize して `String` で渡す、または `serde-wasm-bindgen`
+- **bigint は直接渡せない**。u64 は `BigUint64Array` または string 経由
 
-// Functional update for state based on previous state
-setCount(prev => prev + 1)
-
-// ❌ BAD: Direct state reference
-setCount(count + 1)  // Can be stale in async scenarios
-```
-
-### Conditional Rendering
-
-```typescript
-// ✅ GOOD: Clear conditional rendering
-{isLoading && <Spinner />}
-{error && <ErrorMessage error={error} />}
-{data && <DataDisplay data={data} />}
-
-// ❌ BAD: Ternary hell
-{isLoading ? <Spinner /> : error ? <ErrorMessage error={error} /> : data ? <DataDisplay data={data} /> : null}
-```
-
-## API Design Standards
-
-### REST API Conventions
-
-```
-GET    /api/markets              # List all markets
-GET    /api/markets/:id          # Get specific market
-POST   /api/markets              # Create new market
-PUT    /api/markets/:id          # Update market (full)
-PATCH  /api/markets/:id          # Update market (partial)
-DELETE /api/markets/:id          # Delete market
-
-# Query parameters for filtering
-GET /api/markets?status=active&limit=10&offset=0
-```
-
-### Response Format
-
-```typescript
-// ✅ GOOD: Consistent response structure
-interface ApiResponse<T> {
-  success: boolean
-  data?: T
-  error?: string
-  meta?: {
-    total: number
-    page: number
-    limit: number
-  }
-}
-
-// Success response
-return NextResponse.json({
-  success: true,
-  data: markets,
-  meta: { total: 100, page: 1, limit: 10 }
-})
-
-// Error response
-return NextResponse.json({
-  success: false,
-  error: 'Invalid request'
-}, { status: 400 })
-```
-
-### Input Validation
-
-```typescript
-import { z } from 'zod'
-
-// ✅ GOOD: Schema validation
-const CreateMarketSchema = z.object({
-  name: z.string().min(1).max(200),
-  description: z.string().min(1).max(2000),
-  endDate: z.string().datetime(),
-  categories: z.array(z.string()).min(1)
-})
-
-export async function POST(request: Request) {
-  const body = await request.json()
-
-  try {
-    const validated = CreateMarketSchema.parse(body)
-    // Proceed with validated data
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({
-        success: false,
-        error: 'Validation failed',
-        details: error.errors
-      }, { status: 400 })
-    }
-  }
+### エラー
+```rust
+#[wasm_bindgen]
+pub fn dm_encrypt(plaintext: &[u8]) -> Result<Vec<u8>, JsError> {
+    do_encrypt(plaintext).map_err(|e| JsError::new(&format!("encrypt: {}", e)))
 }
 ```
+TS 側で `try/catch`。raw error を UI に見せない。
 
-## File Organization
+## ファイル配置のルール
 
-### Project Structure
-
+### 新規 pallet
 ```
-src/
-├── app/                    # Next.js App Router
-│   ├── api/               # API routes
-│   ├── markets/           # Market pages
-│   └── (auth)/           # Auth pages (route groups)
-├── components/            # React components
-│   ├── ui/               # Generic UI components
-│   ├── forms/            # Form components
-│   └── layouts/          # Layout components
-├── hooks/                # Custom React hooks
-├── lib/                  # Utilities and configs
-│   ├── api/             # API clients
-│   ├── utils/           # Helper functions
-│   └── constants/       # Constants
-├── types/                # TypeScript types
-└── styles/              # Global styles
+apps/blockchain/pallets/<name>/
+  Cargo.toml
+  src/{lib.rs, types.rs, weights.rs, mock.rs, tests.rs}
+```
+必ず runtime の `construct_runtime!` と `Cargo.toml` の両方を更新。
+
+### Frontend 新規機能
+```
+src/app/<feature>/page.tsx         # route
+src/components/<feature>/*.tsx     # UI
+src/hooks/use<Feature>.ts          # state & logic
+src/lib/<feature>/*.ts             # chain / wasm 層
+src/types/<feature>.ts             # 型
 ```
 
-### File Naming
+### テスト配置
+- Rust unit: `<pallet>/src/tests.rs` (mock は同ディレクトリ `mock.rs`)
+- Rust 統合: `apps/blockchain/tests/integration/<domain>/*.sh`
+- Frontend unit: `src/lib/<domain>/__tests__/*.test.ts` または `src/components/<cmp>/<cmp>.test.tsx`
 
-```
-components/Button.tsx          # PascalCase for components
-hooks/useAuth.ts              # camelCase with 'use' prefix
-lib/formatDate.ts             # camelCase for utilities
-types/market.types.ts         # camelCase with .types suffix
-```
+## 禁止事項 (CLAUDE.md の非妥協ルール再掲)
 
-## Comments & Documentation
-
-### When to Comment
-
-```typescript
-// ✅ GOOD: Explain WHY, not WHAT
-// Use exponential backoff to avoid overwhelming the API during outages
-const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
-
-// Deliberately using mutation here for performance with large arrays
-items.push(newItem)
-
-// ❌ BAD: Stating the obvious
-// Increment counter by 1
-count++
-
-// Set name to user's name
-name = user.name
-```
-
-### JSDoc for Public APIs
-
-```typescript
-/**
- * Searches markets using semantic similarity.
- *
- * @param query - Natural language search query
- * @param limit - Maximum number of results (default: 10)
- * @returns Array of markets sorted by similarity score
- * @throws {Error} If OpenAI API fails or Redis unavailable
- *
- * @example
- * ```typescript
- * const results = await searchMarkets('election', 5)
- * console.log(results[0].name) // "Trump vs Biden"
- * ```
- */
-export async function searchMarkets(
-  query: string,
-  limit: number = 10
-): Promise<Market[]> {
-  // Implementation
-}
-```
-
-## Performance Best Practices
-
-### Memoization
-
-```typescript
-import { useMemo, useCallback } from 'react'
-
-// ✅ GOOD: Memoize expensive computations
-const sortedMarkets = useMemo(() => {
-  return markets.sort((a, b) => b.volume - a.volume)
-}, [markets])
-
-// ✅ GOOD: Memoize callbacks
-const handleSearch = useCallback((query: string) => {
-  setSearchQuery(query)
-}, [])
-```
-
-### Lazy Loading
-
-```typescript
-import { lazy, Suspense } from 'react'
-
-// ✅ GOOD: Lazy load heavy components
-const HeavyChart = lazy(() => import('./HeavyChart'))
-
-export function Dashboard() {
-  return (
-    <Suspense fallback={<Spinner />}>
-      <HeavyChart />
-    </Suspense>
-  )
-}
-```
-
-### Database Queries
-
-```typescript
-// ✅ GOOD: Select only needed columns
-const { data } = await supabase
-  .from('markets')
-  .select('id, name, status')
-  .limit(10)
-
-// ❌ BAD: Select everything
-const { data } = await supabase
-  .from('markets')
-  .select('*')
-```
-
-## Testing Standards
-
-### Test Structure (AAA Pattern)
-
-```typescript
-test('calculates similarity correctly', () => {
-  // Arrange
-  const vector1 = [1, 0, 0]
-  const vector2 = [0, 1, 0]
-
-  // Act
-  const similarity = calculateCosineSimilarity(vector1, vector2)
-
-  // Assert
-  expect(similarity).toBe(0)
-})
-```
-
-### Test Naming
-
-```typescript
-// ✅ GOOD: Descriptive test names
-test('returns empty array when no markets match query', () => { })
-test('throws error when OpenAI API key is missing', () => { })
-test('falls back to substring search when Redis unavailable', () => { })
-
-// ❌ BAD: Vague test names
-test('works', () => { })
-test('test search', () => { })
-```
-
-## Code Smell Detection
-
-Watch for these anti-patterns:
-
-### 1. Long Functions
-```typescript
-// ❌ BAD: Function > 50 lines
-function processMarketData() {
-  // 100 lines of code
-}
-
-// ✅ GOOD: Split into smaller functions
-function processMarketData() {
-  const validated = validateData()
-  const transformed = transformData(validated)
-  return saveData(transformed)
-}
-```
-
-### 2. Deep Nesting
-```typescript
-// ❌ BAD: 5+ levels of nesting
-if (user) {
-  if (user.isAdmin) {
-    if (market) {
-      if (market.isActive) {
-        if (hasPermission) {
-          // Do something
-        }
-      }
-    }
-  }
-}
-
-// ✅ GOOD: Early returns
-if (!user) return
-if (!user.isAdmin) return
-if (!market) return
-if (!market.isActive) return
-if (!hasPermission) return
-
-// Do something
-```
-
-### 3. Magic Numbers
-```typescript
-// ❌ BAD: Unexplained numbers
-if (retryCount > 3) { }
-setTimeout(callback, 500)
-
-// ✅ GOOD: Named constants
-const MAX_RETRIES = 3
-const DEBOUNCE_DELAY_MS = 500
-
-if (retryCount > MAX_RETRIES) { }
-setTimeout(callback, DEBOUNCE_DELAY_MS)
-```
-
-**Remember**: Code quality is not negotiable. Clear, maintainable code enables rapid development and confident refactoring.
+1. **偽のタスク完了報告**: 実装前に完了マーク禁止。動作確認 (cargo test / 実行) 必須
+2. **存在しないファイル参照**: 作成/編集を報告する前に必ず tool 呼び出し
+3. **テスト偽成功**: 実出力を確認してから報告
+4. **未実装を「完了」と表記**: コード存在 + コンパイル / build 成功後のみ
+5. **未検証の tasks.md checkbox 変更**: 100% 完了のみ `[X]`
+6. **実装無しの mock-only test**: 実コードの検証を伴うテストのみ許容

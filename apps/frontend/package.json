@@ -29,7 +29,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "smoldot": "^2.0.40",
-    "socks-proxy-agent": "^8.0.5"
+    "socks-proxy-agent": "^8.0.5",
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
