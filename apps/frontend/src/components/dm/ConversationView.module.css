@@ -28,6 +28,24 @@
   word-break: break-all;
 }
 
+.nickname {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.counterpartySub {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
 .empty {
   padding: 2rem 1rem;
   text-align: center;

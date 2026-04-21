@@ -46,20 +46,3 @@
 .primaryBtn:hover {
   opacity: 0.9;
 }
-
-.secondaryBtn {
-  background: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.65rem 1.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: color 0.2s, border-color 0.2s;
-}
-
-.secondaryBtn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-}

@@ -140,10 +140,7 @@ export default function DmPage(): JSX.Element {
       </header>
 
       {!keyLoaded ? (
-        <MissingBackupNotice
-          onImport={() => router.push('/dm/settings')}
-          onPublishNew={() => router.push('/dm/settings')}
-        />
+        <MissingBackupNotice onOpenSettings={() => router.push('/dm/settings')} />
       ) : (
         <>
           <div className={styles.status}>

@@ -6,6 +6,8 @@
  *  - blockList に含まれる counterparty は非表示。
  *  - 未読バッジ (unreadCount > 0) を `aria-label="未読件数"` で描画。
  *  - 空のときはガイダンス文言。
+ *  - counterparty に nickname (pallet-nickname) があれば primary 表示、
+ *    無ければ SS58 アドレスのみ表示する。
  *
  * MVP では route 連携 (`/dm/[conversationId]` への遷移) は親側責務。本コンポーネントは
  * onSelect コールバックを受けるだけにとどめ、Next/Link は使わない (テスト容易性)。
@@ -15,6 +17,7 @@
 
 import { useMemo } from 'react';
 import { useDmStore } from '@/lib/dm/store';
+import { useNicknameOf } from '@/hooks/useNicknameOf';
 import type { AccountId, ConversationState } from '@/lib/dm/types';
 import styles from './ConversationList.module.css';
 
@@ -49,33 +52,50 @@ export function ConversationList({ onSelect }: ConversationListProps): JSX.Eleme
   return (
     <ul className={styles.list} role="list">
       {visibleThreads.map((thread) => (
-        <li
+        <ConversationRow
           key={thread.counterparty}
-          role="listitem"
-          className={styles.item}
-        >
-          <button
-            type="button"
-            onClick={() => onSelect?.(thread.counterparty)}
-            className={styles.row}
-          >
-            <span className={styles.counterparty}>
-              {thread.counterparty}
-            </span>
-            <span className={styles.lastBlock}>
-              #{thread.lastActivityBlock.toString()}
-            </span>
-            {thread.unreadCount > 0 ? (
-              <span
-                aria-label="未読件数"
-                className={styles.unreadBadge}
-              >
-                {thread.unreadCount}
-              </span>
-            ) : null}
-          </button>
-        </li>
+          thread={thread}
+          onSelect={onSelect}
+        />
       ))}
     </ul>
+  );
+}
+
+function ConversationRow({
+  thread,
+  onSelect,
+}: {
+  thread: ConversationState;
+  onSelect?: (counterparty: AccountId) => void;
+}): JSX.Element {
+  const nickname = useNicknameOf(thread.counterparty);
+  return (
+    <li role="listitem" className={styles.item}>
+      <button
+        type="button"
+        onClick={() => onSelect?.(thread.counterparty)}
+        className={styles.row}
+      >
+        <span className={styles.identity}>
+          {nickname ? (
+            <>
+              <span className={styles.nickname}>{nickname}</span>
+              <span className={styles.counterparty}>{thread.counterparty}</span>
+            </>
+          ) : (
+            <span className={styles.counterpartyBig}>{thread.counterparty}</span>
+          )}
+        </span>
+        <span className={styles.lastBlock}>
+          #{thread.lastActivityBlock.toString()}
+        </span>
+        {thread.unreadCount > 0 ? (
+          <span aria-label="未読件数" className={styles.unreadBadge}>
+            {thread.unreadCount}
+          </span>
+        ) : null}
+      </button>
+    </li>
   );
 }

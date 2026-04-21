@@ -17,6 +17,7 @@
 import { useEffect, useMemo } from 'react';
 import { useDmStore, receiptKey } from '@/lib/dm/store';
 import { sendDmReceipt } from '@/lib/dm/receipt';
+import { useNicknameOf } from '@/hooks/useNicknameOf';
 import { MessageComposer } from './MessageComposer';
 import type { SendDmContext } from '@/lib/dm/sender';
 import type { AccountId, ConversationState, DmMessageRecord } from '@/lib/dm/types';
@@ -39,6 +40,7 @@ export function ConversationView({
     (s: { conversations: Map<AccountId, ConversationState> }) => s.conversations,
   );
   const conv = conversations.get(conversationId);
+  const nickname = useNicknameOf(conversationId);
 
   const messages = useMemo(() => conv?.messages ?? [], [conv]);
 
@@ -68,7 +70,14 @@ export function ConversationView({
       <header className={styles.header}>
         <h2 className={styles.headerTitle}>
           相手
-          <span className={styles.counterparty}>{conversationId}</span>
+          {nickname ? (
+            <>
+              <span className={styles.nickname}>{nickname}</span>
+              <span className={styles.counterpartySub}>{conversationId}</span>
+            </>
+          ) : (
+            <span className={styles.counterparty}>{conversationId}</span>
+          )}
         </h2>
       </header>
       {messages.length === 0 ? (

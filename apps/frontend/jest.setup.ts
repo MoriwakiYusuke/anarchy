@@ -30,3 +30,7 @@ const localStorageMock = {
 Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
 });
+
+jest.mock('@/hooks/useNicknameOf', () => ({
+  useNicknameOf: () => null,
+}));
