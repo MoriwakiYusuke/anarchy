@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { useDmStore } from '@/lib/dm/store';
 import type { AccountId } from '@/lib/dm/types';
+import styles from './BlockListManager.module.css';
 
 export function BlockListManager(): JSX.Element {
   const blockList = useDmStore((s: { blockList: Set<AccountId> }) => s.blockList);
@@ -35,33 +36,38 @@ export function BlockListManager(): JSX.Element {
   };
 
   return (
-    <section className="dm-block-list">
-      <h3>ブロック中のアカウント</h3>
+    <section className={styles.section}>
+      <h3 className={styles.title}>ブロック中のアカウント</h3>
       {entries.length === 0 ? (
-        <p>ブロック中のアカウントはありません。</p>
+        <p className={styles.empty}>ブロック中のアカウントはありません。</p>
       ) : (
-        <ul>
+        <ul className={styles.list}>
           {entries.map((account) => (
-            <li key={account}>
-              <span>{account}</span>
-              <button type="button" onClick={() => unblockSender(account)}>
+            <li key={account} className={styles.item}>
+              <span className={styles.account}>{account}</span>
+              <button
+                type="button"
+                onClick={() => unblockSender(account)}
+                className={styles.unblockBtn}
+              >
                 解除
               </button>
             </li>
           ))}
         </ul>
       )}
-      <form onSubmit={handleAdd}>
-        <label>
-          ブロックする SS58 アドレス:
+      <form onSubmit={handleAdd} className={styles.form}>
+        <label className={styles.field}>
+          <span className={styles.label}>ブロックする SS58 アドレス</span>
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="5..."
+            className={styles.input}
           />
         </label>
-        <button type="submit" disabled={!input.trim()}>
+        <button type="submit" disabled={!input.trim()} className={styles.addBtn}>
           追加
         </button>
       </form>

@@ -20,6 +20,7 @@ import { sendDmReceipt } from '@/lib/dm/receipt';
 import { MessageComposer } from './MessageComposer';
 import type { SendDmContext } from '@/lib/dm/sender';
 import type { AccountId, ConversationState, DmMessageRecord } from '@/lib/dm/types';
+import styles from './ConversationView.module.css';
 
 export interface ConversationViewProps {
   conversationId: AccountId;
@@ -63,21 +64,24 @@ export function ConversationView({
   }, [context, conversationId, messages]);
 
   return (
-    <section className="dm-conversation-view" aria-label={`会話: ${conversationId}`}>
-      <header className="dm-conversation-view__header">
-        <h2>{conversationId}</h2>
+    <section className={styles.view} aria-label={`会話: ${conversationId}`}>
+      <header className={styles.header}>
+        <h2 className={styles.headerTitle}>
+          相手
+          <span className={styles.counterparty}>{conversationId}</span>
+        </h2>
       </header>
       {messages.length === 0 ? (
-        <p className="dm-conversation-view__empty">メッセージはまだありません。</p>
+        <p className={styles.empty}>メッセージはまだありません。</p>
       ) : (
-        <ol className="dm-conversation-view__messages">
+        <ol className={styles.messages}>
           {messages.map((m) => (
             <MessageBubble key={messageKey(m)} message={m} />
           ))}
         </ol>
       )}
       {context ? (
-        <div className="dm-conversation-view__composer">
+        <div className={styles.composer}>
           <MessageComposer counterparty={conversationId} context={context} />
         </div>
       ) : null}
@@ -102,20 +106,30 @@ function MessageBubble({ message }: { message: DmMessageRecord }): JSX.Element {
   }
 
   const text = decodeBody(message.body);
+  const bubbleClass =
+    message.direction === 'outgoing'
+      ? `${styles.bubble} ${styles.bubbleOutgoing}`
+      : `${styles.bubble} ${styles.bubbleIncoming}`;
+  const deliveryClass =
+    message.deliveryState === 'read'
+      ? `${styles.deliveryState} ${styles.deliveryStateRead}`
+      : message.deliveryState === 'delivered'
+        ? `${styles.deliveryState} ${styles.deliveryStateDelivered}`
+        : `${styles.deliveryState} ${styles.deliveryStateSent}`;
 
   return (
     <li
       data-testid="dm-message-bubble"
       data-direction={message.direction}
       data-body-state={message.bodyState}
-      className={`dm-message-bubble dm-message-bubble--${message.direction}`}
+      className={bubbleClass}
     >
-      <p className="dm-message-bubble__body">{text}</p>
+      <p className={styles.body}>{text}</p>
       {message.direction === 'outgoing' && message.deliveryState ? (
         <span
           aria-label="配信状態"
           data-delivery-state={message.deliveryState}
-          className={`dm-message-bubble__delivery-state dm-message-bubble__delivery-state--${message.deliveryState}`}
+          className={deliveryClass}
         >
           {DELIVERY_STATE_LABEL[message.deliveryState]}
         </span>
@@ -133,9 +147,9 @@ function GarbageCollectedBubble({ message }: { message: DmMessageRecord }): JSX.
       data-testid="dm-message-bubble"
       data-direction={message.direction}
       data-body-state="garbage_collected"
-      className="dm-message-bubble dm-message-bubble--gc"
+      className={`${styles.bubble} ${styles.bubbleGc}`}
     >
-      <p className="dm-message-bubble__placeholder">履歴は取得できません</p>
+      <p className={styles.placeholder}>履歴は取得できません</p>
     </li>
   );
 }

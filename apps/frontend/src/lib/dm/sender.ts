@@ -57,10 +57,30 @@ export interface SendDmContext {
   mainSigner: PolkadotSigner;
   /** 送信者メインアカウントの Sr25519 公開鍵 (= AccountId32 raw 32B)。 */
   mainAccountPublicKey: Uint8Array;
+  /** 送信者メインアカウントの raw sr25519 signer。`inner_signed_hash` (W6) の
+   *  署名に使う。`PolkadotSigner.signBytes` は `<Bytes>...</Bytes>` wrap をする
+   *  ため受信側 `dm_decrypt_scan` の `signature_valid` が false になる。
+   *  `@polkadot/keyring` の `pair.sign(msg)` をそのまま渡す想定。 */
+  mainRawSigner?: StorageSigner;
   /** Storage-node JSON-RPC エンドポイント。例: `http://127.0.0.1:3030`。 */
   storageEndpoint: string;
+  /** Storage-node 認証用 raw Sr25519 signer。`X-Anarchy-Auth` / `X-Chain-Auth`
+   *  ヘッダー署名に使う (substrate context)。PolkadotSigner.signBytes は
+   *  `<Bytes>` wrap をするため不適合。省略時は認証ヘッダ無しで送信 (auth 無効な
+   *  dev storage-node でのみ動作)。 */
+  storageSigner?: StorageSigner;
   /** UI 進捗報告コールバック (FR-025)。 */
   onProgress?: (step: SendDmProgress) => void;
+}
+
+/**
+ * Storage-node 認証用の raw sr25519 signer。`@polkadot/keyring` の
+ * `pair.sign(msg)` が substrate signing context を適用するため、それをそのまま
+ * `sign` として渡す想定。
+ */
+export interface StorageSigner {
+  publicKey: Uint8Array;
+  sign: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
 }
 
 export type SendDmProgress =
@@ -144,22 +164,100 @@ function toHex(bytes: Uint8Array): string {
 }
 
 /**
+ * storage-node 認証ヘッダー (`X-Anarchy-Auth` / `X-Chain-Auth`) を作成する。
+ *
+ * X-Anarchy-Auth:
+ *   message = publicKey(32B) || timestamp_le(8B) || nonce(16B) || payloadHash(32B)
+ *   payloadHash = blake2b256(JSON.stringify(sortedParamsWithoutAuth))
+ *
+ * X-Chain-Auth:
+ *   message = utf8("chain-auth:{timestamp}:{method}")
+ *   (impersonation 許容 = どの sr25519 鍵でも可)
+ *
+ * どちらも sr25519 raw 署名 (schnorrkel + "substrate" signing context)。
+ * `@polkadot/keyring` の `pair.sign` がこの形式。
+ */
+async function buildStorageAuthHeaders(
+  signer: StorageSigner,
+  params: Record<string, unknown>,
+  method: string,
+): Promise<Record<string, string>> {
+  const { blake2b } = await import('blakejs');
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const nonce = new Uint8Array(16);
+  crypto.getRandomValues(nonce);
+
+  // NOTE: storage-node の `extract_and_hash_params` は serde_json のデフォルト
+  //  (= キーを alphabetical 順に) でシリアライズ後に Blake2b-256 を計算する。
+  //  フロント側で明示的に sort してから JSON.stringify する必要がある。
+  const sortedParams = Object.keys(params)
+    .sort()
+    .reduce<Record<string, unknown>>((acc, key) => {
+      acc[key] = params[key];
+      return acc;
+    }, {});
+  const paramsJson = JSON.stringify(sortedParams);
+  const payloadHash = blake2b(new TextEncoder().encode(paramsJson), undefined, 32);
+
+  // X-Anarchy-Auth: account_id(32) || timestamp_le_u64(8) || nonce(16) || payload_hash(32)
+  const authMsg = new Uint8Array(32 + 8 + 16 + 32);
+  authMsg.set(signer.publicKey, 0);
+  new DataView(authMsg.buffer).setBigUint64(32, BigInt(timestamp), true);
+  authMsg.set(nonce, 40);
+  authMsg.set(payloadHash, 56);
+  const anarchySig = await signer.sign(authMsg);
+
+  const xAnarchyAuth = JSON.stringify({
+    account_id: toHex(signer.publicKey),
+    timestamp,
+    nonce: toHex(nonce),
+    payload_hash: toHex(payloadHash),
+    signature: toHex(anarchySig),
+  });
+
+  // X-Chain-Auth: "chain-auth:{timestamp}:{method}" の utf8 署名
+  const chainMsg = new TextEncoder().encode(`chain-auth:${timestamp}:${method}`);
+  const chainSig = await signer.sign(chainMsg);
+  const xChainAuth = JSON.stringify({
+    public_key: toHex(signer.publicKey),
+    timestamp,
+    method,
+    signature: toHex(chainSig),
+  });
+
+  return {
+    'X-Anarchy-Auth': xAnarchyAuth,
+    'X-Chain-Auth': xChainAuth,
+  };
+}
+
+/**
  * Storage-node に fragments を並列アップロードする。`k` 個 ACK 達成で OK。
  * 30 秒の retry 窓内に届かなければ `DmError.StorageInsufficient` を throw。
  *
  * **MVP 版**: 単一 storage-node エンドポイントに n フラグメントを送る (k=n=1
  * 等の構成でも動作)。複数エンドポイントへの fan-out は後続タスクで拡張する。
+ *
+ * `signer` を渡すと `storage_storeFragment` に必要な `X-Anarchy-Auth` /
+ * `X-Chain-Auth` ヘッダを付加する (FR-201)。省略すると認証無しで送信する。
  */
 export async function uploadFragments(
   endpoint: string,
   merkleRoot: Uint8Array,
   fragments: Array<{ index: number; data: Uint8Array }>,
   k: number,
-  options: { retryWindowMs?: number; fetchImpl?: typeof fetch } = {},
+  totalLeaves: number,
+  options: {
+    retryWindowMs?: number;
+    fetchImpl?: typeof fetch;
+    signer?: StorageSigner;
+  } = {},
 ): Promise<number> {
   const start = Date.now();
   const window = options.retryWindowMs ?? 30_000;
   const fetchFn = options.fetchImpl ?? fetch;
+  const signer = options.signer;
   const ok = new Set<number>();
   let attempt = 0;
 
@@ -168,18 +266,37 @@ export async function uploadFragments(
     const pending = fragments.filter((f) => !ok.has(f.index));
     const results = await Promise.allSettled(
       pending.map(async (f) => {
-        const res = await fetchFn(`${endpoint}/rpc`, {
+        // StoreFragmentParams (storage-node): merkle_root = [u8; 32] なので
+        // JSON 上は number 配列で送る。proof / total_leaves は必須フィールド
+        // (実装側では現状検証していないが、serde デシリアライズでは required)。
+        const params: Record<string, unknown> = {
+          merkle_root: Array.from(merkleRoot),
+          index: f.index,
+          data: toBase64(f.data),
+          proof: toBase64(new Uint8Array()),
+          total_leaves: totalLeaves,
+        };
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (signer) {
+          const authHeaders = await buildStorageAuthHeaders(
+            signer,
+            params,
+            'storage_storeFragment',
+          );
+          Object.assign(headers, authHeaders);
+        }
+
+        const res = await fetchFn(`${endpoint}/`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             jsonrpc: '2.0',
             id: f.index,
             method: 'storage_storeFragment',
-            params: {
-              merkle_root: toHex(merkleRoot),
-              index: f.index,
-              data: toBase64(f.data),
-            },
+            params,
           }),
         });
         if (!res.ok) throw new Error(`http ${res.status}`);
@@ -232,7 +349,15 @@ export async function sendDm(
   params: SendDmParams,
   ctx: SendDmContext,
 ): Promise<SendDmResult> {
-  const { api, mainSigner, mainAccountPublicKey, storageEndpoint, onProgress } = ctx;
+  const {
+    api,
+    mainSigner,
+    mainAccountPublicKey,
+    mainRawSigner,
+    storageEndpoint,
+    storageSigner,
+    onProgress,
+  } = ctx;
   if (!api) throw new Error('api unavailable');
   if (mainAccountPublicKey.length !== 32) {
     throw new Error('mainAccountPublicKey must be 32 bytes');
@@ -247,8 +372,28 @@ export async function sendDm(
   const wasm = await getWasm();
 
   // ---- Step 1: recipient reception key ----
-  const recipient = await typed.apis.DmScanApi.reception_key(params.recipientAccountId);
-  if (!recipient) throw new Error(DmError.RecipientKeyNotPublished);
+  const rawRecipient = (await typed.apis.DmScanApi.reception_key(
+    params.recipientAccountId,
+  )) as unknown as
+    | null
+    | undefined
+    | {
+        scan_pub?: { asBytes?: () => Uint8Array } | Uint8Array;
+        spend_pub?: { asBytes?: () => Uint8Array } | Uint8Array;
+        scanPub?: Uint8Array;
+        spendPub?: Uint8Array;
+      };
+  if (!rawRecipient) throw new Error(DmError.RecipientKeyNotPublished);
+  const toBytes = (v: unknown): Uint8Array => {
+    if (v instanceof Uint8Array) return v;
+    const withAsBytes = v as { asBytes?: () => Uint8Array };
+    if (withAsBytes?.asBytes) return withAsBytes.asBytes();
+    throw new Error('recipient meta_address field has unexpected shape');
+  };
+  const recipient: { scanPub: Uint8Array; spendPub: Uint8Array } = {
+    scanPub: toBytes(rawRecipient.scan_pub ?? rawRecipient.scanPub),
+    spendPub: toBytes(rawRecipient.spend_pub ?? rawRecipient.spendPub),
+  };
 
   // ---- Step 2 prep: ephemeral X25519 priv + stealth pre-derive (W5) ----
   const ephPriv = randomEphemeralPriv();
@@ -273,7 +418,13 @@ export async function sendDm(
     timestampMs,
     body,
   );
-  const senderSignature = await mainSigner.signBytes(new Uint8Array(sigHash));
+  // inner_signed_hash は raw sr25519 で署名する必要がある。PolkadotSigner.signBytes
+  // は `<Bytes>...</Bytes>` wrap をしてしまい dm_decrypt_scan の signature_valid が
+  // false になるため不可。mainRawSigner (keyring pair.sign) を優先し、無ければ
+  // main signer にフォールバック (後者は dev 時以外互換性なし)。
+  const senderSignature = mainRawSigner
+    ? await Promise.resolve(mainRawSigner.sign(new Uint8Array(sigHash)))
+    : await mainSigner.signBytes(new Uint8Array(sigHash));
   if (senderSignature.length !== 64) {
     throw new Error(`expected 64-byte signature, got ${senderSignature.length}`);
   }
@@ -306,7 +457,9 @@ export async function sendDm(
 
   // ---- Step 5: storage upload (k-of-n ACK) ----
   onProgress?.({ kind: 'uploading', uploaded: 0, total: fragments.length });
-  await uploadFragments(storageEndpoint, merkleRoot, fragments, k);
+  await uploadFragments(storageEndpoint, merkleRoot, fragments, k, n, {
+    signer: storageSigner,
+  });
   onProgress?.({ kind: 'uploading', uploaded: fragments.length, total: fragments.length });
 
   // ---- Step 6: fresh sender stealth (W3) ----
@@ -369,9 +522,16 @@ export async function sendDm(
 
     onProgress?.({ kind: 'done' });
 
+    const blockNumber = BigInt(tx2Result.block.number);
+    // scanner.ts の deriveMessageId と同じ u64 messageId を使う (merkleRoot[0..8])。
+    // receipt wire format が u64 で運ぶため u64 範囲内に収める必要がある。
+    let messageId = 0n;
+    for (let i = 0; i < 8 && i < merkleRoot.length; i += 1) {
+      messageId = (messageId << 8n) | BigInt(merkleRoot[i]);
+    }
     return {
-      messageId: 0n, // TODO: parse from `DmDispatched` event in tx2 result
-      blockNumber: BigInt(tx2Result.block.number),
+      messageId,
+      blockNumber,
       recipientStealth: recipientStealthSs58 as AccountId,
       merkleRoot,
       paddingBucket,
@@ -382,6 +542,7 @@ export async function sendDm(
     senderStealthSeed.fill(0);
   }
 }
+
 
 /**
  * 32B のランダム X25519 priv。`crypto.getRandomValues` が無い環境 (古い Node.js)

@@ -13,7 +13,8 @@
 
 import type { ScanContext } from './scanner';
 import { scanDmInbox } from './scanner';
-import { useDmStore } from './store';
+import { useDmStore, receiptKey } from './store';
+import type { DmMessageRecord } from './types';
 
 export const FOREGROUND_INTERVAL_MS = 15_000;
 export const BACKGROUND_INTERVAL_MS = 5 * 60_000;
@@ -22,6 +23,10 @@ export interface DmScanLoopOptions {
   /** Scan 1 回ぶんを実行するための context 工場。呼び出し毎に最新の
    *  `lastScannedBlock` を反映するため、関数で受け取る (毎ループ再評価)。 */
   buildContext: () => ScanContext | null;
+  /** 新着 incoming message が入るごとに呼ばれる (FR-016a `delivered` 遷移用)。
+   *  実装側で `sendDmReceipt({kind:'delivered'})` を発火する想定。副作用のみで
+   *  戻り値は使わない。エラーは呼び出し側で握り潰して欲しい。 */
+  onNewIncoming?: (msg: DmMessageRecord) => void;
   /** 失敗時の handler。デフォルトは `console.error`。 */
   onError?: (err: unknown) => void;
   /** タイマー注入 (テスト用)。 */
@@ -79,6 +84,19 @@ export function startDmScanLoop(options: DmScanLoopOptions): DmScanLoopHandle {
       const store = useDmStore.getState();
       for (const msg of result.newMessages) {
         store.addIncoming(msg);
+        // FR-016a: incoming を store に入れたら、相手 (=counterparty) へ 'delivered' を返す。
+        // idempotent: sentReceipts に記録済みなら skip (再スキャン / hot reload 耐性)。
+        if (options.onNewIncoming && msg.direction === 'incoming') {
+          const key = receiptKey(msg.counterparty, msg.messageId, 'delivered');
+          if (!store.sentReceipts.has(key)) {
+            store.rememberReceiptSent(key);
+            try {
+              options.onNewIncoming(msg);
+            } catch (err) {
+              onError(err);
+            }
+          }
+        }
       }
       // T077/T078: receipt は送信側の outgoing 履歴に当たる。送信側 (= 自分) から見て
       // counterparty へ向けた outgoing message の deliveryState を前進させる。

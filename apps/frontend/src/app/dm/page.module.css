@@ -1,0 +1,140 @@
+.main {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.title .accent {
+  color: var(--accent);
+}
+
+.nav {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.navLink {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.navLink:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.status {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.scanning {
+  color: #22c55e;
+}
+
+.idle {
+  color: var(--text-secondary);
+}
+
+.blockNumber {
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: var(--text-secondary);
+}
+
+.listWrapper {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.composeSection {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.composeLabel {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.composeRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.composeInput {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  transition: border-color 0.2s;
+}
+
+.composeInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.composeBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 1.2rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.composeBtn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.composeBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

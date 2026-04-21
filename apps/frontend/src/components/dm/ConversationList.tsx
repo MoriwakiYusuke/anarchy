@@ -16,6 +16,7 @@
 import { useMemo } from 'react';
 import { useDmStore } from '@/lib/dm/store';
 import type { AccountId, ConversationState } from '@/lib/dm/types';
+import styles from './ConversationList.module.css';
 
 export interface ConversationListProps {
   onSelect?: (counterparty: AccountId) => void;
@@ -32,7 +33,6 @@ export function ConversationList({ onSelect }: ConversationListProps): JSX.Eleme
       (c) => !c.blocked && !blockList.has(c.counterparty),
     );
     return all.sort((a, b) => {
-      // bigint 同士の引き算は許可されているが、比較演算でも十分。
       if (a.lastActivityBlock === b.lastActivityBlock) return 0;
       return a.lastActivityBlock < b.lastActivityBlock ? 1 : -1;
     });
@@ -40,35 +40,35 @@ export function ConversationList({ onSelect }: ConversationListProps): JSX.Eleme
 
   if (visibleThreads.length === 0) {
     return (
-      <div role="status" className="dm-conversation-list--empty">
+      <div role="status" className={styles.empty}>
         まだメッセージはありません。新しい DM を送信するとここに表示されます。
       </div>
     );
   }
 
   return (
-    <ul className="dm-conversation-list" role="list">
+    <ul className={styles.list} role="list">
       {visibleThreads.map((thread) => (
         <li
           key={thread.counterparty}
           role="listitem"
-          className="dm-conversation-list__item"
+          className={styles.item}
         >
           <button
             type="button"
             onClick={() => onSelect?.(thread.counterparty)}
-            className="dm-conversation-list__row"
+            className={styles.row}
           >
-            <span className="dm-conversation-list__counterparty">
+            <span className={styles.counterparty}>
               {thread.counterparty}
             </span>
-            <span className="dm-conversation-list__last-block">
-              block #{thread.lastActivityBlock.toString()}
+            <span className={styles.lastBlock}>
+              #{thread.lastActivityBlock.toString()}
             </span>
             {thread.unreadCount > 0 ? (
               <span
                 aria-label="未読件数"
-                className="dm-conversation-list__unread-badge"
+                className={styles.unreadBadge}
               >
                 {thread.unreadCount}
               </span>

@@ -190,9 +190,11 @@ describe('scanner.scanDmInbox', () => {
     await scanDmInbox({ ...ctxBase, api, toBlockOverride: head });
 
     expect(rangeCalls).toHaveLength(3);
-    expect(rangeCalls[0]).toEqual([1n, SCAN_PAGE_SIZE]);
-    expect(rangeCalls[1]).toEqual([SCAN_PAGE_SIZE + 1n, SCAN_PAGE_SIZE * 2n]);
-    expect(rangeCalls[2]).toEqual([SCAN_PAGE_SIZE * 2n + 1n, head]);
+    // scanner converts bigints to numbers for PAPI compatibility (metadata v16
+    // dispatches_range signature expects u32, not bigint).
+    expect(rangeCalls[0]).toEqual([1, Number(SCAN_PAGE_SIZE)]);
+    expect(rangeCalls[1]).toEqual([Number(SCAN_PAGE_SIZE + 1n), Number(SCAN_PAGE_SIZE * 2n)]);
+    expect(rangeCalls[2]).toEqual([Number(SCAN_PAGE_SIZE * 2n + 1n), Number(head)]);
   });
 
   it('reads bestHead from query.System.Number when toBlockOverride absent', async () => {

@@ -13,6 +13,7 @@ import type {
   ScanDmResult,
 } from './types';
 import { decodeReceiptBody, type DmReceiptPayload } from './receipt';
+import type { StorageSigner } from './sender';
 
 type WasmModule = typeof import('anarchy-wasm-engine');
 let wasmModule: WasmModule | null = null;
@@ -42,9 +43,9 @@ interface DmScanPapi {
   apis: {
     DmScanApi: {
       dispatches_range: (
-        from: bigint,
-        to: bigint,
-      ) => Promise<Array<[bigint, DmDispatch[]]>>;
+        from: number,
+        to: number,
+      ) => Promise<Array<[bigint | number, DmDispatch[]]>>;
     };
   };
   query: {
@@ -74,6 +75,14 @@ export interface ScanContext {
   lastScannedBlock: bigint;
   /** スキャン上限 (省略時は best head)。テスト時に上限を固定するために露出。 */
   toBlockOverride?: bigint;
+  /** Storage-node JSON-RPC エンドポイント (例: `http://127.0.0.1:3030`)。
+   *  設定されている場合、dispatch 毎に `storage_getFragment` で ciphertext を
+   *  再構成してから `dm_decrypt_scan` にかける。未設定 or 取得失敗時はテスト用の
+   *  `dispatch.ciphertext` フィールドへ fallback。 */
+  storageEndpoint?: string;
+  /** Storage-node 認証用 signer (X-Chain-Auth ヘッダ)。getFragment は
+   *  X-Anarchy-Auth 不要だが、middleware が X-Chain-Auth を必須とするため署名が必要。 */
+  storageSigner?: StorageSigner;
 }
 
 /**
@@ -115,18 +124,34 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
     const pageEnd = cursor + SCAN_PAGE_SIZE - 1n > bestHead
       ? bestHead
       : cursor + SCAN_PAGE_SIZE - 1n;
-    const page = await typed.apis.DmScanApi.dispatches_range(cursor, pageEnd);
+    const page = await typed.apis.DmScanApi.dispatches_range(
+      Number(cursor),
+      Number(pageEnd),
+    );
 
     for (const [blockNumber, dispatches] of page) {
-      for (const dispatch of dispatches) {
+      const bn = typeof blockNumber === 'bigint' ? blockNumber : BigInt(blockNumber);
+      for (const rawDispatch of dispatches) {
+        const dispatch = normalizeDispatch(rawDispatch);
         const withCipher = dispatch as DmDispatch & { ciphertext?: Uint8Array };
+        // ciphertext が dispatch に含まれない場合は storage-node から再構成する。
+        if (!withCipher.ciphertext && ctx.storageEndpoint) {
+          const reconstructed = await fetchCiphertextFromStorage(
+            ctx.storageEndpoint,
+            new Uint8Array(dispatch.content.root),
+            dispatch.content.n,
+            Number(dispatch.content.ciphertextLen),
+            ctx.storageSigner,
+          );
+          if (reconstructed) withCipher.ciphertext = reconstructed;
+        }
         if (!withCipher.ciphertext) {
           // T094: ciphertext を再構成できない (storage-node から取得不能 / GC 済み) ケース。
           // 自分宛か判定できないため、宛先 placeholder として MerkleRoot 由来の counterparty を使う。
           // UI 側 (T094 GarbageCollectedBubble) は body を一切表示しないため、平文漏洩リスクは無い。
           newMessages.push({
-            messageId: deriveMessageId(blockNumber, dispatch),
-            blockNumber: BigInt(blockNumber),
+            messageId: deriveMessageId(bn, dispatch),
+            blockNumber: bn,
             direction: 'incoming',
             counterparty: gcPlaceholderCounterparty(dispatch.content.root),
             timestampMs: 0,
@@ -156,8 +181,8 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
         }
 
         newMessages.push({
-          messageId: deriveMessageId(blockNumber, dispatch),
-          blockNumber: BigInt(blockNumber),
+          messageId: deriveMessageId(bn, dispatch),
+          blockNumber: bn,
           direction: 'incoming',
           counterparty,
           timestampMs: Number(decrypted.timestamp_ms),
@@ -176,6 +201,111 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
     newMessages,
     newReceipts,
   };
+}
+
+function toHexStr(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 1) s += bytes[i].toString(16).padStart(2, '0');
+  return s;
+}
+
+function fromBase64(b64: string): Uint8Array {
+  if (typeof atob === 'function') {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  return new Uint8Array(Buffer.from(b64, 'base64'));
+}
+
+/**
+ * storage-node の `X-Chain-Auth` ヘッダを作る。getFragment は read API のため
+ * `X-Anarchy-Auth` は不要だが、middleware が X-Chain-Auth 必須なので付ける。
+ * 署名対象: `"chain-auth:{timestamp}:{method}"` (impersonation 許容)。
+ */
+async function buildChainAuthHeader(
+  signer: StorageSigner,
+  method: string,
+): Promise<string> {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const msg = new TextEncoder().encode(`chain-auth:${timestamp}:${method}`);
+  const sig = await signer.sign(msg);
+  return JSON.stringify({
+    public_key: toHexStr(signer.publicKey),
+    timestamp,
+    method,
+    signature: toHexStr(sig),
+  });
+}
+
+/**
+ * storage-node から n 個のフラグメントを並列取得して ciphertext を再構成する。
+ * `dm_fragment_ciphertext` は等分割 (ceil(len/n) byte の chunk) なので、
+ * 取得できたフラグメントを index 順に連結し `ciphertextLen` で切り詰めれば OK。
+ * 1 つでも取得失敗したら `null` を返す。
+ */
+async function fetchCiphertextFromStorage(
+  endpoint: string,
+  merkleRoot: Uint8Array,
+  n: number,
+  ciphertextLen: number,
+  signer?: StorageSigner,
+): Promise<Uint8Array | null> {
+  if (!signer) return null;
+  const method = 'storage_getFragment';
+  const chainAuth = await buildChainAuthHeader(signer, method);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Chain-Auth': chainAuth,
+  };
+
+  const tasks: Promise<Uint8Array | null>[] = [];
+  for (let i = 0; i < n; i += 1) {
+    tasks.push(
+      (async (): Promise<Uint8Array | null> => {
+        try {
+          const res = await fetch(`${endpoint}/`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: i,
+              method,
+              params: {
+                merkle_root: Array.from(merkleRoot),
+                index: i,
+              },
+            }),
+          });
+          if (!res.ok) return null;
+          const body = (await res.json()) as {
+            result?: { data?: string };
+            error?: unknown;
+          };
+          if (body.error || !body.result?.data) return null;
+          return fromBase64(body.result.data);
+        } catch {
+          return null;
+        }
+      })(),
+    );
+  }
+  const parts = await Promise.all(tasks);
+  // すべての index が揃っていることを要求 (MVP: k-of-n 再構成は等分割には不要)。
+  for (const p of parts) if (!p) return null;
+
+  const total = parts.reduce((acc, p) => acc + (p ? p.length : 0), 0);
+  const ct = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) {
+    if (!p) return null;
+    ct.set(p, off);
+    off += p.length;
+  }
+  // dm_fragment_ciphertext は padding なしで分割するので len は一致するはずだが、
+  // 念のため ciphertextLen で切り詰める。
+  return ct.length >= ciphertextLen ? ct.slice(0, ciphertextLen) : null;
 }
 
 /**
@@ -220,15 +350,54 @@ function decryptOne(
 }
 
 /**
- * `DmDispatch` から「ブロック内で一意な messageId」を導出する。pallet 側 NextMessageId
- * を直接取得する API がまだ無いので、暫定的に `(blockNumber << 32) | merkleRootLo32`
- * のハッシュ的疑似 ID を使う。後続 (T077 等) で event ペイロードから取得する。
+ * PAPI が返す snake_case / Binary フィールドを TS 型 `DmDispatch` にそろえる。
  */
-function deriveMessageId(blockNumber: bigint, d: DmDispatch): bigint {
+function normalizeDispatch(raw: unknown): DmDispatch & { ciphertext?: Uint8Array } {
+  const asBytes = (v: unknown): Uint8Array => {
+    if (v instanceof Uint8Array) return v;
+    const b = v as { asBytes?: () => Uint8Array };
+    if (b?.asBytes) return b.asBytes();
+    return new Uint8Array();
+  };
+  const r = raw as {
+    recipient_stealth?: string;
+    recipientStealth?: string;
+    ephemeral_pubkey?: unknown;
+    ephemeralPubkey?: unknown;
+    content?: {
+      root?: unknown;
+      k?: number;
+      n?: number;
+      ciphertext_len?: bigint | number;
+      ciphertextLen?: bigint | number;
+    };
+    ciphertext?: unknown;
+  };
+  const contentRaw = r.content ?? {};
+  return {
+    recipientStealth: (r.recipient_stealth ?? r.recipientStealth ?? '') as AccountId,
+    ephemeralPubkey: asBytes(r.ephemeral_pubkey ?? r.ephemeralPubkey),
+    content: {
+      root: asBytes(contentRaw.root),
+      k: Number(contentRaw.k ?? 0),
+      n: Number(contentRaw.n ?? 0),
+      ciphertextLen: BigInt(contentRaw.ciphertext_len ?? contentRaw.ciphertextLen ?? 0),
+    },
+    ciphertext: r.ciphertext instanceof Uint8Array ? r.ciphertext : undefined,
+  };
+}
+
+/**
+ * `DmDispatch` から messageId を導出する。pallet 側 NextMessageId を直接取得する API が
+ * まだ無いので、merkle_root の最初の 8 バイトを u64 として使う暫定 ID。receipt wire
+ * format (`encodeReceiptBody`) が refMessageId を u64 で運ぶため、必ず u64 範囲内に
+ * 収める必要がある。merkleRoot は Blake2b 出力で衝突耐性 2^-64 あり、実用上十分。
+ */
+function deriveMessageId(_blockNumber: bigint, d: DmDispatch): bigint {
   const merkle = d.content.root;
-  let lo = 0n;
-  for (let i = 0; i < 8 && i < merkle.length; i += 1) lo = (lo << 8n) | BigInt(merkle[i]);
-  return (blockNumber << 64n) | lo;
+  let id = 0n;
+  for (let i = 0; i < 8 && i < merkle.length; i += 1) id = (id << 8n) | BigInt(merkle[i]);
+  return id;
 }
 
 /**

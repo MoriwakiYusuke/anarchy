@@ -9,7 +9,7 @@
  * `<BackupImportDialog />` を再利用する placeholder は後続実装で追加する。
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   getDmMetaAddressFromStealth,
   publishDmKey,
@@ -17,6 +17,8 @@ import {
 } from '@/lib/dm/keyManager';
 import { useDmStore } from '@/lib/dm/store';
 import type { PolkadotSigner } from 'polkadot-api/signer';
+import type { DmMetaAddress } from '@/lib/dm/types';
+import styles from './DmKeyManager.module.css';
 
 export interface DmKeyManagerProps {
   /** PAPI unsafeApi。`tx.Messaging.publish_dm_key` / `revoke_dm_key` を持つ。 */
@@ -37,12 +39,25 @@ type ActionState =
 export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyManagerProps): JSX.Element {
   const [published, setPublished] = useState<boolean>(initialPublished);
   const [state, setState] = useState<ActionState>({ kind: 'idle' });
+  const [meta, setMeta] = useState<DmMetaAddress | null>(null);
   const receiptOptOut = useDmStore((s: { receiptOptOut: boolean }) => s.receiptOptOut);
   const setReceiptOptOut = useDmStore(
     (s: { setReceiptOptOut: (v: boolean) => void }) => s.setReceiptOptOut,
   );
 
-  const meta = getDmMetaAddressFromStealth();
+  // stealth 鍵のロード状態を 500ms 毎に確認。/dm/settings で生成した直後にも追従する。
+  useEffect(() => {
+    const check = (): void => {
+      try {
+        setMeta(getDmMetaAddressFromStealth());
+      } catch {
+        setMeta(null);
+      }
+    };
+    check();
+    const id = window.setInterval(check, 500);
+    return () => window.clearInterval(id);
+  }, []);
 
   const onPublish = useCallback(async () => {
     if (!meta) {
@@ -79,21 +94,27 @@ export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyMan
   const isBusy = state.kind === 'busy';
 
   return (
-    <div role="region" aria-label="DM key manager">
-      <h3>DM 受信鍵</h3>
-      <p>
-        状態: <strong>{published ? '公開中' : '未公開'}</strong>
+    <div role="region" aria-label="DM key manager" className={styles.region}>
+      <h3 className={styles.title}>DM 受信鍵</h3>
+      <p className={styles.statusLine}>
+        状態:{' '}
+        <span className={published ? styles.published : styles.unpublished}>
+          {published ? '公開中' : '未公開'}
+        </span>
       </p>
 
       {!meta && (
-        <p role="alert">stealth 鍵が読み込まれていません。先に Backup をインポートしてください。</p>
+        <p role="alert" className={styles.warning}>
+          stealth 鍵が読み込まれていません。上のセクションで生成するか、バックアップをインポートしてください。
+        </p>
       )}
 
-      <div>
+      <div className={styles.actions}>
         <button
           type="button"
           onClick={() => void onPublish()}
           disabled={isBusy || !meta || published}
+          className={styles.primaryBtn}
         >
           {state.kind === 'busy' && state.action === 'publish' ? '公開中…' : '公開する'}
         </button>
@@ -101,25 +122,26 @@ export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyMan
           type="button"
           onClick={() => void onRevoke()}
           disabled={isBusy || !published}
+          className={styles.secondaryBtn}
         >
           {state.kind === 'busy' && state.action === 'revoke' ? '取り消し中…' : '取り消す'}
         </button>
       </div>
 
       {state.kind === 'error' && (
-        <p role="alert" style={{ color: '#c00' }}>
+        <p role="alert" className={styles.error}>
           エラー: {state.message}
         </p>
       )}
       {state.kind === 'ok' && (
-        <p role="status" aria-live="polite">
+        <p role="status" aria-live="polite" className={styles.ok}>
           {state.message}
         </p>
       )}
 
-      <fieldset aria-label="受信確認設定" style={{ marginTop: '1em' }}>
-        <legend>受信確認 (read receipt)</legend>
-        <label>
+      <fieldset aria-label="受信確認設定" className={styles.fieldset}>
+        <legend className={styles.legend}>受信確認 (read receipt)</legend>
+        <label className={styles.checkboxLabel}>
           <input
             type="checkbox"
             checked={receiptOptOut}

@@ -8,6 +8,8 @@
 
 'use client';
 
+import styles from './MissingBackupNotice.module.css';
+
 export interface MissingBackupNoticeProps {
   onPublishNew?: () => void;
   onImport?: () => void;
@@ -18,21 +20,21 @@ export function MissingBackupNotice({
   onImport,
 }: MissingBackupNoticeProps): JSX.Element {
   return (
-    <section className="dm-missing-backup-notice" role="status">
-      <h3>DM 鍵が読み込まれていません</h3>
-      <p>
+    <section className={styles.notice} role="status">
+      <h3 className={styles.title}>DM 鍵が読み込まれていません</h3>
+      <p className={styles.description}>
         このブラウザでは DM を復号する鍵がまだ読み込まれていません。
         既にバックアップファイルを持っている場合はインポート、
         新規利用なら DM 鍵を発行してください。
       </p>
-      <div className="dm-missing-backup-notice__actions">
+      <div className={styles.actions}>
         {onImport ? (
-          <button type="button" onClick={onImport}>
+          <button type="button" onClick={onImport} className={styles.secondaryBtn}>
             バックアップをインポート
           </button>
         ) : null}
         {onPublishNew ? (
-          <button type="button" onClick={onPublishNew}>
+          <button type="button" onClick={onPublishNew} className={styles.primaryBtn}>
             DM 鍵を発行
           </button>
         ) : null}

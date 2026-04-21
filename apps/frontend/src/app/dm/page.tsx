@@ -20,6 +20,8 @@ import { useApi } from '@/hooks/useApi';
 import { stealthKeyManager } from '@/lib/stealth/keyManager';
 import { getDmMetaAddressFromStealth } from '@/lib/dm/keyManager';
 import { initSs58Toolkit, type ScanContext } from '@/lib/dm/scanner';
+import type { SendDmContext, StorageSigner } from '@/lib/dm/sender';
+import { sendDmReceipt } from '@/lib/dm/receipt';
 import { startDmScanLoop, type DmScanLoopHandle } from '@/lib/dm/worker';
 import { useDmStore } from '@/lib/dm/store';
 import {
@@ -30,13 +32,18 @@ import { ConversationList } from '@/components/dm/ConversationList';
 import { MissingBackupNotice } from '@/components/dm/MissingBackupNotice';
 import type { AccountId } from '@/lib/dm/types';
 import type { PolkadotSigner } from 'polkadot-api/signer';
+import styles from './page.module.css';
 
 export default function DmPage(): JSX.Element {
   const { unsafeApi } = useSmoldot();
   const { createSigner } = useApi();
   const router = useRouter();
   const [signer, setSigner] = useState<PolkadotSigner | null>(null);
+  const [storageSigner, setStorageSigner] = useState<StorageSigner | null>(null);
   const [keyLoaded, setKeyLoaded] = useState(false);
+  const [newRecipient, setNewRecipient] = useState('');
+  const STORAGE_ENDPOINT =
+    process.env.NEXT_PUBLIC_STORAGE_ENDPOINT ?? 'http://127.0.0.1:3030';
 
   const lastScannedBlock = useDmStore((s: { lastScannedBlock: bigint }) => s.lastScannedBlock);
   const isScanning = useDmStore((s: { isScanning: boolean }) => s.isScanning);
@@ -49,6 +56,20 @@ export default function DmPage(): JSX.Element {
       if (s) setSigner(s);
     })();
   }, [createSigner]);
+
+  // scanner が storage-node から ciphertext を再構成する際に使う raw sr25519 signer。
+  useEffect(() => {
+    void (async () => {
+      const { Keyring } = await import('@polkadot/keyring');
+      const { DEV_PHRASE } = await import('@polkadot/keyring/defaults');
+      const keyring = new Keyring({ type: 'sr25519' });
+      const pair = keyring.addFromUri(`${DEV_PHRASE}//Alice`);
+      setStorageSigner({
+        publicKey: pair.publicKey,
+        sign: (msg: Uint8Array) => pair.sign(msg),
+      });
+    })();
+  }, []);
 
   // stealth 鍵のロード状態を監視。session memory なので beforeunload 時に消える。
   useEffect(() => {
@@ -70,9 +91,17 @@ export default function DmPage(): JSX.Element {
     return () => stop();
   }, []);
 
-  // 受信ループ: 鍵 + api + signer の 3 点が揃ったら起動。
+  // 受信ループ: 鍵 + api + signer + storageSigner が揃ったら起動。
   useEffect(() => {
-    if (!keyLoaded || !unsafeApi || !signer) return;
+    if (!keyLoaded || !unsafeApi || !signer || !storageSigner) return;
+    const sendCtx: SendDmContext = {
+      api: unsafeApi,
+      mainSigner: signer,
+      mainAccountPublicKey: new Uint8Array(signer.publicKey),
+      mainRawSigner: storageSigner,
+      storageEndpoint: STORAGE_ENDPOINT,
+      storageSigner,
+    };
     const handle = startDmScanLoop({
       buildContext: (): ScanContext | null => {
         const meta = getDmMetaAddressFromStealth();
@@ -84,7 +113,15 @@ export default function DmPage(): JSX.Element {
           ownSpendPub: meta.spendPub,
           ownMainAccount: '' as AccountId,
           lastScannedBlock: useDmStore.getState().lastScannedBlock,
+          storageEndpoint: STORAGE_ENDPOINT,
+          storageSigner,
         };
+      },
+      onNewIncoming: (msg) => {
+        void sendDmReceipt(
+          { counterparty: msg.counterparty, refMessageId: msg.messageId, kind: 'delivered' },
+          sendCtx,
+        ).catch((err) => console.error('[dm-receipt][delivered]', err));
       },
     });
     loopRef.current = handle;
@@ -92,14 +129,21 @@ export default function DmPage(): JSX.Element {
       handle.stop();
       loopRef.current = null;
     };
-  }, [keyLoaded, unsafeApi, signer]);
+  }, [keyLoaded, unsafeApi, signer, storageSigner, STORAGE_ENDPOINT]);
 
   return (
-    <main>
-      <header>
-        <h1>Direct Messages</h1>
-        <nav aria-label="DM navigation">
-          <Link href="/dm/settings">設定</Link>
+    <main className={styles.main}>
+      <header className={styles.header}>
+        <h1 className={styles.title}>
+          <span className={styles.accent}>D</span>irect Messages
+        </h1>
+        <nav aria-label="DM navigation" className={styles.nav}>
+          <Link href="/" className={styles.navLink}>
+            ← Home
+          </Link>
+          <Link href="/dm/settings" className={styles.navLink}>
+            設定
+          </Link>
         </nav>
       </header>
 
@@ -110,15 +154,51 @@ export default function DmPage(): JSX.Element {
         />
       ) : (
         <>
-          <p>
-            スキャン状態: {isScanning ? '実行中' : '待機中'} / 直近ブロック:{' '}
-            {lastScannedBlock.toString()}
-          </p>
-          <ConversationList
-            onSelect={(counterparty) =>
-              router.push(`/dm/${encodeURIComponent(counterparty)}`)
-            }
-          />
+          <div className={styles.status}>
+            <span className={isScanning ? styles.scanning : styles.idle}>
+              {isScanning ? '● スキャン中' : '○ 待機中'}
+            </span>
+            <span className={styles.blockNumber}>
+              直近ブロック #{lastScannedBlock.toString()}
+            </span>
+          </div>
+          <section className={styles.composeSection}>
+            <label className={styles.composeLabel} htmlFor="dm-new-recipient">
+              新しい DM
+            </label>
+            <form
+              className={styles.composeRow}
+              onSubmit={(e) => {
+                e.preventDefault();
+                const trimmed = newRecipient.trim();
+                if (!trimmed) return;
+                router.push(`/dm/${encodeURIComponent(trimmed)}`);
+              }}
+            >
+              <input
+                id="dm-new-recipient"
+                type="text"
+                className={styles.composeInput}
+                placeholder="相手の SS58 アドレス (5...)"
+                value={newRecipient}
+                onChange={(e) => setNewRecipient(e.target.value)}
+              />
+              <button
+                type="submit"
+                className={styles.composeBtn}
+                disabled={!newRecipient.trim()}
+              >
+                開く
+              </button>
+            </form>
+          </section>
+          <div className={styles.listWrapper}>
+            <ConversationList
+              onSelect={(counterparty) =>
+                router.push(`/dm/${encodeURIComponent(counterparty)}`)
+              }
+            />
+          </div>
         </>
       )}
     </main>

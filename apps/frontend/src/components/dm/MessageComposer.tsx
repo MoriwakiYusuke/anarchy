@@ -15,6 +15,7 @@ import { useCallback, useState } from 'react';
 import { sendDm, type SendDmContext, type SendDmProgress } from '@/lib/dm/sender';
 import { useDmStore } from '@/lib/dm/store';
 import { DmError, type AccountId, type SendDmParams } from '@/lib/dm/types';
+import styles from './MessageComposer.module.css';
 
 export interface MessageComposerProps {
   counterparty: AccountId;
@@ -129,7 +130,7 @@ export function MessageComposer({ counterparty, context, onSent }: MessageCompos
   const isBusy = state.kind === 'sending';
 
   return (
-    <div role="region" aria-label="DM compose form">
+    <div role="region" aria-label="DM compose form" className={styles.region}>
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
@@ -137,32 +138,36 @@ export function MessageComposer({ counterparty, context, onSent }: MessageCompos
         rows={3}
         disabled={isBusy}
         aria-label="dm message body"
+        className={styles.textarea}
       />
-      <button
-        type="button"
-        onClick={() => void submit()}
-        disabled={isBusy || !body.trim()}
-      >
-        {isBusy ? '送信中…' : '送信'}
-      </button>
+      <div className={styles.actions}>
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={isBusy || !body.trim()}
+          className={styles.sendBtn}
+        >
+          {isBusy ? '送信中…' : '送信'}
+        </button>
+      </div>
 
       {state.kind === 'sending' && (
-        <p role="status" aria-live="polite">
+        <p role="status" aria-live="polite" className={styles.progress}>
           {progressMessage(state.progress)}
         </p>
       )}
 
       {state.kind === 'sent' && (
-        <p role="status" aria-live="polite">
+        <p role="status" aria-live="polite" className={styles.sent}>
           送信完了
         </p>
       )}
 
       {state.kind === 'error' && (
-        <div role="alert" style={{ color: '#c00' }}>
-          <p>{state.message}</p>
+        <div role="alert" className={styles.error}>
+          <p className={styles.errorText}>{state.message}</p>
           {state.canRetry && (
-            <button type="button" onClick={retry}>
+            <button type="button" onClick={retry} className={styles.retryBtn}>
               再試行
             </button>
           )}
