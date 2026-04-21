@@ -24,10 +24,6 @@ import type { SendDmContext, StorageSigner } from '@/lib/dm/sender';
 import { sendDmReceipt } from '@/lib/dm/receipt';
 import { startDmScanLoop, type DmScanLoopHandle } from '@/lib/dm/worker';
 import { useDmStore } from '@/lib/dm/store';
-import {
-  hydrateDmStoreFromIndexedDb,
-  startDmPersistenceSubscription,
-} from '@/lib/dm/persistence';
 import { ConversationList } from '@/components/dm/ConversationList';
 import { MissingBackupNotice } from '@/components/dm/MissingBackupNotice';
 import type { AccountId } from '@/lib/dm/types';
@@ -84,14 +80,10 @@ export default function DmPage(): JSX.Element {
     void initSs58Toolkit();
   }, []);
 
-  // IDB から store を復元 + persistence subscription。
-  useEffect(() => {
-    void hydrateDmStoreFromIndexedDb();
-    const stop = startDmPersistenceSubscription();
-    return () => stop();
-  }, []);
-
   // 受信ループ: 鍵 + api + signer + storageSigner が揃ったら起動。
+  // (hydrate + persistence subscription は /dm/layout.tsx が面倒を見る。ここで
+  //  subscribe するとページ遷移の度に unsubscribe され、/dm/[id] で addOutgoing
+  //  した内容が IDB に届かず、次回 /dm に戻った時の hydrate で消えてしまう。)
   useEffect(() => {
     if (!keyLoaded || !unsafeApi || !signer || !storageSigner) return;
     const sendCtx: SendDmContext = {

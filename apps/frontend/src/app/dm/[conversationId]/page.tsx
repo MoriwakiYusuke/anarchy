@@ -14,7 +14,6 @@ import { useSmoldot } from '@/hooks/useSmoldot';
 import { useApi } from '@/hooks/useApi';
 import { stealthKeyManager } from '@/lib/stealth/keyManager';
 import { ConversationView } from '@/components/dm/ConversationView';
-import { hydrateDmStoreFromIndexedDb } from '@/lib/dm/persistence';
 import type { SendDmContext, StorageSigner } from '@/lib/dm/sender';
 import type { AccountId } from '@/lib/dm/types';
 import type { PolkadotSigner } from 'polkadot-api/signer';
@@ -58,10 +57,6 @@ export default function ConversationPage(): JSX.Element {
     })();
   }, []);
 
-  useEffect(() => {
-    void hydrateDmStoreFromIndexedDb();
-  }, []);
-
   const sendCtx: SendDmContext | null = useMemo(() => {
     if (!unsafeApi || !signer) return null;
     return {
@@ -76,8 +71,10 @@ export default function ConversationPage(): JSX.Element {
   }, [unsafeApi, signer, storageSigner]);
 
   const keyLoaded = stealthKeyManager.getMetaAddress() !== null;
+  useEffect(() => {
+    if (!keyLoaded) router.replace('/dm');
+  }, [keyLoaded, router]);
   if (!keyLoaded) {
-    router.replace('/dm');
     return (
       <main className={styles.main}>
         <p className={styles.loading}>リダイレクト中…</p>
