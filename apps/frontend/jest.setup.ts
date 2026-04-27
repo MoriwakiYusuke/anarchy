@@ -34,3 +34,26 @@ Object.defineProperty(window, 'localStorage', {
 jest.mock('@/hooks/useNicknameOf', () => ({
   useNicknameOf: () => null,
 }));
+
+// Mock i18n so components using `useLocale` work without a provider.
+// Uses ja translations directly so existing tests can assert on Japanese text.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const jaTranslations = require('./src/i18n/translations/ja.json');
+jest.mock('@/i18n', () => ({
+  useLocale: () => ({
+    locale: 'ja' as const,
+    setLocale: jest.fn(),
+    t: (key: string, params?: Record<string, string | number>) => {
+      const template: string = jaTranslations[key] ?? key;
+      if (!params) return template;
+      return Object.entries(params).reduce(
+        (acc, [k, v]) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v)),
+        template,
+      );
+    },
+    availableLocales: [],
+  }),
+  LocaleProvider: ({ children }: { children: React.ReactNode }) => children,
+  DEFAULT_LOCALE: 'ja',
+  SUPPORTED_LOCALES: ['en', 'ja', 'zh'],
+}));

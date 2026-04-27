@@ -8,6 +8,7 @@
 
 'use client';
 
+import { useLocale } from '@/i18n';
 import styles from './MissingBackupNotice.module.css';
 
 export interface MissingBackupNoticeProps {
@@ -15,17 +16,15 @@ export interface MissingBackupNoticeProps {
 }
 
 export function MissingBackupNotice({ onOpenSettings }: MissingBackupNoticeProps): JSX.Element {
+  const { t } = useLocale();
   return (
     <section className={styles.notice} role="status">
-      <h3 className={styles.title}>DM 鍵が読み込まれていません</h3>
-      <p className={styles.description}>
-        このブラウザでは DM を復号する鍵がまだ読み込まれていません。
-        設定画面で新規発行するか、バックアップファイルをインポートしてください。
-      </p>
+      <h3 className={styles.title}>{t('dm.missingKey.title')}</h3>
+      <p className={styles.description}>{t('dm.missingKey.description')}</p>
       <div className={styles.actions}>
         {onOpenSettings ? (
           <button type="button" onClick={onOpenSettings} className={styles.primaryBtn}>
-            DM 鍵設定を開く
+            {t('dm.missingKey.openSettings')}
           </button>
         ) : null}
       </div>

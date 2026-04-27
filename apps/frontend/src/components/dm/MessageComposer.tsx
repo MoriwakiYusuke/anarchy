@@ -14,6 +14,8 @@
 import { useCallback, useState } from 'react';
 import { sendDm, type SendDmContext, type SendDmProgress } from '@/lib/dm/sender';
 import { useDmStore } from '@/lib/dm/store';
+import { useLocale } from '@/i18n';
+import type { TranslationKey } from '@/i18n';
 import { DmError, type AccountId, type SendDmParams } from '@/lib/dm/types';
 import styles from './MessageComposer.module.css';
 
@@ -29,53 +31,49 @@ export interface MessageComposerProps {
 type ComposerState =
   | { kind: 'idle' }
   | { kind: 'sending'; progress: SendDmProgress }
-  | { kind: 'error'; message: string; canRetry: boolean }
+  | { kind: 'error'; banner: ErrorBanner }
   | { kind: 'sent' };
 
-const PROGRESS_LABEL: Record<SendDmProgress['kind'], string> = {
-  encrypting: 'コンテンツを暗号化中…',
-  uploading: '分散ストレージへ断片を送信中…',
-  prefunding: 'ステルスアカウントを準備中… (MORAL 前送金中)',
-  dispatching: 'DM を発行中…',
-  done: '送信完了',
+const PROGRESS_KEY: Record<SendDmProgress['kind'], TranslationKey> = {
+  encrypting: 'dm.progress.encrypting',
+  uploading: 'dm.progress.uploading',
+  prefunding: 'dm.progress.prefunding',
+  dispatching: 'dm.progress.dispatching',
+  done: 'dm.progress.done',
 };
 
-function progressMessage(p: SendDmProgress): string {
-  if (p.kind === 'uploading') {
-    return `分散ストレージへ断片を送信中… (${p.uploaded}/${p.total} 完了)`;
-  }
-  return PROGRESS_LABEL[p.kind];
+interface ErrorBanner {
+  /** TranslationKey を解決する側に渡す。 */
+  key: TranslationKey;
+  /** key が `{detail}` パラメータを取る場合の値。 */
+  detail?: string;
+  canRetry: boolean;
 }
 
-function errorBanner(err: unknown): { message: string; canRetry: boolean } {
+function classifyError(err: unknown): ErrorBanner {
   const msg = err instanceof Error ? err.message : String(err);
   // sender.ts は `${DmError.TransactionDropped}: tx1 ...` のように prefix で補足情報を
   // 付ける場合があるので、完全一致ではなく startsWith で分類する。
   if (msg === DmError.RecipientKeyNotPublished) {
-    return { message: '相手はまだ DM を受け付けていません。', canRetry: false };
+    return { key: 'dm.error.recipientKeyNotPublished', canRetry: false };
   }
   if (msg === DmError.MainAccountInsufficientBalance) {
-    return { message: 'MORAL 残高が不足しています。', canRetry: false };
+    return { key: 'dm.error.insufficientBalance', canRetry: false };
   }
   if (msg === DmError.StorageInsufficient) {
-    return {
-      message: 'ストレージノードの応答が足りません。再試行できます。',
-      canRetry: true,
-    };
+    return { key: 'dm.error.storageInsufficient', canRetry: true };
   }
   if (msg.startsWith(DmError.TransactionDropped)) {
-    return {
-      message: `送信に失敗しました。前送金は維持されているため再試行できます。 (${msg})`,
-      canRetry: true,
-    };
+    return { key: 'dm.error.transactionDropped', detail: msg, canRetry: true };
   }
   if (msg === DmError.BodyTooLarge) {
-    return { message: '本文が大きすぎます。', canRetry: false };
+    return { key: 'dm.error.bodyTooLarge', canRetry: false };
   }
-  return { message: `送信エラー: ${msg}`, canRetry: true };
+  return { key: 'dm.error.generic', detail: msg, canRetry: true };
 }
 
 export function MessageComposer({ counterparty, context, onSent }: MessageComposerProps): JSX.Element {
+  const { t } = useLocale();
   const [body, setBody] = useState('');
   const [state, setState] = useState<ComposerState>({ kind: 'idle' });
   const addOutgoing = useDmStore(
@@ -115,8 +113,7 @@ export function MessageComposer({ counterparty, context, onSent }: MessageCompos
         setBody('');
         onSent?.();
       } catch (err) {
-        const banner = errorBanner(err);
-        setState({ kind: 'error', message: banner.message, canRetry: banner.canRetry });
+        setState({ kind: 'error', banner: classifyError(err) });
       }
     },
     [addOutgoing, body, context, counterparty, onSent],
@@ -135,7 +132,7 @@ export function MessageComposer({ counterparty, context, onSent }: MessageCompos
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        placeholder="メッセージを入力…"
+        placeholder={t('dm.compose.bodyPlaceholder')}
         rows={3}
         disabled={isBusy}
         aria-label="dm message body"
@@ -148,28 +145,37 @@ export function MessageComposer({ counterparty, context, onSent }: MessageCompos
           disabled={isBusy || !body.trim()}
           className={styles.sendBtn}
         >
-          {isBusy ? '送信中…' : '送信'}
+          {isBusy ? t('dm.compose.sending') : t('dm.compose.send')}
         </button>
       </div>
 
       {state.kind === 'sending' && (
         <p role="status" aria-live="polite" className={styles.progress}>
-          {progressMessage(state.progress)}
+          {state.progress.kind === 'uploading'
+            ? t('dm.progress.uploadingProgress', {
+                uploaded: state.progress.uploaded,
+                total: state.progress.total,
+              })
+            : t(PROGRESS_KEY[state.progress.kind])}
         </p>
       )}
 
       {state.kind === 'sent' && (
         <p role="status" aria-live="polite" className={styles.sent}>
-          送信完了
+          {t('dm.compose.sent')}
         </p>
       )}
 
       {state.kind === 'error' && (
         <div role="alert" className={styles.error}>
-          <p className={styles.errorText}>{state.message}</p>
-          {state.canRetry && (
+          <p className={styles.errorText}>
+            {state.banner.detail
+              ? t(state.banner.key, { detail: state.banner.detail })
+              : t(state.banner.key)}
+          </p>
+          {state.banner.canRetry && (
             <button type="button" onClick={retry} className={styles.retryBtn}>
-              再試行
+              {t('dm.compose.retry')}
             </button>
           )}
         </div>

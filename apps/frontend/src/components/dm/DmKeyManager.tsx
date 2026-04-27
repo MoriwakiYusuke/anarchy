@@ -16,6 +16,7 @@ import {
   revokeDmKey,
 } from '@/lib/dm/keyManager';
 import { useDmStore } from '@/lib/dm/store';
+import { useLocale } from '@/i18n';
 import type { PolkadotSigner } from 'polkadot-api/signer';
 import type { DmMetaAddress } from '@/lib/dm/types';
 import styles from './DmKeyManager.module.css';
@@ -37,6 +38,7 @@ type ActionState =
   | { kind: 'ok'; message: string };
 
 export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyManagerProps): JSX.Element {
+  const { t } = useLocale();
   const [published, setPublished] = useState<boolean>(initialPublished);
   const [state, setState] = useState<ActionState>({ kind: 'idle' });
   const [meta, setMeta] = useState<DmMetaAddress | null>(null);
@@ -61,51 +63,51 @@ export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyMan
 
   const onPublish = useCallback(async () => {
     if (!meta) {
-      setState({ kind: 'error', message: 'まず stealth 鍵を生成してください。' });
+      setState({ kind: 'error', message: t('dm.keyManager.stealthRequired') });
       return;
     }
     setState({ kind: 'busy', action: 'publish' });
     try {
       await publishDmKey(api, signer);
       setPublished(true);
-      setState({ kind: 'ok', message: '公開しました。' });
+      setState({ kind: 'ok', message: t('dm.keyManager.publishSuccess') });
     } catch (err) {
       setState({
         kind: 'error',
         message: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [api, signer, meta]);
+  }, [api, signer, meta, t]);
 
   const onRevoke = useCallback(async () => {
     setState({ kind: 'busy', action: 'revoke' });
     try {
       await revokeDmKey(api, signer);
       setPublished(false);
-      setState({ kind: 'ok', message: '取り消しました。' });
+      setState({ kind: 'ok', message: t('dm.keyManager.revokeSuccess') });
     } catch (err) {
       setState({
         kind: 'error',
         message: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [api, signer]);
+  }, [api, signer, t]);
 
   const isBusy = state.kind === 'busy';
 
   return (
     <div role="region" aria-label="DM key manager" className={styles.region}>
-      <h3 className={styles.title}>DM 受信鍵</h3>
+      <h3 className={styles.title}>{t('dm.keyManager.title')}</h3>
       <p className={styles.statusLine}>
-        状態:{' '}
+        {t('dm.keyManager.statusLabel')}:{' '}
         <span className={published ? styles.published : styles.unpublished}>
-          {published ? '公開中' : '未公開'}
+          {published ? t('dm.keyManager.statusPublished') : t('dm.keyManager.statusUnpublished')}
         </span>
       </p>
 
       {!meta && (
         <p role="alert" className={styles.warning}>
-          stealth 鍵が読み込まれていません。上のセクションで生成するか、バックアップをインポートしてください。
+          {t('dm.keyManager.stealthMissing')}
         </p>
       )}
 
@@ -116,7 +118,9 @@ export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyMan
           disabled={isBusy || !meta || published}
           className={styles.primaryBtn}
         >
-          {state.kind === 'busy' && state.action === 'publish' ? '公開中…' : '公開する'}
+          {state.kind === 'busy' && state.action === 'publish'
+            ? t('dm.keyManager.publishing')
+            : t('dm.keyManager.publish')}
         </button>
         <button
           type="button"
@@ -124,13 +128,15 @@ export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyMan
           disabled={isBusy || !published}
           className={styles.secondaryBtn}
         >
-          {state.kind === 'busy' && state.action === 'revoke' ? '取り消し中…' : '取り消す'}
+          {state.kind === 'busy' && state.action === 'revoke'
+            ? t('dm.keyManager.revoking')
+            : t('dm.keyManager.revoke')}
         </button>
       </div>
 
       {state.kind === 'error' && (
         <p role="alert" className={styles.error}>
-          エラー: {state.message}
+          {t('dm.keyManager.errorPrefix', { detail: state.message })}
         </p>
       )}
       {state.kind === 'ok' && (
@@ -139,15 +145,15 @@ export function DmKeyManager({ api, signer, initialPublished = false }: DmKeyMan
         </p>
       )}
 
-      <fieldset aria-label="受信確認設定" className={styles.fieldset}>
-        <legend className={styles.legend}>受信確認 (read receipt)</legend>
+      <fieldset aria-label={t('dm.keyManager.receiptFieldset')} className={styles.fieldset}>
+        <legend className={styles.legend}>{t('dm.keyManager.receiptLegend')}</legend>
         <label className={styles.checkboxLabel}>
           <input
             type="checkbox"
             checked={receiptOptOut}
             onChange={(e) => setReceiptOptOut(e.target.checked)}
           />
-          既読通知を送信しない (FR-016b)
+          {t('dm.keyManager.receiptOptOut')}
         </label>
       </fieldset>
     </div>

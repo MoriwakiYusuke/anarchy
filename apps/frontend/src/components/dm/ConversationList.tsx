@@ -18,6 +18,7 @@
 import { useMemo } from 'react';
 import { useDmStore } from '@/lib/dm/store';
 import { useNicknameOf } from '@/hooks/useNicknameOf';
+import { useLocale } from '@/i18n';
 import type { AccountId, ConversationState } from '@/lib/dm/types';
 import styles from './ConversationList.module.css';
 
@@ -26,6 +27,7 @@ export interface ConversationListProps {
 }
 
 export function ConversationList({ onSelect }: ConversationListProps): JSX.Element {
+  const { t } = useLocale();
   const conversations = useDmStore(
     (s: { conversations: Map<AccountId, ConversationState> }) => s.conversations,
   );
@@ -44,7 +46,7 @@ export function ConversationList({ onSelect }: ConversationListProps): JSX.Eleme
   if (visibleThreads.length === 0) {
     return (
       <div role="status" className={styles.empty}>
-        まだメッセージはありません。新しい DM を送信するとここに表示されます。
+        {t('dm.list.empty')}
       </div>
     );
   }
@@ -69,6 +71,7 @@ function ConversationRow({
   thread: ConversationState;
   onSelect?: (counterparty: AccountId) => void;
 }): JSX.Element {
+  const { t } = useLocale();
   const nickname = useNicknameOf(thread.counterparty);
   return (
     <li role="listitem" className={styles.item}>
@@ -91,7 +94,7 @@ function ConversationRow({
           #{thread.lastActivityBlock.toString()}
         </span>
         {thread.unreadCount > 0 ? (
-          <span aria-label="未読件数" className={styles.unreadBadge}>
+          <span aria-label={t('dm.list.unreadAriaLabel')} className={styles.unreadBadge}>
             {thread.unreadCount}
           </span>
         ) : null}

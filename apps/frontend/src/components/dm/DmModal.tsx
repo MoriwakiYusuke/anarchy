@@ -40,6 +40,7 @@ import { ConversationView } from './ConversationView';
 import { DmKeyManager } from './DmKeyManager';
 import { BlockListManager } from './BlockListManager';
 import { MissingBackupNotice } from './MissingBackupNotice';
+import { useLocale } from '@/i18n';
 import type { AccountId } from '@/lib/dm/types';
 import styles from './DmModal.module.css';
 
@@ -51,6 +52,7 @@ export interface DmModalProps {
 type Tab = 'inbox' | 'settings';
 
 export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
+  const { t } = useLocale();
   const { unsafeApi } = useSmoldot();
   const { account, accountSeed, signer } = useAccount();
   const [mounted, setMounted] = useState(false);
@@ -184,7 +186,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
     if (!account) {
       return (
         <div className={styles.notice}>
-          ウォレットを接続してください。
+          {t('dm.modal.connectWallet')}
         </div>
       );
     }
@@ -196,7 +198,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
         <aside className={styles.threadPane}>
           <div className={styles.statusRow}>
             <span className={isScanning ? styles.scanning : styles.idle}>
-              {isScanning ? '● スキャン中' : '○ 待機中'}
+              {isScanning ? t('dm.status.scanning') : t('dm.status.idle')}
             </span>
             <span className={styles.blockNumber}>#{lastScannedBlock.toString()}</span>
           </div>
@@ -204,7 +206,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
             <input
               type="text"
               className={styles.composeInput}
-              placeholder="相手の SS58 アドレス (5...)"
+              placeholder={t('dm.compose.newDmPlaceholder')}
               value={newRecipient}
               onChange={(e) => setNewRecipient(e.target.value)}
             />
@@ -213,7 +215,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
               className={styles.composeBtn}
               disabled={!newRecipient.trim()}
             >
-              開く
+              {t('dm.compose.openButton')}
             </button>
           </form>
           <div className={styles.listScroll}>
@@ -225,7 +227,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
             <ConversationView conversationId={selected} context={sendCtx} />
           ) : (
             <div className={styles.empty}>
-              {selected ? '接続中…' : 'スレッドを選択するか、新しい DM を始めてください。'}
+              {selected ? t('dm.connecting') : t('dm.modal.selectThread')}
             </div>
           )}
         </section>
@@ -235,7 +237,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
 
   const renderSettings = (): ReactNode => {
     if (!account) {
-      return <div className={styles.notice}>ウォレットを接続してください。</div>;
+      return <div className={styles.notice}>{t('dm.modal.connectWallet')}</div>;
     }
     return (
       <DmSettings
@@ -251,7 +253,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
       className={styles.overlay}
       role="dialog"
       aria-modal="true"
-      aria-label="ダイレクトメッセージ"
+      aria-label={t('dm.modal.ariaLabel')}
       onClick={onClose}
     >
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -267,7 +269,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
               className={activeTab === 'inbox' ? styles.tabActive : styles.tab}
               onClick={() => setActiveTab('inbox')}
             >
-              受信箱
+              {t('dm.modal.tab.inbox')}
             </button>
             <button
               type="button"
@@ -276,14 +278,14 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
               className={activeTab === 'settings' ? styles.tabActive : styles.tab}
               onClick={() => setActiveTab('settings')}
             >
-              設定
+              {t('dm.modal.tab.settings')}
             </button>
           </div>
           <button
             type="button"
             className={styles.closeBtn}
             onClick={onClose}
-            aria-label="閉じる"
+            aria-label={t('dm.modal.close')}
           >
             ✕
           </button>
@@ -308,6 +310,7 @@ interface DmSettingsProps {
 }
 
 function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.Element {
+  const { t } = useLocale();
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<
     { kind: 'idle' } | { kind: 'ok'; message: string } | { kind: 'error'; message: string }
@@ -319,10 +322,7 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
     setStatus({ kind: 'idle' });
     try {
       await stealthKeyManager.generateKeys();
-      setStatus({
-        kind: 'ok',
-        message: 'stealth 鍵を生成しました。続けて DM 鍵を公開できます。',
-      });
+      setStatus({ kind: 'ok', message: t('dm.settings.stealthGenerated') });
     } catch (err) {
       setStatus({
         kind: 'error',
@@ -331,12 +331,12 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
     } finally {
       setIsGenerating(false);
     }
-  }, []);
+  }, [t]);
 
   const handleExport = async (): Promise<void> => {
     try {
       if (!password) {
-        setStatus({ kind: 'error', message: 'パスワードを入力してください。' });
+        setStatus({ kind: 'error', message: t('dm.settings.passwordRequired') });
         return;
       }
       const bytes = await exportDmBackup(password);
@@ -347,7 +347,7 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
       a.download = `anarchy-dm-backup-${Date.now()}.bin`;
       a.click();
       URL.revokeObjectURL(url);
-      setStatus({ kind: 'ok', message: 'バックアップをダウンロードしました。' });
+      setStatus({ kind: 'ok', message: t('dm.settings.exportSection.success') });
     } catch (err) {
       setStatus({
         kind: 'error',
@@ -359,12 +359,12 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
   const handleImport = async (file: File): Promise<void> => {
     try {
       if (!password) {
-        setStatus({ kind: 'error', message: 'パスワードを入力してください。' });
+        setStatus({ kind: 'error', message: t('dm.settings.passwordRequired') });
         return;
       }
       const buf = new Uint8Array(await file.arrayBuffer());
       await importDmBackup(buf, password);
-      setStatus({ kind: 'ok', message: 'バックアップをインポートしました。' });
+      setStatus({ kind: 'ok', message: t('dm.settings.importSuccess') });
     } catch (err) {
       setStatus({
         kind: 'error',
@@ -376,44 +376,40 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
   return (
     <div className={styles.settings}>
       {!hasStealthKey ? (
-        <section className={styles.section} aria-label="鍵を準備">
-          <h3 className={styles.sectionTitle}>鍵を準備</h3>
-          <p className={styles.description}>
-            DM の暗号化にはステルスアドレス用の鍵ペアが必要です。鍵はこのブラウザの
-            メモリ内だけで管理し、ページを閉じると破棄されます。新しく作るか、既存の
-            バックアップファイルから復元してください。
-          </p>
+        <section className={styles.section} aria-label={t('dm.settings.prepareKey.title')}>
+          <h3 className={styles.sectionTitle}>{t('dm.settings.prepareKey.title')}</h3>
+          <p className={styles.description}>{t('dm.settings.prepareKey.description')}</p>
           <div className={styles.keyChoice}>
             <div className={styles.keyChoiceItem}>
-              <h4 className={styles.choiceLabel}>新規発行</h4>
-              <p className={styles.choiceHelp}>このブラウザ用に新しい鍵ペアを生成します。</p>
+              <h4 className={styles.choiceLabel}>{t('dm.settings.prepareKey.newLabel')}</h4>
+              <p className={styles.choiceHelp}>{t('dm.settings.prepareKey.newHelp')}</p>
               <button
                 type="button"
                 className={styles.primaryBtn}
                 onClick={() => void handleGenerate()}
                 disabled={isGenerating}
               >
-                {isGenerating ? '生成中…' : '新しい鍵を生成'}
+                {isGenerating
+                  ? t('dm.settings.prepareKey.generating')
+                  : t('dm.settings.prepareKey.generateButton')}
               </button>
             </div>
-            <div className={styles.keyChoiceDivider} aria-hidden="true">または</div>
+            <div className={styles.keyChoiceDivider} aria-hidden="true">{t('dm.settings.prepareKey.or')}</div>
             <div className={styles.keyChoiceItem}>
-              <h4 className={styles.choiceLabel}>バックアップから復元</h4>
-              <p className={styles.choiceHelp}>
-                以前エクスポートした暗号化バックアップを読み込みます。
-              </p>
+              <h4 className={styles.choiceLabel}>{t('dm.settings.prepareKey.restoreLabel')}</h4>
+              <p className={styles.choiceHelp}>{t('dm.settings.prepareKey.restoreHelp')}</p>
               <label className={styles.field}>
-                <span className={styles.label}>パスワード</span>
+                <span className={styles.label}>{t('dm.settings.prepareKey.passwordLabel')}</span>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className={styles.input}
-                  placeholder="バックアップ作成時のパスワード"
+                  placeholder={t('dm.settings.prepareKey.passwordPlaceholder')}
                 />
               </label>
               <label className={styles.fileLabel}>
-                <span>バックアップファイルを選択</span>
+                <span>{t('dm.settings.prepareKey.fileLabel')}</span>
                 <input
                   type="file"
                   accept=".bin,application/octet-stream"
@@ -429,7 +425,7 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
         </section>
       ) : (
         <>
-          <section className={styles.section} aria-label="DM 鍵管理">
+          <section className={styles.section} aria-label={t('dm.keyManager.title')}>
             {unsafeApi && signer ? (
               <DmKeyManager
                 api={unsafeApi as Parameters<typeof DmKeyManager>[0]['api']}
@@ -437,24 +433,21 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
                 initialPublished={false}
               />
             ) : (
-              <p className={styles.muted}>接続中…</p>
+              <p className={styles.muted}>{t('dm.connecting')}</p>
             )}
           </section>
 
-          <section className={styles.section} aria-label="バックアップ書き出し">
-            <h3 className={styles.sectionTitle}>バックアップ書き出し</h3>
-            <p className={styles.description}>
-              DM 鍵と会話履歴をパスワードで暗号化したファイルとして保存します
-              (FR-022)。別の端末でインポートすれば DM を引き継げます。
-            </p>
+          <section className={styles.section} aria-label={t('dm.settings.exportSection.title')}>
+            <h3 className={styles.sectionTitle}>{t('dm.settings.exportSection.title')}</h3>
+            <p className={styles.description}>{t('dm.settings.exportSection.description')}</p>
             <label className={styles.field}>
-              <span className={styles.label}>パスワード</span>
+              <span className={styles.label}>{t('dm.settings.prepareKey.passwordLabel')}</span>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={styles.input}
-                placeholder="8 文字以上を推奨"
+                placeholder={t('dm.settings.exportSection.passwordPlaceholder')}
               />
             </label>
             <button
@@ -463,11 +456,11 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
               onClick={() => void handleExport()}
               disabled={!password}
             >
-              バックアップを保存
+              {t('dm.settings.exportSection.button')}
             </button>
           </section>
 
-          <section className={styles.section} aria-label="ブロックリスト">
+          <section className={styles.section} aria-label={t('dm.blockList.title')}>
             <BlockListManager />
           </section>
         </>
@@ -480,7 +473,7 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
       )}
       {status.kind === 'error' && (
         <p role="alert" className={styles.error}>
-          エラー: {status.message}
+          {t('dm.settings.errorPrefix', { detail: status.message })}
         </p>
       )}
     </div>

@@ -12,10 +12,12 @@
 
 import { useState } from 'react';
 import { useDmStore } from '@/lib/dm/store';
+import { useLocale } from '@/i18n';
 import type { AccountId } from '@/lib/dm/types';
 import styles from './BlockListManager.module.css';
 
 export function BlockListManager(): JSX.Element {
+  const { t } = useLocale();
   const blockList = useDmStore((s: { blockList: Set<AccountId> }) => s.blockList);
   const blockSender = useDmStore(
     (s: { blockSender: (a: AccountId) => void }) => s.blockSender,
@@ -37,9 +39,9 @@ export function BlockListManager(): JSX.Element {
 
   return (
     <section className={styles.section}>
-      <h3 className={styles.title}>ブロック中のアカウント</h3>
+      <h3 className={styles.title}>{t('dm.blockList.title')}</h3>
       {entries.length === 0 ? (
-        <p className={styles.empty}>ブロック中のアカウントはありません。</p>
+        <p className={styles.empty}>{t('dm.blockList.empty')}</p>
       ) : (
         <ul className={styles.list}>
           {entries.map((account) => (
@@ -50,7 +52,7 @@ export function BlockListManager(): JSX.Element {
                 onClick={() => unblockSender(account)}
                 className={styles.unblockBtn}
               >
-                解除
+                {t('dm.blockList.unblock')}
               </button>
             </li>
           ))}
@@ -58,17 +60,17 @@ export function BlockListManager(): JSX.Element {
       )}
       <form onSubmit={handleAdd} className={styles.form}>
         <label className={styles.field}>
-          <span className={styles.label}>ブロックする SS58 アドレス</span>
+          <span className={styles.label}>{t('dm.blockList.addressLabel')}</span>
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="5..."
+            placeholder={t('dm.blockList.addressPlaceholder')}
             className={styles.input}
           />
         </label>
         <button type="submit" disabled={!input.trim()} className={styles.addBtn}>
-          追加
+          {t('dm.blockList.addButton')}
         </button>
       </form>
     </section>

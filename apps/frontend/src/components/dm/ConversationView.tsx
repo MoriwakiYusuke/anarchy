@@ -18,6 +18,8 @@ import { useEffect, useMemo } from 'react';
 import { useDmStore, receiptKey } from '@/lib/dm/store';
 import { sendDmReceipt } from '@/lib/dm/receipt';
 import { useNicknameOf } from '@/hooks/useNicknameOf';
+import { useLocale } from '@/i18n';
+import type { TranslationKey } from '@/i18n';
 import { MessageComposer } from './MessageComposer';
 import type { SendDmContext } from '@/lib/dm/sender';
 import type { AccountId, ConversationState, DmMessageRecord } from '@/lib/dm/types';
@@ -36,6 +38,7 @@ export function ConversationView({
   conversationId,
   context,
 }: ConversationViewProps): JSX.Element {
+  const { t } = useLocale();
   const conversations = useDmStore(
     (s: { conversations: Map<AccountId, ConversationState> }) => s.conversations,
   );
@@ -66,10 +69,10 @@ export function ConversationView({
   }, [context, conversationId, messages]);
 
   return (
-    <section className={styles.view} aria-label={`会話: ${conversationId}`}>
+    <section className={styles.view} aria-label={`${t('dm.view.counterpartyLabel')}: ${conversationId}`}>
       <header className={styles.header}>
         <h2 className={styles.headerTitle}>
-          相手
+          {t('dm.view.counterpartyLabel')}
           {nickname ? (
             <>
               <span className={styles.nickname}>{nickname}</span>
@@ -81,7 +84,7 @@ export function ConversationView({
         </h2>
       </header>
       {messages.length === 0 ? (
-        <p className={styles.empty}>メッセージはまだありません。</p>
+        <p className={styles.empty}>{t('dm.view.empty')}</p>
       ) : (
         <ol className={styles.messages}>
           {messages.map((m) => (
@@ -102,14 +105,15 @@ function messageKey(m: DmMessageRecord): string {
   return `${m.blockNumber.toString()}-${m.messageId.toString()}-${m.direction}`;
 }
 
-/** T080: 配信状態バッジのラベル (日本語 UI)。 */
-const DELIVERY_STATE_LABEL: Record<'sent' | 'delivered' | 'read', string> = {
-  sent: '送信済み',
-  delivered: '配信済み',
-  read: '既読',
+/** T080: 配信状態バッジのラベル i18n key マップ。 */
+const DELIVERY_STATE_LABEL_KEY: Record<'sent' | 'delivered' | 'read', TranslationKey> = {
+  sent: 'dm.view.deliveryStateSent',
+  delivered: 'dm.view.deliveryStateDelivered',
+  read: 'dm.view.deliveryStateRead',
 };
 
 function MessageBubble({ message }: { message: DmMessageRecord }): JSX.Element {
+  const { t } = useLocale();
   if (message.bodyState === 'garbage_collected') {
     return <GarbageCollectedBubble message={message} />;
   }
@@ -136,11 +140,11 @@ function MessageBubble({ message }: { message: DmMessageRecord }): JSX.Element {
       <p className={styles.body}>{text}</p>
       {message.direction === 'outgoing' && message.deliveryState ? (
         <span
-          aria-label="配信状態"
+          aria-label={t('dm.view.deliveryStateAriaLabel')}
           data-delivery-state={message.deliveryState}
           className={deliveryClass}
         >
-          {DELIVERY_STATE_LABEL[message.deliveryState]}
+          {t(DELIVERY_STATE_LABEL_KEY[message.deliveryState])}
         </span>
       ) : null}
     </li>
@@ -151,6 +155,7 @@ function MessageBubble({ message }: { message: DmMessageRecord }): JSX.Element {
  * Phase 3.4 で GC された DM の placeholder。spec.md Edge Cases / FR-018 / T094。
  */
 function GarbageCollectedBubble({ message }: { message: DmMessageRecord }): JSX.Element {
+  const { t } = useLocale();
   return (
     <li
       data-testid="dm-message-bubble"
@@ -158,7 +163,7 @@ function GarbageCollectedBubble({ message }: { message: DmMessageRecord }): JSX.
       data-body-state="garbage_collected"
       className={`${styles.bubble} ${styles.bubbleGc}`}
     >
-      <p className={styles.placeholder}>履歴は取得できません</p>
+      <p className={styles.placeholder}>{t('dm.view.gcPlaceholder')}</p>
     </li>
   );
 }
