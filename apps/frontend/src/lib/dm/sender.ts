@@ -243,6 +243,28 @@ export function resolveChainRpcEndpoint(override?: string): string {
 }
 
 /**
+ * tx1 (`send_to_stealth`) は常に main account で署名する。レシート自動送信などで
+ * 並行して走った場合、PAPI が同じ nonce で 2 つ署名し → 後続が `InvalidTransaction::Stale`
+ * で reject される。グローバル mutex で順序化する (DM 送信は非ホットパスなので OK)。
+ */
+let tx1Lock: Promise<unknown> = Promise.resolve();
+async function runSerialTx1<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = tx1Lock;
+  let resolveNext: () => void = () => {};
+  tx1Lock = new Promise<void>((r) => {
+    resolveNext = r;
+  });
+  try {
+    await prev.catch(() => {
+      /* 前のホルダーが reject してもそのまま続行 */
+    });
+    return await fn();
+  } finally {
+    resolveNext();
+  }
+}
+
+/**
  * Chain-node の `storage_uploadFragment` RPC で fragments を並列アップロードする。
  * `k` 個 ACK で成功。30 秒以内に揃わなければ `DmError.StorageInsufficient`。
  *
@@ -497,7 +519,24 @@ export async function sendDm(
     });
     let tx1Result;
     try {
-      tx1Result = await tx1.signAndSubmit(mainSigner);
+      // tx1 は main account 署名で nonce を消費する。並行 sendDm (例: 受信レシート
+      // と user 起点 DM) が同 nonce で signAndSubmit すると後者が `Stale` で reject
+      // されるので、グローバル mutex で 1 件ずつ流す。さらに `Stale` を 1 回だけ
+      // リトライ — PAPI は signAndSubmit 毎に nonce 再取得するので、mutex 内で
+      // 再呼び出しすれば最新値が拾える。
+      tx1Result = await runSerialTx1(async () => {
+        try {
+          return await tx1.signAndSubmit(mainSigner);
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err);
+          if (/Stale/i.test(m)) {
+            console.warn('[dm-sender] tx1 stale, retrying once');
+            await new Promise((r) => setTimeout(r, 200));
+            return await tx1.signAndSubmit(mainSigner);
+          }
+          throw err;
+        }
+      });
     } catch (e) {
       // 失敗理由をできるだけ具体的に出す。残高絡みなら専用エラー、
       // それ以外は元 error を残して TransactionDropped に丸める。
