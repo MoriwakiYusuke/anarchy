@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
-import Link from 'next/link'
 import { useApi } from '@/hooks/useApi'
 import { useAccount } from '@/lib/account/context'
 import { useLocale } from '@/i18n'
@@ -11,6 +10,7 @@ import { WalletConnect } from '@/components/WalletConnect'
 import { TransferForm } from '@/components/TransferForm'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import NicknameSettings from '@/components/NicknameSettings'
+import { DmModal } from '@/components/dm/DmModal'
 import { ConnectedDot, SyncingDot, DisconnectedDot } from '@/components/Icons'
 import { useMoralBalance } from '@/hooks/useMoralBalance'
 import styles from './page.module.css'
@@ -18,9 +18,10 @@ import styles from './page.module.css'
 export default function Home() {
   const { client, unsafeApi, connectionState, error } = useApi()
   const { t } = useLocale()
-  const { account, accountSeed, signer, setAccount } = useAccount()
+  const { account, accountSeed, signer } = useAccount()
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [isTransferOpen, setIsTransferOpen] = useState(false)
+  const [isDmOpen, setIsDmOpen] = useState(false)
   const refetchBalanceRef = useRef<(() => void) | null>(null)
   const { balance } = useMoralBalance(unsafeApi, account, refreshTrigger)
 
@@ -105,13 +106,19 @@ export default function Home() {
           )}
           {account && signer && (
             <div className={styles.collapsibleSection}>
-              <Link href="/dm" className={styles.collapsibleHeader}>
+              <button
+                type="button"
+                className={styles.collapsibleHeader}
+                onClick={() => setIsDmOpen(true)}
+              >
                 <span>{t('nav.dm')}</span>
                 <span className={styles.collapseIcon}>→</span>
-              </Link>
+              </button>
             </div>
           )}
         </aside>
+
+        <DmModal isOpen={isDmOpen} onClose={() => setIsDmOpen(false)} />
 
         <section className={styles.content}>
           {account && signer && (
