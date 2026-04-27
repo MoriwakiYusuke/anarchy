@@ -14,6 +14,7 @@
 pub mod decrypt;
 pub mod encrypt;
 pub mod envelope;
+pub mod media;
 pub mod padding;
 pub mod types;
 

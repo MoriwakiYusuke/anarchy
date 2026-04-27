@@ -191,6 +191,10 @@
   background: var(--bg-primary);
   overflow: hidden;
   padding: 1rem 1.25rem;
+  /* flex 子の overflow-y: auto を効かせるため必須 (子の min-content
+   * を尊重して伸び続けないようにする)。 */
+  min-height: 0;
+  min-width: 0;
 }
 
 .empty {

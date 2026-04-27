@@ -1,35 +1,64 @@
 'use client';
 
 /**
- * MessageComposer (T047 + T091 retry UX) — DM 送信フォーム。
+ * MessageComposer — DM 送信フォーム + 添付メディア。
  *
- * Contract: contracts/frontend-ui.md §2.3.
- * - FR-025 progress 表示 (5 ステップ)
- * - 残高不足 / 鍵未公開 / 送信失敗のエラー表示
- * - T091: TransactionDropped 時に「再試行」ボタンを残し、最後の `params` を保持
- *   (sender_stealth は pre-fund 済みなので tx2 だけリトライできる設計だが、
- *    現 MVP では sendDm 全体を再実行する単純な retry にとどめる。)
+ * Flow:
+ *   1. ユーザーがテキスト入力 + (任意で) ファイル添付。
+ *   2. 送信時:
+ *        a. 添付ファイルを `uploadDmMedia` で 1 件ずつ encrypt → fragment → upload
+ *           (`storage_uploadFragment`, k-of-n)。失敗したら sendDm 自体を実行せず
+ *           `MediaUploadFailed` で abort。
+ *        b. `encodeDmContent({ text, media })` で envelope を組む。
+ *        c. 既存 `sendDm(...)` に `body` として渡す。
+ *
+ * Progress:
+ *   - 添付フェーズは `attaching:{i}/{total}:{ufrag}/{nfrag}` を表示。
+ *   - DM 送信フェーズは sender.ts の 5 段 (`encrypting → uploading → prefunding →
+ *     dispatching → done`) を踏襲。
  */
 
-import { useCallback, useState } from 'react';
-import { sendDm, type SendDmContext, type SendDmProgress } from '@/lib/dm/sender';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  estimateDmCostFromInputs,
+  formatMoral,
+  sendDm,
+  type SendDmContext,
+  type SendDmProgress,
+} from '@/lib/dm/sender';
+import { uploadDmMedia } from '@/lib/dm/media';
+import { encodeDmContent } from '@/lib/dm/contentCodec';
 import { useDmStore } from '@/lib/dm/store';
 import { useLocale } from '@/i18n';
 import type { TranslationKey } from '@/i18n';
-import { DmError, type AccountId, type SendDmParams } from '@/lib/dm/types';
+import {
+  DmError,
+  type AccountId,
+  type DmMediaRef,
+  type SendDmParams,
+} from '@/lib/dm/types';
 import styles from './MessageComposer.module.css';
 
 export interface MessageComposerProps {
   counterparty: AccountId;
-  /** 親コンポーネントから注入される送信 context (api / signer / endpoint)。
-   *  rendering を testable に保つため hook を通さず props で受け取る。 */
   context: SendDmContext;
-  /** 送信成功時のコールバック (任意、UI 側で list を refresh したい時に使用)。 */
   onSent?: () => void;
+}
+
+interface PendingFile {
+  id: string;
+  file: File;
+  /** プレビュー用 object URL (image/video のみ)。それ以外は undefined。 */
+  preview?: string;
+  /** アップロード進捗 0–100。 */
+  progress: number;
+  /** kind 表示用。 */
+  kind: 'image' | 'video' | 'file';
 }
 
 type ComposerState =
   | { kind: 'idle' }
+  | { kind: 'attaching'; fileIndex: number; fileTotal: number; uploadedFragments: number; totalFragments: number }
   | { kind: 'sending'; progress: SendDmProgress }
   | { kind: 'error'; banner: ErrorBanner }
   | { kind: 'sent' };
@@ -43,17 +72,13 @@ const PROGRESS_KEY: Record<SendDmProgress['kind'], TranslationKey> = {
 };
 
 interface ErrorBanner {
-  /** TranslationKey を解決する側に渡す。 */
   key: TranslationKey;
-  /** key が `{detail}` パラメータを取る場合の値。 */
   detail?: string;
   canRetry: boolean;
 }
 
 function classifyError(err: unknown): ErrorBanner {
   const msg = err instanceof Error ? err.message : String(err);
-  // sender.ts は `${DmError.TransactionDropped}: tx1 ...` のように prefix で補足情報を
-  // 付ける場合があるので、完全一致ではなく startsWith で分類する。
   if (msg === DmError.RecipientKeyNotPublished) {
     return { key: 'dm.error.recipientKeyNotPublished', canRetry: false };
   }
@@ -69,25 +94,127 @@ function classifyError(err: unknown): ErrorBanner {
   if (msg === DmError.BodyTooLarge) {
     return { key: 'dm.error.bodyTooLarge', canRetry: false };
   }
+  if (msg.startsWith(DmError.MediaUploadFailed)) {
+    return { key: 'dm.error.mediaUploadFailed', detail: msg, canRetry: true };
+  }
   return { key: 'dm.error.generic', detail: msg, canRetry: true };
 }
 
-export function MessageComposer({ counterparty, context, onSent }: MessageComposerProps): JSX.Element {
+function detectKind(file: File): PendingFile['kind'] {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('video/')) return 'video';
+  return 'file';
+}
+
+export function MessageComposer({
+  counterparty,
+  context,
+  onSent,
+}: MessageComposerProps): JSX.Element {
   const { t } = useLocale();
   const [body, setBody] = useState('');
+  const [files, setFiles] = useState<PendingFile[]>([]);
   const [state, setState] = useState<ComposerState>({ kind: 'idle' });
   const addOutgoing = useDmStore(
-    (s: { addOutgoing: (m: import('@/lib/dm/types').DmMessageRecord) => void }) => s.addOutgoing,
+    (s: { addOutgoing: (m: import('@/lib/dm/types').DmMessageRecord) => void }) =>
+      s.addOutgoing,
   );
+
+  // unmount 時 / files 入替時の object URL revoke。
+  useEffect(() => {
+    return () => {
+      for (const f of files) {
+        if (f.preview) URL.revokeObjectURL(f.preview);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addFiles = useCallback((picked: File[]) => {
+    const next: PendingFile[] = picked.map((file) => {
+      const kind = detectKind(file);
+      const preview = kind === 'image' || kind === 'video'
+        ? URL.createObjectURL(file)
+        : undefined;
+      return {
+        id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`,
+        file,
+        preview,
+        progress: 0,
+        kind,
+      };
+    });
+    setFiles((prev) => [...prev, ...next]);
+  }, []);
+
+  const removeFile = useCallback((id: string) => {
+    setFiles((prev) => {
+      const target = prev.find((f) => f.id === id);
+      if (target?.preview) URL.revokeObjectURL(target.preview);
+      return prev.filter((f) => f.id !== id);
+    });
+  }, []);
 
   const submit = useCallback(
     async (paramsOverride?: SendDmParams) => {
-      const text = body.trim();
-      if (!text && !paramsOverride) return;
+      const text = body;
+      if (!paramsOverride && !text.trim() && files.length === 0) return;
+
+      // ---- Phase 1: upload attachments (新規送信時のみ) ----
+      let media: DmMediaRef[] = [];
+      if (!paramsOverride && files.length > 0) {
+        try {
+          for (let i = 0; i < files.length; i += 1) {
+            const f = files[i];
+            setState({
+              kind: 'attaching',
+              fileIndex: i + 1,
+              fileTotal: files.length,
+              uploadedFragments: 0,
+              totalFragments: 0,
+            });
+            const ref = await uploadDmMedia(
+              f.file,
+              {
+                chainRpcEndpoint: context.chainRpcEndpoint,
+                signer: context.mainRawSigner,
+                onProgress: (uploaded, total) => {
+                  setState({
+                    kind: 'attaching',
+                    fileIndex: i + 1,
+                    fileTotal: files.length,
+                    uploadedFragments: uploaded,
+                    totalFragments: total,
+                  });
+                  setFiles((prev) =>
+                    prev.map((pf) =>
+                      pf.id === f.id
+                        ? {
+                            ...pf,
+                            progress:
+                              total > 0 ? Math.round((uploaded / total) * 100) : 0,
+                          }
+                        : pf,
+                    ),
+                  );
+                },
+              },
+            );
+            media.push(ref);
+          }
+        } catch (err) {
+          setState({ kind: 'error', banner: classifyError(err) });
+          return;
+        }
+      }
+
+      // ---- Phase 2: build envelope + send DM ----
       const params: SendDmParams =
         paramsOverride ?? {
           recipientAccountId: counterparty,
-          body: new TextEncoder().encode(text),
+          body: encodeDmContent({ text, media }),
         };
 
       setState({ kind: 'sending', progress: { kind: 'encrypting' } });
@@ -111,21 +238,33 @@ export function MessageComposer({ counterparty, context, onSent }: MessageCompos
 
         setState({ kind: 'sent' });
         setBody('');
+        // 送信成功時のみ files を消す (失敗 retry のため preview は残す)。
+        for (const f of files) {
+          if (f.preview) URL.revokeObjectURL(f.preview);
+        }
+        setFiles([]);
         onSent?.();
       } catch (err) {
         setState({ kind: 'error', banner: classifyError(err) });
       }
     },
-    [addOutgoing, body, context, counterparty, onSent],
+    [addOutgoing, body, context, counterparty, files, onSent],
   );
 
   const retry = useCallback(() => {
-    // T091: 最後に入力していた本文をそのまま再利用 (UI からは消さない)。
-    if (!body.trim()) return;
+    if (!body.trim() && files.length === 0) return;
     void submit();
-  }, [body, submit]);
+  }, [body, files.length, submit]);
 
-  const isBusy = state.kind === 'sending';
+  const isBusy = state.kind === 'sending' || state.kind === 'attaching';
+  const canSubmit = !isBusy && (body.trim().length > 0 || files.length > 0);
+
+  // コスト見積 (text + 添付ファイル数から padding bucket を予測)。
+  // body codec + envelope SCALE + padding を含む安全めのざっくり値。
+  const estimatedCost = useMemo(() => {
+    if (!body.trim() && files.length === 0) return null;
+    return estimateDmCostFromInputs(body, files.length);
+  }, [body, files.length]);
 
   return (
     <div role="region" aria-label="DM compose form" className={styles.region}>
@@ -138,16 +277,100 @@ export function MessageComposer({ counterparty, context, onSent }: MessageCompos
         aria-label="dm message body"
         className={styles.textarea}
       />
-      <div className={styles.actions}>
+
+      {files.length > 0 && (
+        <ul
+          className={styles.attachments}
+          aria-label={t('dm.compose.attachmentsLabel')}
+        >
+          {files.map((f) => (
+            <li key={f.id} className={styles.thumb}>
+              {f.kind === 'image' && f.preview ? (
+                <img
+                  src={f.preview}
+                  alt={f.file.name}
+                  className={styles.thumbImg}
+                />
+              ) : f.kind === 'video' && f.preview ? (
+                <video src={f.preview} muted className={styles.thumbVideo} />
+              ) : (
+                <div className={styles.thumbFile} title={f.file.name}>
+                  {f.file.name}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => removeFile(f.id)}
+                disabled={isBusy}
+                className={styles.thumbRemove}
+                aria-label={t('dm.compose.removeAttachment', {
+                  name: f.file.name,
+                })}
+              >
+                ×
+              </button>
+              {isBusy && f.progress > 0 && f.progress < 100 ? (
+                <div className={styles.thumbProgress}>{f.progress}%</div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className={styles.attachRow}>
+        {/* ボタン経由の `fileInputRef.current.click()` だと React の onClick 経由で
+         *  user-gesture chain が壊れたり、Strict Mode 二重マウント中に stale ref を
+         *  指す等の不安定要因がある。`<label>` で input を囲むと、ブラウザが純粋に
+         *  ネイティブの click → file picker を起動するためこれらを回避できる。 */}
+        <label
+          className={`${styles.attachBtn} ${isBusy ? styles.attachBtnDisabled : ''}`}
+          aria-disabled={isBusy}
+        >
+          {t('dm.compose.attachButton')}
+          <input
+            type="file"
+            multiple
+            className={styles.hiddenInput}
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? []);
+              if (picked.length > 0) addFiles(picked);
+              e.target.value = '';
+            }}
+            disabled={isBusy}
+          />
+        </label>
         <button
           type="button"
           onClick={() => void submit()}
-          disabled={isBusy || !body.trim()}
+          disabled={!canSubmit}
           className={styles.sendBtn}
         >
           {isBusy ? t('dm.compose.sending') : t('dm.compose.send')}
         </button>
       </div>
+
+      {state.kind === 'idle' || state.kind === 'sent' || state.kind === 'error' ? (
+        estimatedCost === null && (body.trim() || files.length > 0) ? (
+          <p role="status" className={styles.costWarn}>
+            {t('dm.compose.bodyTooLargeWarn')}
+          </p>
+        ) : estimatedCost !== null ? (
+          <p role="status" aria-live="polite" className={styles.cost}>
+            {t('dm.compose.estimatedCost', { amount: formatMoral(estimatedCost) })}
+          </p>
+        ) : null
+      ) : null}
+
+      {state.kind === 'attaching' && (
+        <p role="status" aria-live="polite" className={styles.progress}>
+          {t('dm.progress.attaching', {
+            current: state.fileIndex,
+            total: state.fileTotal,
+            uploaded: state.uploadedFragments,
+            fragments: state.totalFragments,
+          })}
+        </p>
+      )}
 
       {state.kind === 'sending' && (
         <p role="status" aria-live="polite" className={styles.progress}>

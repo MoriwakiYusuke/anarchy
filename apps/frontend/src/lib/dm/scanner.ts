@@ -14,6 +14,7 @@ import type {
 } from './types';
 import { decodeReceiptBody, type DmReceiptPayload } from './receipt';
 import { resolveChainRpcEndpoint } from './sender';
+import { fetchCiphertextFromStorage } from './storageFetch';
 
 type WasmModule = typeof import('anarchy-wasm-engine');
 let wasmModule: WasmModule | null = null;
@@ -199,77 +200,6 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
     newMessages,
     newReceipts,
   };
-}
-
-function fromBase64(b64: string): Uint8Array {
-  if (typeof atob === 'function') {
-    const bin = atob(b64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
-    return out;
-  }
-  return new Uint8Array(Buffer.from(b64, 'base64'));
-}
-
-/**
- * Chain-node の `storage_getFragment` RPC で n 個のフラグメントを並列取得し、
- * ciphertext を再構成する。`dm_fragment_ciphertext` は等分割 (ceil(len/n) byte
- * の chunk) なので index 順に連結 → `ciphertextLen` で切り詰めれば復元できる。
- * 1 つでも取得失敗 (storage 側 GC 等) したら `null`。
- *
- * **CLAUDE.md Security Principle #5**: storage-node 直叩きを禁ずる。chain-node
- * 経由で取り回す。chain-node 側で fan-out + 認証は完結するのでフロントから
- * X-Chain-Auth ヘッダを送る必要はない。
- */
-async function fetchCiphertextFromStorage(
-  chainRpcEndpoint: string,
-  merkleRoot: Uint8Array,
-  n: number,
-  ciphertextLen: number,
-): Promise<Uint8Array | null> {
-  const tasks: Promise<Uint8Array | null>[] = [];
-  for (let i = 0; i < n; i += 1) {
-    tasks.push(
-      (async (): Promise<Uint8Array | null> => {
-        try {
-          const res = await fetch(chainRpcEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: i,
-              method: 'storage_getFragment',
-              params: [{
-                merkle_root: Array.from(merkleRoot),
-                index: i,
-              }],
-            }),
-          });
-          if (!res.ok) return null;
-          const body = (await res.json()) as {
-            result?: { data?: string };
-            error?: unknown;
-          };
-          if (body.error || !body.result?.data) return null;
-          return fromBase64(body.result.data);
-        } catch {
-          return null;
-        }
-      })(),
-    );
-  }
-  const parts = await Promise.all(tasks);
-  for (const p of parts) if (!p) return null;
-
-  const total = parts.reduce((acc, p) => acc + (p ? p.length : 0), 0);
-  const ct = new Uint8Array(total);
-  let off = 0;
-  for (const p of parts) {
-    if (!p) return null;
-    ct.set(p, off);
-    off += p.length;
-  }
-  return ct.length >= ciphertextLen ? ct.slice(0, ciphertextLen) : null;
 }
 
 /**

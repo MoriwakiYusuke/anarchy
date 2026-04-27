@@ -144,6 +144,71 @@ export function estimateDmCost(ciphertextLen: number): bigint {
   return DM_BASE_COST + DM_BYTE_COST * BigInt(ciphertextLen) + PRE_FUND_MARGIN;
 }
 
+/** ISO 7816-4 padding bucket (`packages/wasm-engine/src/dm/padding.rs` と一致)。 */
+const PADDING_BUCKETS = [1024, 4096, 16384, 65536, 262144] as const;
+
+/** AES-GCM tag length (バケット内訳の控除用)。 */
+const AES_GCM_TAG_LEN = 16;
+
+/** SCALE で encode された `DmEnvelope` の固定長部分 (sender 32 + ts 8 + sig 64 +
+ *  version 1 + Vec<u8> 長さ prefix 〜5 byte)。 */
+const ENVELOPE_FIXED_OVERHEAD = 110;
+
+/**
+ * 送信コスト UI 表示用: `text` と `mediaCount` から ciphertext_len (= padding
+ * bucket) を見積もり、`estimateDmCost` を返す。実際の dm_encrypt_and_pad と
+ * 完全一致は保証しないが、ペイロードがバケット境界をまたぐ前後では実値と
+ * 一致する。境界に乗っている場合は実値が 1 段上のバケットに膨らむことが
+ * あるので、UI には「~」プレフィクスを付ける運用にする。
+ *
+ * 引数:
+ *   - `text`: 本文文字列 (codec の `text` フィールド)
+ *   - `mediaCount`: 添付メディア数 (各 ref は JSON 内で平均 ~340B)
+ *
+ * 戻り値:
+ *   - bigint: 12-decimal MORAL 単位のコスト (= main account 残高から差し引かれる量)
+ *   - null:   bucket に収まらない (= `BodyTooLarge` エラー相当)
+ */
+export function estimateDmCostFromInputs(
+  text: string,
+  mediaCount: number,
+): bigint | null {
+  // contentCodec.encodeDmContent と整合する body byte 数の見積もり。
+  //   wire: 4B magic ("DMC\x01") + UTF-8 JSON({"text":"…","media":[…]})
+  const textBytes = new TextEncoder().encode(text).length;
+  // JSON 固定 overhead: `{"text":"","media":[]}` = 22B + text の中身。
+  // text 中の特殊文字 (",\,改行 等) は escape されて 2 byte になるため
+  // worst-case で 2 倍見積もる代わりに 25% マージンを乗せる。
+  const jsonBaseOverhead = 22;
+  const textJsonBytes = Math.ceil(textBytes * 1.25);
+  // 各 media ref は { root, key, mime, size, k, n, ciphertextLen, [width, height] }
+  // で平均 ~340B (root 64hex + key 64hex + メタ + JSON quoting)。
+  const perMediaRefBytes = 340;
+  const bodyLen = 4 + jsonBaseOverhead + textJsonBytes + mediaCount * perMediaRefBytes;
+
+  // 暗号化前に envelope に詰めて padding する。
+  const padded = bodyLen + ENVELOPE_FIXED_OVERHEAD + 1; // +1: ISO 7816-4 terminator
+  const needed = padded + AES_GCM_TAG_LEN;
+
+  for (const b of PADDING_BUCKETS) {
+    if (b >= needed) return estimateDmCost(b);
+  }
+  return null; // body too large
+}
+
+/** 12-decimal plancks → "X.YY MORAL" 文字列 (2 桁少数)。 */
+export function formatMoral(plancks: bigint): string {
+  const negative = plancks < 0n;
+  const v = negative ? -plancks : plancks;
+  const whole = v / MORAL;
+  const frac = v % MORAL;
+  // 0.05 単位精度を担保するため少数 2 桁表示。MORAL は 12 桁なので
+  // frac * 100 / 1e12 で 2 桁を取り、四捨五入はせず切り捨て。
+  const fracHundredths = (frac * 100n) / MORAL;
+  const fracStr = fracHundredths.toString().padStart(2, '0');
+  return `${negative ? '-' : ''}${whole}.${fracStr}`;
+}
+
 /**
  * Uint8Array → base64 (storage-node `b64_decode` と互換)。
  */

@@ -46,6 +46,44 @@ export interface DmDispatch {
 }
 
 /**
+ * 添付メディア参照 (DM 本文 envelope に格納)。
+ *
+ * - `root`: storage 上の Blake2b merkle root (32B hex)。`storage_getFragment` の id。
+ * - `key`: AES-256-GCM 鍵 (32B hex)。E2E 担保のため DM 本文側にのみ存在する。
+ * - `n` / `k`: 既存 DM 本体と同じ k-of-n (MVP では k=3 / n=5 固定)。
+ * - `ciphertextLen`: `dm_media_encrypt` 出力の合計長 (`nonce(12) + ct + tag(16)`)。
+ *   `fetchCiphertextFromStorage` で切り詰めるのに使う。
+ *
+ * `width` / `height` / `duration` / `thumbnail` は UI ヒント (post 側 MediaRef と同形式)。
+ */
+export interface DmMediaRef {
+  root: string; // 32-byte hex (lowercase, no prefix)
+  key: string; // 32-byte hex (lowercase, no prefix)
+  mime: string;
+  size: number;
+  k: number;
+  n: number;
+  ciphertextLen: number;
+  width?: number;
+  height?: number;
+  /** 動画の長さ (秒)。 */
+  duration?: number;
+  /** 動画サムネイル (data: URL)。 */
+  thumbnail?: string;
+}
+
+/**
+ * DM 本文 envelope。`lib/dm/contentCodec.ts` で encode/decode する。
+ *
+ * オンチェーンに乗るのは暗号化された DmEnvelope で、その中の `body` フィールドに
+ * 本構造を [magic 4B] || [JSON UTF-8] で詰める。
+ */
+export interface DmContent {
+  text: string;
+  media: DmMediaRef[];
+}
+
+/**
  * 一件の DM をローカル永続化する際のレコード。data-model.md §2.4。
  *
  * GC 判別のため `bodyState` を保持 (T093/T094 対応、spec.md Edge Cases)。
@@ -125,6 +163,8 @@ export enum DmError {
   DecryptFailed = 'DecryptFailed',
   SignatureInvalid = 'SignatureInvalid',
   BackupImportFailed = 'BackupImportFailed',
+  MediaUploadFailed = 'MediaUploadFailed',
+  MediaFetchFailed = 'MediaFetchFailed',
 }
 
 /**

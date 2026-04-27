@@ -567,14 +567,14 @@
   - [x] + `X-Anarchy-Auth` は frontend で生成し chain-node が body→header に展開して storage-node に forward
   - [x] + `NEXT_PUBLIC_STORAGE_ENDPOINT` 環境変数を削除、`SendDmContext.chainRpcEndpoint` に統一
 
-- [ ] + **メディア添付** ← 検討中 (本 spec の継続実装、設計案あり)
-  - [ ] + UI: 投稿と同じ `MediaUpload` コンポーネントを `MessageComposer` に統合 (drag&drop + プレビュー)
-  - [ ] + per-file ChaCha20-Poly1305(K_media) 暗号化、K_media は DM body 内に格納 (E2E 担保)
-  - [ ] + DM body codec 拡張 (`lib/dm/contentCodec.ts` 新設、version byte で旧 text-only と区別)
-  - [ ] + アップロード/取得 hook (`useDmMediaUpload` / `useDmMediaFetch` 新設、内部で `dm_fragment_ciphertext` + chain-node `storage_uploadFragment`)
-  - [ ] + 受信側: body 復号後に refs から fetch + decrypt → `MediaDisplay` 流用で表示
-  - [ ] + EXIF 除去 (`lib/mediaProcessor.ts` 流用)
-  - 設計詳細は本セッションのチャットログ参照 (UI 共通 / 暗号レイヤ二段 / 256KB padding bucket と整合)
+- [x] + **メディア添付**
+  - [x] + UI: `MessageComposer` にファイル選択 + 添付プレビュー + per-file 進捗表示
+  - [x] + per-file AES-256-GCM(K_media) 暗号化、K_media は DM body envelope 内に格納 (E2E 担保)
+  - [x] + DM body codec (`lib/dm/contentCodec.ts`、4-byte magic `DMC\x01` + JSON `{text, media[]}`)
+  - [x] + アップロード/取得 lib (`lib/dm/media.ts`: `uploadDmMedia` / `fetchDmMedia`、内部で `dm_fragment_ciphertext` + chain-node `storage_uploadFragment` / `storage_getFragment`)
+  - [x] + 受信側: `<DmMediaDisplay />` (decrypt → blob URL → image/video/file 各レンダリング)
+  - [x] + EXIF 除去 (`lib/mediaProcessor.ts` 流用)
+  - [x] + wasm-engine 拡張 (`dm_media_encrypt` / `dm_media_decrypt`、AES-256-GCM 統一)
 
 ### + 3.4 投稿人気度システム
 

@@ -26,6 +26,9 @@ import type { SendDmContext } from '@/lib/dm/sender';
 // sendDm をモック: 成功時に SendDmResult を返し、進捗コールバックを順次呼ぶ。
 jest.mock('@/lib/dm/sender', () => ({
   sendDm: jest.fn(),
+  // MessageComposer がコスト見積で参照するため最小スタブ。
+  estimateDmCostFromInputs: () => 3_500_000_000_000n,
+  formatMoral: (v: bigint) => `${v / 1_000_000_000_000n}.00`,
 }));
 
 import { sendDm } from '@/lib/dm/sender';
@@ -116,7 +119,11 @@ describe('<ConversationView /> + <MessageComposer /> (T070 / US3)', () => {
 
     const [params] = mockedSendDm.mock.calls[0] as [SendDmParams, SendDmContext];
     expect(params.recipientAccountId).toBe(COUNTERPARTY);
-    expect(new TextDecoder().decode(params.body)).toBe('reply from bob');
+    // 新しい body は DMC envelope (versioned JSON)。decodeDmContent で text を取り出す。
+    const { decodeDmContent } = await import('@/lib/dm/contentCodec');
+    const decoded = decodeDmContent(params.body);
+    expect(decoded?.text).toBe('reply from bob');
+    expect(decoded?.media).toEqual([]);
 
     await waitFor(() => {
       const conv = useDmStore.getState().conversations.get(COUNTERPARTY);

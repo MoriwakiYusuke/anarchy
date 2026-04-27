@@ -57,3 +57,4 @@ pub use dm::encrypt::{
     DmStealthDerivation,
 };
 pub use dm::envelope::dm_compute_inner_signed_hash;
+pub use dm::media::{dm_media_decrypt, dm_media_encrypt};

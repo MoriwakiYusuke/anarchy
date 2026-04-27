@@ -18,6 +18,7 @@
 import { useMemo } from 'react';
 import { useDmStore } from '@/lib/dm/store';
 import { useNicknameOf } from '@/hooks/useNicknameOf';
+import { useAccount } from '@/lib/account/context';
 import { useLocale } from '@/i18n';
 import type { AccountId, ConversationState } from '@/lib/dm/types';
 import styles from './ConversationList.module.css';
@@ -73,6 +74,14 @@ function ConversationRow({
 }): JSX.Element {
   const { t } = useLocale();
   const nickname = useNicknameOf(thread.counterparty);
+  const { account: ownAccount } = useAccount();
+  const isSelf = ownAccount === thread.counterparty;
+  // ヘッダーと同じ優先度: nickname → 自分宛なら "(あなた)" → "Anarchy"
+  const displayName = nickname
+    ? nickname
+    : isSelf
+      ? t('dm.view.selfName')
+      : 'Anarchy';
   return (
     <li role="listitem" className={styles.item}>
       <button
@@ -81,14 +90,8 @@ function ConversationRow({
         className={styles.row}
       >
         <span className={styles.identity}>
-          {nickname ? (
-            <>
-              <span className={styles.nickname}>{nickname}</span>
-              <span className={styles.counterparty}>{thread.counterparty}</span>
-            </>
-          ) : (
-            <span className={styles.counterpartyBig}>{thread.counterparty}</span>
-          )}
+          <span className={styles.nickname}>{displayName}</span>
+          <span className={styles.counterparty}>{thread.counterparty}</span>
         </span>
         <span className={styles.lastBlock}>
           #{thread.lastActivityBlock.toString()}

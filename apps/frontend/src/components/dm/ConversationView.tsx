@@ -18,11 +18,14 @@ import { useEffect, useMemo } from 'react';
 import { useDmStore, receiptKey } from '@/lib/dm/store';
 import { sendDmReceipt } from '@/lib/dm/receipt';
 import { useNicknameOf } from '@/hooks/useNicknameOf';
+import { useAccount } from '@/lib/account/context';
 import { useLocale } from '@/i18n';
 import type { TranslationKey } from '@/i18n';
 import { MessageComposer } from './MessageComposer';
+import { DmMediaDisplay } from './DmMediaDisplay';
 import type { SendDmContext } from '@/lib/dm/sender';
 import type { AccountId, ConversationState, DmMessageRecord } from '@/lib/dm/types';
+import { decodeDmContent } from '@/lib/dm/contentCodec';
 import styles from './ConversationView.module.css';
 
 export interface ConversationViewProps {
@@ -44,6 +47,15 @@ export function ConversationView({
   );
   const conv = conversations.get(conversationId);
   const nickname = useNicknameOf(conversationId);
+  const { account: ownAccount } = useAccount();
+  const isSelf = ownAccount === conversationId;
+  // 表示優先度: 1) on-chain nickname / 2) 自分宛なら "(あなた)" / 3) NicknameSettings
+  // home 画面の DEFAULT_NAME と揃えて "Anarchy"。SS58 全文は常に下に表示する。
+  const displayName = nickname
+    ? nickname
+    : isSelf
+      ? t('dm.view.selfName')
+      : 'Anarchy';
 
   const messages = useMemo(() => conv?.messages ?? [], [conv]);
 
@@ -72,15 +84,9 @@ export function ConversationView({
     <section className={styles.view} aria-label={`${t('dm.view.counterpartyLabel')}: ${conversationId}`}>
       <header className={styles.header}>
         <h2 className={styles.headerTitle}>
-          {t('dm.view.counterpartyLabel')}
-          {nickname ? (
-            <>
-              <span className={styles.nickname}>{nickname}</span>
-              <span className={styles.counterpartySub}>{conversationId}</span>
-            </>
-          ) : (
-            <span className={styles.counterparty}>{conversationId}</span>
-          )}
+          {isSelf ? t('dm.view.selfLabel') : t('dm.view.counterpartyLabel')}
+          <span className={styles.nickname}>{displayName}</span>
+          <span className={styles.counterpartySub}>{conversationId}</span>
         </h2>
       </header>
       {messages.length === 0 ? (
@@ -88,7 +94,11 @@ export function ConversationView({
       ) : (
         <ol className={styles.messages}>
           {messages.map((m) => (
-            <MessageBubble key={messageKey(m)} message={m} />
+            <MessageBubble
+              key={messageKey(m)}
+              message={m}
+              chainRpcEndpoint={context?.chainRpcEndpoint}
+            />
           ))}
         </ol>
       )}
@@ -112,13 +122,27 @@ const DELIVERY_STATE_LABEL_KEY: Record<'sent' | 'delivered' | 'read', Translatio
   read: 'dm.view.deliveryStateRead',
 };
 
-function MessageBubble({ message }: { message: DmMessageRecord }): JSX.Element {
+function MessageBubble({
+  message,
+  chainRpcEndpoint,
+}: {
+  message: DmMessageRecord;
+  chainRpcEndpoint?: string;
+}): JSX.Element {
   const { t } = useLocale();
+  // memoize して body の参照が変わるまで decoded を再評価しない (DmMediaDisplay の
+  // useEffect が media 配列の identity に依存して再起動するのを防ぐ)。
+  const decoded = useMemo(
+    () => (message.bodyState === 'plaintext' ? decodeDmContent(message.body) : null),
+    [message.body, message.bodyState],
+  );
   if (message.bodyState === 'garbage_collected') {
     return <GarbageCollectedBubble message={message} />;
   }
 
-  const text = decodeBody(message.body);
+  const text = decoded?.text ?? '';
+  const media = decoded?.media ?? [];
+
   const bubbleClass =
     message.direction === 'outgoing'
       ? `${styles.bubble} ${styles.bubbleOutgoing}`
@@ -137,7 +161,10 @@ function MessageBubble({ message }: { message: DmMessageRecord }): JSX.Element {
       data-body-state={message.bodyState}
       className={bubbleClass}
     >
-      <p className={styles.body}>{text}</p>
+      {text ? <p className={styles.body}>{text}</p> : null}
+      {media.length > 0 ? (
+        <DmMediaDisplay media={media} chainRpcEndpoint={chainRpcEndpoint} />
+      ) : null}
       {message.direction === 'outgoing' && message.deliveryState ? (
         <span
           aria-label={t('dm.view.deliveryStateAriaLabel')}
@@ -168,10 +195,3 @@ function GarbageCollectedBubble({ message }: { message: DmMessageRecord }): JSX.
   );
 }
 
-function decodeBody(body: Uint8Array): string {
-  try {
-    return new TextDecoder('utf-8', { fatal: false }).decode(body);
-  } catch {
-    return `[${body.byteLength} bytes]`;
-  }
-}

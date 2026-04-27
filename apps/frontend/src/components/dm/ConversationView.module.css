@@ -3,6 +3,10 @@
   flex-direction: column;
   gap: 0.75rem;
   flex: 1;
+  /* flex 子の overflow-y: auto を効かせるため必須 (デフォルトの min-height: auto
+   * だと子要素分まで伸びてしまい、composer が画面外に押し出されると messages 側が
+   * scroll せず内容が見えなくなる)。 */
+  min-height: 0;
 }
 
 .header {
@@ -10,6 +14,7 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1rem 1.25rem;
+  flex-shrink: 0;
 }
 
 .headerTitle {
@@ -62,7 +67,7 @@
   gap: 0.5rem;
   flex: 1;
   overflow-y: auto;
-  max-height: 60vh;
+  min-height: 0;
 }
 
 .bubble {
@@ -133,4 +138,9 @@
 .composer {
   border-top: 1px solid var(--border);
   padding-top: 0.75rem;
+  flex-shrink: 0;
+  /* 添付ファイル数が多い時は composer 自身も内部スクロール (textarea + thumbs +
+   * progress + error の合計が肥大化したら) — ただし modal 全高の半分は超えない。 */
+  max-height: 50%;
+  overflow-y: auto;
 }

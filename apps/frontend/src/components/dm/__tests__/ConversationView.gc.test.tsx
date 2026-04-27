@@ -12,6 +12,7 @@
 import { render, screen } from '@testing-library/react';
 import { ConversationView } from '../ConversationView';
 import { useDmStore } from '@/lib/dm/store';
+import { encodeDmContent } from '@/lib/dm/contentCodec';
 import type { AccountId, DmMessageRecord } from '@/lib/dm/types';
 
 function gcMsg(counterparty: string, blockNumber: bigint, messageId: bigint): DmMessageRecord {
@@ -39,7 +40,7 @@ function plainMsg(
     direction: 'incoming',
     counterparty: counterparty as AccountId,
     timestampMs: Number(blockNumber) * 6000,
-    body: new TextEncoder().encode(body),
+    body: encodeDmContent({ text: body, media: [] }),
     bodyState: 'plaintext',
     signatureValid: true,
   };

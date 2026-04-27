@@ -35,6 +35,12 @@ jest.mock('@/hooks/useNicknameOf', () => ({
   useNicknameOf: () => null,
 }));
 
+// AccountContext は内部で polkadot-api signer (ESM) を import するため Jest が
+// 解析に失敗する。テストでは own account 情報を使わないので最小スタブを返す。
+jest.mock('@/lib/account/context', () => ({
+  useAccount: () => ({ account: null, accountSeed: null, signer: null, setAccount: () => {} }),
+}));
+
 // Mock i18n so components using `useLocale` work without a provider.
 // Uses ja translations directly so existing tests can assert on Japanese text.
 // eslint-disable-next-line @typescript-eslint/no-var-requires

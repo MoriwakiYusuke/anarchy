@@ -27,8 +27,19 @@ type NicknameApi = {
   };
 };
 
-const cache = new Map<string, string | null>();
+// nickname (string) のみキャッシュ。`null` (= 未設定) はキャッシュしない:
+// 後から `setNickname` で値が立ったときに stale な null を返さないため。
+const cache = new Map<string, string>();
 const inflight = new Map<string, Promise<string | null>>();
+const subscribers = new Set<() => void>();
+
+/** 外部から (例: `useNickname.setNickname` 成功時) キャッシュを無効化する。
+ *  account 指定なら 1 件だけ、省略なら全件 evict + 全 subscriber に再 fetch を促す。 */
+export function invalidateNicknameCache(account?: string): void {
+  if (account) cache.delete(account);
+  else cache.clear();
+  for (const fn of subscribers) fn();
+}
 
 function toNickname(result: unknown): string | null {
   if (!result) return null;
@@ -55,7 +66,9 @@ async function fetchNickname(api: NicknameApi, accountId: string): Promise<strin
     try {
       const raw = await api.query.Nickname.Nicknames.getValue(accountId);
       const nick = toNickname(raw);
-      cache.set(accountId, nick);
+      // 値があったときだけ cache。null はキャッシュしないので、後から設定された
+      // ときに次回 mount で再 fetch される。
+      if (nick) cache.set(accountId, nick);
       return nick;
     } catch (err) {
       console.warn('[useNicknameOf] query failed', accountId, err);
@@ -79,17 +92,29 @@ export function useNicknameOf(accountId: string | null | undefined): string | nu
   );
 
   useEffect(() => {
-    if (!accountId || !unsafeApi) return;
-    if (cache.has(accountId)) {
-      setNickname(cache.get(accountId) ?? null);
+    if (!accountId || !unsafeApi) {
+      setNickname(null);
       return;
     }
     let alive = true;
-    void fetchNickname(unsafeApi as NicknameApi, accountId).then((n) => {
-      if (alive) setNickname(n);
-    });
+
+    const refresh = (): void => {
+      const cached = cache.get(accountId);
+      if (cached) {
+        setNickname(cached);
+        return;
+      }
+      void fetchNickname(unsafeApi as NicknameApi, accountId).then((n) => {
+        if (alive) setNickname(n);
+      });
+    };
+    refresh();
+
+    // 別所での invalidate に追従して再 fetch する。
+    subscribers.add(refresh);
     return () => {
       alive = false;
+      subscribers.delete(refresh);
     };
   }, [accountId, unsafeApi]);
 
