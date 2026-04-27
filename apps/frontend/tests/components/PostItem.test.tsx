@@ -105,48 +105,7 @@ describe('PostItem', () => {
     mockDecodedMedia = []
   })
 
-  describe('V1 inline content', () => {
-    it('renders inline content directly without using Worker', async () => {
-      const inlineContent = 'Hello, World!'
-      
-      render(
-        <PostItem
-          {...defaultProps}
-          inlineContent={inlineContent}
-        />
-      )
-
-      // インラインコンテンツが直接表示される
-      expect(screen.getByText(inlineContent)).toBeInTheDocument()
-      
-      // Workerは使用されない
-      expect(mockRecoverContent).not.toHaveBeenCalled()
-    })
-
-    it('displays author address shortened', () => {
-      render(
-        <PostItem
-          {...defaultProps}
-          inlineContent="Test content"
-        />
-      )
-
-      expect(screen.getByText('5GrwvaEF...GKutQY')).toBeInTheDocument()
-    })
-
-    it('displays post ID', () => {
-      render(
-        <PostItem
-          {...defaultProps}
-          inlineContent="Test content"
-        />
-      )
-
-      expect(screen.getByText(/Post #1/)).toBeInTheDocument()
-    })
-  })
-
-  describe('V2 distributed storage content', () => {
+  describe('distributed storage content', () => {
     const contentRef = {
       root: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
              17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32],
@@ -228,11 +187,24 @@ describe('PostItem', () => {
   })
 
   describe('reply handling', () => {
+    const contentRef = {
+      root: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32],
+      k: 3,
+      n: 5,
+      total_size: 100,
+      ciphertext_len: 128,
+      shard_size: 43,
+      compressed: false,
+    }
+
     it('shows reply indicator when parentId is set', () => {
+      mockDecodedText = 'Reply content'
+      mockRecoverContent.mockResolvedValueOnce({ data: new Uint8Array([]) })
       render(
         <PostItem
           {...defaultProps}
-          inlineContent="Reply content"
+          contentRef={contentRef}
           parentId={42}
         />
       )
@@ -241,10 +213,12 @@ describe('PostItem', () => {
     })
 
     it('does not show reply indicator when parentId is null', () => {
+      mockDecodedText = 'Original post'
+      mockRecoverContent.mockResolvedValueOnce({ data: new Uint8Array([]) })
       render(
         <PostItem
           {...defaultProps}
-          inlineContent="Original post"
+          contentRef={contentRef}
           parentId={null}
         />
       )

@@ -1,23 +1,21 @@
 'use client'
 
-// useStorage: Facade for split storage hooks (T066)
-// Re-exports upload and recovery functionality while maintaining backward compatibility
+// useStorage: Combined upload + recovery facade.
+// Composes useUpload and useFragments so callers (PostForm / PostItem) can
+// share a single progress/error/isReady surface.
 
 import { useUpload, type UseUploadOptions, type UseUploadResult, type UploadResult, type HybridMetadata, type StorageSigner, type SignedAuth, createStorageSigner } from './useUpload'
 import { useFragments, type UseFragmentsResult, type RecoverResult } from './useFragments'
 export { useProofSubmission, type UseProofSubmissionResult, type ProofSubmissionResult } from './useProofSubmission'
 export { useStorageStatus, type UseStorageStatusResult, type StorageStatus } from './useStorageStatus'
 
-// Re-export types from split hooks
 export type { UploadResult, HybridMetadata, StorageSigner, SignedAuth, RecoverResult }
 export { createStorageSigner }
 
-/** useStorage options (backward compatible) */
 export interface UseStorageOptions {
   signer?: StorageSigner
 }
 
-/** useStorage result (backward compatible) */
 export interface UseStorageResult {
   uploadContent: (content: Uint8Array) => Promise<UploadResult>
   recoverContent: (merkleRoot: Uint8Array, metadata: HybridMetadata) => Promise<RecoverResult>
@@ -29,7 +27,7 @@ export interface UseStorageResult {
 
 /**
  * Unified storage hook combining upload and recovery.
- * Facade over useUpload and useFragments for backward compatibility.
+ * Facade over useUpload and useFragments.
  */
 export function useStorage(options: UseStorageOptions = {}): UseStorageResult {
   const upload = useUpload(options as UseUploadOptions)

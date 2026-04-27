@@ -7,7 +7,6 @@ import { DEV_PHRASE } from '@polkadot-labs/hdkd-helpers'
 import { useSmoldot } from './useSmoldot'
 import type { ConnectionState } from '@/types/connection'
 
-// Re-export connection helpers for backward compatibility
 export { isConnected, isSyncing, canPerformOperations } from '@/types/connection'
 
 export interface UseApiResult {
@@ -15,8 +14,6 @@ export interface UseApiResult {
   unsafeApi: any
   /** Connection state with status, blockNumber, and errorMessage */
   connectionState: ConnectionState
-  /** @deprecated Use connectionState.status === 'connected' instead */
-  isConnected: boolean
   error: string | null
   createSigner: (seedPhrase: string) => Promise<PolkadotSigner | null>
 }
@@ -62,18 +59,15 @@ export function useApi(): UseApiResult {
     }
   }, [])
 
-  // Derive backward-compatible values
-  const isConnectedFlag = connectionState.status === 'connected'
-  const error = connectionState.status === 'error' 
-    ? (connectionState.errorMessage ?? 'エラーが発生しました') 
+  const error = connectionState.status === 'error'
+    ? (connectionState.errorMessage ?? 'エラーが発生しました')
     : null
 
-  return { 
-    client, 
-    unsafeApi, 
+  return {
+    client,
+    unsafeApi,
     connectionState,
-    isConnected: isConnectedFlag, 
-    error, 
-    createSigner 
+    error,
+    createSigner,
   }
 }
