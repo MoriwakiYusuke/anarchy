@@ -19,8 +19,6 @@ import type { AccountId } from '@/lib/dm/types';
 import type { PolkadotSigner } from 'polkadot-api/signer';
 import styles from './page.module.css';
 
-const STORAGE_ENDPOINT = process.env.NEXT_PUBLIC_STORAGE_ENDPOINT ?? 'http://127.0.0.1:3030';
-
 export default function ConversationPage(): JSX.Element {
   const params = useParams<{ conversationId: string }>();
   const router = useRouter();
@@ -32,7 +30,7 @@ export default function ConversationPage(): JSX.Element {
   const { unsafeApi } = useSmoldot();
   const { createSigner } = useApi();
   const [signer, setSigner] = useState<PolkadotSigner | null>(null);
-  const [storageSigner, setStorageSigner] = useState<StorageSigner | null>(null);
+  const [mainRawSigner, setMainRawSigner] = useState<StorageSigner | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -41,16 +39,15 @@ export default function ConversationPage(): JSX.Element {
     })();
   }, [createSigner]);
 
-  // storage-node 認証用の raw sr25519 signer (「//Alice」を dev 用に使用)。
-  // PolkadotSigner.signBytes は `<Bytes>` wrap をしてしまうため、@polkadot/keyring
-  // の pair.sign をそのまま使う必要がある (contracts: X-Anarchy-Auth 仕様)。
+  // inner_signed_hash (W6) 用の raw sr25519 signer。PolkadotSigner.signBytes は
+  // `<Bytes>` wrap してしまい受信側 dm_decrypt_scan が拒否するので不可。
   useEffect(() => {
     void (async () => {
       const { Keyring } = await import('@polkadot/keyring');
       const { DEV_PHRASE } = await import('@polkadot/keyring/defaults');
       const keyring = new Keyring({ type: 'sr25519' });
       const pair = keyring.addFromUri(`${DEV_PHRASE}//Alice`);
-      setStorageSigner({
+      setMainRawSigner({
         publicKey: pair.publicKey,
         sign: (msg: Uint8Array) => pair.sign(msg),
       });
@@ -63,12 +60,9 @@ export default function ConversationPage(): JSX.Element {
       api: unsafeApi,
       mainSigner: signer,
       mainAccountPublicKey: new Uint8Array(signer.publicKey),
-      // inner_signed_hash 用 raw sr25519 signer。storageSigner と同じ keyring pair を再利用。
-      mainRawSigner: storageSigner ?? undefined,
-      storageEndpoint: STORAGE_ENDPOINT,
-      storageSigner: storageSigner ?? undefined,
+      mainRawSigner: mainRawSigner ?? undefined,
     };
-  }, [unsafeApi, signer, storageSigner]);
+  }, [unsafeApi, signer, mainRawSigner]);
 
   const keyLoaded = stealthKeyManager.getMetaAddress() !== null;
   useEffect(() => {

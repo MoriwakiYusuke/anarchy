@@ -35,11 +35,9 @@ export default function DmPage(): JSX.Element {
   const { createSigner } = useApi();
   const router = useRouter();
   const [signer, setSigner] = useState<PolkadotSigner | null>(null);
-  const [storageSigner, setStorageSigner] = useState<StorageSigner | null>(null);
+  const [mainRawSigner, setMainRawSigner] = useState<StorageSigner | null>(null);
   const [keyLoaded, setKeyLoaded] = useState(false);
   const [newRecipient, setNewRecipient] = useState('');
-  const STORAGE_ENDPOINT =
-    process.env.NEXT_PUBLIC_STORAGE_ENDPOINT ?? 'http://127.0.0.1:3030';
 
   const lastScannedBlock = useDmStore((s: { lastScannedBlock: bigint }) => s.lastScannedBlock);
   const isScanning = useDmStore((s: { isScanning: boolean }) => s.isScanning);
@@ -53,14 +51,15 @@ export default function DmPage(): JSX.Element {
     })();
   }, [createSigner]);
 
-  // scanner が storage-node から ciphertext を再構成する際に使う raw sr25519 signer。
+  // inner_signed_hash (W6) は raw sr25519 で署名する必要がある (PolkadotSigner.signBytes は
+  // <Bytes> wrap してしまい受信側 dm_decrypt_scan が拒否する)。
   useEffect(() => {
     void (async () => {
       const { Keyring } = await import('@polkadot/keyring');
       const { DEV_PHRASE } = await import('@polkadot/keyring/defaults');
       const keyring = new Keyring({ type: 'sr25519' });
       const pair = keyring.addFromUri(`${DEV_PHRASE}//Alice`);
-      setStorageSigner({
+      setMainRawSigner({
         publicKey: pair.publicKey,
         sign: (msg: Uint8Array) => pair.sign(msg),
       });
@@ -80,19 +79,16 @@ export default function DmPage(): JSX.Element {
     void initSs58Toolkit();
   }, []);
 
-  // 受信ループ: 鍵 + api + signer + storageSigner が揃ったら起動。
-  // (hydrate + persistence subscription は /dm/layout.tsx が面倒を見る。ここで
-  //  subscribe するとページ遷移の度に unsubscribe され、/dm/[id] で addOutgoing
-  //  した内容が IDB に届かず、次回 /dm に戻った時の hydrate で消えてしまう。)
+  // 受信ループ: 鍵 + api + signer + mainRawSigner が揃ったら起動。
+  // ストレージアクセスは chain-node 経由 (CLAUDE.md Security Principle #5)。
+  // (hydrate + persistence subscription は /dm/layout.tsx が面倒を見る。)
   useEffect(() => {
-    if (!keyLoaded || !unsafeApi || !signer || !storageSigner) return;
+    if (!keyLoaded || !unsafeApi || !signer || !mainRawSigner) return;
     const sendCtx: SendDmContext = {
       api: unsafeApi,
       mainSigner: signer,
       mainAccountPublicKey: new Uint8Array(signer.publicKey),
-      mainRawSigner: storageSigner,
-      storageEndpoint: STORAGE_ENDPOINT,
-      storageSigner,
+      mainRawSigner,
     };
     const handle = startDmScanLoop({
       buildContext: (): ScanContext | null => {
@@ -105,8 +101,6 @@ export default function DmPage(): JSX.Element {
           ownSpendPub: meta.spendPub,
           ownMainAccount: '' as AccountId,
           lastScannedBlock: useDmStore.getState().lastScannedBlock,
-          storageEndpoint: STORAGE_ENDPOINT,
-          storageSigner,
         };
       },
       onNewIncoming: (msg) => {
@@ -121,7 +115,7 @@ export default function DmPage(): JSX.Element {
       handle.stop();
       loopRef.current = null;
     };
-  }, [keyLoaded, unsafeApi, signer, storageSigner, STORAGE_ENDPOINT]);
+  }, [keyLoaded, unsafeApi, signer, mainRawSigner]);
 
   return (
     <main className={styles.main}>

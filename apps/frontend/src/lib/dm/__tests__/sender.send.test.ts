@@ -36,6 +36,7 @@ jest.mock('anarchy-wasm-engine', () => ({
     merkle_root: new Uint8Array(32).fill(0x12),
     fragment_count: 5,
     fragment: (i: number) => new Uint8Array(205).fill(0xcd ^ i),
+    proof: (_i: number) => new Uint8Array(0),
   })),
   dm_generate_sender_stealth: jest.fn(() => ({
     account_id: new Uint8Array(32).fill(0x99),
@@ -149,7 +150,7 @@ function buildContext(overrides: Partial<{
       api,
       mainSigner,
       mainAccountPublicKey: new Uint8Array(32).fill(0xaa),
-      storageEndpoint: 'http://localhost:3030',
+      chainRpcEndpoint: 'http://localhost:9944',
       onProgress: (p) => progressLog.push(p),
     },
     txOrder,

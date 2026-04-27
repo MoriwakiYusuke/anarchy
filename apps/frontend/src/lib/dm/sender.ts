@@ -8,9 +8,11 @@
  *     → throw `DmError.RecipientKeyNotPublished` (no MORAL spent).
  *  2. Wallet signer signs the inner_signed_hash (W6) of the envelope.
  *  3. wasm `dm_encrypt_and_pad` → ciphertext + ephemeral_pub + recipient_stealth.
- *  4. wasm `dm_fragment_ciphertext` → fragments + merkle_root.
- *  5. Upload fragments to storage-node(s); require k ACKs within 30s window or
- *     throw `DmError.StorageInsufficient`.
+ *  4. wasm `dm_fragment_ciphertext` → fragments + merkle_root + per-index proofs.
+ *  5. Upload fragments via **chain-node RPC** `storage_uploadFragment` (CLAUDE.md
+ *     Security Principle #5: no direct storage-node access from frontend); chain
+ *     node verifies merkle proof + forwards to storage-node. Require k ACKs
+ *     within 30s or throw `DmError.StorageInsufficient`.
  *  6. wasm `dm_generate_sender_stealth` → fresh sr25519 keypair (CT-1).
  *  7. PAPI: `pallet_stealth.send_to_stealth(sender_stealth, random_eph, pre_fund)`
  *     signed by main account → finalize.
@@ -46,7 +48,7 @@ async function getWasm(): Promise<WasmModule> {
 }
 
 /**
- * パラメータ - PAPI api / wallet signer / storage-node エンドポイントなど IO を
+ * パラメータ - PAPI api / wallet signer / chain RPC エンドポイントなど IO を
  * UI 層から注入するための束。テスト容易性のため `sendDm` から分離。
  */
 export interface SendDmContext {
@@ -62,19 +64,17 @@ export interface SendDmContext {
    *  ため受信側 `dm_decrypt_scan` の `signature_valid` が false になる。
    *  `@polkadot/keyring` の `pair.sign(msg)` をそのまま渡す想定。 */
   mainRawSigner?: StorageSigner;
-  /** Storage-node JSON-RPC エンドポイント。例: `http://127.0.0.1:3030`。 */
-  storageEndpoint: string;
-  /** Storage-node 認証用 raw Sr25519 signer。`X-Anarchy-Auth` / `X-Chain-Auth`
-   *  ヘッダー署名に使う (substrate context)。PolkadotSigner.signBytes は
-   *  `<Bytes>` wrap をするため不適合。省略時は認証ヘッダ無しで送信 (auth 無効な
-   *  dev storage-node でのみ動作)。 */
-  storageSigner?: StorageSigner;
+  /** Chain-node JSON-RPC HTTP エンドポイント。`storage_uploadFragment` を叩く
+   *  ため必要 (CLAUDE.md Security Principle #5)。省略時は環境変数
+   *  `NEXT_PUBLIC_WS_ENDPOINT` を http:// に変換したものか
+   *  `http://127.0.0.1:9944` を使用。 */
+  chainRpcEndpoint?: string;
   /** UI 進捗報告コールバック (FR-025)。 */
   onProgress?: (step: SendDmProgress) => void;
 }
 
 /**
- * Storage-node 認証用の raw sr25519 signer。`@polkadot/keyring` の
+ * `inner_signed_hash` 署名用の raw sr25519 signer。`@polkadot/keyring` の
  * `pair.sign(msg)` が substrate signing context を適用するため、それをそのまま
  * `sign` として渡す想定。
  */
@@ -163,89 +163,97 @@ function toHex(bytes: Uint8Array): string {
   return s;
 }
 
+interface SignedAuth {
+  account_id: string;
+  timestamp: number;
+  nonce: string;
+  payload_hash: string;
+  signature: string;
+}
+
 /**
- * storage-node 認証ヘッダー (`X-Anarchy-Auth` / `X-Chain-Auth`) を作成する。
+ * Storage-node middleware が `storage_storeFragment` のような書き込み API で
+ * 要求する `X-Anarchy-Auth` を作る。chain-node 経由で forward される時、
+ * chain-node は `params.auth` を取り出して `X-Anarchy-Auth` ヘッダに移し替える
+ * (apps/blockchain/node/src/rpc/storage.rs の StorageNodeClient.upload_fragment)。
  *
- * X-Anarchy-Auth:
- *   message = publicKey(32B) || timestamp_le(8B) || nonce(16B) || payloadHash(32B)
- *   payloadHash = blake2b256(JSON.stringify(sortedParamsWithoutAuth))
+ * Principle #5 (no direct storage access) は **IP correlation** を防ぐ規約であり、
+ * **user 署名による rate limiting / abuse 抑止**は依然必要。post 側の useUpload.ts
+ * の `generateAuth` と同等。
  *
- * X-Chain-Auth:
- *   message = utf8("chain-auth:{timestamp}:{method}")
- *   (impersonation 許容 = どの sr25519 鍵でも可)
- *
- * どちらも sr25519 raw 署名 (schnorrkel + "substrate" signing context)。
- * `@polkadot/keyring` の `pair.sign` がこの形式。
+ * 署名対象: account_id(32) || timestamp_le_u64(8) || nonce(16) || payloadHash(32)
+ * payloadHash = blake2b256(JSON.stringify(sortedParamsWithoutAuth))
  */
-async function buildStorageAuthHeaders(
+async function generateUploadAuth(
   signer: StorageSigner,
   params: Record<string, unknown>,
-  method: string,
-): Promise<Record<string, string>> {
+): Promise<SignedAuth> {
   const { blake2b } = await import('blakejs');
 
   const timestamp = Math.floor(Date.now() / 1000);
-  const nonce = new Uint8Array(16);
-  crypto.getRandomValues(nonce);
+  const nonceBytes = new Uint8Array(16);
+  crypto.getRandomValues(nonceBytes);
 
-  // NOTE: storage-node の `extract_and_hash_params` は serde_json のデフォルト
-  //  (= キーを alphabetical 順に) でシリアライズ後に Blake2b-256 を計算する。
-  //  フロント側で明示的に sort してから JSON.stringify する必要がある。
+  // storage-node の `extract_and_hash_params` は serde_json default
+  // (キー alphabetical 順) → Blake2b-256。フロントも明示的に sort 必須。
   const sortedParams = Object.keys(params)
     .sort()
     .reduce<Record<string, unknown>>((acc, key) => {
       acc[key] = params[key];
       return acc;
     }, {});
-  const paramsJson = JSON.stringify(sortedParams);
-  const payloadHash = blake2b(new TextEncoder().encode(paramsJson), undefined, 32);
+  const payloadHash = blake2b(
+    new TextEncoder().encode(JSON.stringify(sortedParams)),
+    undefined,
+    32,
+  );
 
-  // X-Anarchy-Auth: account_id(32) || timestamp_le_u64(8) || nonce(16) || payload_hash(32)
-  const authMsg = new Uint8Array(32 + 8 + 16 + 32);
-  authMsg.set(signer.publicKey, 0);
-  new DataView(authMsg.buffer).setBigUint64(32, BigInt(timestamp), true);
-  authMsg.set(nonce, 40);
-  authMsg.set(payloadHash, 56);
-  const anarchySig = await signer.sign(authMsg);
+  const message = new Uint8Array(32 + 8 + 16 + 32);
+  message.set(signer.publicKey, 0);
+  new DataView(message.buffer).setBigUint64(32, BigInt(timestamp), true);
+  message.set(nonceBytes, 40);
+  message.set(payloadHash, 56);
 
-  const xAnarchyAuth = JSON.stringify({
+  const signature = await signer.sign(message);
+  return {
     account_id: toHex(signer.publicKey),
     timestamp,
-    nonce: toHex(nonce),
+    nonce: toHex(nonceBytes),
     payload_hash: toHex(payloadHash),
-    signature: toHex(anarchySig),
-  });
-
-  // X-Chain-Auth: "chain-auth:{timestamp}:{method}" の utf8 署名
-  const chainMsg = new TextEncoder().encode(`chain-auth:${timestamp}:${method}`);
-  const chainSig = await signer.sign(chainMsg);
-  const xChainAuth = JSON.stringify({
-    public_key: toHex(signer.publicKey),
-    timestamp,
-    method,
-    signature: toHex(chainSig),
-  });
-
-  return {
-    'X-Anarchy-Auth': xAnarchyAuth,
-    'X-Chain-Auth': xChainAuth,
+    signature: toHex(signature),
   };
 }
 
 /**
- * Storage-node に fragments を並列アップロードする。`k` 個 ACK 達成で OK。
- * 30 秒の retry 窓内に届かなければ `DmError.StorageInsufficient` を throw。
+ * Chain-node JSON-RPC HTTP エンドポイントを解決する。
  *
- * **MVP 版**: 単一 storage-node エンドポイントに n フラグメントを送る (k=n=1
- * 等の構成でも動作)。複数エンドポイントへの fan-out は後続タスクで拡張する。
+ * - `override` (SendDmContext.chainRpcEndpoint) が最優先。
+ * - 無ければ `NEXT_PUBLIC_WS_ENDPOINT` を `ws://`→`http://` に書き換えて使用。
+ * - それも無ければ dev fallback の `http://127.0.0.1:9944`。
  *
- * `signer` を渡すと `storage_storeFragment` に必要な `X-Anarchy-Auth` /
- * `X-Chain-Auth` ヘッダを付加する (FR-201)。省略すると認証無しで送信する。
+ * post / reaction の useUpload.ts / useFragments.ts と同じ規則で揃えている。
+ */
+export function resolveChainRpcEndpoint(override?: string): string {
+  if (override) return override;
+  const fromEnv = process.env.NEXT_PUBLIC_WS_ENDPOINT;
+  if (fromEnv) {
+    return fromEnv.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://');
+  }
+  return 'http://127.0.0.1:9944';
+}
+
+/**
+ * Chain-node の `storage_uploadFragment` RPC で fragments を並列アップロードする。
+ * `k` 個 ACK で成功。30 秒以内に揃わなければ `DmError.StorageInsufficient`。
+ *
+ * **CLAUDE.md Security Principle #5**: フロントは storage-node に直接アクセスしない。
+ * チェーンノード経由で fan-out する。チェーンノード側で merkle proof を検証してから
+ * 内部で storage-node に転送するので、proof は必須。
  */
 export async function uploadFragments(
-  endpoint: string,
+  chainRpcEndpoint: string,
   merkleRoot: Uint8Array,
-  fragments: Array<{ index: number; data: Uint8Array }>,
+  fragments: Array<{ index: number; data: Uint8Array; proof: Uint8Array }>,
   k: number,
   totalLeaves: number,
   options: {
@@ -266,37 +274,28 @@ export async function uploadFragments(
     const pending = fragments.filter((f) => !ok.has(f.index));
     const results = await Promise.allSettled(
       pending.map(async (f) => {
-        // StoreFragmentParams (storage-node): merkle_root = [u8; 32] なので
-        // JSON 上は number 配列で送る。proof / total_leaves は必須フィールド
-        // (実装側では現状検証していないが、serde デシリアライズでは required)。
+        // chain-node `UploadFragmentRequest`: merkle_root [u8; 32], index u32,
+        // data b64, proof b64, total_leaves u32, auth optional。
+        // signer があれば auth を付ける (chain-node が X-Anarchy-Auth ヘッダに展開)。
         const params: Record<string, unknown> = {
           merkle_root: Array.from(merkleRoot),
           index: f.index,
           data: toBase64(f.data),
-          proof: toBase64(new Uint8Array()),
+          proof: toBase64(f.proof),
           total_leaves: totalLeaves,
         };
-
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
         if (signer) {
-          const authHeaders = await buildStorageAuthHeaders(
-            signer,
-            params,
-            'storage_storeFragment',
-          );
-          Object.assign(headers, authHeaders);
+          params.auth = await generateUploadAuth(signer, params);
         }
 
-        const res = await fetchFn(`${endpoint}/`, {
+        const res = await fetchFn(chainRpcEndpoint, {
           method: 'POST',
-          headers,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             jsonrpc: '2.0',
             id: f.index,
-            method: 'storage_storeFragment',
-            params,
+            method: 'storage_uploadFragment',
+            params: [params],
           }),
         });
         if (!res.ok) throw new Error(`http ${res.status}`);
@@ -354,8 +353,7 @@ export async function sendDm(
     mainSigner,
     mainAccountPublicKey,
     mainRawSigner,
-    storageEndpoint,
-    storageSigner,
+    chainRpcEndpoint,
     onProgress,
   } = ctx;
   if (!api) throw new Error('api unavailable');
@@ -448,17 +446,26 @@ export async function sendDm(
   // ---- Step 4: fragment + merkle (W4) ----
   const fragmented = wasm.dm_fragment_ciphertext(ciphertext, k, n);
   const merkleRoot = new Uint8Array(fragmented.merkle_root);
-  const fragments: Array<{ index: number; data: Uint8Array }> = [];
+  const fragments: Array<{ index: number; data: Uint8Array; proof: Uint8Array }> = [];
   for (let i = 0; i < fragmented.fragment_count; i += 1) {
     const frag = fragmented.fragment(i);
-    if (!frag) continue;
-    fragments.push({ index: i, data: new Uint8Array(frag) });
+    const proof = fragmented.proof(i);
+    if (!frag || !proof) continue;
+    fragments.push({
+      index: i,
+      data: new Uint8Array(frag),
+      proof: new Uint8Array(proof),
+    });
   }
 
-  // ---- Step 5: storage upload (k-of-n ACK) ----
+  // ---- Step 5: storage upload (k-of-n ACK) via chain-node RPC ----
+  // mainRawSigner があれば user-signed `auth` を付加する。chain-node は
+  // それを X-Anarchy-Auth ヘッダに展開して storage-node に forward する。
+  // ない場合は無認証で送信 (auth disabled な dev storage-node でのみ動作)。
   onProgress?.({ kind: 'uploading', uploaded: 0, total: fragments.length });
-  await uploadFragments(storageEndpoint, merkleRoot, fragments, k, n, {
-    signer: storageSigner,
+  const rpcEndpoint = resolveChainRpcEndpoint(chainRpcEndpoint);
+  await uploadFragments(rpcEndpoint, merkleRoot, fragments, k, fragments.length, {
+    signer: mainRawSigner,
   });
   onProgress?.({ kind: 'uploading', uploaded: fragments.length, total: fragments.length });
 

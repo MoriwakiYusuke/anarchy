@@ -35,7 +35,7 @@ function fakeContext(): SendDmContext {
     api: {} as any,
     mainSigner: {} as any,
     mainAccountPublicKey: new Uint8Array(32).fill(0xaa),
-    storageEndpoint: 'http://localhost:3030',
+    chainRpcEndpoint: 'http://localhost:9944',
   };
 }
 

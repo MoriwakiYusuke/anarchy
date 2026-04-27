@@ -38,6 +38,7 @@ jest.mock('anarchy-wasm-engine', () => ({
     merkle_root: new Uint8Array(32).fill(0x12),
     fragment_count: 1,
     fragment: () => new Uint8Array(1024).fill(0xab),
+    proof: () => new Uint8Array(0),
   })),
   dm_generate_sender_stealth: jest.fn(() => {
     const seed = new Uint8Array(32).fill(0xcd);
@@ -129,7 +130,7 @@ function buildCtx(opts: { tx2Mode: 'throw' | 'notOk' }): BuiltCtx {
         signBytes: async () => new Uint8Array(64),
       } as any,
       mainAccountPublicKey: new Uint8Array(32).fill(0xaa),
-      storageEndpoint: 'http://localhost:3030',
+      chainRpcEndpoint: 'http://localhost:9944',
     },
     tx1,
     tx2,

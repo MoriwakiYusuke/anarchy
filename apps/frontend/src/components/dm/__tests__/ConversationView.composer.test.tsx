@@ -56,7 +56,7 @@ function fakeContext(): SendDmContext {
       signTx: async () => new Uint8Array(64),
     } as any,
     mainAccountPublicKey: new Uint8Array(32).fill(0xaa),
-    storageEndpoint: 'http://localhost:3030',
+    chainRpcEndpoint: 'http://localhost:9944',
   };
 }
 

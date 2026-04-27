@@ -342,11 +342,15 @@ pub fn dm_generate_sender_stealth() -> DmSenderStealth {
 // W4. dm_fragment_ciphertext
 // =============================================================================
 
-/// W4 の出力。Merkle root と各フラグメント (raw bytes)。
+/// W4 の出力。Merkle root と各フラグメント (raw bytes) + index 毎の Merkle proof。
+///
+/// proof は chain-node の `storage_uploadFragment` RPC が `verify_merkle_proof` で
+/// 検証する。`rs_merkle::MerkleProof::to_bytes()` 形式 (兄弟ノードハッシュ列)。
 #[wasm_bindgen]
 pub struct DmFragmentedOutput {
     merkle_root: [u8; 32],
     fragments: Vec<Vec<u8>>,
+    merkle_proofs: Vec<Vec<u8>>,
 }
 
 #[wasm_bindgen]
@@ -364,6 +368,11 @@ impl DmFragmentedOutput {
     /// `idx` 番目のフラグメント (raw bytes)。
     pub fn fragment(&self, idx: usize) -> Option<Vec<u8>> {
         self.fragments.get(idx).cloned()
+    }
+    /// `idx` 番目のフラグメントに対応する Merkle proof (rs_merkle to_bytes 形式)。
+    /// chain-node の `storage_uploadFragment` の `proof` フィールドにそのまま渡す。
+    pub fn proof(&self, idx: usize) -> Option<Vec<u8>> {
+        self.merkle_proofs.get(idx).cloned()
     }
 }
 
@@ -410,9 +419,18 @@ pub fn dm_fragment_ciphertext(
     let merkle = merkle::merkle_build_internal(&frag_refs)
         .map_err(|e| JsError::new(&format!("merkle build failed: {}", e)))?;
 
+    let mut merkle_proofs = Vec::with_capacity(fragments.len());
+    for i in 0..fragments.len() {
+        let proof = merkle
+            .generate_proof(i)
+            .map_err(|e| JsError::new(&format!("merkle proof failed: {}", e)))?;
+        merkle_proofs.push(proof);
+    }
+
     Ok(DmFragmentedOutput {
         merkle_root: merkle.root,
         fragments,
+        merkle_proofs,
     })
 }
 

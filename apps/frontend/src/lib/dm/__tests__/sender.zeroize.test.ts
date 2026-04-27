@@ -34,6 +34,7 @@ jest.mock('anarchy-wasm-engine', () => ({
     merkle_root: new Uint8Array(32).fill(0x12),
     fragment_count: 1,
     fragment: () => new Uint8Array(1024).fill(0xab),
+    proof: () => new Uint8Array(0),
   })),
   dm_generate_sender_stealth: jest.fn(() => {
     // 認識用 0xCD パターンで返却。sender 側の Uint8Array コピーが zeroize 対象。
@@ -109,7 +110,7 @@ function ctxOk(): SendDmContext {
     api,
     mainSigner: { publicKey: new Uint8Array(32), signBytes: async () => new Uint8Array(64) } as any,
     mainAccountPublicKey: new Uint8Array(32).fill(0xaa),
-    storageEndpoint: 'http://localhost:3030',
+    chainRpcEndpoint: 'http://localhost:9944',
   };
 }
 

@@ -13,7 +13,7 @@ import type {
   ScanDmResult,
 } from './types';
 import { decodeReceiptBody, type DmReceiptPayload } from './receipt';
-import type { StorageSigner } from './sender';
+import { resolveChainRpcEndpoint } from './sender';
 
 type WasmModule = typeof import('anarchy-wasm-engine');
 let wasmModule: WasmModule | null = null;
@@ -75,14 +75,11 @@ export interface ScanContext {
   lastScannedBlock: bigint;
   /** スキャン上限 (省略時は best head)。テスト時に上限を固定するために露出。 */
   toBlockOverride?: bigint;
-  /** Storage-node JSON-RPC エンドポイント (例: `http://127.0.0.1:3030`)。
-   *  設定されている場合、dispatch 毎に `storage_getFragment` で ciphertext を
-   *  再構成してから `dm_decrypt_scan` にかける。未設定 or 取得失敗時はテスト用の
-   *  `dispatch.ciphertext` フィールドへ fallback。 */
-  storageEndpoint?: string;
-  /** Storage-node 認証用 signer (X-Chain-Auth ヘッダ)。getFragment は
-   *  X-Anarchy-Auth 不要だが、middleware が X-Chain-Auth を必須とするため署名が必要。 */
-  storageSigner?: StorageSigner;
+  /** Chain-node JSON-RPC HTTP エンドポイント。`storage_getFragment` を叩く
+   *  ため必要 (CLAUDE.md Security Principle #5)。設定されている場合、dispatch
+   *  毎に ciphertext を再構成してから `dm_decrypt_scan` にかける。未設定 or
+   *  取得失敗時はテスト用の `dispatch.ciphertext` フィールドへ fallback。 */
+  chainRpcEndpoint?: string;
 }
 
 /**
@@ -134,14 +131,15 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
       for (const rawDispatch of dispatches) {
         const dispatch = normalizeDispatch(rawDispatch);
         const withCipher = dispatch as DmDispatch & { ciphertext?: Uint8Array };
-        // ciphertext が dispatch に含まれない場合は storage-node から再構成する。
-        if (!withCipher.ciphertext && ctx.storageEndpoint) {
+        // ciphertext が dispatch に含まれない場合は chain-node 経由で再構成する。
+        // ctx.chainRpcEndpoint が無ければ環境変数 / dev fallback で解決する。
+        if (!withCipher.ciphertext) {
+          const endpoint = resolveChainRpcEndpoint(ctx.chainRpcEndpoint);
           const reconstructed = await fetchCiphertextFromStorage(
-            ctx.storageEndpoint,
+            endpoint,
             new Uint8Array(dispatch.content.root),
             dispatch.content.n,
             Number(dispatch.content.ciphertextLen),
-            ctx.storageSigner,
           );
           if (reconstructed) withCipher.ciphertext = reconstructed;
         }
@@ -203,12 +201,6 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
   };
 }
 
-function toHexStr(bytes: Uint8Array): string {
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 1) s += bytes[i].toString(16).padStart(2, '0');
-  return s;
-}
-
 function fromBase64(b64: string): Uint8Array {
   if (typeof atob === 'function') {
     const bin = atob(b64);
@@ -220,62 +212,37 @@ function fromBase64(b64: string): Uint8Array {
 }
 
 /**
- * storage-node の `X-Chain-Auth` ヘッダを作る。getFragment は read API のため
- * `X-Anarchy-Auth` は不要だが、middleware が X-Chain-Auth 必須なので付ける。
- * 署名対象: `"chain-auth:{timestamp}:{method}"` (impersonation 許容)。
- */
-async function buildChainAuthHeader(
-  signer: StorageSigner,
-  method: string,
-): Promise<string> {
-  const timestamp = Math.floor(Date.now() / 1000);
-  const msg = new TextEncoder().encode(`chain-auth:${timestamp}:${method}`);
-  const sig = await signer.sign(msg);
-  return JSON.stringify({
-    public_key: toHexStr(signer.publicKey),
-    timestamp,
-    method,
-    signature: toHexStr(sig),
-  });
-}
-
-/**
- * storage-node から n 個のフラグメントを並列取得して ciphertext を再構成する。
- * `dm_fragment_ciphertext` は等分割 (ceil(len/n) byte の chunk) なので、
- * 取得できたフラグメントを index 順に連結し `ciphertextLen` で切り詰めれば OK。
- * 1 つでも取得失敗したら `null` を返す。
+ * Chain-node の `storage_getFragment` RPC で n 個のフラグメントを並列取得し、
+ * ciphertext を再構成する。`dm_fragment_ciphertext` は等分割 (ceil(len/n) byte
+ * の chunk) なので index 順に連結 → `ciphertextLen` で切り詰めれば復元できる。
+ * 1 つでも取得失敗 (storage 側 GC 等) したら `null`。
+ *
+ * **CLAUDE.md Security Principle #5**: storage-node 直叩きを禁ずる。chain-node
+ * 経由で取り回す。chain-node 側で fan-out + 認証は完結するのでフロントから
+ * X-Chain-Auth ヘッダを送る必要はない。
  */
 async function fetchCiphertextFromStorage(
-  endpoint: string,
+  chainRpcEndpoint: string,
   merkleRoot: Uint8Array,
   n: number,
   ciphertextLen: number,
-  signer?: StorageSigner,
 ): Promise<Uint8Array | null> {
-  if (!signer) return null;
-  const method = 'storage_getFragment';
-  const chainAuth = await buildChainAuthHeader(signer, method);
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'X-Chain-Auth': chainAuth,
-  };
-
   const tasks: Promise<Uint8Array | null>[] = [];
   for (let i = 0; i < n; i += 1) {
     tasks.push(
       (async (): Promise<Uint8Array | null> => {
         try {
-          const res = await fetch(`${endpoint}/`, {
+          const res = await fetch(chainRpcEndpoint, {
             method: 'POST',
-            headers,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               jsonrpc: '2.0',
               id: i,
-              method,
-              params: {
+              method: 'storage_getFragment',
+              params: [{
                 merkle_root: Array.from(merkleRoot),
                 index: i,
-              },
+              }],
             }),
           });
           if (!res.ok) return null;
@@ -292,7 +259,6 @@ async function fetchCiphertextFromStorage(
     );
   }
   const parts = await Promise.all(tasks);
-  // すべての index が揃っていることを要求 (MVP: k-of-n 再構成は等分割には不要)。
   for (const p of parts) if (!p) return null;
 
   const total = parts.reduce((acc, p) => acc + (p ? p.length : 0), 0);
@@ -303,8 +269,6 @@ async function fetchCiphertextFromStorage(
     ct.set(p, off);
     off += p.length;
   }
-  // dm_fragment_ciphertext は padding なしで分割するので len は一致するはずだが、
-  // 念のため ciphertextLen で切り詰める。
   return ct.length >= ciphertextLen ? ct.slice(0, ciphertextLen) : null;
 }
 
