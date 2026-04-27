@@ -24,8 +24,9 @@
 
 import type { Binary } from 'polkadot-api';
 import type { PolkadotSigner } from 'polkadot-api/signer';
-import type { AccountId, DmMetaAddress, SendDmParams, SendDmResult } from './types';
+import type { AccountId, DmMediaRef, DmMetaAddress, SendDmParams, SendDmResult } from './types';
 import { DmError } from './types';
+import { encodeDmContent } from './contentCodec';
 
 type WasmModule = typeof import('anarchy-wasm-engine');
 let wasmModule: WasmModule | null = null;
@@ -150,50 +151,101 @@ const PADDING_BUCKETS = [1024, 4096, 16384, 65536, 262144] as const;
 /** AES-GCM tag length (バケット内訳の控除用)。 */
 const AES_GCM_TAG_LEN = 16;
 
-/** SCALE で encode された `DmEnvelope` の固定長部分 (sender 32 + ts 8 + sig 64 +
- *  version 1 + Vec<u8> 長さ prefix 〜5 byte)。 */
-const ENVELOPE_FIXED_OVERHEAD = 110;
+/** `DmEnvelope` の SCALE encoded 固定長フィールド合計 (version + sender + ts + sig)。
+ *  body は別途 SCALE compact prefix が付くので encode 関数で別計算。 */
+const ENVELOPE_FIXED_BYTES = 1 + 32 + 8 + 64;
 
 /**
- * 送信コスト UI 表示用: `text` と `mediaCount` から ciphertext_len (= padding
- * bucket) を見積もり、`estimateDmCost` を返す。実際の dm_encrypt_and_pad と
- * 完全一致は保証しないが、ペイロードがバケット境界をまたぐ前後では実値と
- * 一致する。境界に乗っている場合は実値が 1 段上のバケットに膨らむことが
- * あるので、UI には「~」プレフィクスを付ける運用にする。
+ * SCALE compact mode の長さ prefix のバイト数。
+ *   < 64           → 1 byte
+ *   < 16384        → 2 bytes
+ *   < 1_073_741_824 → 4 bytes
+ *   それ以上        → 5+ bytes (DM body では事実上発生しない)
+ */
+function scaleCompactPrefixLen(n: number): number {
+  if (n < 64) return 1;
+  if (n < 16384) return 2;
+  if (n < 1073741824) return 4;
+  return 5;
+}
+
+/** Estimate 用に必要な PendingFile のサブセット。 */
+export interface DmCostFile {
+  mime: string;
+  size: number;
+  width?: number;
+  height?: number;
+  duration?: number;
+  /** 動画サムネイル (data URL)。video の場合 data URL の長さがそのまま envelope
+   *  に乗るので、ここを無視すると数十 KB の見積もり誤差が出る。 */
+  thumbnail?: string;
+}
+
+/**
+ * 送信コスト UI 表示用: `text` と `files` から実際の `encodeDmContent` 結果と
+ * `DmEnvelope` の SCALE 長を計算し、最小バケットを選定して `estimateDmCost`
+ * を返す。`dm_encrypt_and_pad` と同じバケット選択を再現するので、選ばれる
+ * バケット = ciphertext_len は実値と一致する。
  *
  * 引数:
- *   - `text`: 本文文字列 (codec の `text` フィールド)
- *   - `mediaCount`: 添付メディア数 (各 ref は JSON 内で平均 ~340B)
+ *   - `text`: 本文 (codec の `text` フィールド)
+ *   - `files`: 添付の mime/size/dimensions/thumbnail。`mediaCount` のみの旧
+ *     API (number) も後方互換で受け付ける。
  *
  * 戻り値:
- *   - bigint: 12-decimal MORAL 単位のコスト (= main account 残高から差し引かれる量)
- *   - null:   bucket に収まらない (= `BodyTooLarge` エラー相当)
+ *   - bigint: 12-decimal MORAL 単位のコスト (= main account 残高引き落とし額)
+ *   - null:   最大バケット (262144) に収まらない (= `BodyTooLarge` 相当)
  */
 export function estimateDmCostFromInputs(
   text: string,
-  mediaCount: number,
+  files: number | readonly DmCostFile[],
 ): bigint | null {
-  // contentCodec.encodeDmContent と整合する body byte 数の見積もり。
-  //   wire: 4B magic ("DMC\x01") + UTF-8 JSON({"text":"…","media":[…]})
-  const textBytes = new TextEncoder().encode(text).length;
-  // JSON 固定 overhead: `{"text":"","media":[]}` = 22B + text の中身。
-  // text 中の特殊文字 (",\,改行 等) は escape されて 2 byte になるため
-  // worst-case で 2 倍見積もる代わりに 25% マージンを乗せる。
-  const jsonBaseOverhead = 22;
-  const textJsonBytes = Math.ceil(textBytes * 1.25);
-  // 各 media ref は { root, key, mime, size, k, n, ciphertextLen, [width, height] }
-  // で平均 ~340B (root 64hex + key 64hex + メタ + JSON quoting)。
-  const perMediaRefBytes = 340;
-  const bodyLen = 4 + jsonBaseOverhead + textJsonBytes + mediaCount * perMediaRefBytes;
+  const fileList: readonly DmCostFile[] = typeof files === 'number'
+    ? new Array<DmCostFile>(files).fill({
+        // 旧 API 互換: 数値だけ渡されたら平均的な image-like ref を仮定する。
+        mime: 'application/octet-stream',
+        size: 0,
+      })
+    : files;
 
-  // 暗号化前に envelope に詰めて padding する。
-  const padded = bodyLen + ENVELOPE_FIXED_OVERHEAD + 1; // +1: ISO 7816-4 terminator
-  const needed = padded + AES_GCM_TAG_LEN;
+  // `lib/dm/contentCodec.ts` と同じ wire format を生成して body byte 数を出す。
+  // root/key はまだ未生成 (encrypt 前) なので 32B 0 埋めの hex プレースホルダで
+  // **実際と完全一致する長さ** にする (root/key は固定 64-hex で必ず同じ長さ)。
+  const dummyRefs: DmMediaRef[] = fileList.map((f) => {
+    const ref: DmMediaRef = {
+      root: '0'.repeat(64),
+      key: '0'.repeat(64),
+      mime: f.mime || 'application/octet-stream',
+      size: f.size,
+      k: 3,
+      n: 5,
+      // ciphertextLen は実値だと最終的に dm_media_encrypt の出力長 = file.size
+      // + nonce(12) + tag(16) = file.size + 28。仮値として近似する。
+      ciphertextLen: f.size + 28,
+    };
+    if (typeof f.width === 'number') ref.width = f.width;
+    if (typeof f.height === 'number') ref.height = f.height;
+    if (typeof f.duration === 'number') ref.duration = f.duration;
+    if (typeof f.thumbnail === 'string') ref.thumbnail = f.thumbnail;
+    return ref;
+  });
+
+  // body = 4B magic + JSON UTF-8 (実値と完全一致する長さ)。
+  const body = encodeDmContent({ text, media: dummyRefs });
+  const bodyLen = body.length;
+
+  // envelope_len = 1 (version) + 32 (sender) + 8 (ts) + scale(body.len) + body.len + 64 (sig)
+  const envelopeLen =
+    ENVELOPE_FIXED_BYTES + scaleCompactPrefixLen(bodyLen) + bodyLen;
+
+  // padded plaintext = envelope + ISO 7816-4 terminator (1B); ciphertext = padded + tag (16B).
+  // bucket は ciphertext (= padded + tag) を収める最小値。
+  const needed = envelopeLen + 1 + AES_GCM_TAG_LEN;
 
   for (const b of PADDING_BUCKETS) {
     if (b >= needed) return estimateDmCost(b);
   }
-  return null; // body too large
+  return null;
 }
 
 /** 12-decimal plancks → "X.YY MORAL" 文字列 (2 桁少数)。 */

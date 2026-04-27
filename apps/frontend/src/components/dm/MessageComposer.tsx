@@ -259,12 +259,18 @@ export function MessageComposer({
   const isBusy = state.kind === 'sending' || state.kind === 'attaching';
   const canSubmit = !isBusy && (body.trim().length > 0 || files.length > 0);
 
-  // コスト見積 (text + 添付ファイル数から padding bucket を予測)。
-  // body codec + envelope SCALE + padding を含む安全めのざっくり値。
+  // コスト見積 (実際の `encodeDmContent` 結果から body byte 数を求めて bucket
+  // を選ぶので、添付の thumbnail data URL も含めて正確に出る)。
   const estimatedCost = useMemo(() => {
     if (!body.trim() && files.length === 0) return null;
-    return estimateDmCostFromInputs(body, files.length);
-  }, [body, files.length]);
+    return estimateDmCostFromInputs(
+      body,
+      files.map((f) => ({
+        mime: f.file.type,
+        size: f.file.size,
+      })),
+    );
+  }, [body, files]);
 
   return (
     <div role="region" aria-label="DM compose form" className={styles.region}>
