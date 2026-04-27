@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSmoldot } from '@/hooks/useSmoldot';
-import { useApi } from '@/hooks/useApi';
+import { useAccount } from '@/lib/account/context';
 import { stealthKeyManager } from '@/lib/stealth/keyManager';
 import { getDmMetaAddressFromStealth } from '@/lib/dm/keyManager';
 import { initSs58Toolkit, type ScanContext } from '@/lib/dm/scanner';
@@ -27,14 +27,12 @@ import { useDmStore } from '@/lib/dm/store';
 import { ConversationList } from '@/components/dm/ConversationList';
 import { MissingBackupNotice } from '@/components/dm/MissingBackupNotice';
 import type { AccountId } from '@/lib/dm/types';
-import type { PolkadotSigner } from 'polkadot-api/signer';
 import styles from './page.module.css';
 
 export default function DmPage(): JSX.Element {
   const { unsafeApi } = useSmoldot();
-  const { createSigner } = useApi();
+  const { account, accountSeed, signer } = useAccount();
   const router = useRouter();
-  const [signer, setSigner] = useState<PolkadotSigner | null>(null);
   const [mainRawSigner, setMainRawSigner] = useState<StorageSigner | null>(null);
   const [keyLoaded, setKeyLoaded] = useState(false);
   const [newRecipient, setNewRecipient] = useState('');
@@ -43,28 +41,31 @@ export default function DmPage(): JSX.Element {
   const isScanning = useDmStore((s: { isScanning: boolean }) => s.isScanning);
   const loopRef = useRef<DmScanLoopHandle | null>(null);
 
-  // 開発便宜: //Alice をデフォルト signer に。本番は WalletConnect 等から。
-  useEffect(() => {
-    void (async () => {
-      const s: PolkadotSigner | null = await createSigner('//Alice');
-      if (s) setSigner(s);
-    })();
-  }, [createSigner]);
-
   // inner_signed_hash (W6) は raw sr25519 で署名する必要がある (PolkadotSigner.signBytes は
   // <Bytes> wrap してしまい受信側 dm_decrypt_scan が拒否する)。
+  // accountSeed (= 接続中アカウントの seed phrase / derive path) から keyring pair を作る。
   useEffect(() => {
+    if (!accountSeed) {
+      setMainRawSigner(null);
+      return;
+    }
+    let cancelled = false;
     void (async () => {
+      const { cryptoWaitReady } = await import('@polkadot/util-crypto');
+      await cryptoWaitReady();
       const { Keyring } = await import('@polkadot/keyring');
-      const { DEV_PHRASE } = await import('@polkadot/keyring/defaults');
       const keyring = new Keyring({ type: 'sr25519' });
-      const pair = keyring.addFromUri(`${DEV_PHRASE}//Alice`);
+      const pair = keyring.addFromUri(accountSeed);
+      if (cancelled) return;
       setMainRawSigner({
         publicKey: pair.publicKey,
         sign: (msg: Uint8Array) => pair.sign(msg),
       });
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [accountSeed]);
 
   // stealth 鍵のロード状態を監視。session memory なので beforeunload 時に消える。
   useEffect(() => {
@@ -133,7 +134,11 @@ export default function DmPage(): JSX.Element {
         </nav>
       </header>
 
-      {!keyLoaded ? (
+      {!account ? (
+        <div className={styles.status}>
+          ウォレットを接続してください (ホーム画面の WalletConnect)。
+        </div>
+      ) : !keyLoaded ? (
         <MissingBackupNotice onOpenSettings={() => router.push('/dm/settings')} />
       ) : (
         <>

@@ -11,12 +11,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSmoldot } from '@/hooks/useSmoldot';
-import { useApi } from '@/hooks/useApi';
+import { useAccount } from '@/lib/account/context';
 import { stealthKeyManager } from '@/lib/stealth/keyManager';
 import { ConversationView } from '@/components/dm/ConversationView';
 import type { SendDmContext, StorageSigner } from '@/lib/dm/sender';
 import type { AccountId } from '@/lib/dm/types';
-import type { PolkadotSigner } from 'polkadot-api/signer';
 import styles from './page.module.css';
 
 export default function ConversationPage(): JSX.Element {
@@ -28,31 +27,32 @@ export default function ConversationPage(): JSX.Element {
   );
 
   const { unsafeApi } = useSmoldot();
-  const { createSigner } = useApi();
-  const [signer, setSigner] = useState<PolkadotSigner | null>(null);
+  const { accountSeed, signer } = useAccount();
   const [mainRawSigner, setMainRawSigner] = useState<StorageSigner | null>(null);
 
+  // inner_signed_hash (W6) 用の raw sr25519 signer は accountSeed から都度作る。
   useEffect(() => {
+    if (!accountSeed) {
+      setMainRawSigner(null);
+      return;
+    }
+    let cancelled = false;
     void (async () => {
-      const s: PolkadotSigner | null = await createSigner('//Alice');
-      if (s) setSigner(s);
-    })();
-  }, [createSigner]);
-
-  // inner_signed_hash (W6) 用の raw sr25519 signer。PolkadotSigner.signBytes は
-  // `<Bytes>` wrap してしまい受信側 dm_decrypt_scan が拒否するので不可。
-  useEffect(() => {
-    void (async () => {
+      const { cryptoWaitReady } = await import('@polkadot/util-crypto');
+      await cryptoWaitReady();
       const { Keyring } = await import('@polkadot/keyring');
-      const { DEV_PHRASE } = await import('@polkadot/keyring/defaults');
       const keyring = new Keyring({ type: 'sr25519' });
-      const pair = keyring.addFromUri(`${DEV_PHRASE}//Alice`);
+      const pair = keyring.addFromUri(accountSeed);
+      if (cancelled) return;
       setMainRawSigner({
         publicKey: pair.publicKey,
         sign: (msg: Uint8Array) => pair.sign(msg),
       });
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [accountSeed]);
 
   const sendCtx: SendDmContext | null = useMemo(() => {
     if (!unsafeApi || !signer) return null;

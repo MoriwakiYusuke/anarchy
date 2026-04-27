@@ -1,21 +1,16 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { PolkadotSigner } from 'polkadot-api/signer'
 import { useMoralBalance, formatMoralBalance } from '@/hooks/useMoralBalance'
+import { useAccount } from '@/lib/account/context'
 import { useLocale } from '@/i18n'
 import { FaucetButton } from './FaucetButton'
 import { ConnectedDot, CopyIcon, CheckIcon } from './Icons'
 import styles from './WalletConnect.module.css'
 
 interface Props {
-  account: string | null
-  setAccount: (account: string | null) => void
-  setAccountSeed: (seed: string | null) => void
   client: any
   unsafeApi: any
-  signer: PolkadotSigner | null
-  accountSeed: string | null
   refreshTrigger?: number
   onBalanceChange?: (refetch: () => void) => void
 }
@@ -29,8 +24,9 @@ const TEST_ACCOUNTS = [
 
 type AuthMode = 'dev' | 'seedphrase'
 
-export function WalletConnect({ account, setAccount, setAccountSeed, client, unsafeApi, signer, accountSeed, refreshTrigger, onBalanceChange }: Props) {
+export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChange }: Props) {
   const { t } = useLocale()
+  const { account, accountSeed, signer, setAccount } = useAccount()
   const [selectedAccount, setSelectedAccount] = useState<string>('')
   const [authMode, setAuthMode] = useState<AuthMode>('dev')
   const [seedPhraseInput, setSeedPhraseInput] = useState<string>('')
@@ -57,8 +53,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
     const { Keyring } = await import('@polkadot/keyring')
     const keyring = new Keyring({ type: 'sr25519' })
     const pair = keyring.addFromUri(selectedAccount)
-    setAccount(pair.address)
-    setAccountSeed(selectedAccount)
+    setAccount(pair.address, selectedAccount)
   }
 
   // シードフレーズモード: 入力したシードフレーズで接続
@@ -80,8 +75,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
     const { Keyring } = await import('@polkadot/keyring')
     const keyring = new Keyring({ type: 'sr25519' })
     const pair = keyring.addFromUri(trimmed)
-    setAccount(pair.address)
-    setAccountSeed(trimmed)
+    setAccount(pair.address, trimmed)
     setSeedPhraseError(null)
     // セキュリティ: 接続後に入力欄をクリア
     setSeedPhraseInput('')
@@ -115,8 +109,7 @@ export function WalletConnect({ account, setAccount, setAccountSeed, client, uns
   }
 
   const handleDisconnect = () => {
-    setAccount(null)
-    setAccountSeed(null)
+    setAccount(null, null)
     setSelectedAccount('')
     setSeedPhraseInput('')
     setGeneratedPhrase(null)

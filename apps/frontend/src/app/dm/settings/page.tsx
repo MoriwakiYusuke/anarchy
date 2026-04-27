@@ -17,31 +17,22 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSmoldot } from '@/hooks/useSmoldot';
-import { useApi } from '@/hooks/useApi';
+import { useAccount } from '@/lib/account/context';
 import { DmKeyManager } from '@/components/dm/DmKeyManager';
 import { BlockListManager } from '@/components/dm/BlockListManager';
 import { exportDmBackup, importDmBackup } from '@/lib/dm/keyManager';
 import { stealthKeyManager } from '@/lib/stealth/keyManager';
-import type { PolkadotSigner } from 'polkadot-api/signer';
 import styles from './page.module.css';
 
 export default function DmSettingsPage(): JSX.Element {
   const { unsafeApi } = useSmoldot();
-  const { createSigner } = useApi();
-  const [signer, setSigner] = useState<PolkadotSigner | null>(null);
+  const { account, signer } = useAccount();
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<
     { kind: 'idle' } | { kind: 'ok'; message: string } | { kind: 'error'; message: string }
   >({ kind: 'idle' });
   const [hasStealthKey, setHasStealthKey] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-
-  useEffect(() => {
-    void (async () => {
-      const s: PolkadotSigner | null = await createSigner('//Alice');
-      if (s) setSigner(s);
-    })();
-  }, [createSigner]);
 
   useEffect(() => {
     const check = (): void => setHasStealthKey(stealthKeyManager.getMetaAddress() !== null);
@@ -118,7 +109,15 @@ export default function DmSettingsPage(): JSX.Element {
         <h1 className={styles.title}>DM 設定</h1>
       </header>
 
-      {!hasStealthKey && (
+      {!account && (
+        <section className={styles.section}>
+          <p className={styles.muted}>
+            ウォレットを接続してください (ホーム画面の WalletConnect)。
+          </p>
+        </section>
+      )}
+
+      {account && !hasStealthKey && (
         <section className={styles.section} aria-label="鍵を準備">
           <h3 className={styles.sectionTitle}>鍵を準備</h3>
           <p className={styles.description}>
@@ -190,7 +189,7 @@ export default function DmSettingsPage(): JSX.Element {
         </section>
       )}
 
-      {hasStealthKey && (
+      {account && hasStealthKey && (
         <>
           <section className={styles.section} aria-label="DM 鍵管理">
             {unsafeApi && signer ? (

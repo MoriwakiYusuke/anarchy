@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useApi } from '@/hooks/useApi'
+import { useAccount } from '@/lib/account/context'
 import { useLocale } from '@/i18n'
 import { PostForm } from '@/components/PostForm'
 import { Timeline } from '@/components/Timeline'
@@ -13,35 +14,15 @@ import NicknameSettings from '@/components/NicknameSettings'
 import { ConnectedDot, SyncingDot, DisconnectedDot } from '@/components/Icons'
 import { useMoralBalance } from '@/hooks/useMoralBalance'
 import styles from './page.module.css'
-import type { PolkadotSigner } from 'polkadot-api/signer'
 
 export default function Home() {
-  const { client, unsafeApi, connectionState, error, createSigner } = useApi()
+  const { client, unsafeApi, connectionState, error } = useApi()
   const { t } = useLocale()
-  const [account, setAccount] = useState<string | null>(null)
-  const [accountSeed, setAccountSeed] = useState<string | null>(null)
+  const { account, accountSeed, signer, setAccount } = useAccount()
   const [refreshTrigger, setRefreshTrigger] = useState(0)
-  const [signer, setSigner] = useState<PolkadotSigner | null>(null)
   const [isTransferOpen, setIsTransferOpen] = useState(false)
   const refetchBalanceRef = useRef<(() => void) | null>(null)
   const { balance } = useMoralBalance(unsafeApi, account, refreshTrigger)
-
-  // Create signer when accountSeed changes (async)
-  useEffect(() => {
-    if (!accountSeed) {
-      setSigner(null)
-      return
-    }
-    let cancelled = false
-    createSigner(accountSeed).then((newSigner) => {
-      if (!cancelled) {
-        setSigner(newSigner)
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [accountSeed, createSigner])
 
   // 投稿成功時にデータを更新
   const handlePostSuccess = useCallback(() => {
@@ -91,14 +72,9 @@ export default function Home() {
               signer={signer}
             />
           )}
-          <WalletConnect 
-            account={account} 
-            setAccount={setAccount}
-            setAccountSeed={setAccountSeed}
+          <WalletConnect
             client={client}
             unsafeApi={unsafeApi}
-            signer={signer}
-            accountSeed={accountSeed}
             refreshTrigger={refreshTrigger}
             onBalanceChange={(refetch) => { refetchBalanceRef.current = refetch }}
           />

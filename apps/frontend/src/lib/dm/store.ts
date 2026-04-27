@@ -31,6 +31,8 @@ interface DmStoreState {
   setIsScanning: (scanning: boolean) => void;
   setReceiptOptOut: (optOut: boolean) => void;
   rememberReceiptSent: (key: string) => void;
+  /** アカウント切替時に呼ぶ。会話 / blockList / scan progress / receipts を全消去。 */
+  resetForAccountChange: () => void;
 }
 
 const cloneConversations = (
@@ -194,6 +196,19 @@ export const useDmStore = create<DmStoreState>((set) => ({
       const next = new Set(state.sentReceipts);
       next.add(key);
       return { sentReceipts: next };
+    }),
+
+  // アカウント切替・解除時に呼び、前ユーザの DM 関連 state を完全破棄する。
+  // receiptOptOut はユーザ設定なので維持する判断もありうるが、現状は厳格に
+  // 全リセットしている (端末を別人と共有するケースを想定)。
+  resetForAccountChange: () =>
+    set({
+      conversations: new Map(),
+      blockList: new Set(),
+      lastScannedBlock: 0n,
+      isScanning: false,
+      receiptOptOut: false,
+      sentReceipts: new Set<string>(),
     }),
 }));
 
