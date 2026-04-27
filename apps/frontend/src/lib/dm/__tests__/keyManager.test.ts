@@ -40,8 +40,8 @@ jest.mock('../../stealth/keyManager', () => ({
     getSpendPubkey: () => (stealthLoaded ? fakeKeys.spend_pub : null),
     loadFromBackup: jest.fn((scanPriv: Uint8Array, spendPriv: Uint8Array) => {
       stealthLoaded = true;
-      fakeKeys.scan_priv = scanPriv;
-      fakeKeys.spend_priv = spendPriv;
+      fakeKeys.scan_priv = new Uint8Array(scanPriv);
+      fakeKeys.spend_priv = new Uint8Array(spendPriv);
     }),
   },
 }));

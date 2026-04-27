@@ -44,7 +44,7 @@ describe('Timeline', () => {
         },
       }
 
-      render(<Timeline client={null} unsafeApi={mockUnsafeApi} />)
+      render(<Timeline client={null} unsafeApi={mockUnsafeApi} account={null} signer={null} />)
       expect(screen.getByText('読み込み中...')).toBeInTheDocument()
     })
 
@@ -62,7 +62,7 @@ describe('Timeline', () => {
         },
       }
 
-      render(<Timeline client={null} unsafeApi={mockUnsafeApi} />)
+      render(<Timeline client={null} unsafeApi={mockUnsafeApi} account={null} signer={null} />)
 
       await waitFor(() => {
         expect(screen.getByText('投稿がありません')).toBeInTheDocument()
@@ -78,7 +78,7 @@ describe('Timeline', () => {
         },
       }
 
-      render(<Timeline client={null} unsafeApi={mockUnsafeApi} />)
+      render(<Timeline client={null} unsafeApi={mockUnsafeApi} account={null} signer={null} />)
 
       await waitFor(() => {
         expect(screen.getByText('投稿がありません')).toBeInTheDocument()
@@ -123,7 +123,7 @@ describe('Timeline', () => {
         },
       }
 
-      render(<Timeline client={null} unsafeApi={mockUnsafeApi} />)
+      render(<Timeline client={null} unsafeApi={mockUnsafeApi} account={null} signer={null} />)
 
       await waitFor(() => {
         expect(screen.getByTestId('post-1')).toBeInTheDocument()

@@ -28,14 +28,14 @@ import { getReactionChallenge, ReactionType } from '@/services/reactionService'
 describe('ReactionService', () => {
   describe('getReactionChallenge', () => {
     const mockClient = {
-      _request: jest.fn(),
+      _request: jest.fn<(method: string) => Promise<unknown>>(),
     }
 
     const mockUnsafeApi = {
       query: {
         Reaction: {
           CurrentDifficulty: {
-            getValue: jest.fn(),
+            getValue: jest.fn<() => Promise<number | null>>(),
           },
         },
       },

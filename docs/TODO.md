@@ -501,21 +501,80 @@
   - [x] + 難易度自動調整アルゴリズム（on_finalize）
   - [x] + インフレ/デフレ抑制メカニズム（Min/MaxDifficulty制限）
 
-### 3.3 DM機能（Stealth Messaging）
+### 3.3 DM機能（Stealth Messaging） → **完了** (2026-04-27 / 019-direct-messages)
 
-- [ ] E2EE実装
-  - [ ] ChaCha20-Poly1305暗号化
-  - [ ] 鍵導出（HKDF）
-  - [ ] メッセージパディング（固定サイズ化）
+> **実装内容**: 019-direct-messages 仕様に基づくフル機能 DM (送受信 / 配信レシート / バックアップ / ブロック / nickname 表示 / chain-node RPC 経由のストレージアクセス)。
+> 当初仕様から拡張された箇所には `+` を付与。
 
-- [ ] **Messaging Pallet**
-  - [ ] ステルスアドレス宛メッセージ格納
-  - [ ] トラフィックパディング（ダミーメッセージ）
+- [x] **E2EE 実装**
+  - ~~[ ] ChaCha20-Poly1305 暗号化~~ → [x] **AES-256-GCM 暗号化** (`packages/wasm-engine/src/dm/encrypt.rs`) で実装。鍵: HKDF-SHA256 出力 32B、Nonce: 同 12B、AAD に recipient_stealth + ephemeral_pub + padded_len を含む。
+  - [x] 鍵導出 (HKDF-SHA256): `info = recipient_stealth ‖ eph_pub`、ECDH(scan_pub, eph_priv) を IKM として 44B OKM (key 32B + nonce 12B) を抽出
+  - [x] メッセージパディング (ISO 7816-4 + 固定サイズ化): 5 段バケット `[1KB, 4KB, 16KB, 64KB, 256KB]` (`pallet-messaging::DM_PADDING_BUCKETS`)、`MaxDmCiphertextLen = 262_144`
 
-- [ ] クライアント側
-  - [ ] メッセージスキャナー
-  - [ ] 復号・表示UI
-  - [ ] 送信フロー
+- [x] **Messaging Pallet** (`apps/blockchain/pallets/messaging/`)
+  - [x] ステルスアドレス宛メッセージ格納: `DmDispatchesByBlock<BlockNumber → Vec<DmDispatch>>` + `DmMessagesByRoot<[u8;32] → MessageId>` (256 dispatch/block 上限)
+  - [ ] トラフィックパディング (ダミーメッセージ) → **未実装**: 本格的な timing/rate 解析耐性は Phase 4 以降で検討
+  - [x] + `publish_dm_key(scan_pub, spend_pub)` extrinsic: `DmReceptionKeys: Map<AccountId → DmMetaAddress>`
+  - [x] + `send_dm` extrinsic: コスト = `DmBaseCost (1 MORAL) + ct_len × DmByteCost (0.05 MORAL/byte)`、**80% storage / 10% stealth / 10% burn** で分配 (`do_deposit_to_reward_pool` / `do_deposit_to_stealth_reward_pool`)
+  - [x] + Runtime API: `DmScanApi.reception_key(account)` / `DmScanApi.dispatches_range(from, to)` (1024 ブロックページング)
+  - [x] + バリデーション: `k>0 && k<=n && n<=255`, `ct_len ∈ DM_PADDING_BUCKETS`, `eph_pub ≠ 0`, `merkle_root` 重複拒否
+
+- [x] **クライアント側**
+  - [x] メッセージスキャナー: `lib/dm/scanner.ts` (`scanDmInbox`) + `lib/dm/worker.ts` で foreground 15s / background 5min の visibility-aware ループ
+  - [x] 復号・表示 UI: `components/dm/ConversationView.tsx` (`MessageBubble` / `GarbageCollectedBubble`)
+  - [x] 送信フロー: `lib/dm/sender.ts::sendDm` 9 ステップ orchestrator + `components/dm/MessageComposer.tsx` (進捗 5 段表示、`TransactionDropped` retry)
+
+- [x] + **送信者匿名化 (W3 / CT-1 / FR-021)**
+  - [x] + `dm_generate_sender_stealth`: 32B 乱数 → `MiniSecretKey::expand_to_keypair(Ed25519)` で per-msg 使い捨て sr25519 鍵 (`packages/wasm-engine/src/dm/encrypt.rs`)
+  - [x] + 2-tx 送信パターン: tx1 = `pallet_stealth.send_to_stealth` (Alice main 署名で sender_stealth へ pre-fund) → tx2 = `pallet_messaging.send_dm` (sender_stealth 署名)
+  - [x] + 送信後 `senderStealthSeed.fill(0)` でゼロクリア (rented seed buffer 直接破棄、コピーは作らない)
+
+- [x] + **受信者匿名化 (W5)**
+  - [x] + `dm_derive_recipient_stealth`: ECDH(scan_pub, eph_priv) → per-msg `recipient_stealth` 派生、`ephemeral_pub` を chain dispatch に記録
+  - [x] + 受信側スキャン: `dm_decrypt_scan(dispatch, scan_priv, spend_pub)` で全 dispatch を試行復号、`signature_valid == true` のみ採用 (FR-004)
+
+- [x] + **配信レシート** (T078, FR-016 / FR-016b)
+  - [x] + `delivered` レシート: 受信時に自動送信 (`/dm/page.tsx::onNewIncoming`)
+  - [x] + `read` レシート: スレッド開封時に送信 (`ConversationView` の useEffect で `kind: 'read'`)
+  - [x] + opt-out: `receiptOptOut: true` で受信確認を抑制
+  - [x] + `applyReceipts` で送信側 deliveryState 遷移 (`sent → delivered → read`)
+  - [x] + idempotent: `sentReceipts` セットで再送防止
+
+- [x] + **ブロックリスト**
+  - [x] + counterparty 別ブロック (Set<AccountId>)、ConversationList から非表示
+  - [x] + DM 設定画面でブロック追加 / 解除 + IDB 永続化
+
+- [x] + **バックアップ** (FR-022)
+  - [x] + パスワード暗号化エクスポート (DM 鍵 + 会話履歴を JSON で出力)
+  - [x] + インポート復元: stealth 鍵管理に書き戻し
+  - [x] + 鍵は session memory only、ページ閉じで消失する設計を担保
+
+- [x] + **永続化** (FR-019)
+  - [x] + IndexedDB hydrate + subscription (`lib/dm/persistence.ts`)
+  - [x] + `/dm/layout.tsx` で hydrate / persistence subscription をライフサイクル所有 → `/dm` ↔ `/dm/[id]` ナビゲーション越しに状態維持 (commit b7c90ee で fix)
+  - [x] + optimistic addOutgoing → IDB に flush
+
+- [x] + **UI 改善**
+  - [x] + ConversationList でニックネーム表示 (`hooks/useNicknameOf.ts`、cache + inflight dedup)
+  - [x] + ConversationView ヘッダにニックネーム + SS58 表示
+  - [x] + MissingBackupNotice の単一 CTA 化 (「DM 鍵設定を開く」、commit 29877e8)
+  - [x] + GarbageCollectedBubble: storage 取得不能時の placeholder (`gc:` プレフィックス)
+  - [x] + 進捗表示 5 段 (`encrypting → uploading → prefunding → dispatching → done`)
+
+- [x] + **ストレージアクセス統合** (CLAUDE.md Security Principle #5、commit 0903046)
+  - [x] + storage-node 直叩き (`:3030 storage_storeFragment`) を廃止し、chain-node `:9944 storage_uploadFragment` / `storage_getFragment` 経由に移行
+  - [x] + `dm_fragment_ciphertext` に per-leaf merkle proof を retain (`DmFragmentedOutput.proof(idx)`) → chain-node の `verify_merkle_proof` を通せる
+  - [x] + `X-Anarchy-Auth` は frontend で生成し chain-node が body→header に展開して storage-node に forward
+  - [x] + `NEXT_PUBLIC_STORAGE_ENDPOINT` 環境変数を削除、`SendDmContext.chainRpcEndpoint` に統一
+
+- [ ] + **メディア添付** ← 検討中 (本 spec の継続実装、設計案あり)
+  - [ ] + UI: 投稿と同じ `MediaUpload` コンポーネントを `MessageComposer` に統合 (drag&drop + プレビュー)
+  - [ ] + per-file ChaCha20-Poly1305(K_media) 暗号化、K_media は DM body 内に格納 (E2E 担保)
+  - [ ] + DM body codec 拡張 (`lib/dm/contentCodec.ts` 新設、version byte で旧 text-only と区別)
+  - [ ] + アップロード/取得 hook (`useDmMediaUpload` / `useDmMediaFetch` 新設、内部で `dm_fragment_ciphertext` + chain-node `storage_uploadFragment`)
+  - [ ] + 受信側: body 復号後に refs から fetch + decrypt → `MediaDisplay` 流用で表示
+  - [ ] + EXIF 除去 (`lib/mediaProcessor.ts` 流用)
+  - 設計詳細は本セッションのチャットログ参照 (UI 共通 / 暗号レイヤ二段 / 256KB padding bucket と整合)
 
 ### + 3.4 投稿人気度システム
 
@@ -539,7 +598,6 @@
 
 - [ ] **Sybil対策**
   - [ ] 自演スコア操作の防止
-  - [ ] 「永続化」オプション（追加料金で削除対象外）
 
 ### 3.5 ステルスアドレス報酬先対応
 
@@ -613,9 +671,6 @@
   - [ ] 投稿コスト: burn維持（デフレ圧力）
   - [ ] Faucet: unsigned tx維持
 
-- [ ] **フロントエンド改善（後回し）**
-  - [ ] Page Visibility API制御（反応マイニングのフォアグラウンド強制）
-
 ### + 4.5 オンチェーンガバナンス
 
 > **詳細**: [CONCEPTS.md](CONCEPTS.md#オンチェーンガバナンス) を参照
@@ -667,6 +722,39 @@
 - [ ] **移行計画**
   - [ ] テストネット後期でPoW/NPoSテスト
   - [ ] メインネットでの最終選択（ハードフォーク）
+
+### + 4.8 Storage ↔ Chain Session 認証強化 (TODO 追加 2026-04-27)
+
+> **目的**: chain-node ↔ storage-node 認証を [docs/storage_logic.md §7](storage_logic.md#7-セッション認証システム) に書かれた **session-token 方式** に実装し直す。
+>
+> **背景**: 現状は per-request の `X-Anarchy-Auth` + `X-Chain-Auth` ヘッダ方式 (`apps/storage-node/src/rpc/auth.rs`) で動作しているが、`X-Chain-Auth` は同ファイルの comment で「なりすましは許容＝公開鍵のオンチェーン確認はしない」と明言されており、**sr25519 鍵を持つ任意のユーザが chain-node を装って storage-node に書き込める**。docs §7 が想定する libp2p P2P 接続経由 (`peer_id ∈ connected_peers`) での peer 認証は実装ファイル (`apps/storage-node/src/session/`, `apps/blockchain/node/src/storage/session_client.rs`) ごとまだ存在しない。
+>
+> **緊急度**: 低。Principle #1/#5 の匿名性は現状でも担保されており、攻撃面 (悪意ある "chain-node" による storage 書き込み) を塞ぐ強化策。019-direct-messages リリース後に着手で良い。
+>
+> **ボリューム感**: 半日〜1.5 日 (Rust 側のみ、フロントは触らない)
+
+- [ ] **storage-node 側** (`apps/storage-node/src/session/` 新設)
+  - [ ] `token.rs` — `SessionToken` (UUID + expiry), `SessionInfo` (issued_to, last_seen_at)
+  - [ ] `registry.rs` — `SessionRegistry: Map<token, SessionInfo>` + GC ループ (期限切れ削除)
+  - [ ] `peers.rs` — `ConnectedPeers: Set<PeerId>` (libp2p 接続イベントから更新)
+  - [ ] `protocol.rs` — `SessionRequest { public_key, timestamp, nonce, signature }` の型 + 署名検証
+  - [ ] `error.rs` — `SessionError` 列挙
+  - [ ] `rpc/mod.rs` に `POST /session` 追加 (peer_id が `connected_peers` に居るときのみ token 発行)
+  - [ ] `rpc/auth.rs` 改修: `X-Session-Token` 検証経路を追加 (旧ヘッダ方式は dev fallback として残す)
+  - [ ] `storage/store`, `storage/delete` を session-token 必須に切替
+
+- [ ] **chain-node 側** (`apps/blockchain/node/src/storage/` 新設)
+  - [ ] `session_client.rs` — `StorageSessionClient { http, token: Mutex<Option<(SessionToken, Instant)>>, signing_key, target_url }`
+  - [ ] `ensure_session()` 実装 — token 期限切れなら `/session` に再取得 (libp2p で繋がっている前提)
+  - [ ] `upload()` / `get()` — 内部で `X-Session-Token` ヘッダ付与
+  - [ ] `rpc/storage.rs` の `StorageNodeClient` を `StorageSessionClient` に置き換え (or 内包)
+  - [ ] `node/main.rs`: 起動時に storage-node と libp2p 接続を確立する初期化シーケンス
+
+- [ ] **整合性 / テスト**
+  - [ ] `docs/storage_logic.md §7` の図と実装が一致することを確認
+  - [ ] storage-node auth テスト更新 (X-Session-Token 経路の正常系・異常系)
+  - [ ] 統合テスト: chain-node ↔ storage-node の session 確立 → upload → token 失効 → 再取得 のフロー
+  - [ ] 既存 `X-Anarchy-Auth` テストが dev fallback 経路として残ることを確認
 
 ---
 
