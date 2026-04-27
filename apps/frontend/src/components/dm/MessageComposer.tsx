@@ -49,29 +49,30 @@ function progressMessage(p: SendDmProgress): string {
 
 function errorBanner(err: unknown): { message: string; canRetry: boolean } {
   const msg = err instanceof Error ? err.message : String(err);
-  switch (msg) {
-    case DmError.RecipientKeyNotPublished:
-      return {
-        message: '相手はまだ DM を受け付けていません。',
-        canRetry: false,
-      };
-    case DmError.MainAccountInsufficientBalance:
-      return { message: 'MORAL 残高が不足しています。', canRetry: false };
-    case DmError.StorageInsufficient:
-      return {
-        message: 'ストレージノードの応答が足りません。再試行できます。',
-        canRetry: true,
-      };
-    case DmError.TransactionDropped:
-      return {
-        message: '送信に失敗しました。前送金は維持されているため再試行できます。',
-        canRetry: true,
-      };
-    case DmError.BodyTooLarge:
-      return { message: '本文が大きすぎます。', canRetry: false };
-    default:
-      return { message: `送信エラー: ${msg}`, canRetry: true };
+  // sender.ts は `${DmError.TransactionDropped}: tx1 ...` のように prefix で補足情報を
+  // 付ける場合があるので、完全一致ではなく startsWith で分類する。
+  if (msg === DmError.RecipientKeyNotPublished) {
+    return { message: '相手はまだ DM を受け付けていません。', canRetry: false };
   }
+  if (msg === DmError.MainAccountInsufficientBalance) {
+    return { message: 'MORAL 残高が不足しています。', canRetry: false };
+  }
+  if (msg === DmError.StorageInsufficient) {
+    return {
+      message: 'ストレージノードの応答が足りません。再試行できます。',
+      canRetry: true,
+    };
+  }
+  if (msg.startsWith(DmError.TransactionDropped)) {
+    return {
+      message: `送信に失敗しました。前送金は維持されているため再試行できます。 (${msg})`,
+      canRetry: true,
+    };
+  }
+  if (msg === DmError.BodyTooLarge) {
+    return { message: '本文が大きすぎます。', canRetry: false };
+  }
+  return { message: `送信エラー: ${msg}`, canRetry: true };
 }
 
 export function MessageComposer({ counterparty, context, onSent }: MessageComposerProps): JSX.Element {

@@ -499,10 +499,17 @@ export async function sendDm(
     try {
       tx1Result = await tx1.signAndSubmit(mainSigner);
     } catch (e) {
-      // 残高不足等は MainAccountInsufficientBalance に丸める。
-      throw new Error(DmError.MainAccountInsufficientBalance);
+      // 失敗理由をできるだけ具体的に出す。残高絡みなら専用エラー、
+      // それ以外は元 error を残して TransactionDropped に丸める。
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/InsufficientBalance|FundsUnavailable|Token::FundsUnavailable|Payment/i.test(msg)) {
+        throw new Error(DmError.MainAccountInsufficientBalance);
+      }
+      console.error('[dm-sender] tx1 (send_to_stealth) failed:', e);
+      throw new Error(`${DmError.TransactionDropped}: tx1 ${msg}`);
     }
     if (!tx1Result.ok) {
+      console.error('[dm-sender] tx1 dispatch error:', tx1Result);
       throw new Error(DmError.TransactionDropped);
     }
 
@@ -521,9 +528,12 @@ export async function sendDm(
     try {
       tx2Result = await tx2.signAndSubmit(stealthSigner);
     } catch (e) {
-      throw new Error(DmError.TransactionDropped);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[dm-sender] tx2 (send_dm) failed:', e);
+      throw new Error(`${DmError.TransactionDropped}: tx2 ${msg}`);
     }
     if (!tx2Result.ok) {
+      console.error('[dm-sender] tx2 dispatch error:', tx2Result);
       throw new Error(DmError.TransactionDropped);
     }
 
