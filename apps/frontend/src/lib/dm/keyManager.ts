@@ -242,17 +242,12 @@ function generateDeviceId(): string {
 }
 
 /**
- * `stealthKeyManager.loadFromBackup` が実装されていれば DM backup の private key を
- * 流し込む。T065-T067 で StealthKeyManager 側にも実装を追加する想定。存在しない場合は
- * 黙って no-op (テスト mock / MVP ルート前提)。
+ * DM backup の中身 (raw scan_priv + spend_priv) を stealthKeyManager の
+ * セッションメモリに流し込む。失敗 (鍵長不正等) は throw して呼出側で
+ * BackupImportFailed に丸める。
  */
-function loadKeysIntoStealth(scanPriv: Uint8Array, spendPriv: Uint8Array): void {
-  const km = stealthKeyManager as unknown as {
-    loadFromBackup?: (scanPriv: Uint8Array, spendPriv: Uint8Array) => void;
-  };
-  if (typeof km.loadFromBackup === 'function') {
-    km.loadFromBackup(scanPriv, spendPriv);
-  }
+async function loadKeysIntoStealth(scanPriv: Uint8Array, spendPriv: Uint8Array): Promise<void> {
+  await stealthKeyManager.loadFromBackup(scanPriv, spendPriv);
 }
 
 /**
@@ -378,10 +373,14 @@ export async function importDmBackup(
     throw new Error(DmError.BackupImportFailed);
   }
 
-  loadKeysIntoStealth(
-    fromHex(payload.dm_meta.scan_priv),
-    fromHex(payload.dm_meta.spend_priv),
-  );
+  try {
+    await loadKeysIntoStealth(
+      fromHex(payload.dm_meta.scan_priv),
+      fromHex(payload.dm_meta.spend_priv),
+    );
+  } catch {
+    throw new Error(DmError.BackupImportFailed);
+  }
 
   const current = useDmStore.getState();
   const nextConversations = new Map<AccountId, ConversationState>(current.conversations);

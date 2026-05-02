@@ -89,6 +89,10 @@ export function startDmScanLoop(options: DmScanLoopOptions): DmScanLoopHandle {
         // ブロック中の相手には receipt を送らない (受信メタデータ漏洩 + MORAL 浪費を防ぐ)。
         if (options.onNewIncoming && msg.direction === 'incoming') {
           if (store.blockList.has(msg.counterparty)) continue;
+          // GC placeholder (ciphertext を storage から再構成できなかった dispatch) は
+          // counterparty が `gc:<hex>` という擬似値で SS58 ではない。受信内容も
+          // 復号できていないので、相手に届いた事実すら確実ではない。receipt は出さない。
+          if (msg.bodyState === 'garbage_collected') continue;
           const key = receiptKey(msg.counterparty, msg.messageId, 'delivered');
           if (!store.sentReceipts.has(key)) {
             store.rememberReceiptSent(key);

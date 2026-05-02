@@ -100,7 +100,7 @@ export class StealthKeyManager {
     password: string
   ): Promise<void> {
     const wasm = await getWasm();
-    
+
     // Decrypt backup
     const wasmKeys = wasm.decrypt_backup(encryptedBackup, password);
 
@@ -114,6 +114,37 @@ export class StealthKeyManager {
     };
 
     // Register cleanup handler
+    this.registerCleanupHandler();
+  }
+
+  /**
+   * Load stealth keys from already-decrypted private key material.
+   *
+   * 用途: DM backup (keyManager.ts exportDmBackup / importDmBackup) は
+   * AES-256-GCM + PBKDF2 で外側を暗号化し、中身に scan_priv (= view_key) と
+   * spend_priv を JSON で持つ。インポート時に AES 復号して raw priv を得たら、
+   * このメソッドで wasm に対応する pubkey を再導出してもらってセッション
+   * メモリの keyPair に流し込む。
+   *
+   * @param scanPriv X25519 view 秘密鍵 (32 bytes)
+   * @param spendPriv Ed25519 spend seed (32 bytes)
+   */
+  async loadFromBackup(scanPriv: Uint8Array, spendPriv: Uint8Array): Promise<void> {
+    if (scanPriv.length !== 32) throw new Error('scanPriv must be 32 bytes');
+    if (spendPriv.length !== 32) throw new Error('spendPriv must be 32 bytes');
+
+    const wasm = await getWasm();
+    const wasmKeys = wasm.restore_stealth_keys(spendPriv, scanPriv);
+
+    this.keyPair = {
+      spendKey: new Uint8Array(wasmKeys.spend_key),
+      viewKey: new Uint8Array(wasmKeys.view_key),
+      spendPubkey: new Uint8Array(wasmKeys.spend_pubkey),
+      viewPubkey: new Uint8Array(wasmKeys.view_pubkey),
+      metaAddress: wasmKeys.meta_address,
+      createdAt: Date.now(),
+    };
+
     this.registerCleanupHandler();
   }
 

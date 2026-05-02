@@ -38,7 +38,7 @@ jest.mock('@/hooks/useNicknameOf', () => ({
 // AccountContext は内部で polkadot-api signer (ESM) を import するため Jest が
 // 解析に失敗する。テストでは own account 情報を使わないので最小スタブを返す。
 jest.mock('@/lib/account/context', () => ({
-  useAccount: () => ({ account: null, accountSeed: null, signer: null, setAccount: () => {} }),
+  useAccount: () => ({ account: null, signer: null, mainRawSigner: null, setAccount: () => {} }),
 }));
 
 // Mock i18n so components using `useLocale` work without a provider.

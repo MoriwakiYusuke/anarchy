@@ -30,7 +30,7 @@ import { useAccount } from '@/lib/account/context';
 import { stealthKeyManager } from '@/lib/stealth/keyManager';
 import { getDmMetaAddressFromStealth } from '@/lib/dm/keyManager';
 import { initSs58Toolkit, type ScanContext } from '@/lib/dm/scanner';
-import type { SendDmContext, StorageSigner } from '@/lib/dm/sender';
+import type { SendDmContext } from '@/lib/dm/sender';
 import { sendDmReceipt } from '@/lib/dm/receipt';
 import { startDmScanLoop, type DmScanLoopHandle } from '@/lib/dm/worker';
 import { useDmStore } from '@/lib/dm/store';
@@ -54,12 +54,11 @@ type Tab = 'inbox' | 'settings';
 export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
   const { t } = useLocale();
   const { unsafeApi } = useSmoldot();
-  const { account, accountSeed, signer } = useAccount();
+  const { account, signer, mainRawSigner } = useAccount();
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('inbox');
   const [selected, setSelected] = useState<AccountId | null>(null);
   const [newRecipient, setNewRecipient] = useState('');
-  const [mainRawSigner, setMainRawSigner] = useState<StorageSigner | null>(null);
   const [keyLoaded, setKeyLoaded] = useState(false);
   const loopRef = useRef<DmScanLoopHandle | null>(null);
 
@@ -82,29 +81,8 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
     return () => window.removeEventListener('keydown', handler);
   }, [isOpen, onClose]);
 
-  // 接続中アカウントの seed phrase / derive path から raw sr25519 signer を作る。
-  useEffect(() => {
-    if (!accountSeed) {
-      setMainRawSigner(null);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const { cryptoWaitReady } = await import('@polkadot/util-crypto');
-      await cryptoWaitReady();
-      const { Keyring } = await import('@polkadot/keyring');
-      const keyring = new Keyring({ type: 'sr25519' });
-      const pair = keyring.addFromUri(accountSeed);
-      if (cancelled) return;
-      setMainRawSigner({
-        publicKey: pair.publicKey,
-        sign: (msg: Uint8Array) => pair.sign(msg),
-      });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [accountSeed]);
+  // mainRawSigner は AccountContext が seed 受領直後に keyring pair を作って
+  // expose してくれているので、ここでは追加の derive 不要。
 
   // stealth 鍵のロード状態を polling で監視 (session memory)。
   useEffect(() => {

@@ -541,6 +541,13 @@ export async function sendDm(
   );
   const ephPubBytes = new Uint8Array(derived.ephemeral_pubkey);
   const stealthBytes = new Uint8Array(derived.stealth_pubkey);
+  // shared_secret は HKDF を Rust 側で行うため JS 側からは触らない。
+  // wasm-bindgen の `free()` で Rust 線形メモリ上の Zeroizing<[u8;32]> を消す。
+  try {
+    (derived as unknown as { free?: () => void }).free?.();
+  } catch {
+    // free が無いビルド (テスト mock 等) では no-op
+  }
 
   const timestampMs = BigInt(Date.now());
   const body = params.body;
@@ -712,7 +719,16 @@ export async function sendDm(
     };
   } finally {
     // ---- Step 9: zeroize sender stealth seed (CT-1, FR-021) ----
+    // JS 側のコピー (`secret_seed` getter が wasm-bindgen 越しに作った Uint8Array)
+    // をゼロ化。
     senderStealthSeed.fill(0);
+    // Rust 線形メモリ上の `Zeroizing<[u8; 32]>` を drop で memset(0) する。
+    // wasm-bindgen 自動生成の `free()` が Rust の Drop を呼ぶ。
+    try {
+      (stealth as unknown as { free?: () => void }).free?.();
+    } catch {
+      // free が無いビルド (テスト mock 等) では no-op
+    }
   }
 }
 

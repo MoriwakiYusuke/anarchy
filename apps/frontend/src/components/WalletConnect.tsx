@@ -26,7 +26,7 @@ type AuthMode = 'dev' | 'seedphrase'
 
 export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChange }: Props) {
   const { t } = useLocale()
-  const { account, accountSeed, signer, setAccount } = useAccount()
+  const { account, signer, setAccount } = useAccount()
   const [selectedAccount, setSelectedAccount] = useState<string>('')
   const [authMode, setAuthMode] = useState<AuthMode>('dev')
   const [seedPhraseInput, setSeedPhraseInput] = useState<string>('')

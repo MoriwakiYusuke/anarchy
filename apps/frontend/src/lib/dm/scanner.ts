@@ -145,19 +145,16 @@ export async function scanDmInbox(ctx: ScanContext): Promise<ScanDmResult> {
           if (reconstructed) withCipher.ciphertext = reconstructed;
         }
         if (!withCipher.ciphertext) {
-          // T094: ciphertext を再構成できない (storage-node から取得不能 / GC 済み) ケース。
-          // 自分宛か判定できないため、宛先 placeholder として MerkleRoot 由来の counterparty を使う。
-          // UI 側 (T094 GarbageCollectedBubble) は body を一切表示しないため、平文漏洩リスクは無い。
-          newMessages.push({
-            messageId: deriveMessageId(bn, dispatch),
-            blockNumber: bn,
-            direction: 'incoming',
-            counterparty: gcPlaceholderCounterparty(dispatch.content.root),
-            timestampMs: 0,
-            body: new Uint8Array(),
-            bodyState: 'garbage_collected',
-            signatureValid: false,
-          });
+          // ciphertext が再構成できないと、その dispatch が本当に「自分宛」だったか
+          // 判定する手段がない (recipient_stealth match の判定だけでは ECDH 公開鍵
+          // から secret を得る攻撃を考慮すると不十分)。確証なしの GC placeholder を
+          // すべての dispatch について作ると、他人宛の trafiic で inbox が汚染される。
+          // → silent skip (受信できなかった事実は表示しない)。
+          //
+          // 真の "for-us GC" を後で表示したい場合は、wasm に
+          // `dm_check_stealth_match(scan_priv, spend_pub, eph_pub, recipient_stealth)`
+          // のような軽量チェック関数を追加して、自分宛確認後にだけ placeholder を
+          // 出すリファクタリングが必要。
           continue;
         }
 
@@ -292,18 +289,6 @@ function deriveMessageId(_blockNumber: bigint, d: DmDispatch): bigint {
   let id = 0n;
   for (let i = 0; i < 8 && i < merkle.length; i += 1) id = (id << 8n) | BigInt(merkle[i]);
   return id;
-}
-
-/**
- * GC 済み DM の counterparty placeholder。`gc:<root-prefix-hex>` 形式で
- * 一意性を維持する (UI 側で同じスレッドにまとめないために counterparty 単位で
- * 必ず別キー化する)。
- */
-function gcPlaceholderCounterparty(root: Uint8Array): AccountId {
-  const prefix = Array.from(root.slice(0, 8))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  return `gc:${prefix}` as AccountId;
 }
 
 // =============================================================================

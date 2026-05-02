@@ -86,12 +86,20 @@ export async function expectOutgoingBubble(page: Page, body: string): Promise<vo
 /**
  * 開いているスレッドに incoming バブル (= scanner が pickup) が出ることを assert。
  * scanner foreground interval は 15s なので最大 90s 待つ。
+ *
+ * @param body 期待されるメッセージ本文
+ * @param minCount  期待最少 listitem 数。
+ *   - self-DM: 2 (outgoing + incoming で同じ本文が 2 つ並ぶ)
+ *   - multi-user (相手送信): 1 (incoming のみ)
  */
-export async function expectIncomingBubble(page: Page, body: string): Promise<void> {
+export async function expectIncomingBubble(
+  page: Page,
+  body: string,
+  minCount = 2,
+): Promise<void> {
   const region = page.getByRole('dialog').getByRole('region', { name: /^Counterparty:/ });
-  // outgoing と incoming が同じテキスト本文を持つので、表示数が 2 件以上になることで判定。
   await expect(async () => {
     const items = region.getByRole('listitem').getByText(body, { exact: true });
-    expect(await items.count()).toBeGreaterThanOrEqual(2);
+    expect(await items.count()).toBeGreaterThanOrEqual(minCount);
   }).toPass({ timeout: 90_000, intervals: [3_000, 5_000, 10_000] });
 }

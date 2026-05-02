@@ -193,6 +193,19 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// E1: DM 受信メタアドレスを公開する (上書き可)。
+        ///
+        /// **検証方針 (2026-05-03)**:
+        /// - all-zero / all-FF などの "明らかな garbage" は弾く
+        /// - Ed25519 / X25519 の curve point としての decompressibility 検証は
+        ///   ここでは行わない。理由:
+        ///     1. Substrate runtime に curve25519/ed25519-dalek を入れると wasm
+        ///        ランタイム肥大化 + ホスト関数互換性リスクが大きい
+        ///     2. 不正な点を publish しても被害は publisher 自身のみ (誰も
+        ///        その address に向けて DM を暗号化できない)
+        ///     3. 真に検証すべきは送信側 — wasm-engine の `dm_derive_recipient_stealth`
+        ///        が parse_meta_address 経由で curve decompression を行い、
+        ///        失敗時に extrinsic を発行しないので、不正な on-chain meta は
+        ///        利用者間で害を持たない
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::publish_dm_key())]
         pub fn publish_dm_key(
@@ -203,7 +216,10 @@ pub mod pallet {
 
             ensure!(
                 meta_address.scan_pub != [0u8; 32]
-                    && meta_address.spend_pub != [0u8; 32],
+                    && meta_address.spend_pub != [0u8; 32]
+                    && meta_address.scan_pub != [0xFFu8; 32]
+                    && meta_address.spend_pub != [0xFFu8; 32]
+                    && meta_address.scan_pub != meta_address.spend_pub,
                 Error::<T>::InvalidMetaAddress
             );
 

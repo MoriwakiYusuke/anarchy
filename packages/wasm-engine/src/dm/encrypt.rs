@@ -41,11 +41,14 @@ pub fn hkdf_okm(shared: &[u8; 32], salt: &[u8], info: &[u8]) -> [u8; HKDF_OKM_LE
 }
 
 /// W5 の wasm binding の戻り値。
+///
+/// `shared_secret` (X25519 DH 結果) は HKDF の ikm として使ったあとは
+/// もう不要だが、JS 越境のため Rust 側に残る。Drop 時に Zeroizing で消える。
 #[wasm_bindgen]
 pub struct DmStealthDerivation {
     stealth_pubkey: [u8; 32],
     ephemeral_pubkey: [u8; 32],
-    shared_secret: [u8; 32],
+    shared_secret: Zeroizing<[u8; 32]>,
 }
 
 #[wasm_bindgen]
@@ -65,7 +68,7 @@ impl DmStealthDerivation {
     /// X25519 DH 結果 (HKDF ikm, 32B)。
     #[wasm_bindgen(getter)]
     pub fn shared_secret(&self) -> Vec<u8> {
-        self.shared_secret.to_vec()
+        (*self.shared_secret).to_vec()
     }
 }
 
@@ -132,7 +135,7 @@ pub fn dm_derive_recipient_stealth(
     Ok(DmStealthDerivation {
         stealth_pubkey,
         ephemeral_pubkey: *eph_pub.as_bytes(),
-        shared_secret: shared_bytes,
+        shared_secret: Zeroizing::new(shared_bytes),
     })
 }
 
@@ -295,12 +298,19 @@ pub fn dm_encrypt_and_pad(
 // W3. dm_generate_sender_stealth
 // =============================================================================
 
-/// W3 の出力。`secret_seed` は `send_dm` 1 tx の署名にのみ使い、JS 側で即時
-/// ゼロクリアする (Constitution II 限定例外)。
+/// W3 の出力。`secret_seed` は `send_dm` 1 tx の署名にのみ使う。
+///
+/// **Zeroization invariant** (Constitution II / FR-021):
+/// - 内部 `secret_seed` は `Zeroizing<[u8; 32]>` で保持し、Rust 側 Drop 時に
+///   memset(0) される。`wasm-bindgen` の自動生成 `free()` は Drop を呼ぶので、
+///   JS 側で `stealth.free()` を呼べば Rust 線形メモリ上の seed は確実に消える。
+/// - `secret_seed` getter は wasm-bindgen が新規 `Uint8Array` を作って JS にコピー
+///   して返す (Rust 側の所有権は維持)。JS 側のコピーは利用者が明示的に
+///   `.fill(0)` する責務が残る (sender.ts の finally で実施)。
 #[wasm_bindgen]
 pub struct DmSenderStealth {
     account_id: [u8; 32],
-    secret_seed: [u8; 32],
+    secret_seed: Zeroizing<[u8; 32]>,
 }
 
 #[wasm_bindgen]
@@ -311,9 +321,17 @@ impl DmSenderStealth {
         self.account_id.to_vec()
     }
     /// Sr25519 seed (32B)。**JS 側で 1 回使ったら即ゼロクリアすること**。
+    /// JS 側のコピーをゼロ化しても Rust 側は無傷なので、必ず `stealth.free()` も呼ぶ。
     #[wasm_bindgen(getter)]
     pub fn secret_seed(&self) -> Vec<u8> {
-        self.secret_seed.to_vec()
+        (*self.secret_seed).to_vec()
+    }
+    /// 明示的なゼロ化 + 解放。`free()` と等価だが、wasm-bindgen 自動生成名と
+    /// 衝突しないよう `zeroize` 名で公開。呼出後は `account_id` / `secret_seed`
+    /// アクセス禁止 (free 済みポインタアクセスとなる)。
+    pub fn zeroize(self) {
+        // Drop が走り、Zeroizing<[u8;32]> が memset(0) する。
+        drop(self);
     }
 }
 
@@ -335,7 +353,7 @@ pub fn dm_generate_sender_stealth() -> DmSenderStealth {
 
     DmSenderStealth {
         account_id,
-        secret_seed: seed,
+        secret_seed: Zeroizing::new(seed),
     }
 }
 
@@ -491,7 +509,7 @@ mod tests {
         assert_eq!(&derived.ephemeral_pubkey, eph_pub_check.as_bytes());
 
         let shared_recv = recipient_scan_sec.diffie_hellman(&eph_pub_check);
-        assert_eq!(&derived.shared_secret, shared_recv.as_bytes());
+        assert_eq!(&*derived.shared_secret, shared_recv.as_bytes());
 
         let h = blake2b_256(shared_recv.as_bytes());
         let h_scalar = Scalar::from_bytes_mod_order(h);

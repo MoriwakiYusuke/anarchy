@@ -124,13 +124,56 @@ const advanceDeliveryState = (
   return next;
 };
 
+// =============================================================================
+// sentReceipts persistence (localStorage)
+//
+// Why: receipts (delivered / read) cost MORAL each time they're sent. Without
+// persistence, every page reload forces the scanner to re-scan from block 0
+// (lastScannedBlock is also in-memory only) and re-fire receipts for every
+// DM the user has *ever* received. Real users would be billed dozens of
+// MORAL on each refresh.
+//
+// Why localStorage and not IndexedDB: the value is "counterparty|messageId|kind"
+// which contains no plaintext / no key material — only public bookkeeping.
+// localStorage is synchronous and survives reloads which is what we need.
+// Per CLAUDE.md compatibility policy, no migration: bumping STORAGE_VERSION
+// silently drops the old set on read.
+// =============================================================================
+
+const SENT_RECEIPTS_KEY = 'anarchy:dm:sentReceipts:v1';
+
+function loadSentReceipts(): Set<string> {
+  if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) {
+    return new Set<string>();
+  }
+  try {
+    const raw = globalThis.localStorage.getItem(SENT_RECEIPTS_KEY);
+    if (!raw) return new Set<string>();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set<string>();
+    return new Set<string>(parsed.filter((v): v is string => typeof v === 'string'));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function saveSentReceipts(set: Set<string>): void {
+  if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return;
+  try {
+    globalThis.localStorage.setItem(SENT_RECEIPTS_KEY, JSON.stringify(Array.from(set)));
+  } catch {
+    // QuotaExceeded など。次回 reload 時は空 Set で開始 (= 一回分多く receipt が
+    // 飛ぶだけで安全側に倒れる)。
+  }
+}
+
 export const useDmStore = create<DmStoreState>((set) => ({
   conversations: new Map(),
   blockList: new Set(),
   lastScannedBlock: 0n,
   isScanning: false,
   receiptOptOut: false,
-  sentReceipts: new Set<string>(),
+  sentReceipts: loadSentReceipts(),
 
   addIncoming: (message) =>
     set((state) => ({
@@ -208,13 +251,23 @@ export const useDmStore = create<DmStoreState>((set) => ({
       if (state.sentReceipts.has(key)) return state;
       const next = new Set(state.sentReceipts);
       next.add(key);
+      saveSentReceipts(next);
       return { sentReceipts: next };
     }),
 
   // アカウント切替・解除時に呼び、前ユーザの DM 関連 state を完全破棄する。
   // receiptOptOut はユーザ設定なので維持する判断もありうるが、現状は厳格に
   // 全リセットしている (端末を別人と共有するケースを想定)。
-  resetForAccountChange: () =>
+  resetForAccountChange: () => {
+    // 別アカウントへの切替で、前のアカウントが送った receipt 履歴は意味をなさない
+    // (MORAL は別アカウント、宛先空間も別)。永続化済みのリストも一緒に落とす。
+    if (typeof globalThis !== 'undefined' && 'localStorage' in globalThis) {
+      try {
+        globalThis.localStorage.removeItem(SENT_RECEIPTS_KEY);
+      } catch {
+        // ignore
+      }
+    }
     set({
       conversations: new Map(),
       blockList: new Set(),
@@ -222,7 +275,8 @@ export const useDmStore = create<DmStoreState>((set) => ({
       isScanning: false,
       receiptOptOut: false,
       sentReceipts: new Set<string>(),
-    }),
+    });
+  },
 }));
 
 /**

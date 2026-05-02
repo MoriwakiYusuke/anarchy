@@ -18,7 +18,7 @@ import styles from './page.module.css'
 export default function Home() {
   const { client, unsafeApi, connectionState, error } = useApi()
   const { t } = useLocale()
-  const { account, accountSeed, signer } = useAccount()
+  const { account, signer, mainRawSigner } = useAccount()
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [isTransferOpen, setIsTransferOpen] = useState(false)
   const [isDmOpen, setIsDmOpen] = useState(false)
@@ -123,10 +123,10 @@ export default function Home() {
         <section className={styles.content}>
           {account && signer && (
             <div className={styles.postFormWrapper}>
-              <PostForm 
-                unsafeApi={unsafeApi} 
+              <PostForm
+                unsafeApi={unsafeApi}
                 signer={signer}
-                derivePath={accountSeed || '//Alice'}
+                storageSigner={mainRawSigner}
                 onPostSuccess={handlePostSuccess}
               />
             </div>

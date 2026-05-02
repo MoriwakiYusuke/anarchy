@@ -94,11 +94,22 @@ export async function sendDmReceipt(
     return null;
   }
   const body = encodeReceiptBody(params.kind, params.refMessageId);
-  return sendDm(
-    {
-      recipientAccountId: params.counterparty,
-      body,
-    },
-    ctx,
-  );
+  try {
+    return await sendDm(
+      {
+        recipientAccountId: params.counterparty,
+        body,
+      },
+      ctx,
+    );
+  } catch (err) {
+    // 相手が DM 鍵を publish していない (= 送信者として MVP 利用) ケースは
+    // 期待される失敗。receipt は best-effort なので silent skip。
+    // それ以外のエラーは呼出側 (DmModal の console.error) でロギング。
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/RecipientKeyNotPublished/.test(msg)) {
+      return null;
+    }
+    throw err;
+  }
 }

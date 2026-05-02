@@ -1,15 +1,15 @@
 /**
- * T093 (scanner side): GC 検出時に bodyState='garbage_collected' を立てる。
+ * T093 (scanner side, revised 2026-05-03): ciphertext 不取得時は silent skip。
  *
- * 検証:
- *   - dispatch.ciphertext が undefined かつ storage-node からの再構成にも失敗した場合、
- *     scanner は dispatch を skip ではなく `DmMessageRecord` を生成し、
- *     `bodyState: 'garbage_collected'` で counterparty を 'unknown' プレースホルダ
- *     (= 'gc:<merkle-root-hex>') として返す。
- *   - body は空 Uint8Array (UI 側でプレースホルダに置換)。
- *   - signatureValid は false (envelope を復号できないため)。
+ * 旧仕様: dispatch.ciphertext を再構成できないとき "gc:<root>" placeholder を
+ * 全 dispatch について inbox に追加していた。これだと **他人宛** の dispatch も
+ * placeholder 化されて inbox を汚染し、後続の delivered receipt 送信が
+ * SS58 checksum エラーで死ぬバグの温床になっていた。
  *
- * Contract: spec.md Edge Cases "Message garbage-collected" / FR-009 / FR-018。
+ * 新仕様: ciphertext を取れない時点で「自分宛か」を判定する手段がないため、
+ * scanner は silent skip する。GC visibility (= 自分宛だったが GC 済み) を
+ * 表示したい場合は、wasm に軽量な stealth-match check を追加してから
+ * 自分宛確認後にだけ placeholder を出す設計に変更すること (TODO)。
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -88,7 +88,7 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-describe('scanner — GC indicator (T093 / FR-018)', () => {
+describe('scanner — silent skip when ciphertext unavailable (revised T093)', () => {
   const ctxBase: Omit<ScanContext, 'api'> = {
     ownScanPriv: new Uint8Array(32).fill(0x11),
     ownSpendPub: new Uint8Array(32).fill(0x22),
@@ -96,20 +96,15 @@ describe('scanner — GC indicator (T093 / FR-018)', () => {
     lastScannedBlock: 0n,
   };
 
-  it('emits a placeholder DmMessageRecord with bodyState=garbage_collected when ciphertext is unavailable', async () => {
+  it('silently skips dispatch when ciphertext cannot be reconstructed (no inbox pollution from non-targeted traffic)', async () => {
     const api = makeApi(2n, [[2n, [dispatch(7, /* withCipher */ false)]]]);
     const result = await scanDmInbox({ ...ctxBase, api, toBlockOverride: 2n });
 
-    expect(result.newMessages).toHaveLength(1);
-    const m = result.newMessages[0];
-    expect(m.bodyState).toBe('garbage_collected');
-    expect(m.body.length).toBe(0);
-    expect(m.signatureValid).toBe(false);
-    // counterparty placeholder: gc:<merkle hex prefix>
-    expect(m.counterparty.startsWith('gc:')).toBe(true);
+    expect(result.newMessages).toHaveLength(0);
+    expect(decryptCalls).toHaveLength(0);
   });
 
-  it('emits no placeholder when ciphertext is present and decrypt returns a real message', async () => {
+  it('emits a real plaintext bubble when ciphertext is present and decrypt returns a real message', async () => {
     decryptImpl = () => ({
       sender_main_account: new Uint8Array(32).fill(0xaa),
       timestamp_ms: 1700000000000n,

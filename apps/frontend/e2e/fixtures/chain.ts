@@ -60,15 +60,7 @@ export const test = base.extend<ChainFixtures>({
       await use();
       // smoldot の "occupied the CPU for an unreasonable amount of time" は warning。
       // ここではエラーレベルのみ拾う。
-      // **既知の許容エラー** (別途 issue 化が必要):
-      //   - `[dm-receipt][delivered] Error: Invalid checksum` — self-DM 受信時に
-      //     送る delivered receipt が PAPI の SS58 checksum 検証で落ちる。
-      //     原因は scanner が `bytesToSs58Sync` で生成する AccountId と PAPI
-      //     extrinsic encoder の SS58 復号の不整合と思われる。
-      //     2026-05-03 時点では本フローの送信/受信表示自体には影響しない。
-      const KNOWN_TOLERATED = [/\[dm-receipt\]\[delivered\] Error: Invalid checksum/];
-      const fatal = errors.filter((e) => !KNOWN_TOLERATED.some((re) => re.test(e)));
-      expect(fatal, `Unexpected console errors:\n${fatal.join('\n')}`).toEqual([]);
+      expect(errors, `Unexpected console errors:\n${errors.join('\n')}`).toEqual([]);
     },
     { auto: true },
   ],
