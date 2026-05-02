@@ -79,8 +79,10 @@ export interface SendDmReceiptParams {
 /**
  * 受信確認 DM を送る。
  *
- * - FR-016b: `kind === 'read'` は受信側 opt-out でサプレス (戻り値 `null`)。
- *   `'delivered'` はサプレスしない (検閲耐性のある pipeline 健全性指標)。
+ * - FR-016b: `receiptOptOut` が true のときは **`delivered` / `read` 両方とも**
+ *   サプレスする (戻り値 `null`)。`delivered` だけでも "受信側がオンラインで
+ *   メッセージを処理した時刻 T" がリークするため、UI ラベル
+ *   "Do not send read receipts" の利用者期待 = "受信メタデータを送らない" を満たす。
  * - 成功時は通常の `SendDmResult` を返す (呼出側は badge 更新不要; 送信側スキャナが
  *   この receipt を拾って `markAsDelivered` / `markAsRead` に反映する)。
  */
@@ -88,7 +90,7 @@ export async function sendDmReceipt(
   params: SendDmReceiptParams,
   ctx: SendDmContext,
 ): Promise<SendDmResult | null> {
-  if (params.kind === 'read' && useDmStore.getState().receiptOptOut) {
+  if (useDmStore.getState().receiptOptOut) {
     return null;
   }
   const body = encodeReceiptBody(params.kind, params.refMessageId);

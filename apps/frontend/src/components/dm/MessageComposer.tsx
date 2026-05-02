@@ -18,7 +18,7 @@
  *     dispatching → done`) を踏襲。
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   estimateDmCostFromInputs,
   formatMoral,
@@ -120,14 +120,17 @@ export function MessageComposer({
       s.addOutgoing,
   );
 
-  // unmount 時 / files 入替時の object URL revoke。
+  // unmount 時の blob URL revoke。`useEffect([])` 直接 closure だと
+  // 初期 files (空配列) を捕捉してしまい、後から追加した preview がリークする。
+  // ref を経由して常に最新の files を見るようにする。
+  const filesRef = useRef<PendingFile[]>([]);
+  filesRef.current = files;
   useEffect(() => {
     return () => {
-      for (const f of files) {
+      for (const f of filesRef.current) {
         if (f.preview) URL.revokeObjectURL(f.preview);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addFiles = useCallback((picked: File[]) => {

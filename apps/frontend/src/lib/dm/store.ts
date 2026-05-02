@@ -44,10 +44,23 @@ const upsertMessage = (
   blockList: Set<AccountId>,
   message: DmMessageRecord,
 ): Map<AccountId, ConversationState> => {
-  const next = cloneConversations(conversations);
   const counterparty = message.counterparty;
-  const existing = next.get(counterparty);
+  const existing = conversations.get(counterparty);
 
+  // 重複検知: scanner が同じ block を再スキャンしたケースや、複数 worker が
+  // 同じ dispatch を投げたケースで unreadCount が膨れ続けるのを防ぐ。
+  // 主キーは (direction, messageId) — outgoing/incoming で同 messageId が
+  // 衝突する可能性は実装上ないが、念のため direction も見る。
+  if (
+    existing &&
+    existing.messages.some(
+      (m) => m.direction === message.direction && m.messageId === message.messageId,
+    )
+  ) {
+    return conversations;
+  }
+
+  const next = cloneConversations(conversations);
   const messages = existing ? [...existing.messages, message] : [message];
   // 連続呼出での順序保持: blockNumber 昇順 → 同 block 内は messageId 昇順。
   messages.sort((a, b) => {

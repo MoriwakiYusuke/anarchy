@@ -618,12 +618,18 @@ impl_runtime_apis! {
             if to_block < from_block || to_block - from_block > 1_024 {
                 return Vec::new();
             }
+            // 空ブロックは除外する (RPC payload 削減 / scanner-side semantics と一致)。
+            // 参照: pallets/messaging/src/tests/runtime_api.rs `dispatches_range_within_limit_returns_entries_per_block`
             (from_block..=to_block)
-                .map(|bn| {
+                .filter_map(|bn| {
                     let block_no: BlockNumber = bn.into();
                     let entries = pallet_messaging::DmDispatchesByBlock::<Runtime>::get(block_no)
                         .into_inner();
-                    (bn, entries)
+                    if entries.is_empty() {
+                        None
+                    } else {
+                        Some((bn, entries))
+                    }
                 })
                 .collect()
         }

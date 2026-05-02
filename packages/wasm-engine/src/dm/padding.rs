@@ -18,14 +18,17 @@ pub fn select_padding_bucket(padded_plaintext_len: usize) -> Option<usize> {
 }
 
 /// ISO 7816-4 padding: 0x80 に続けて 0x00 を `target_len - input.len() - 1` 個追加。
-/// 必ず terminator を挿入するため、`input.len() < target_len` が前提。
-pub fn pad_iso7816_4(input: &[u8], target_len: usize) -> Vec<u8> {
-    assert!(input.len() < target_len, "pad_iso7816_4: input already >= target");
+/// 必ず terminator を挿入するため `input.len() < target_len` が前提で、満たさない
+/// 場合は `None` を返す (呼出側で `JsError` 等にマップする想定)。
+pub fn pad_iso7816_4(input: &[u8], target_len: usize) -> Option<Vec<u8>> {
+    if input.len() >= target_len {
+        return None;
+    }
     let mut out = Vec::with_capacity(target_len);
     out.extend_from_slice(input);
     out.push(0x80);
     out.resize(target_len, 0x00);
-    out
+    Some(out)
 }
 
 /// ISO 7816-4 padding 剥ぎ取り。末尾の `0x00*` を skip し、直近の `0x80` を境界と
@@ -57,15 +60,23 @@ mod tests {
     fn pad_then_strip_roundtrip() {
         for len in [0usize, 1, 100, 1007] {
             let input = vec![0xaa; len];
-            let padded = pad_iso7816_4(&input, 1024);
+            let padded = pad_iso7816_4(&input, 1024).expect("input < target");
             assert_eq!(padded.len(), 1024);
             assert_eq!(strip_iso7816_4(&padded), Some(input.as_slice()));
         }
     }
 
     #[test]
+    fn pad_returns_none_when_input_too_large() {
+        // input == target → terminator が入らないので None。
+        assert!(pad_iso7816_4(&[0u8; 32], 32).is_none());
+        // input > target も None。
+        assert!(pad_iso7816_4(&[0u8; 64], 32).is_none());
+    }
+
+    #[test]
     fn strip_rejects_garbage_after_80() {
-        let mut padded = pad_iso7816_4(&[1, 2, 3], 32);
+        let mut padded = pad_iso7816_4(&[1, 2, 3], 32).expect("input < target");
         // 末尾の 0x00 の一つを非ゼロに変えて不正データ化。
         *padded.last_mut().unwrap() = 0x01;
         assert_eq!(strip_iso7816_4(&padded), None);

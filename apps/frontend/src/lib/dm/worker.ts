@@ -86,7 +86,9 @@ export function startDmScanLoop(options: DmScanLoopOptions): DmScanLoopHandle {
         store.addIncoming(msg);
         // FR-016a: incoming を store に入れたら、相手 (=counterparty) へ 'delivered' を返す。
         // idempotent: sentReceipts に記録済みなら skip (再スキャン / hot reload 耐性)。
+        // ブロック中の相手には receipt を送らない (受信メタデータ漏洩 + MORAL 浪費を防ぐ)。
         if (options.onNewIncoming && msg.direction === 'incoming') {
+          if (store.blockList.has(msg.counterparty)) continue;
           const key = receiptKey(msg.counterparty, msg.messageId, 'delivered');
           if (!store.sentReceipts.has(key)) {
             store.rememberReceiptSent(key);

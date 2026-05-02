@@ -1,9 +1,10 @@
 /**
- * T076: opt-out による read receipt 抑止テスト (US4 / FR-016b)。
+ * T076: opt-out による receipt 抑止テスト (US4 / FR-016b)。
  *
  * Asserts:
- *   - receiptOptOut = true のとき kind='read' の sendDmReceipt は sendDm を呼ばずに null を返す。
- *   - receiptOptOut = true でも kind='delivered' は送信される (FR-016b は read のみ対象)。
+ *   - receiptOptOut = true のとき **delivered / read 両方とも** sendDm を呼ばずに null を返す
+ *     (delivered だけでも "受信側オンライン時刻" がリークするため、UI ラベル
+ *     "Do not send read receipts" の利用者期待 = "受信メタデータを送らない" を満たす)。
  *   - receiptOptOut = false なら両 kind とも送信される。
  *   - 送信時 body は `encodeReceiptBody` と bit-for-bit 一致する (wire format 契約)。
  *
@@ -73,7 +74,7 @@ describe('sendDmReceipt — FR-016b opt-out (T076)', () => {
     expect(mockedSendDm).not.toHaveBeenCalled();
   });
 
-  it('still sends kind="delivered" when receiptOptOut is true (FR-016b only suppresses read)', async () => {
+  it('also suppresses kind="delivered" when receiptOptOut is true (delivered timing is metadata)', async () => {
     useDmStore.getState().setReceiptOptOut(true);
 
     const result = await sendDmReceipt(
@@ -81,8 +82,8 @@ describe('sendDmReceipt — FR-016b opt-out (T076)', () => {
       fakeContext(),
     );
 
-    expect(result).not.toBeNull();
-    expect(mockedSendDm).toHaveBeenCalledTimes(1);
+    expect(result).toBeNull();
+    expect(mockedSendDm).not.toHaveBeenCalled();
   });
 
   it('sends kind="read" when receiptOptOut is false', async () => {

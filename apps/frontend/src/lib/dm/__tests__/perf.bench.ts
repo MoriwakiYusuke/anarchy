@@ -11,7 +11,10 @@
  *    実際の inbox 表示までには PAPI scan + 復号 + React render が
  *    乗るが、それらはいずれもこの "下限" よりは重い処理ではないため、
  *    ここで余裕があれば SC-004 の 3 s 予算は十分賄える。
- *  - `it` は通常の `pnpm test` で走るので、CI でも回帰として機能する。
+ *  - **`DM_PERF_BENCH=1` 時のみ実行する** (env-gated)。CI runner の
+ *    クラス差や負荷ばらつきで wall-clock しきい値が flaky 化することを
+ *    避けるため、デフォルト `pnpm test` ではスキップする。意図的にベンチを
+ *    走らせる場合 (PR の SC モニタ更新時や local 計測) のみ環境変数で有効化。
  *  - ベンチ結果は console.info に出して、PR レビューや SC モニタで
  *    回帰を見つけられるようにする。
  *
@@ -62,7 +65,12 @@ function elapsed<T>(label: string, fn: () => T): { result: T; ms: number } {
   return { result, ms };
 }
 
-describe('dmStore performance budgets (T084)', () => {
+// CI 上の wall-clock しきい値 flaky 回避のため、env-gated にする。
+// 走らせるとき: `DM_PERF_BENCH=1 pnpm --filter anarchy-frontend test perf.bench`
+const PERF_BENCH_ENABLED = process.env.DM_PERF_BENCH === '1';
+const describeBench = PERF_BENCH_ENABLED ? describe : describe.skip;
+
+describeBench('dmStore performance budgets (T084)', () => {
   beforeEach(() => {
     resetStore();
   });

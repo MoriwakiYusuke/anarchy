@@ -240,42 +240,21 @@ export async function deriveStealthAddress(metaAddress: string): Promise<{
   ephemeralPubkey: Uint8Array;
   stealthPubkey: Uint8Array;
 }> {
-  console.log('[deriveStealthAddress] Input:', metaAddress);
   const wasm = await getWasm();
-  try {
-    // Parse the metaAddress to log the pubkeys being used
-    const parsed = wasm.parse_meta_address(metaAddress);
-    console.log('[deriveStealthAddress] Parsed spend_pubkey (first 8):', Array.from(new Uint8Array(parsed.spend_pubkey).slice(0, 8)));
-    console.log('[deriveStealthAddress] Parsed view_pubkey (first 8):', Array.from(new Uint8Array(parsed.view_pubkey).slice(0, 8)));
-    
-    const result = wasm.derive_stealth_address(metaAddress);
-    
-    // Get stealth pubkey from wasm result
-    const stealthPubkey = new Uint8Array(result.stealth_pubkey);
-    const ephemeralPubkey = new Uint8Array(result.ephemeral_pubkey);
-    console.log('[deriveStealthAddress] Ephemeral pubkey (first 8):', Array.from(ephemeralPubkey.slice(0, 8)));
-    console.log('[deriveStealthAddress] Stealth pubkey (first 8):', Array.from(stealthPubkey.slice(0, 8)));
-    
-    // Use polkadot-api's SS58 encoder for compatibility
-    const { fromBufferToBase58, getSs58AddressInfo } = await import('@polkadot-api/substrate-bindings');
-    const stealthAddress = fromBufferToBase58(42)(stealthPubkey);
-    
-    console.log('[deriveStealthAddress] Stealth address (SS58):', stealthAddress);
-    
-    // Verify the address is valid before returning
-    const validation = getSs58AddressInfo(stealthAddress);
-    if (!validation.isValid) {
-      console.error('[deriveStealthAddress] Generated invalid SS58 address!');
-      throw new Error('Generated invalid SS58 address');
-    }
-    
-    return {
-      stealthAddress,
-      ephemeralPubkey,
-      stealthPubkey,
-    };
-  } catch (error) {
-    console.error('[deriveStealthAddress] Error:', error);
-    throw error;
+  // Parse to fail fast on malformed meta-address; result is unused but the parse
+  // throws on bad input, surfacing a clean error to the caller.
+  wasm.parse_meta_address(metaAddress);
+  const result = wasm.derive_stealth_address(metaAddress);
+  const stealthPubkey = new Uint8Array(result.stealth_pubkey);
+  const ephemeralPubkey = new Uint8Array(result.ephemeral_pubkey);
+
+  const { fromBufferToBase58, getSs58AddressInfo } = await import('@polkadot-api/substrate-bindings');
+  const stealthAddress = fromBufferToBase58(42)(stealthPubkey);
+
+  const validation = getSs58AddressInfo(stealthAddress);
+  if (!validation.isValid) {
+    throw new Error('Generated invalid SS58 address');
   }
+
+  return { stealthAddress, ephemeralPubkey, stealthPubkey };
 }

@@ -253,7 +253,8 @@ pub fn dm_encrypt_and_pad(
     let bucket = select_padding_bucket(encoded.len() + 1)
         .ok_or_else(|| JsError::new("body too large"))?;
     let padded_len = bucket - AES_GCM_TAG_LEN;
-    let padded = pad_iso7816_4(&encoded, padded_len);
+    let padded = pad_iso7816_4(&encoded, padded_len)
+        .ok_or_else(|| JsError::new("padding overflow: encoded body >= bucket - tag"))?;
 
     // HKDF-SHA256: info = recipient_stealth || eph_pub.
     let mut info = Vec::with_capacity(64);

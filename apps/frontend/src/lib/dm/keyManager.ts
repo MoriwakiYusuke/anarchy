@@ -116,7 +116,9 @@ export async function revokeDmKey(
 // =============================================================================
 
 const BACKUP_VERSION = 1;
-const PBKDF2_ITERATIONS = 100_000;
+// OWASP 2023 ASVS minimum for PBKDF2-SHA256 / 256-bit derived key.
+// 旧バックアップ (100k iter) との互換性は CLAUDE.md "互換性方針" により破棄。
+const PBKDF2_ITERATIONS = 600_000;
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 const KEY_BITS = 256;
@@ -306,14 +308,25 @@ export async function exportDmBackup(password: string): Promise<Uint8Array> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const key = await deriveAesKey(password, salt);
+
+  // AAD: header bytes (version || salt || iv) を AES-GCM の additionalData として
+  // 認証する。これがないとファイルの header だけ書き換える攻撃が GCM tag に
+  // 検知されず、復号で salt/iv 不一致 → BackupImportFailed (DoS) に化ける。
+  const header = new Uint8Array(HEADER_BYTES);
+  header[0] = BACKUP_VERSION;
+  header.set(salt, 1);
+  header.set(iv, 1 + SALT_BYTES);
+
   const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext),
+    await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv, additionalData: header as BufferSource },
+      key,
+      plaintext,
+    ),
   );
 
   const out = new Uint8Array(HEADER_BYTES + ciphertext.length);
-  out[0] = BACKUP_VERSION;
-  out.set(salt, 1);
-  out.set(iv, 1 + SALT_BYTES);
+  out.set(header, 0);
   out.set(ciphertext, HEADER_BYTES);
   return out;
 }
@@ -336,6 +349,7 @@ export async function importDmBackup(
   if (file.length < HEADER_BYTES || file[0] !== BACKUP_VERSION) {
     throw new Error(DmError.BackupImportFailed);
   }
+  const header = file.slice(0, HEADER_BYTES);
   const salt = file.slice(1, 1 + SALT_BYTES);
   const iv = file.slice(1 + SALT_BYTES, HEADER_BYTES);
   const ciphertext = file.slice(HEADER_BYTES);
@@ -344,7 +358,11 @@ export async function importDmBackup(
   try {
     const key = await deriveAesKey(password, salt);
     plaintext = new Uint8Array(
-      await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext),
+      await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv, additionalData: header as BufferSource },
+        key,
+        ciphertext,
+      ),
     );
   } catch {
     throw new Error(DmError.BackupImportFailed);

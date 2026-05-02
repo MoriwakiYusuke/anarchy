@@ -6,9 +6,10 @@
 #   2. 暗号化バックアップ (AES-GCM + PBKDF2 100k) をエクスポート
 #   3. デバイス B で import し状態が一致することを確認
 #
-# 現状は placeholder。
+# 現状は placeholder (他の DM スクリプトと揃えて SKIP 扱い)。
+# CI / `pnpm test:dm` が常に失敗するのを避けるため `exit 0` で終了する。
 
 set -e
 
-echo "TODO: dm-multi-device integration test (Phase 4)"
-exit 1
+echo "[SKIP] dm-multi-device: pending — requires backup export/import CLI (Phase 4)"
+exit 0

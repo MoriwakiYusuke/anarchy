@@ -142,13 +142,17 @@ function LightboxBridge({
     };
   }, [imageRefs, chainRpcEndpoint]);
 
-  const ready = urls.every((u) => u !== null);
-  if (!ready) return <></>;
+  // **少なくとも currentIndex の画像が ready なら開く**。すべてが ready に
+  // なるのを待つと、1 枚でも fetch 失敗 (404 / GC) があったとき lightbox が
+  // 永久に開かない問題が起きる。失敗した枚は alt 表示で代替する。
+  const currentReady = urls[currentIndex] !== null;
+  if (!currentReady) return <></>;
 
   return (
     <Lightbox
       images={imageRefs.map((ref, i) => ({
-        src: urls[i] as string,
+        // 失敗 (null) は空文字列にフォールバック → Lightbox 側で alt が出る。
+        src: urls[i] ?? '',
         width: ref.width,
         height: ref.height,
         alt: ref.mime,
