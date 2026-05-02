@@ -343,6 +343,8 @@
   "dm.keyManager.statusUnpublished": "未公開",
   "dm.keyManager.stealthMissing": "stealth 鍵が読み込まれていません。上のセクションで生成するか、バックアップをインポートしてください。",
   "dm.keyManager.publish": "公開する",
+  "dm.keyManager.republish": "再公開する",
+  "dm.keyManager.staleKeyWarning": "チェーンには古い DM 鍵が登録されています。再公開して相手があなたの現在の鍵で暗号化できるようにしてください。",
   "dm.keyManager.publishing": "公開中…",
   "dm.keyManager.revoke": "取り消す",
   "dm.keyManager.revoking": "取り消し中…",

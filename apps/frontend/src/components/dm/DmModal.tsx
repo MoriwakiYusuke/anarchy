@@ -244,6 +244,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
         hasStealthKey={keyLoaded}
         unsafeApi={unsafeApi}
         signer={signer}
+        accountId={account}
       />
     );
   };
@@ -307,9 +308,10 @@ interface DmSettingsProps {
   hasStealthKey: boolean;
   unsafeApi: unknown;
   signer: import('polkadot-api/signer').PolkadotSigner | null;
+  accountId: string | null;
 }
 
-function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.Element {
+function DmSettings({ hasStealthKey, unsafeApi, signer, accountId }: DmSettingsProps): JSX.Element {
   const { t } = useLocale();
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<
@@ -430,7 +432,7 @@ function DmSettings({ hasStealthKey, unsafeApi, signer }: DmSettingsProps): JSX.
               <DmKeyManager
                 api={unsafeApi as Parameters<typeof DmKeyManager>[0]['api']}
                 signer={signer}
-                initialPublished={false}
+                accountId={accountId ?? undefined}
               />
             ) : (
               <p className={styles.muted}>{t('dm.connecting')}</p>

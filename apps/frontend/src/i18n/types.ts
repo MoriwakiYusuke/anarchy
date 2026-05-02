@@ -390,6 +390,8 @@ export type TranslationKey =
   | 'dm.keyManager.statusUnpublished'
   | 'dm.keyManager.stealthMissing'
   | 'dm.keyManager.publish'
+  | 'dm.keyManager.republish'
+  | 'dm.keyManager.staleKeyWarning'
   | 'dm.keyManager.publishing'
   | 'dm.keyManager.revoke'
   | 'dm.keyManager.revoking'
