@@ -44,3 +44,6 @@ apps/storage-node/node*.toml
 apps/storage-node/logs/
 
 .playwright-mcp/
+
+# dev-stack.sh の PID / ログ
+.dev-stack/
