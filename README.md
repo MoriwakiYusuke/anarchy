@@ -42,6 +42,31 @@ npm install -g pnpm
 
 ## 起動方法
 
+### 一括起動 (推奨)
+
+testnet (3-node) + storage (5-node) + frontend を依存関係順に立ち上げて、frontend が応答するまで待つラッパー。
+
+```bash
+pnpm stack:start         # 全部起動
+pnpm stack:status        # 各層の稼働状況
+pnpm stack:stop          # 逆順で全停止
+pnpm stack:restart       # stop → start
+pnpm stack:purge         # stop + 全データ消去 (.next/ も含む)
+```
+
+オプション:
+
+```bash
+./scripts/dev-stack.sh start --single-node   # 3-node ではなく `cargo run -- --dev` 単一ノード
+```
+
+ログ:
+- frontend: `.dev-stack/frontend.log`
+- single-node: `.dev-stack/single-node.log`
+- testnet/storage: 既存スクリプト準拠 (`apps/{blockchain,storage-node}/logs/`)
+
+個別管理が必要なときは下記の手順を参照。
+
 ### 1. ブロックチェーンノードの起動
 
 ```bash
@@ -115,6 +140,13 @@ pnpm dev:frontend
 ## 開発コマンド
 
 ```bash
+# 一括 (testnet + storage + frontend)
+pnpm stack:start         # 全部起動 (依存順)
+pnpm stack:stop          # 全部停止 (逆順)
+pnpm stack:status        # 各層の稼働状況
+pnpm stack:restart       # 再起動
+pnpm stack:purge         # stop + データ全消去
+
 # ブロックチェーン
 pnpm build:blockchain    # ビルド
 pnpm dev:node           # 開発ノード起動
