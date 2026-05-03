@@ -74,7 +74,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: Cow::Borrowed("anarchy"),
     impl_name: Cow::Borrowed("anarchy"),
     authoring_version: 1,
-    spec_version: 105,  // Bumped: pallet-popularity wired into Post & Reaction
+    spec_version: 106,  // Bumped: PopularityApi runtime API added
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 2,  // SignedExtra structure changed (no tip)
@@ -626,6 +626,31 @@ impl_runtime_apis! {
                 k: content.k,
                 n: content.n,
                 size: content.size,
+            })
+        }
+    }
+
+    impl pallet_popularity::PopularityApi<Block> for Runtime {
+        fn get_effective_score(post_id: u64) -> Option<u64> {
+            let p = pallet_popularity::pallet::PostScores::<Runtime>::get(post_id)?;
+            Some(pallet_popularity::pallet::Pallet::<Runtime>::effective_score_now_public(&p))
+        }
+
+        fn get_net_count(post_id: u64) -> Option<i64> {
+            let p = pallet_popularity::pallet::PostScores::<Runtime>::get(post_id)?;
+            Some(p.like_count as i64 - p.dislike_count as i64)
+        }
+
+        fn get_post_popularity(post_id: u64) -> Option<pallet_popularity::PostPopularityRpc> {
+            let p = pallet_popularity::pallet::PostScores::<Runtime>::get(post_id)?;
+            let eff = pallet_popularity::pallet::Pallet::<Runtime>::effective_score_now_public(&p);
+            Some(pallet_popularity::PostPopularityRpc {
+                effective_score: eff,
+                like_count: p.like_count,
+                dislike_count: p.dislike_count,
+                net_count: p.like_count as i64 - p.dislike_count as i64,
+                marked_for_deletion_at: p.marked_for_deletion_at,
+                last_touched: p.last_touched,
             })
         }
     }

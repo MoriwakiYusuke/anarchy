@@ -26,6 +26,31 @@ pub enum PopularityReactionType {
     Dislike,
 }
 
+/// RPC-shape representation of `PostPopularity` plus derived `net_count`.
+/// Returned by the `PopularityApi::get_post_popularity` runtime API.
+#[derive(Clone, Encode, Decode, TypeInfo)]
+pub struct PostPopularityRpc {
+    pub effective_score: u64,
+    pub like_count: u32,
+    pub dislike_count: u32,
+    pub net_count: i64,
+    pub marked_for_deletion_at: Option<u32>,
+    pub last_touched: u32,
+}
+
+sp_api::decl_runtime_apis! {
+    pub trait PopularityApi {
+        /// Effective (decay-applied) score for a post, computed at the current block.
+        fn get_effective_score(post_id: u64) -> Option<u64>;
+
+        /// Net count = like_count - dislike_count, returned as i64.
+        fn get_net_count(post_id: u64) -> Option<i64>;
+
+        /// All popularity info bundled for one RPC call.
+        fn get_post_popularity(post_id: u64) -> Option<PostPopularityRpc>;
+    }
+}
+
 /// Trait that callers (post / reaction pallets) use to push popularity events.
 pub trait PopularityInterface {
     fn on_post_created(post_id: u64);
@@ -186,6 +211,11 @@ pub mod pallet {
             // BlockNumber → u32 (saturating). For BlockNumber = u32 this is identity.
             let delta = TryInto::<u32>::try_into(delta_raw).unwrap_or(u32::MAX);
             super::decay::apply(p.stored_score, delta, T::DecayRatePermill::get(), T::MaxDecaySteps::get())
+        }
+
+        /// Public wrapper for runtime-API consumers.
+        pub fn effective_score_now_public(p: &PostPopularity<BlockNumberFor<T>>) -> u64 {
+            Self::effective_score_now(p)
         }
     }
 
