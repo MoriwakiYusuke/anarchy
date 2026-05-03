@@ -212,9 +212,14 @@ fn close_account(origin, dest) {
 | アクション | スコア変動 | 備考 |
 |------------|-----------|------|
 | 高評価（Like） | +N | 重み付け調整可能 |
-| フェッチ（閲覧） | +1 | ストレージノードからの取得時 |
 | 低評価（Dislike） | +M | 低評価も「関心」として加点 |
 | 時間経過 | -decay | 減衰関数で徐々に減少 |
+
+**フェッチ（閲覧）スコアは採用しない** (2026-05-03 決定):
+- **Sybil 攻撃に脆弱**: 攻撃者が自分の post を反復取得して人気度を水増し可能
+- **匿名性と矛盾**: Tor 強制下では IP/identity ベースの dedup ができない。閲覧をオンチェーン化すると "誰が何を読んだか" が事実上トラッキング可能になる
+- **処理リソース**: fetch ごとに storage node → chain への report 経路が必要 = validator 負荷増 + state bloat + 新しい trust boundary
+→ react (Like/Boost/Bad) のオンチェーンカウントだけで人気度を回す。
 
 **減衰方式の選択肢**:
 
@@ -239,7 +244,7 @@ pub struct PostPopularity<BlockNumber> {
     pub last_interaction: BlockNumber,
     pub like_count: u32,
     pub dislike_count: u32,
-    pub fetch_count: u32,
+    // fetch_count は採用しない (Sybil / 匿名性 / 処理リソースの観点で却下、上記参照)
 }
 ```
 

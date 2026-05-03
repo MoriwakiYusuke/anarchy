@@ -582,12 +582,12 @@
 
 - [ ] **人気度スコア計算**
   - [ ] 高評価（Like）: +N スコア
-  - [ ] フェッチ（閲覧）: +1 スコア（ストレージノード取得時）
   - [ ] 低評価（Dislike）: +M スコア（関心として加点）
   - [ ] 時間経過: 減衰関数（絶対/相対/ランキング相対）
+  - ~~フェッチ（閲覧）: +1 スコア~~ → **却下** (2026-05-03): Sybil 脆弱 + 匿名性矛盾 (Tor 下で IP dedup 不可) + 処理リソース (validator 負荷 / state bloat / storage→chain report 経路) の三重苦。CONCEPTS.md 参照
 
 - [ ] **Popularity Pallet** 作成
-  - [ ] `PostPopularity` ストレージ（score, last_interaction, like/dislike/fetch_count）
+  - [ ] `PostPopularity` ストレージ（score, last_interaction, like_count, dislike_count）
   - [ ] `on_finalize` で減衰適用
   - [ ] 閾値以下の投稿をマーク
 
@@ -599,9 +599,11 @@
 - [ ] **Sybil対策**
   - [ ] 自演スコア操作の防止
 
-### 3.5 ステルスアドレス報酬先対応
+<!-- ### 3.5 ステルスアドレス報酬先対応
 
 > **目的**: 反応マイニング報酬先にステルスアドレスを指定可能にし、反応者と報酬受取口座の名寄せを防止
+
+#あんまり意味ないからやめる捨て垢にステルス送金すればいいだけだし
 
 - [ ] **pallet-stealth 作成**
   - [ ] ステルスアドレス生成（Ephemeral key + Recipient public key）
@@ -616,7 +618,7 @@
 - [ ] **フロントエンド対応**
   - [ ] ステルスアドレス生成UI
   - [ ] 反応時の報酬先指定オプション
-  - [ ] ステルス報酬スキャナー（受取確認）
+  - [ ] ステルス報酬スキャナー（受取確認） -->
 
 ---
 
