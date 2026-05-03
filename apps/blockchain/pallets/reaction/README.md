@@ -8,7 +8,7 @@ This pallet enables users to react to posts (Like/Bad) with client-side PoW proo
 
 ## Features
 
-- **Reaction Types**: Like (positive, pays author reward) and Bad (negative, no author reward but still PoW-gated and counts toward popularity-score "interest")
+- **Reaction Types**: Like (positive, pays author reward) and Bad (negative, no author reward, still PoW-gated). Both are forwarded to `pallet-popularity` via `PopularityInterface::on_reaction` (Like → `Like`, Bad → `Dislike`) so the popularity score reflects total engagement (Reddit-style N/M model).
 - **PoW Verification**: Client mines nonce, pallet verifies leading-zero-bits
 - **Dynamic Difficulty**: Adjusts based on network reaction rate
 - **Reward Distribution**: Authors receive fixed 1 MORAL per Like reaction (capped by pool balance); Bad reactions do not pay a reward

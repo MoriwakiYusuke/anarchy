@@ -1027,7 +1027,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 > **実装内容**: 017-reaction-mining仕様に基づくPoWベースの反応システムとクリエイター報酬
 
 - [x] + **pallet-reaction**
-  - [x] + 反応データ構造: Like, Boost, Bad
+  - [x] + 反応データ構造: Like, Bad (旧 Boost は §3.4 で Like/Bad へ統合・削除)
   - [x] + ストレージ: Reactions, ReactionStatsStorage, ReactionHistory, ReactionRewardPool
   - [x] + `react()` extrinsic: PoW検証 + 報酬付与
   - [x] + 二重反応防止チェック
@@ -1038,7 +1038,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 - [x] + **報酬システム**
   - [x] + Genesis: ReactionRewardPool 10,000,000 MORAL
   - [x] + 投稿コスト: 80% Storage pool, 10% Reaction pool, 10% burn
-  - [x] + 固定報酬: 1 MORAL/反応 (Like/Boost共通, Bad=0)
+  - [x] + 固定報酬: 1 MORAL/反応 (Like のみ、Bad=0)
   - [x] + プール残高不足時: 反応は記録、報酬なし
 
 - [x] + **クライアント側PoW**
