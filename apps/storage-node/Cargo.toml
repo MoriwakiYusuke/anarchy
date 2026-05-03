@@ -87,6 +87,9 @@ tower-http = { version = "0.6", features = ["cors"] }
 # HTTP client for blockchain node registration
 reqwest = { version = "0.12", features = ["json"] }
 
+# URL parsing for SSRF mitigation in storage_node_cache (#31-H-5)
+url = "2"
+
 # subxt for chain interaction
 subxt = "0.38"
 subxt-signer = { version = "0.38", features = ["sr25519"] }
