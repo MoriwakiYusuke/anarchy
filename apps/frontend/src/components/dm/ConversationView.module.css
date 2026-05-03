@@ -1,0 +1,146 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+  /* flex 子の overflow-y: auto を効かせるため必須 (デフォルトの min-height: auto
+   * だと子要素分まで伸びてしまい、composer が画面外に押し出されると messages 側が
+   * scroll せず内容が見えなくなる)。 */
+  min-height: 0;
+}
+
+.header {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.counterparty {
+  display: block;
+  margin-top: 0.25rem;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.nickname {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.counterpartySub {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.bubble {
+  max-width: 75%;
+  padding: 0.65rem 0.9rem;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.bubbleIncoming {
+  align-self: flex-start;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.bubbleOutgoing {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+}
+
+.bubbleGc {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.body {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.placeholder {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.deliveryState {
+  font-size: 0.65rem;
+  text-align: right;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.deliveryStateSent {
+  opacity: 0.6;
+}
+
+.deliveryStateDelivered {
+  opacity: 0.85;
+}
+
+.deliveryStateRead {
+  opacity: 1;
+}
+
+.composer {
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+  flex-shrink: 0;
+  /* 添付ファイル数が多い時は composer 自身も内部スクロール (textarea + thumbs +
+   * progress + error の合計が肥大化したら) — ただし modal 全高の半分は超えない。 */
+  max-height: 50%;
+  overflow-y: auto;
+}

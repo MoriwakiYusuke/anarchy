@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useApi } from '@/hooks/useApi'
+import { useAccount } from '@/lib/account/context'
 import { useLocale } from '@/i18n'
 import { PostForm } from '@/components/PostForm'
 import { Timeline } from '@/components/Timeline'
@@ -9,38 +10,20 @@ import { WalletConnect } from '@/components/WalletConnect'
 import { TransferForm } from '@/components/TransferForm'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import NicknameSettings from '@/components/NicknameSettings'
+import { DmModal } from '@/components/dm/DmModal'
 import { ConnectedDot, SyncingDot, DisconnectedDot } from '@/components/Icons'
 import { useMoralBalance } from '@/hooks/useMoralBalance'
 import styles from './page.module.css'
-import type { PolkadotSigner } from 'polkadot-api/signer'
 
 export default function Home() {
-  const { client, unsafeApi, connectionState, error, createSigner } = useApi()
+  const { client, unsafeApi, connectionState, error } = useApi()
   const { t } = useLocale()
-  const [account, setAccount] = useState<string | null>(null)
-  const [accountSeed, setAccountSeed] = useState<string | null>(null)
+  const { account, signer, mainRawSigner } = useAccount()
   const [refreshTrigger, setRefreshTrigger] = useState(0)
-  const [signer, setSigner] = useState<PolkadotSigner | null>(null)
   const [isTransferOpen, setIsTransferOpen] = useState(false)
+  const [isDmOpen, setIsDmOpen] = useState(false)
   const refetchBalanceRef = useRef<(() => void) | null>(null)
   const { balance } = useMoralBalance(unsafeApi, account, refreshTrigger)
-
-  // Create signer when accountSeed changes (async)
-  useEffect(() => {
-    if (!accountSeed) {
-      setSigner(null)
-      return
-    }
-    let cancelled = false
-    createSigner(accountSeed).then((newSigner) => {
-      if (!cancelled) {
-        setSigner(newSigner)
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [accountSeed, createSigner])
 
   // 投稿成功時にデータを更新
   const handlePostSuccess = useCallback(() => {
@@ -90,20 +73,15 @@ export default function Home() {
               signer={signer}
             />
           )}
-          <WalletConnect 
-            account={account} 
-            setAccount={setAccount}
-            setAccountSeed={setAccountSeed}
+          <WalletConnect
             client={client}
             unsafeApi={unsafeApi}
-            signer={signer}
-            accountSeed={accountSeed}
             refreshTrigger={refreshTrigger}
             onBalanceChange={(refetch) => { refetchBalanceRef.current = refetch }}
           />
           {account && signer && (
             <div className={styles.collapsibleSection}>
-              <button 
+              <button
                 className={styles.collapsibleHeader}
                 onClick={() => setIsTransferOpen(!isTransferOpen)}
                 aria-expanded={isTransferOpen}
@@ -126,15 +104,29 @@ export default function Home() {
               )}
             </div>
           )}
+          {account && signer && (
+            <div className={styles.collapsibleSection}>
+              <button
+                type="button"
+                className={styles.collapsibleHeader}
+                onClick={() => setIsDmOpen(true)}
+              >
+                <span>{t('nav.dm')}</span>
+                <span className={styles.collapseIcon}>→</span>
+              </button>
+            </div>
+          )}
         </aside>
+
+        <DmModal isOpen={isDmOpen} onClose={() => setIsDmOpen(false)} />
 
         <section className={styles.content}>
           {account && signer && (
             <div className={styles.postFormWrapper}>
-              <PostForm 
-                unsafeApi={unsafeApi} 
+              <PostForm
+                unsafeApi={unsafeApi}
                 signer={signer}
-                derivePath={accountSeed || '//Alice'}
+                storageSigner={mainRawSigner}
                 onPostSuccess={handlePostSuccess}
               />
             </div>

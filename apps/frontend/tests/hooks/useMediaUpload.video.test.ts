@@ -120,7 +120,7 @@ describe('useMediaUpload Video Support', () => {
   describe('Video File Addition', () => {
     it('should add a valid video file when includeVideo is true', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -137,7 +137,7 @@ describe('useMediaUpload Video Support', () => {
 
     it('should reject video files when includeVideo is false', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: false,
       }))
 
@@ -153,7 +153,7 @@ describe('useMediaUpload Video Support', () => {
 
     it('should accept mixed image and video files', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -177,7 +177,7 @@ describe('useMediaUpload Video Support', () => {
   describe('Video Size Validation', () => {
     it('should reject video exceeding MAX_VIDEO_SIZE (1GB)', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -198,7 +198,7 @@ describe('useMediaUpload Video Support', () => {
 
     it('should accept video under MAX_VIDEO_SIZE', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -220,7 +220,7 @@ describe('useMediaUpload Video Support', () => {
   describe('Video Format Validation', () => {
     it('should accept MP4 format', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -235,7 +235,7 @@ describe('useMediaUpload Video Support', () => {
 
     it('should accept WebM format', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -254,7 +254,7 @@ describe('useMediaUpload Video Support', () => {
       // Note: Unknown MIME types are accepted as 'file' type
       // This behavior allows any file to be uploaded for distributed storage
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -280,7 +280,7 @@ describe('useMediaUpload Video Support', () => {
   describe('Video Thumbnail Extraction', () => {
     it('should extract thumbnail from video file', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -296,7 +296,7 @@ describe('useMediaUpload Video Support', () => {
 
     it('should store video duration', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -318,7 +318,7 @@ describe('useMediaUpload Video Support', () => {
   describe('Video Upload Process', () => {
     it('should upload video file successfully', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 
@@ -340,7 +340,7 @@ describe('useMediaUpload Video Support', () => {
     it('should track upload progress for large video', async () => {
       const onProgress = jest.fn()
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
         onProgress,
       }))
@@ -367,7 +367,7 @@ describe('useMediaUpload Video Support', () => {
   describe('Mixed Media Upload', () => {
     it('should handle mixed image and video uploads', async () => {
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         includeVideo: true,
       }))
 

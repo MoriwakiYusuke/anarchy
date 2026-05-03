@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { Binary } from 'polkadot-api'
 import { usePostCost, calculatePostCost } from '@/hooks/usePostCost'
-import { useStorage, createStorageSigner, StorageSigner } from '@/hooks/useStorage'
+import { useStorage, type StorageSigner } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n'
 import MediaUpload from '@/components/MediaUpload'
 import type { MediaFile } from '@/types/media'
@@ -15,7 +15,8 @@ import styles from './PostForm.module.css'
 interface Props {
   unsafeApi: any
   signer: PolkadotSigner | null
-  derivePath: string
+  /** Raw sr25519 signer for storage upload auth. AccountContext.mainRawSigner を渡す。 */
+  storageSigner: StorageSigner | null
   onPostSuccess?: () => void
 }
 
@@ -97,30 +98,20 @@ function parseError(error: any, t: TranslateFunc): string {
   return t('error.unknown')
 }
 
-export function PostForm({ unsafeApi, signer, derivePath, onPostSuccess }: Props) {
+export function PostForm({ unsafeApi, signer, storageSigner, onPostSuccess }: Props) {
   const { t } = useLocale()
   const [content, setContent] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [status, setStatus] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null)
-  
+
   // Media files (not yet uploaded)
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([])
-  
+
   // Reset key for MediaUpload component (increment to force remount)
   const [mediaResetKey, setMediaResetKey] = useState(0)
-  
-  // Storage認証用のsigner
-  const [storageSigner, setStorageSigner] = useState<StorageSigner | null>(null)
-  
-  // derivePathが変わったらstorageSignerを再作成
-  useEffect(() => {
-    if (derivePath) {
-      createStorageSigner(derivePath).then(setStorageSigner).catch(console.error)
-    }
-  }, [derivePath])
-  
+
   // signerオプションをメモ化
-  const storageOptions = useMemo(() => 
+  const storageOptions = useMemo(() =>
     storageSigner ? { signer: storageSigner } : undefined
   , [storageSigner])
   

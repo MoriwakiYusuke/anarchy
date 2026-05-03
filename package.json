@@ -15,13 +15,20 @@
     "storage:stop": "cd apps/storage-node && ./scripts/run-storage-nodes.sh stop",
     "storage:status": "cd apps/storage-node && ./scripts/run-storage-nodes.sh status",
     "storage:purge": "cd apps/storage-node && ./scripts/run-storage-nodes.sh purge",
+    "stack:start": "./scripts/dev-stack.sh start",
+    "stack:stop": "./scripts/dev-stack.sh stop",
+    "stack:restart": "./scripts/dev-stack.sh restart",
+    "stack:status": "./scripts/dev-stack.sh status",
+    "stack:purge": "./scripts/dev-stack.sh purge",
     "test:integration": "cd apps/blockchain/tests/integration && ./run_all_tests.sh",
     "test:integration:quick": "cd apps/blockchain/tests/integration && ./run_all_tests.sh --quick",
     "test:sync": "cd apps/blockchain/tests/integration && ./test_block_sync.sh",
     "test:consensus": "cd apps/blockchain/tests/integration && ./test_consensus.sh",
     "test:invalid": "cd apps/blockchain/tests/integration && ./test_invalid_data.sh",
     "test:recovery": "cd apps/blockchain/tests/integration && ./test_node_recovery.sh",
-    "test:scalability": "cd apps/blockchain/tests/integration && ./test_scalability.sh"
+    "test:scalability": "cd apps/blockchain/tests/integration && ./test_scalability.sh",
+    "test:dm": "cd apps/blockchain/tests/integration/dm && for t in dm-send-receive.sh dm-stealth-linkage.sh dm-multi-device.sh; do ./$t || exit $?; done",
+    "test:e2e": "pnpm --filter @anarchy/frontend test:e2e"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

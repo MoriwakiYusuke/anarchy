@@ -26,7 +26,6 @@ interface ReactionStats {
 interface Post {
   id: number
   author: string
-  content: string
   contentHash: string
   createdAt: number
   parentId: number | null
@@ -61,43 +60,8 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
 
         // getEntriesを使用して全投稿メタデータを取得
         const postEntries = await unsafeApi.query.Post.Posts.getEntries()
-        
-        // V1: コンテンツ本文を取得（旧形式）
-        const contentMap = new Map<number, string>()
-        try {
-          if (unsafeApi.query.Post.Contents) {
-            const contentEntries = await unsafeApi.query.Post.Contents.getEntries()
-            for (const entry of contentEntries) {
-              const postId = Number(entry.keyArgs[0])
-              // PAPI v1.x: valueは直接Uint8ArrayまたはBoundedVec
-              // asBytes()メソッドがある場合はそれを使い、なければ直接使用
-              let bytes: Uint8Array | number[] | undefined
-              const value = entry.value
-              if (typeof value?.asBytes === 'function') {
-                bytes = value.asBytes()
-              } else if (value instanceof Uint8Array) {
-                bytes = value
-              } else if (Array.isArray(value)) {
-                bytes = value
-              } else if (value && typeof value === 'object') {
-                // BoundedVecの場合、内部配列を取得
-                bytes = value.value || value
-              }
-              if (bytes) {
-                try {
-                  const text = new TextDecoder().decode(new Uint8Array(bytes))
-                  contentMap.set(postId, text)
-                } catch {
-                  contentMap.set(postId, '(デコードエラー)')
-                }
-              }
-            }
-          }
-        } catch {
-          // Contents storage not available (V1)
-        }
 
-        // V2: ContentRefs を取得（分散ストレージ参照）
+        // ContentRefs を取得（分散ストレージ参照）
         const contentRefMap = new Map<number, ContentRef>()
         try {
           if (unsafeApi.query.Post.ContentRefs) {
@@ -187,14 +151,11 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
           return {
             id: postId,
             author,
-            // V2投稿はcontentRefがあるのでcontentは空でOK
-            content: contentMap.get(postId) || '',
             contentHash: post.content_hash?.asHex?.() || '',
             createdAt: Number(post.created_at || 0),
             parentId: post.parent_id !== undefined ? Number(post.parent_id) : null,
             contentRef,
             nickname: nicknameMap.get(author),
-            // reactionStatsは後でスライス後に取得する
             reactionStats: undefined,
           }
         })
@@ -281,7 +242,6 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
           contentHash={post.contentHash}
           createdAt={post.createdAt}
           parentId={post.parentId}
-          inlineContent={post.content || undefined}
           contentRef={post.contentRef}
           client={client}
           unsafeApi={unsafeApi}

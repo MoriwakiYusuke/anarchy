@@ -1,409 +1,226 @@
 ---
 name: tdd-workflow
-description: Use this skill when writing new features, fixing bugs, or refactoring code. Enforces test-driven development with 80%+ coverage including unit, integration, and E2E tests.
+description: Anarchy の TDD ワークフロー。Rust pallet (mock runtime + assert_ok!/assert_noop!)、Frontend (Jest + Testing Library + ts-jest)、Shell ベース統合テスト (apps/blockchain/tests/integration/)、wasm-engine 単体テストの使い分け。新機能追加・バグ修正・リファクタリング時にテスト先行で書くために使用。
 ---
 
-# Test-Driven Development Workflow
+# TDD Workflow — Anarchy
 
-This skill ensures all code development follows TDD principles with comprehensive test coverage.
+Anarchy のテストは 4 層構造。それぞれで先にテストを書き、失敗を確認してから実装する原則。**CLAUDE.md #6 "実装無しの mock-only test 禁止"** に違反しないよう、各層の守備範囲を厳密に分ける。
 
-## When to Activate
+## 層構成
 
-- Writing new features or functionality
-- Fixing bugs or issues
-- Refactoring existing code
-- Adding API endpoints
-- Creating new components
+| 層 | ツール | 位置 | 守備範囲 |
+|---|---|---|---|
+| Rust pallet unit | `cargo test` + mock runtime | `pallets/*/src/tests.rs` | 単一 pallet の extrinsic / storage / event / error 論理 |
+| Rust workspace integ | `cargo test --all` | 複数 pallet を含むテスト crate | pallet 間 trait 配線 / Runtime API |
+| Wasm-engine unit | `cargo test -p anarchy-wasm-engine` | `packages/wasm-engine/src/**/tests.rs` | 暗号プリミティブ単体 |
+| Frontend unit | `pnpm test` (Jest + jsdom) | `apps/frontend/**/__tests__/`, `*.test.ts(x)` | React コンポーネント / hook / lib 関数 / i18n key 存在チェック |
+| Shell E2E | `pnpm test:integration` 等 | `apps/blockchain/tests/integration/**/*.sh` | dev node + storage node の複合起動シナリオ |
 
-## Core Principles
+## Rust pallet: TDD フロー
 
-### 1. Tests BEFORE Code
-ALWAYS write tests first, then implement code to make tests pass.
+### 1. Mock runtime を先に作る
 
-### 2. Coverage Requirements
-- Minimum 80% coverage (unit + integration + E2E)
-- All edge cases covered
-- Error scenarios tested
-- Boundary conditions verified
+`<pallet>/src/mock.rs` (別ファイル推奨) または `tests.rs` 先頭で。最小構成:
 
-### 3. Test Types
+```rust
+use crate as pallet_messaging;
+use frame_support::{traits::{ConstU32, ConstU64, ConstU128, fungible::Mutate}};
+use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, BuildStorage};
 
-#### Unit Tests
-- Individual functions and utilities
-- Component logic
-- Pure functions
-- Helpers and utilities
+type Block = frame_system::mocking::MockBlock<Test>;
 
-#### Integration Tests
-- API endpoints
-- Database operations
-- Service interactions
-- External API calls
-
-#### E2E Tests (Playwright)
-- Critical user flows
-- Complete workflows
-- Browser automation
-- UI interactions
-
-## TDD Workflow Steps
-
-### Step 1: Write User Journeys
-```
-As a [role], I want to [action], so that [benefit]
-
-Example:
-As a user, I want to search for markets semantically,
-so that I can find relevant markets even without exact keywords.
-```
-
-### Step 2: Generate Test Cases
-For each user journey, create comprehensive test cases:
-
-```typescript
-describe('Semantic Search', () => {
-  it('returns relevant markets for query', async () => {
-    // Test implementation
-  })
-
-  it('handles empty query gracefully', async () => {
-    // Test edge case
-  })
-
-  it('falls back to substring search when Redis unavailable', async () => {
-    // Test fallback behavior
-  })
-
-  it('sorts results by similarity score', async () => {
-    // Test sorting logic
-  })
-})
-```
-
-### Step 3: Run Tests (They Should Fail)
-```bash
-npm test
-# Tests should fail - we haven't implemented yet
-```
-
-### Step 4: Implement Code
-Write minimal code to make tests pass:
-
-```typescript
-// Implementation guided by tests
-export async function searchMarkets(query: string) {
-  // Implementation here
-}
-```
-
-### Step 5: Run Tests Again
-```bash
-npm test
-# Tests should now pass
-```
-
-### Step 6: Refactor
-Improve code quality while keeping tests green:
-- Remove duplication
-- Improve naming
-- Optimize performance
-- Enhance readability
-
-### Step 7: Verify Coverage
-```bash
-npm run test:coverage
-# Verify 80%+ coverage achieved
-```
-
-## Testing Patterns
-
-### Unit Test Pattern (Jest/Vitest)
-```typescript
-import { render, screen, fireEvent } from '@testing-library/react'
-import { Button } from './Button'
-
-describe('Button Component', () => {
-  it('renders with correct text', () => {
-    render(<Button>Click me</Button>)
-    expect(screen.getByText('Click me')).toBeInTheDocument()
-  })
-
-  it('calls onClick when clicked', () => {
-    const handleClick = jest.fn()
-    render(<Button onClick={handleClick}>Click</Button>)
-
-    fireEvent.click(screen.getByRole('button'))
-
-    expect(handleClick).toHaveBeenCalledTimes(1)
-  })
-
-  it('is disabled when disabled prop is true', () => {
-    render(<Button disabled>Click</Button>)
-    expect(screen.getByRole('button')).toBeDisabled()
-  })
-})
-```
-
-### API Integration Test Pattern
-```typescript
-import { NextRequest } from 'next/server'
-import { GET } from './route'
-
-describe('GET /api/markets', () => {
-  it('returns markets successfully', async () => {
-    const request = new NextRequest('http://localhost/api/markets')
-    const response = await GET(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.success).toBe(true)
-    expect(Array.isArray(data.data)).toBe(true)
-  })
-
-  it('validates query parameters', async () => {
-    const request = new NextRequest('http://localhost/api/markets?limit=invalid')
-    const response = await GET(request)
-
-    expect(response.status).toBe(400)
-  })
-
-  it('handles database errors gracefully', async () => {
-    // Mock database failure
-    const request = new NextRequest('http://localhost/api/markets')
-    // Test error handling
-  })
-})
-```
-
-### E2E Test Pattern (Playwright)
-```typescript
-import { test, expect } from '@playwright/test'
-
-test('user can search and filter markets', async ({ page }) => {
-  // Navigate to markets page
-  await page.goto('/')
-  await page.click('a[href="/markets"]')
-
-  // Verify page loaded
-  await expect(page.locator('h1')).toContainText('Markets')
-
-  // Search for markets
-  await page.fill('input[placeholder="Search markets"]', 'election')
-
-  // Wait for debounce and results
-  await page.waitForTimeout(600)
-
-  // Verify search results displayed
-  const results = page.locator('[data-testid="market-card"]')
-  await expect(results).toHaveCount(5, { timeout: 5000 })
-
-  // Verify results contain search term
-  const firstResult = results.first()
-  await expect(firstResult).toContainText('election', { ignoreCase: true })
-
-  // Filter by status
-  await page.click('button:has-text("Active")')
-
-  // Verify filtered results
-  await expect(results).toHaveCount(3)
-})
-
-test('user can create a new market', async ({ page }) => {
-  // Login first
-  await page.goto('/creator-dashboard')
-
-  // Fill market creation form
-  await page.fill('input[name="name"]', 'Test Market')
-  await page.fill('textarea[name="description"]', 'Test description')
-  await page.fill('input[name="endDate"]', '2025-12-31')
-
-  // Submit form
-  await page.click('button[type="submit"]')
-
-  // Verify success message
-  await expect(page.locator('text=Market created successfully')).toBeVisible()
-
-  // Verify redirect to market page
-  await expect(page).toHaveURL(/\/markets\/test-market/)
-})
-```
-
-## Test File Organization
-
-```
-src/
-├── components/
-│   ├── Button/
-│   │   ├── Button.tsx
-│   │   ├── Button.test.tsx          # Unit tests
-│   │   └── Button.stories.tsx       # Storybook
-│   └── MarketCard/
-│       ├── MarketCard.tsx
-│       └── MarketCard.test.tsx
-├── app/
-│   └── api/
-│       └── markets/
-│           ├── route.ts
-│           └── route.test.ts         # Integration tests
-└── e2e/
-    ├── markets.spec.ts               # E2E tests
-    ├── trading.spec.ts
-    └── auth.spec.ts
-```
-
-## Mocking External Services
-
-### Supabase Mock
-```typescript
-jest.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: jest.fn(() => ({
-      select: jest.fn(() => ({
-        eq: jest.fn(() => Promise.resolve({
-          data: [{ id: 1, name: 'Test Market' }],
-          error: null
-        }))
-      }))
-    }))
-  }
-}))
-```
-
-### Redis Mock
-```typescript
-jest.mock('@/lib/redis', () => ({
-  searchMarketsByVector: jest.fn(() => Promise.resolve([
-    { slug: 'test-market', similarity_score: 0.95 }
-  ])),
-  checkRedisHealth: jest.fn(() => Promise.resolve({ connected: true }))
-}))
-```
-
-### OpenAI Mock
-```typescript
-jest.mock('@/lib/openai', () => ({
-  generateEmbedding: jest.fn(() => Promise.resolve(
-    new Array(1536).fill(0.1) // Mock 1536-dim embedding
-  ))
-}))
-```
-
-## Test Coverage Verification
-
-### Run Coverage Report
-```bash
-npm run test:coverage
-```
-
-### Coverage Thresholds
-```json
-{
-  "jest": {
-    "coverageThresholds": {
-      "global": {
-        "branches": 80,
-        "functions": 80,
-        "lines": 80,
-        "statements": 80
-      }
+frame_support::construct_runtime!(
+    pub enum Test {
+        System: frame_system,
+        Balances: pallet_balances,
+        Messaging: pallet_messaging,
     }
-  }
+);
+
+// 依存 pallet の trait は mock struct で
+pub struct MockStorage;
+impl pallet_storage::StorageInterface<u64, u64> for MockStorage { /* no-op */ }
+
+pub struct MockStealthReward;
+impl crate::StealthRewardInterface for MockStealthReward {
+    fn do_deposit_to_stealth_reward_pool(_amount: u128) {}
+}
+
+// frame_system / balances / 自 pallet の impl Config を続ける
+```
+
+参考: [apps/blockchain/pallets/post/src/tests.rs](apps/blockchain/pallets/post/src/tests.rs)
+
+### 2. `new_test_ext()` で初期残高付与
+
+```rust
+pub fn new_test_ext() -> sp_io::TestExternalities {
+    let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+    let mut ext = sp_io::TestExternalities::new(t);
+    ext.execute_with(|| {
+        System::set_block_number(1);  // block 0 は event 抑制されるので 1 に
+        <Balances as Mutate<_>>::mint_into(&1u64, 10_000_000).unwrap();
+    });
+    ext
 }
 ```
 
-## Common Testing Mistakes to Avoid
+### 3. RED: 失敗するテストを書く
 
-### ❌ WRONG: Testing Implementation Details
-```typescript
-// Don't test internal state
-expect(component.state.count).toBe(5)
+```rust
+#[test]
+fn send_dm_rejects_duplicate_merkle_root() {
+    new_test_ext().execute_with(|| {
+        // 事前状態: 一度成功
+        assert_ok!(Messaging::send_dm(RuntimeOrigin::signed(1), /* ... */));
+
+        // 2 回目の同一 merkle_root
+        assert_noop!(
+            Messaging::send_dm(RuntimeOrigin::signed(1), /* ... same root ... */),
+            Error::<Test>::DuplicateContent
+        );
+    });
+}
 ```
 
-### ✅ CORRECT: Test User-Visible Behavior
-```typescript
-// Test what users see
-expect(screen.getByText('Count: 5')).toBeInTheDocument()
+### 4. GREEN: extrinsic を実装
+
+`ensure!(!DmMessagesByRoot::<T>::contains_key(merkle_root), Error::<T>::DuplicateContent);`
+
+### 5. REFACTOR
+
+重複バリデーションヘルパの抽出など。各ステップごとに `cargo test -p pallet-messaging` で緑を確認。
+
+### テスト書き分けテンプレ
+
+| 確認したいこと | マクロ |
+|---|---|
+| 正常系 extrinsic 成功 | `assert_ok!(...)` |
+| エラー系で storage 不変 | `assert_noop!(call, Error::<Test>::Variant)` |
+| エラー系 (storage 変更あり) | `assert_err!(call, Error::...)` |
+| Event 発火 | `System::assert_has_event(RuntimeEvent::Messaging(Event::Xxx { ... }).into())` |
+| Event 最新 | `System::assert_last_event(...)` |
+
+### アサーションパターン
+
+```rust
+// Event の完全マッチ
+System::assert_last_event(
+    RuntimeEvent::Messaging(Event::DmDispatched {
+        message_id: 1,
+        recipient_stealth: 2,
+        ephemeral_pubkey: [1u8; 32],
+        content_hash: [2u8; 32],
+        block_number: 1,
+    }).into()
+);
+
+// Storage 値
+assert_eq!(NextMessageId::<Test>::get(), 1);
+assert!(DmMessagesByRoot::<Test>::contains_key([2u8; 32]));
 ```
 
-### ❌ WRONG: Brittle Selectors
-```typescript
-// Breaks easily
-await page.click('.css-class-xyz')
-```
+## Frontend: Jest + Testing Library
 
-### ✅ CORRECT: Semantic Selectors
-```typescript
-// Resilient to changes
-await page.click('button:has-text("Submit")')
-await page.click('[data-testid="submit-button"]')
-```
+### 設定
+- `jest.config.ts` (ts-jest + `jest-environment-jsdom`)
+- `apps/frontend/pnpm test`, `pnpm test:watch`, `pnpm test:coverage`
 
-### ❌ WRONG: No Test Isolation
-```typescript
-// Tests depend on each other
-test('creates user', () => { /* ... */ })
-test('updates same user', () => { /* depends on previous test */ })
-```
+### 配置
+- 関数/フック: `src/lib/<domain>/__tests__/foo.test.ts` または `src/hooks/__tests__/useFoo.test.ts`
+- コンポーネント: 同ディレクトリ `Foo.test.tsx` 併置
 
-### ✅ CORRECT: Independent Tests
+### 典型パターン
+
 ```typescript
-// Each test sets up its own data
-test('creates user', () => {
-  const user = createTestUser()
-  // Test logic
+import { renderHook, act } from '@testing-library/react'
+import { useTransfer } from './useTransfer'
+
+describe('useTransfer', () => {
+  it('validates empty amount', () => {
+    const { result } = renderHook(() => useTransfer({ /* deps */ }))
+    const validation = result.current.validateAmount('')
+    expect(validation.valid).toBe(false)
+    expect(validation.error).toBe('error.emptyAmount')
+  })
+
+  it('transitions idle → confirming on valid input', () => {
+    const { result } = renderHook(() => useTransfer({ /* valid deps */ }))
+    act(() => { result.current.transfer('5FH...', '10') })
+    expect(result.current.state.status).toBe('confirming')
+  })
 })
-
-test('updates user', () => {
-  const user = createTestUser()
-  // Update logic
-})
 ```
 
-## Continuous Testing
+### Wasm を含むテスト
+- `beforeAll(async () => { await init() })` で WASM をロード
+- main thread 実行 OK (jsdom 環境)
+- Worker 経由コードはこの層でテストせず、Worker unit test を別途
 
-### Watch Mode During Development
+### PAPI / smoldot のモック方針
+- **原則モックしない**。代わりに
+  - pure lib 関数 (validation, serialization, bigint 変換) を分離してそこをテスト
+  - 統合フローは shell integration test に寄せる
+- どうしても必要なら `jest.mock('@/lib/smoldot-provider')` で最小限
+
+## Shell 統合テスト
+
+### 位置
+- `apps/blockchain/tests/integration/*.sh`
+- 019 DM 用: `apps/blockchain/tests/integration/dm/` (T052 以降)
+
+### 実行
 ```bash
-npm test -- --watch
-# Tests run automatically on file changes
+pnpm test:dm                  # DM シナリオ
+pnpm test:integration         # 全部
+pnpm test:integration:quick   # 主要のみ
 ```
 
-### Pre-Commit Hook
+### 書き方規約
+- 先頭で `set -euo pipefail`
+- dev node + (必要なら) storage node を起動、終了時に cleanup (trap)
+- PAPI CLI スクリプト (`scripts/`) を使ってチェーン操作 → 期待 Event / Storage 状態を確認
+- 失敗時に exit 1、成功時に 0
+
+### いつ shell に置くか
+- 複数 pallet を跨ぐフロー
+- blockchain node ↔ storage node の P2P 往復
+- runtime upgrade / migration 検証
+
+## Wasm-engine 単体テスト
+
 ```bash
-# Runs before every commit
-npm test && npm run lint
+cd packages/wasm-engine
+cargo test
 ```
 
-### CI/CD Integration
-```yaml
-# GitHub Actions
-- name: Run Tests
-  run: npm test -- --coverage
-- name: Upload Coverage
-  uses: codecov/codecov-action@v3
-```
+- Rust 側 `#[cfg(test)] mod tests` で書く
+- wasm-bindgen-test は基本不要 (pure algorithm のテストのみで足りる)
+- KZG / SSS / stealth / DM の各モジュールに vector test を置く
 
-## Best Practices
+## カバレッジ目標
 
-1. **Write Tests First** - Always TDD
-2. **One Assert Per Test** - Focus on single behavior
-3. **Descriptive Test Names** - Explain what's tested
-4. **Arrange-Act-Assert** - Clear test structure
-5. **Mock External Dependencies** - Isolate unit tests
-6. **Test Edge Cases** - Null, undefined, empty, large
-7. **Test Error Paths** - Not just happy paths
-8. **Keep Tests Fast** - Unit tests < 50ms each
-9. **Clean Up After Tests** - No side effects
-10. **Review Coverage Reports** - Identify gaps
+- **Rust pallet**: 主要 extrinsic の正常系 + 代表的な失敗系を全 Error variant 分
+- **Wasm-engine**: 仕様書の known-answer test を必ず入れる (暗号系は 1 ビット間違いが致命)
+- **Frontend hook**: 状態機械の全 transition, validation の全ケース
+- **統合**: spec の acceptance criteria (`spec.md` の FR-xxx 各々に 1 シナリオ)
 
-## Success Metrics
+## TDD 違反しないチェックリスト
 
-- 80%+ code coverage achieved
-- All tests passing (green)
-- No skipped or disabled tests
-- Fast test execution (< 30s for unit tests)
-- E2E tests cover critical user flows
-- Tests catch bugs before production
+タスク完了を報告する前に:
+1. `cargo test -p <pallet>` / `cd apps/blockchain && cargo test --all` を**実行して通っている**
+2. Frontend なら `cd apps/frontend && pnpm test`, `pnpm lint`
+3. 追加した extrinsic に **正常系 1 + 代表エラー ≥1** のテストあり
+4. mock のみのテストで「実装済み」と報告していない (実 pallet コードが存在して compile する)
+5. shell integ は dev node が実際に動く前提の内容になっている (placeholder echo だけで success を返す類ではない)
 
----
+## 参考実装
 
-**Remember**: Tests are not optional. They are the safety net that enables confident refactoring, rapid development, and production reliability.
+| シナリオ | 参照 |
+|---|---|
+| mock runtime + fungible mint | `apps/blockchain/pallets/post/src/tests.rs:67-150` |
+| MockStorage / MockReaction | `apps/blockchain/pallets/post/src/tests.rs:19-65` |
+| Event assert | `apps/blockchain/pallets/reaction/src/tests.rs` |
+| Frontend hook test | `apps/frontend/src/hooks/__tests__/useTransfer.test.ts` (存在する場合) |
+| Shell integ 雛形 | `apps/blockchain/tests/integration/test_block_sync.sh` |

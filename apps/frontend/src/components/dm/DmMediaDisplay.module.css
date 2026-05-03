@@ -1,0 +1,71 @@
+.grid {
+  list-style: none;
+  margin: 0.5rem 0 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.5rem;
+}
+
+.item {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.itemLoading,
+.itemError {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.placeholder {
+  padding: 0.5rem;
+  text-align: center;
+}
+
+.imageButton {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: zoom-in;
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.itemFile {
+  padding: 0.75rem;
+}
+
+.fileLink {
+  color: var(--accent);
+  font-size: 0.8125rem;
+  text-decoration: none;
+  text-align: center;
+  word-break: break-all;
+}
+
+.fileLink:hover {
+  text-decoration: underline;
+}

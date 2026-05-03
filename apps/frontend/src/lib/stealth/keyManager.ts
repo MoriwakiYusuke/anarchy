@@ -47,11 +47,31 @@ async function getWasm(): Promise<WasmModule> {
 }
 
 /**
- * Secure wipe utility - overwrite buffer with zeros
+ * Secure wipe utility - overwrite buffer with zeros (JS view 側のみ)。
+ *
+ * Note: ArrayBuffer は共有されているので fill(0) で実バイトもゼロ化される。
+ * ただし JS GC が同じバッファを別の用途に再利用するまでは値が残る可能性が
+ * あるため、機密データには `freeWasmObject` で Rust 線形メモリ側もゼロ化する
+ * 二段構えを取る。
  */
 function secureWipe(buffer: Uint8Array): void {
   if (buffer) {
     buffer.fill(0);
+  }
+}
+
+/**
+ * wasm-bindgen が生成したオブジェクトの `free()` を呼んで Rust 線形メモリを
+ * 即座に解放する。`StealthKeyPairJs` は内部の `spend_key` / `view_key` を
+ * `Zeroizing<Vec<u8>>` で持つので Drop が memset(0) する。
+ *
+ * `free` が無い場合 (テスト mock 等) は no-op。
+ */
+function freeWasmObject(obj: unknown): void {
+  try {
+    (obj as { free?: () => void }).free?.();
+  } catch {
+    // ignore
   }
 }
 
@@ -83,6 +103,10 @@ export class StealthKeyManager {
       metaAddress: wasmKeys.meta_address,
       createdAt: Date.now(),
     };
+    // Rust 線形メモリ上の Zeroizing<Vec<u8>> を即座に解放 (Drop で memset)。
+    // JS GC FinalizationRegistry に任せると秒〜分単位の遅延が発生し、
+    // その間 wasm メモリに spend_key / view_key の生バイトが残る。
+    freeWasmObject(wasmKeys);
 
     // Register cleanup handler
     this.registerCleanupHandler();
@@ -100,7 +124,7 @@ export class StealthKeyManager {
     password: string
   ): Promise<void> {
     const wasm = await getWasm();
-    
+
     // Decrypt backup
     const wasmKeys = wasm.decrypt_backup(encryptedBackup, password);
 
@@ -112,8 +136,41 @@ export class StealthKeyManager {
       metaAddress: wasmKeys.meta_address,
       createdAt: Date.now(),
     };
+    freeWasmObject(wasmKeys);
 
     // Register cleanup handler
+    this.registerCleanupHandler();
+  }
+
+  /**
+   * Load stealth keys from already-decrypted private key material.
+   *
+   * 用途: DM backup (keyManager.ts exportDmBackup / importDmBackup) は
+   * AES-256-GCM + PBKDF2 で外側を暗号化し、中身に scan_priv (= view_key) と
+   * spend_priv を JSON で持つ。インポート時に AES 復号して raw priv を得たら、
+   * このメソッドで wasm に対応する pubkey を再導出してもらってセッション
+   * メモリの keyPair に流し込む。
+   *
+   * @param scanPriv X25519 view 秘密鍵 (32 bytes)
+   * @param spendPriv Ed25519 spend seed (32 bytes)
+   */
+  async loadFromBackup(scanPriv: Uint8Array, spendPriv: Uint8Array): Promise<void> {
+    if (scanPriv.length !== 32) throw new Error('scanPriv must be 32 bytes');
+    if (spendPriv.length !== 32) throw new Error('spendPriv must be 32 bytes');
+
+    const wasm = await getWasm();
+    const wasmKeys = wasm.restore_stealth_keys(spendPriv, scanPriv);
+
+    this.keyPair = {
+      spendKey: new Uint8Array(wasmKeys.spend_key),
+      viewKey: new Uint8Array(wasmKeys.view_key),
+      spendPubkey: new Uint8Array(wasmKeys.spend_pubkey),
+      viewPubkey: new Uint8Array(wasmKeys.view_pubkey),
+      metaAddress: wasmKeys.meta_address,
+      createdAt: Date.now(),
+    };
+    freeWasmObject(wasmKeys);
+
     this.registerCleanupHandler();
   }
 
@@ -240,42 +297,21 @@ export async function deriveStealthAddress(metaAddress: string): Promise<{
   ephemeralPubkey: Uint8Array;
   stealthPubkey: Uint8Array;
 }> {
-  console.log('[deriveStealthAddress] Input:', metaAddress);
   const wasm = await getWasm();
-  try {
-    // Parse the metaAddress to log the pubkeys being used
-    const parsed = wasm.parse_meta_address(metaAddress);
-    console.log('[deriveStealthAddress] Parsed spend_pubkey (first 8):', Array.from(new Uint8Array(parsed.spend_pubkey).slice(0, 8)));
-    console.log('[deriveStealthAddress] Parsed view_pubkey (first 8):', Array.from(new Uint8Array(parsed.view_pubkey).slice(0, 8)));
-    
-    const result = wasm.derive_stealth_address(metaAddress);
-    
-    // Get stealth pubkey from wasm result
-    const stealthPubkey = new Uint8Array(result.stealth_pubkey);
-    const ephemeralPubkey = new Uint8Array(result.ephemeral_pubkey);
-    console.log('[deriveStealthAddress] Ephemeral pubkey (first 8):', Array.from(ephemeralPubkey.slice(0, 8)));
-    console.log('[deriveStealthAddress] Stealth pubkey (first 8):', Array.from(stealthPubkey.slice(0, 8)));
-    
-    // Use polkadot-api's SS58 encoder for compatibility
-    const { fromBufferToBase58, getSs58AddressInfo } = await import('@polkadot-api/substrate-bindings');
-    const stealthAddress = fromBufferToBase58(42)(stealthPubkey);
-    
-    console.log('[deriveStealthAddress] Stealth address (SS58):', stealthAddress);
-    
-    // Verify the address is valid before returning
-    const validation = getSs58AddressInfo(stealthAddress);
-    if (!validation.isValid) {
-      console.error('[deriveStealthAddress] Generated invalid SS58 address!');
-      throw new Error('Generated invalid SS58 address');
-    }
-    
-    return {
-      stealthAddress,
-      ephemeralPubkey,
-      stealthPubkey,
-    };
-  } catch (error) {
-    console.error('[deriveStealthAddress] Error:', error);
-    throw error;
+  // Parse to fail fast on malformed meta-address; result is unused but the parse
+  // throws on bad input, surfacing a clean error to the caller.
+  wasm.parse_meta_address(metaAddress);
+  const result = wasm.derive_stealth_address(metaAddress);
+  const stealthPubkey = new Uint8Array(result.stealth_pubkey);
+  const ephemeralPubkey = new Uint8Array(result.ephemeral_pubkey);
+
+  const { fromBufferToBase58, getSs58AddressInfo } = await import('@polkadot-api/substrate-bindings');
+  const stealthAddress = fromBufferToBase58(42)(stealthPubkey);
+
+  const validation = getSs58AddressInfo(stealthAddress);
+  if (!validation.isValid) {
+    throw new Error('Generated invalid SS58 address');
   }
+
+  return { stealthAddress, ephemeralPubkey, stealthPubkey };
 }

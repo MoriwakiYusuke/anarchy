@@ -347,6 +347,26 @@ impl pallet_reaction::Config for Runtime {
     type AdjustmentDivisor = ConstU32<4>;
 }
 
+// Messaging (DM) Pallet設定 — contracts/pallet-messaging-extrinsics.md §Dependencies
+// StealthReward 還流先は pallet-stealth に reward pool trait が追加されるまで no-op (())。
+// 10% の還流分は暫定的に burn と同等の扱いになる (追加 burn としてドキュメント化)。
+parameter_types! {
+    pub const DmBaseCost: Balance = 1_000_000_000_000;      // 1 MORAL
+    pub const DmByteCost: Balance = 50_000_000_000;         // 0.05 MORAL / byte
+    pub const MaxDmCiphertextLen: u64 = 262_144;
+}
+
+impl pallet_messaging::Config for Runtime {
+    type NativeToken = Balances;
+    type Storage = Storage;
+    type StealthReward = ();
+    type MaxDispatchesPerBlock = ConstU32<256>;
+    type DmBaseCost = DmBaseCost;
+    type DmByteCost = DmByteCost;
+    type MaxDmCiphertextLen = MaxDmCiphertextLen;
+    type WeightInfo = pallet_messaging::weights::SubstrateWeight<Runtime>;
+}
+
 // Runtime構築
 construct_runtime!(
     pub struct Runtime {
@@ -364,6 +384,7 @@ construct_runtime!(
         Nickname: pallet_nickname,
         Stealth: pallet_stealth,
         Reaction: pallet_reaction,
+        Messaging: pallet_messaging,
     }
 );
 
@@ -576,6 +597,41 @@ impl_runtime_apis! {
                 n: content.n,
                 size: content.size,
             })
+        }
+    }
+
+    impl pallet_messaging::DmScanApi<Block, AccountId> for Runtime {
+        fn dispatches_at(block_number: u32) -> Vec<pallet_messaging::DmDispatch<AccountId>> {
+            let bn: BlockNumber = block_number.into();
+            pallet_messaging::DmDispatchesByBlock::<Runtime>::get(bn).into_inner()
+        }
+
+        fn reception_key(account: AccountId) -> Option<pallet_messaging::DmMetaAddress> {
+            pallet_messaging::DmReceptionKeys::<Runtime>::get(&account)
+        }
+
+        fn dispatches_range(
+            from_block: u32,
+            to_block: u32,
+        ) -> Vec<(u32, Vec<pallet_messaging::DmDispatch<AccountId>>)> {
+            // 過剰スキャン防止: 1024 ブロック超の範囲は空配列を返す。
+            if to_block < from_block || to_block - from_block > 1_024 {
+                return Vec::new();
+            }
+            // 空ブロックは除外する (RPC payload 削減 / scanner-side semantics と一致)。
+            // 参照: pallets/messaging/src/tests/runtime_api.rs `dispatches_range_within_limit_returns_entries_per_block`
+            (from_block..=to_block)
+                .filter_map(|bn| {
+                    let block_no: BlockNumber = bn.into();
+                    let entries = pallet_messaging::DmDispatchesByBlock::<Runtime>::get(block_no)
+                        .into_inner();
+                    if entries.is_empty() {
+                        None
+                    } else {
+                        Some((bn, entries))
+                    }
+                })
+                .collect()
         }
     }
 

@@ -121,7 +121,7 @@ describe('useMediaUpload Hook', () => {
 
   describe('File Addition', () => {
     it('should add a valid image file', async () => {
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const file = createMockImageFile(100)
       
@@ -135,7 +135,7 @@ describe('useMediaUpload Hook', () => {
     })
 
     it('should add multiple files up to MAX_FILES', async () => {
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const files = [
         createMockImageFile(100, 'test1.jpg'),
@@ -152,7 +152,7 @@ describe('useMediaUpload Hook', () => {
     })
 
     it('should reject files exceeding MAX_FILES limit', async () => {
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const files = [
         createMockImageFile(100, 'test1.jpg'),
@@ -175,7 +175,7 @@ describe('useMediaUpload Hook', () => {
       const mockUrl = 'blob:http://localhost/test-image'
       global.URL.createObjectURL = jest.fn(() => mockUrl)
       
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const file = createMockImageFile(100)
       
@@ -193,7 +193,7 @@ describe('useMediaUpload Hook', () => {
 
   describe('File Validation', () => {
     it('should reject image exceeding MAX_IMAGE_SIZE', async () => {
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       // Create small file but override size to exceed 256MB limit
       const content = new Uint8Array(1024)
@@ -211,7 +211,7 @@ describe('useMediaUpload Hook', () => {
 
     it('should accept unsupported image format as generic file type', async () => {
       // Note: Unknown MIME types are accepted as 'file' type
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const content = new Uint8Array(1024)
       const bmpFile = new File([content], 'test.bmp', { type: 'image/bmp' })
@@ -227,7 +227,7 @@ describe('useMediaUpload Hook', () => {
     })
 
     it('should accept valid image formats (jpeg, png, gif, webp)', async () => {
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const formats = [
         { name: 'test.jpg', type: 'image/jpeg' },
@@ -248,7 +248,7 @@ describe('useMediaUpload Hook', () => {
     })
 
     it('should detect media type from MIME type', async () => {
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const imageFile = createMockImageFile(100)
       
@@ -269,7 +269,7 @@ describe('useMediaUpload Hook', () => {
       global.URL.createObjectURL = jest.fn(() => 'blob:test')
       global.URL.revokeObjectURL = jest.fn()
       
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const file = createMockImageFile(100)
       
@@ -291,7 +291,7 @@ describe('useMediaUpload Hook', () => {
       global.URL.createObjectURL = jest.fn(() => 'blob:test')
       global.URL.revokeObjectURL = jest.fn()
       
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const files = [
         createMockImageFile(100, 'test1.jpg'),
@@ -316,7 +316,7 @@ describe('useMediaUpload Hook', () => {
 
   describe('Upload Process', () => {
     it('should upload file through hybrid_split and storage node', async () => {
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const file = createMockImageFile(100)
       
@@ -338,7 +338,7 @@ describe('useMediaUpload Hook', () => {
       const progressUpdates: number[] = []
       
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         onProgress: (fileId, progress) => progressUpdates.push(progress),
       }))
       
@@ -382,7 +382,7 @@ describe('useMediaUpload Hook', () => {
         }
       })
 
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const file = createMockImageFile(100)
       
@@ -412,7 +412,7 @@ describe('useMediaUpload Hook', () => {
     it('should handle upload failure gracefully', async () => {
       ;(fetch as jest.Mock).mockRejectedValue(new Error('Network error'))
       
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const file = createMockImageFile(100)
       
@@ -435,13 +435,13 @@ describe('useMediaUpload Hook', () => {
 
   describe('State Machine', () => {
     it('should start in idle state', () => {
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       expect(result.current.state).toBe('idle')
     })
 
     it('should transition to uploading during uploadAll', async () => {
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const file = createMockImageFile(100)
       
@@ -465,7 +465,7 @@ describe('useMediaUpload Hook', () => {
         throw new Error('Split failed')
       })
       
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const file = createMockImageFile(100)
       
@@ -490,7 +490,7 @@ describe('useMediaUpload Hook', () => {
       // This test verifies that EXIF stripping is called
       // The actual stripping is done in mediaProcessor
       const { result } = renderHook(() => useMediaUpload({ 
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         stripExif: true 
       }))
       
@@ -526,7 +526,7 @@ describe('useMediaUpload Hook', () => {
       })
       
       const { result } = renderHook(() => useMediaUpload({ 
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         atomicUpload: true // All-or-nothing behavior
       }))
       
@@ -558,7 +558,7 @@ describe('useMediaUpload Hook', () => {
       const onUploadComplete = jest.fn()
       
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         onUploadComplete,
       }))
       
@@ -586,7 +586,7 @@ describe('useMediaUpload Hook', () => {
       })
       
       const { result } = renderHook(() => useMediaUpload({
-        storageNodeUrl: STORAGE_NODE_URL,
+        rpcEndpoint: RPC_ENDPOINT,
         onError,
       }))
       
@@ -617,7 +617,7 @@ describe('useMediaUpload Hook', () => {
         close: jest.fn(),
       })
       
-      const { result } = renderHook(() => useMediaUpload({ storageNodeUrl: STORAGE_NODE_URL }))
+      const { result } = renderHook(() => useMediaUpload({ rpcEndpoint: RPC_ENDPOINT }))
       
       const file = createMockImageFile(100)
       

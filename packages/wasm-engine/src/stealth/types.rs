@@ -1,15 +1,21 @@
 //! Type definitions for stealth address module
 
 use wasm_bindgen::prelude::*;
+use zeroize::Zeroizing;
 
 /// ステルス鍵ペア (Wasm export用)
+///
+/// **Zeroization** (Constitution II / FR-021):
+/// `spend_key` / `view_key` は `Zeroizing<Vec<u8>>` で保持し、Drop 時に
+/// memset(0) する。wasm-bindgen の `free()` が Drop を呼ぶので、JS 側で
+/// `wasmKeys.free()` を呼べば Rust 線形メモリの秘密は確実に消える。
+/// pubkeys と meta_address は公開情報なので `Vec<u8>` のまま保持する。
 #[wasm_bindgen]
-#[derive(Clone)]
 pub struct StealthKeyPairJs {
     /// Spend秘密鍵 (32 bytes)
-    spend_key: Vec<u8>,
+    spend_key: Zeroizing<Vec<u8>>,
     /// View秘密鍵 (32 bytes)
-    view_key: Vec<u8>,
+    view_key: Zeroizing<Vec<u8>>,
     /// Spend公開鍵 (32 bytes)
     spend_pubkey: Vec<u8>,
     /// View公開鍵 (32 bytes)
@@ -20,16 +26,16 @@ pub struct StealthKeyPairJs {
 
 #[wasm_bindgen]
 impl StealthKeyPairJs {
-    /// Spend秘密鍵を取得
+    /// Spend秘密鍵を取得 (JS 側にコピー — JS 側で fill(0) + free() の責務)
     #[wasm_bindgen(getter)]
     pub fn spend_key(&self) -> Vec<u8> {
-        self.spend_key.clone()
+        (*self.spend_key).clone()
     }
 
-    /// View秘密鍵を取得
+    /// View秘密鍵を取得 (JS 側にコピー — JS 側で fill(0) + free() の責務)
     #[wasm_bindgen(getter)]
     pub fn view_key(&self) -> Vec<u8> {
-        self.view_key.clone()
+        (*self.view_key).clone()
     }
 
     /// Spend公開鍵を取得
@@ -52,7 +58,7 @@ impl StealthKeyPairJs {
 }
 
 impl StealthKeyPairJs {
-    /// 新しいStealthKeyPairJsを作成
+    /// 新しいStealthKeyPairJsを作成。秘密鍵は Zeroizing でラップする。
     pub fn new(
         spend_key: Vec<u8>,
         view_key: Vec<u8>,
@@ -61,8 +67,8 @@ impl StealthKeyPairJs {
         meta_address: String,
     ) -> Self {
         Self {
-            spend_key,
-            view_key,
+            spend_key: Zeroizing::new(spend_key),
+            view_key: Zeroizing::new(view_key),
             spend_pubkey,
             view_pubkey,
             meta_address,

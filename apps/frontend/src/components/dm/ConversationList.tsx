@@ -1,0 +1,107 @@
+/**
+ * <ConversationList /> — DM スレッド一覧 (T059)。
+ *
+ * 仕様: contracts/frontend-ui.md §2.1。
+ *  - dmStore.conversations を最終アクティビティ block 降順で並べる。
+ *  - blockList に含まれる counterparty は非表示。
+ *  - 未読バッジ (unreadCount > 0) を `aria-label="未読件数"` で描画。
+ *  - 空のときはガイダンス文言。
+ *  - counterparty に nickname (pallet-nickname) があれば primary 表示、
+ *    無ければ SS58 アドレスのみ表示する。
+ *
+ * MVP では route 連携 (`/dm/[conversationId]` への遷移) は親側責務。本コンポーネントは
+ * onSelect コールバックを受けるだけにとどめ、Next/Link は使わない (テスト容易性)。
+ */
+
+'use client';
+
+import { useMemo } from 'react';
+import { useDmStore } from '@/lib/dm/store';
+import { useNicknameOf } from '@/hooks/useNicknameOf';
+import { useAccount } from '@/lib/account/context';
+import { useLocale } from '@/i18n';
+import type { AccountId, ConversationState } from '@/lib/dm/types';
+import styles from './ConversationList.module.css';
+
+export interface ConversationListProps {
+  onSelect?: (counterparty: AccountId) => void;
+}
+
+export function ConversationList({ onSelect }: ConversationListProps): JSX.Element {
+  const { t } = useLocale();
+  const conversations = useDmStore(
+    (s: { conversations: Map<AccountId, ConversationState> }) => s.conversations,
+  );
+  const blockList = useDmStore((s: { blockList: Set<AccountId> }) => s.blockList);
+
+  const visibleThreads = useMemo(() => {
+    const all = Array.from(conversations.values()).filter(
+      (c) => !c.blocked && !blockList.has(c.counterparty),
+    );
+    return all.sort((a, b) => {
+      if (a.lastActivityBlock === b.lastActivityBlock) return 0;
+      return a.lastActivityBlock < b.lastActivityBlock ? 1 : -1;
+    });
+  }, [conversations, blockList]);
+
+  if (visibleThreads.length === 0) {
+    return (
+      <div role="status" className={styles.empty}>
+        {t('dm.list.empty')}
+      </div>
+    );
+  }
+
+  return (
+    <ul className={styles.list} role="list">
+      {visibleThreads.map((thread) => (
+        <ConversationRow
+          key={thread.counterparty}
+          thread={thread}
+          onSelect={onSelect}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function ConversationRow({
+  thread,
+  onSelect,
+}: {
+  thread: ConversationState;
+  onSelect?: (counterparty: AccountId) => void;
+}): JSX.Element {
+  const { t } = useLocale();
+  const nickname = useNicknameOf(thread.counterparty);
+  const { account: ownAccount } = useAccount();
+  const isSelf = ownAccount === thread.counterparty;
+  // ヘッダーと同じ優先度: nickname → 自分宛なら "(あなた)" → "Anarchy"
+  const displayName = nickname
+    ? nickname
+    : isSelf
+      ? t('dm.view.selfName')
+      : 'Anarchy';
+  return (
+    <li role="listitem" className={styles.item}>
+      <button
+        type="button"
+        onClick={() => onSelect?.(thread.counterparty)}
+        className={styles.row}
+      >
+        <span className={styles.identity}>
+          <span className={styles.nickname}>{displayName}</span>
+          <span className={styles.counterparty}>{thread.counterparty}</span>
+        </span>
+        <span className={styles.lastBlock}>
+          #{thread.lastActivityBlock.toString()}
+        </span>
+        {thread.unreadCount > 0 ? (
+          <span aria-label={t('dm.list.unreadAriaLabel')} className={styles.unreadBadge}>
+            {thread.unreadCount}
+          </span>
+        ) : null}
+      </button>
+    </li>
+  );
+}

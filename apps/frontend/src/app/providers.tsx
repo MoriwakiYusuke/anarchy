@@ -11,12 +11,15 @@ import React from 'react';
 import type { PropsWithChildren } from 'react';
 import { LocaleProvider } from '@/i18n';
 import { MatrixBackground } from '@/components/MatrixBackground';
+import { AccountProvider } from '@/lib/account/context';
 
 export function ClientProviders({ children }: PropsWithChildren) {
   return (
     <LocaleProvider>
-      <MatrixBackground respectReducedMotion />
-      {children}
+      <AccountProvider>
+        <MatrixBackground respectReducedMotion />
+        {children}
+      </AccountProvider>
     </LocaleProvider>
   );
 }

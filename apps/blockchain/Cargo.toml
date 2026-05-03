@@ -9,6 +9,7 @@ members = [
     "pallets/nickname",
     "pallets/stealth",
     "pallets/reaction",
+    "pallets/messaging",
     "primitives/pow",
 ]
 
@@ -97,6 +98,7 @@ pallet-storage = { path = "pallets/storage", default-features = false }
 pallet-nickname = { path = "pallets/nickname", default-features = false }
 pallet-stealth = { path = "pallets/stealth", default-features = false }
 pallet-reaction = { path = "pallets/reaction", default-features = false }
+pallet-messaging = { path = "pallets/messaging", default-features = false }
 primitives-pow = { path = "primitives/pow", default-features = false }
 anarchy-runtime = { path = "runtime" }
 

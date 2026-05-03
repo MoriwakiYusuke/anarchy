@@ -176,6 +176,9 @@ export default function Lightbox({
             sizes="100vw"
             className={styles.image}
             priority
+            // blob:/data: URL は next/image オプティマイザを通せないので
+            // unoptimized で素のまま読ませる (DM 添付の復号 blob 用)。
+            unoptimized={currentImage.src.startsWith('blob:') || currentImage.src.startsWith('data:')}
           />
         )}
       </div>

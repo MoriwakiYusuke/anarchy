@@ -30,7 +30,6 @@ mod tests;
 mod benchmarking;
 
 pub mod kzg;
-pub mod migrations;
 pub mod pow;
 pub mod rate_limit;
 pub mod rewards;

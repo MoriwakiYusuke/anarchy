@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__playwright__*",
+      "Bash(./scripts/export-chainspec.sh --chain local)",
+      "Bash(netstat -ltn)",
+      "Bash(curl -sS http://localhost:3000/*)",
+      "Bash(curl -sS -I http://localhost:3000/*)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "playwright"
+  ]
+}

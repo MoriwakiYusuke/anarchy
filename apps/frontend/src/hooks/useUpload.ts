@@ -25,7 +25,7 @@ export interface SignedAuth {
 
 export interface StorageSigner {
   publicKey: Uint8Array
-  sign: (message: Uint8Array) => Uint8Array
+  sign: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>
 }
 
 export async function createStorageSigner(derivePath: string): Promise<StorageSigner> {
@@ -76,7 +76,7 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-function generateAuth(signer: StorageSigner, params: Record<string, unknown>): SignedAuth {
+async function generateAuth(signer: StorageSigner, params: Record<string, unknown>): Promise<SignedAuth> {
   const timestamp = Math.floor(Date.now() / 1000)
   const nonceBytes = new Uint8Array(16)
   crypto.getRandomValues(nonceBytes)
@@ -99,7 +99,7 @@ function generateAuth(signer: StorageSigner, params: Record<string, unknown>): S
     timestamp,
     nonce: toHex(nonceBytes),
     payload_hash: toHex(payloadHash),
-    signature: toHex(signer.sign(message)),
+    signature: toHex(await signer.sign(message)),
   }
 }
 
@@ -199,7 +199,7 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
           try {
             const requestParams: Record<string, unknown> = { ...baseParams }
-            if (signer) requestParams.auth = generateAuth(signer, baseParams)
+            if (signer) requestParams.auth = await generateAuth(signer, baseParams)
             const result = await rpcCall<{ success: boolean; fragment_hash: number[] }>('storage_uploadFragment', [requestParams])
             setProgress(prev => Math.min(prev + progressPerFragment, 90))
             return new Uint8Array(result.fragment_hash)

@@ -15,6 +15,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { PolkadotSigner } from 'polkadot-api'
 import { Binary } from 'polkadot-api'
+import { invalidateNicknameCache } from './useNicknameOf'
 
 /** Maximum nickname length in bytes (UTF-8) */
 const MAX_NICKNAME_BYTES = 128
@@ -182,6 +183,10 @@ export function useNickname({
       setNicknameState(newNickname)
       onSuccess?.(newNickname)
 
+      // 別所で `useNicknameOf` がキャッシュしている古い値を invalidate する。
+      // 同セッション内で「nickname を設定 → DM を開く → 即時表示」を成立させる。
+      invalidateNicknameCache(accountId ?? undefined)
+
       // Refetch to sync with chain
       await refetch()
     } catch (err) {
@@ -226,6 +231,9 @@ export function useNickname({
       setState({ status: 'success', txHash: (result as { txHash?: string }).txHash })
       setNicknameState(null)
       onSuccess?.(null)
+
+      // useNicknameOf 側のキャッシュも消して即時反映させる。
+      invalidateNicknameCache(accountId ?? undefined)
 
       // Refetch to sync with chain
       await refetch()

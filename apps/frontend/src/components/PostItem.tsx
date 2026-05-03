@@ -36,9 +36,7 @@ interface Props {
   contentHash: string  // hex string
   createdAt: number
   parentId: number | null
-  /** V1: inline content from Contents storage */
-  inlineContent?: string
-  /** V2: content reference from ContentRefs storage */  
+  /** Distributed-storage reference for the post body (ContentRefs storage). */
   contentRef?: ContentRef
   /** Optional nickname for the author */
   nickname?: string
@@ -56,15 +54,11 @@ interface Props {
   bads?: number
 }
 
-/**
- * 投稿アイテム - V1 (inline) と V2 (distributed storage) 両方に対応
- */
 export function PostItem({
   postId,
   author,
   createdAt,
   parentId,
-  inlineContent,
   contentRef,
   nickname,
   client,
@@ -83,60 +77,48 @@ export function PostItem({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // V1: inline content available
-    if (inlineContent) {
-      setContent(inlineContent)
-      return
-    }
-
-    // V2: need to recover from distributed storage
-    if (contentRef && isReady) {
-      const fetchV2Content = async () => {
-        setIsLoading(true)
-        setError(null)
-        try {
-          // Handle PAPI Binary type - may have asBytes() method
-          const rootData = contentRef.root as unknown
-          let merkleRoot: Uint8Array
-          if (rootData && typeof rootData === 'object' && 'asBytes' in rootData && typeof (rootData as { asBytes: () => Uint8Array }).asBytes === 'function') {
-            merkleRoot = (rootData as { asBytes: () => Uint8Array }).asBytes()
-          } else if (Array.isArray(rootData)) {
-            merkleRoot = new Uint8Array(rootData)
-          } else {
-            merkleRoot = new Uint8Array(contentRef.root)
-          }
-          
-          if (merkleRoot.length !== 32) {
-            throw new Error(`Invalid merkle root length: ${merkleRoot.length}`)
-          }
-          
-          // Construct HybridMetadata from ContentRef
-          // All metadata fields are now stored on-chain
-          const metadata: HybridMetadata = {
-            originalLen: contentRef.total_size,
-            ciphertextLen: contentRef.ciphertext_len,
-            shardSize: contentRef.shard_size,
-            compressed: contentRef.compressed,
-            threshold: contentRef.k,
-            totalShards: contentRef.n,
-          }
-          
-          const result = await recoverContent(merkleRoot, metadata)
-          
-          // Decode binary content (text + media)
-          const decoded = decodePostContent(result.data)
-          setContent(decoded.text)
-          setDecodedMedia(decoded.media)
-        } catch (err) {
-          console.error(`[PostItem] Failed to recover content for post ${postId}:`, err)
-          setError(err instanceof Error ? err.message : String(err))
-        } finally {
-          setIsLoading(false)
+    if (!contentRef || !isReady) return
+    const fetchContent = async () => {
+      setIsLoading(true)
+      setError(null)
+      try {
+        // Handle PAPI Binary type - may have asBytes() method
+        const rootData = contentRef.root as unknown
+        let merkleRoot: Uint8Array
+        if (rootData && typeof rootData === 'object' && 'asBytes' in rootData && typeof (rootData as { asBytes: () => Uint8Array }).asBytes === 'function') {
+          merkleRoot = (rootData as { asBytes: () => Uint8Array }).asBytes()
+        } else if (Array.isArray(rootData)) {
+          merkleRoot = new Uint8Array(rootData)
+        } else {
+          merkleRoot = new Uint8Array(contentRef.root)
         }
+
+        if (merkleRoot.length !== 32) {
+          throw new Error(`Invalid merkle root length: ${merkleRoot.length}`)
+        }
+
+        const metadata: HybridMetadata = {
+          originalLen: contentRef.total_size,
+          ciphertextLen: contentRef.ciphertext_len,
+          shardSize: contentRef.shard_size,
+          compressed: contentRef.compressed,
+          threshold: contentRef.k,
+          totalShards: contentRef.n,
+        }
+
+        const result = await recoverContent(merkleRoot, metadata)
+        const decoded = decodePostContent(result.data)
+        setContent(decoded.text)
+        setDecodedMedia(decoded.media)
+      } catch (err) {
+        console.error(`[PostItem] Failed to recover content for post ${postId}:`, err)
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setIsLoading(false)
       }
-      fetchV2Content()
     }
-  }, [inlineContent, contentRef, isReady, recoverContent, postId])
+    void fetchContent()
+  }, [contentRef, isReady, recoverContent, postId])
 
   // Determine what to display
   let displayContent: React.ReactNode
@@ -146,7 +128,7 @@ export function PostItem({
     displayContent = <span className={styles.error}>{t('content.error', { error })}</span>
   } else if (content) {
     displayContent = content
-  } else if (!inlineContent && !contentRef) {
+  } else if (!contentRef) {
     displayContent = '(コンテンツなし)'
   } else {
     displayContent = <span className={styles.contentLoading}>読み込み中...</span>

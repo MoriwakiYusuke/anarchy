@@ -52,7 +52,7 @@ impl StealthKeyPair {
 #[wasm_bindgen]
 pub fn generate_stealth_keys() -> StealthKeyPairJs {
     let keypair = StealthKeyPair::generate();
-    
+
     StealthKeyPairJs::new(
         keypair.spend_key.to_vec(),
         keypair.view_key.as_bytes().to_vec(),
@@ -60,6 +60,47 @@ pub fn generate_stealth_keys() -> StealthKeyPairJs {
         keypair.view_pubkey.as_bytes().to_vec(),
         keypair.meta_address(),
     )
+}
+
+/// 既存の (spend_seed, view_seed) からステルス鍵ペア + メタアドレスを再構築 (Wasm export)。
+///
+/// バックアップ復元時 (DM keyManager の loadFromBackup 経由) に使う。
+/// generate_stealth_keys と同じ JS 形を返すので、呼出側のロジックを共通化できる。
+///
+/// # Arguments
+/// * `spend_seed` - Ed25519 spend 秘密鍵 (32 bytes)
+/// * `view_seed`  - X25519 view 秘密鍵 (32 bytes)
+#[wasm_bindgen]
+pub fn restore_stealth_keys(
+    spend_seed: &[u8],
+    view_seed: &[u8],
+) -> Result<StealthKeyPairJs, JsError> {
+    if spend_seed.len() != 32 {
+        return Err(JsError::new("spend_seed must be 32 bytes"));
+    }
+    if view_seed.len() != 32 {
+        return Err(JsError::new("view_seed must be 32 bytes"));
+    }
+
+    let mut spend_arr = [0u8; 32];
+    spend_arr.copy_from_slice(spend_seed);
+    let signing = SigningKey::from_bytes(&spend_arr);
+    let spend_pubkey: [u8; 32] = signing.verifying_key().to_bytes();
+
+    let mut view_arr = [0u8; 32];
+    view_arr.copy_from_slice(view_seed);
+    let view_secret = StaticSecret::from(view_arr);
+    let view_pubkey = X25519PublicKey::from(&view_secret);
+
+    let meta = format_meta_address(&spend_pubkey, view_pubkey.as_bytes());
+
+    Ok(StealthKeyPairJs::new(
+        spend_arr.to_vec(),
+        view_seed.to_vec(),
+        spend_pubkey.to_vec(),
+        view_pubkey.as_bytes().to_vec(),
+        meta,
+    ))
 }
 
 /// ステルスアドレスの秘密鍵を導出 (Wasm export)
