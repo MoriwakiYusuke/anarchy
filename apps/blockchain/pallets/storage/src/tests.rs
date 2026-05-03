@@ -3137,3 +3137,66 @@ fn test_get_at_risk_fragments_returns_only_at_risk() {
         assert!(!at_risk_fragments.contains(&lost_hash));
     });
 }
+
+// ============================================================================
+// do_release_fragment (Task 5.1 — popularity-driven content release)
+// ============================================================================
+
+/// `do_release_fragment` is idempotent: a no-op (no event) when the fragment is
+/// unknown, and emits `ForgottenByPolicy` when on-chain state is actually removed.
+#[test]
+fn do_release_fragment_is_idempotent_and_emits_event_when_present() {
+    new_test_ext().execute_with(|| {
+        // Advance to a non-zero block so events are tracked.
+        System::set_block_number(1);
+
+        let hash: crate::ContentHash = [1u8; 32];
+
+        // ---- Empty case: no event, returns Ok ----
+        assert_ok!(<crate::Pallet<Test> as crate::StorageInterface<_, _>>::do_release_fragment(hash));
+        assert!(
+            !System::events().iter().any(|r| matches!(
+                r.event,
+                RuntimeEvent::Storage(crate::Event::ForgottenByPolicy { .. })
+            )),
+            "no event when fragment is absent"
+        );
+
+        // ---- Populated case: insert FragmentMetadata via Fragments storage map ----
+        crate::Fragments::<Test>::insert(
+            hash,
+            crate::FragmentMetadata::<Test> {
+                size: 100,
+                creator: 1u64,
+                created_at: 1,
+            },
+        );
+
+        assert_ok!(<crate::Pallet<Test> as crate::StorageInterface<_, _>>::do_release_fragment(hash));
+
+        assert!(
+            crate::Fragments::<Test>::get(hash).is_none(),
+            "Fragments entry removed"
+        );
+        assert!(
+            System::events().iter().any(|r| matches!(
+                r.event,
+                RuntimeEvent::Storage(crate::Event::ForgottenByPolicy { .. })
+            )),
+            "event emitted when fragment was present"
+        );
+
+        // ---- Calling again is still safe (no-op, no second event) ----
+        let events_before = System::events().len();
+        assert_ok!(<crate::Pallet<Test> as crate::StorageInterface<_, _>>::do_release_fragment(hash));
+        let new_events: usize = System::events()
+            .iter()
+            .skip(events_before)
+            .filter(|r| matches!(
+                r.event,
+                RuntimeEvent::Storage(crate::Event::ForgottenByPolicy { .. })
+            ))
+            .count();
+        assert_eq!(new_events, 0, "second release is a silent no-op");
+    });
+}

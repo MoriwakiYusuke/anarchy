@@ -45,6 +45,11 @@ impl StorageInterface<u64, u64> for MockStorage {
     fn do_deposit_to_reward_pool(_amount: u128) {
         // No-op in pallet-post tests; reward pool logic tested in pallet-storage
     }
+
+    fn do_release_fragment(_content_hash: [u8; 32]) -> DispatchResult {
+        // No-op in pallet-post tests; release semantics tested in pallet-storage
+        Ok(())
+    }
 }
 
 /// Mock Reaction implementation for Post Pallet tests

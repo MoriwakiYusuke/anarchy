@@ -65,6 +65,10 @@ impl StorageInterface<AccountId, BlockNumber> for MockStorage {
     fn do_deposit_to_reward_pool(amount: u128) {
         STORAGE_POOL_DEPOSITS.with(|c| *c.borrow_mut() += amount);
     }
+
+    fn do_release_fragment(_content_hash: [u8; 32]) -> DispatchResult {
+        Ok(())
+    }
 }
 
 /// Mock stealth reward interface。加算をカウント。

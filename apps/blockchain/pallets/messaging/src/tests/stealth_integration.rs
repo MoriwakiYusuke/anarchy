@@ -52,6 +52,10 @@ impl StorageInterface<AccountId, u64> for MockStorage {
     }
 
     fn do_deposit_to_reward_pool(_amount: u128) {}
+
+    fn do_release_fragment(_content_hash: [u8; 32]) -> DispatchResult {
+        Ok(())
+    }
 }
 
 /// Mock stealth reward interface (no-op)。
