@@ -184,6 +184,8 @@ pub mod pallet {
         PostIdOverflow,
         /// Fragment registration in Storage Pallet failed (FR-402)
         FragmentRegistrationFailed,
+        /// Post does not exist (used by PostMutator::delete_post).
+        PostNotFound,
     }
 
     #[pallet::call]
@@ -337,5 +339,24 @@ pub mod pallet {
 impl<T: Config> pallet_popularity::PostCountProvider for Pallet<T> {
     fn next_post_id() -> u64 {
         NextPostId::<T>::get()
+    }
+}
+
+// ============ PostMutator Implementation ============
+
+impl<T: Config> pallet_popularity::PostMutator<T::AccountId> for Pallet<T> {
+    fn delete_post(post_id: u64) -> Result<[u8; 32], frame_support::pallet_prelude::DispatchError> {
+        let post = Posts::<T>::get(post_id).ok_or(Error::<T>::PostNotFound)?;
+        let merkle_root = post.content_hash;
+
+        Posts::<T>::remove(post_id);
+        ContentRefs::<T>::remove(post_id);
+        MerkleRootToPostId::<T>::remove(merkle_root);
+
+        UserPosts::<T>::mutate(&post.author, |list| {
+            list.retain(|id| *id != post_id);
+        });
+
+        Ok(merkle_root)
     }
 }

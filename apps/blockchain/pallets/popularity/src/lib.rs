@@ -51,6 +51,32 @@ impl PostCountProvider for () {
     }
 }
 
+/// Mutator implemented by pallet-post; called on policy-driven deletion.
+pub trait PostMutator<AccountId> {
+    /// Removes the post and all associated metadata (Posts/ContentRefs/MerkleRootToPostId/UserPosts).
+    /// Returns the merkle_root so the caller can propagate the deletion to storage.
+    fn delete_post(post_id: u64) -> Result<[u8; 32], frame_support::pallet_prelude::DispatchError>;
+}
+
+/// No-op for mock runtimes — fails on every call (used when there's no real post pallet).
+impl<A> PostMutator<A> for () {
+    fn delete_post(_post_id: u64) -> Result<[u8; 32], frame_support::pallet_prelude::DispatchError> {
+        Err(frame_support::pallet_prelude::DispatchError::Other("PostMutator not configured"))
+    }
+}
+
+/// Storage release implemented by pallet-storage; thin shim over `StorageInterface::do_release_fragment`.
+pub trait StorageReleaser {
+    fn release_fragment(content_hash: [u8; 32]) -> frame_support::pallet_prelude::DispatchResult;
+}
+
+/// No-op for mock runtimes.
+impl StorageReleaser for () {
+    fn release_fragment(_content_hash: [u8; 32]) -> frame_support::pallet_prelude::DispatchResult {
+        Ok(())
+    }
+}
+
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;

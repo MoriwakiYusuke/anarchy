@@ -2041,3 +2041,11 @@ impl<T: Config> StorageInterface<T::AccountId, BlockNumberFor<T>> for Pallet<T> 
         Ok(())
     }
 }
+
+// ============ StorageReleaser Implementation ============
+
+impl<T: Config> pallet_popularity::StorageReleaser for Pallet<T> {
+    fn release_fragment(content_hash: [u8; 32]) -> frame_support::pallet_prelude::DispatchResult {
+        <Self as StorageInterface<T::AccountId, BlockNumberFor<T>>>::do_release_fragment(content_hash)
+    }
+}
