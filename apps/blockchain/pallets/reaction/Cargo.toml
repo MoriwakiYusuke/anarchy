@@ -24,6 +24,9 @@ pallet-balances = { workspace = true }
 # Shared PoW primitives
 primitives-pow = { path = "../../primitives/pow", default-features = false }
 
+# Popularity sink (push-only via PopularityInterface trait)
+pallet-popularity = { path = "../popularity", default-features = false }
+
 [dev-dependencies]
 sp-core = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }
@@ -41,6 +44,7 @@ std = [
     "sp-core/std",
     "pallet-balances/std",
     "primitives-pow/std",
+    "pallet-popularity/std",
 ]
 runtime-benchmarks = [
     "frame-support/runtime-benchmarks",

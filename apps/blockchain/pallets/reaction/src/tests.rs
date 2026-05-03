@@ -97,6 +97,7 @@ impl pallet_reaction::Config for Test {
     type TargetReactionRate = ConstU32<10>;
     type AdjustmentWindow = ConstU64<10>;
     type AdjustmentDivisor = ConstU32<2>;
+    type Popularity = ();
 }
 
 fn new_test_ext() -> sp_io::TestExternalities {

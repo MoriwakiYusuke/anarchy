@@ -29,6 +29,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::pallet_prelude::*;
+    use pallet_popularity::{PopularityInterface, PopularityReactionType};
     use parity_scale_codec::DecodeWithMemTracking;
     use primitives_pow::{compute_challenge, verify_proof};
     use sp_runtime::Saturating;
@@ -115,6 +116,9 @@ pub mod pallet {
         /// Adjustment divisor for smooth difficulty changes
         #[pallet::constant]
         type AdjustmentDivisor: Get<u32>;
+
+        /// Popularity sink — receives push notifications when a reaction is recorded.
+        type Popularity: pallet_popularity::PopularityInterface;
     }
 
     /// Reaction records: (post_id, reactor) -> Reaction
@@ -330,6 +334,13 @@ pub mod pallet {
                     // If pool is empty or mint fails, no reward is paid (reward_paid stays 0)
                 }
             }
+
+            // Push the reaction into popularity (Like/Bad → Like/Dislike).
+            let pop_kind = match reaction_type {
+                ReactionType::Like => PopularityReactionType::Like,
+                ReactionType::Bad => PopularityReactionType::Dislike,
+            };
+            T::Popularity::on_reaction(post_id, pop_kind);
 
             Self::deposit_event(Event::ReactionCreated {
                 post_id,
