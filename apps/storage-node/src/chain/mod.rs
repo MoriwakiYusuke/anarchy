@@ -362,18 +362,33 @@ impl ChainClient {
         }
     }
 
-    /// Check if a fragment is registered on-chain (FR-107)
+    /// Check if a fragment is registered on-chain (FR-107).
+    ///
+    /// (#30-C-2) Used by the libp2p Put handler to authenticate incoming
+    /// fragment writes: only fragment ids that the chain has registered
+    /// (i.e. someone paid for them) may be stored. Without this check,
+    /// any peer could fill our disk with arbitrary data.
+    ///
+    /// Queries `Storage::Fragments(fragment_id)` via subxt dynamic storage.
+    /// `Ok(true)` means the fragment record exists on chain.
     pub async fn fragment_exists(&self, fragment_id: &FragmentId) -> Result<bool> {
-        debug!(fragment_id = %hex::encode(fragment_id), "Checking fragment existence");
-        
-        // Note: Full implementation would query chain:
-        // let storage_query = anarchy::storage().storage().fragments(fragment_id);
-        // let result = self.api.storage().at_latest().await?.fetch(&storage_query).await?;
-        // Ok(result.is_some())
-        
-        // Stub: Return false (fragment not found)
-        warn!("Chain client not connected, returning false for fragment existence");
-        Ok(false)
+        debug!(fragment_id = %hex::encode(fragment_id), "Checking fragment existence on-chain");
+
+        let client = self.ensure_subxt_client().await?;
+        let query = subxt::dynamic::storage(
+            "Storage",
+            "Fragments",
+            vec![Value::from_bytes(fragment_id.to_vec())],
+        );
+        let result = client
+            .storage()
+            .at_latest()
+            .await
+            .context("Failed to acquire storage handle")?
+            .fetch(&query)
+            .await
+            .context("Failed to fetch Fragments storage")?;
+        Ok(result.is_some())
     }
 
     /// Declare holding of a fragment (submits extrinsic)

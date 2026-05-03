@@ -344,7 +344,7 @@ async fn main() -> anyhow::Result<()> {
                     debug!(error = %e, "Failed to process pending challenges");
                 }
             }
-            event = network.handle_event(store.as_ref()) => {
+            event = network.handle_event(store.as_ref(), chain_client.as_ref()) => {
                 match event {
                     Ok(Some(network::NetworkEvent::Listening(addr))) => {
                         info!(addr = %addr, "Now listening on");

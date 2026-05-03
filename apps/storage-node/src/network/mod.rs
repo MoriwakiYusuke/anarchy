@@ -348,10 +348,14 @@ impl Network {
         self.swarm.behaviour_mut().fragment_protocol.send_request(&peer, request);
     }
 
-    /// Process incoming events (call in event loop)
+    /// Process incoming events (call in event loop).
+    ///
+    /// `chain_client` is required so that `Put` requests can be authenticated
+    /// against on-chain fragment registration (#30-C-2).
     pub async fn handle_event(
         &mut self,
         store: &FragmentStore,
+        chain_client: &crate::chain::ChainClient,
     ) -> Result<Option<NetworkEvent>> {
         match self.swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => {
@@ -374,7 +378,7 @@ impl Network {
                 match message {
                     request_response::Message::Request { request, channel, .. } => {
                         debug!(peer = %peer, "Received request: {:?}", request);
-                        let (response, stored_fragment) = self.handle_request(store, request)?;
+                        let (response, stored_fragment) = self.handle_request(store, chain_client, request).await?;
                         if let Err(e) = self.swarm.behaviour_mut().fragment_protocol.send_response(channel, response) {
                             warn!(peer = %peer, error = ?e, "Failed to send response");
                         }
@@ -472,11 +476,18 @@ impl Network {
         }
     }
 
-    /// Handle an incoming fragment request
-    /// Returns (response, Option<fragment_id>) where fragment_id is set if a fragment was stored
-    fn handle_request(
+    /// Handle an incoming fragment request.
+    ///
+    /// (#30-C-2) Put requests are now authenticated against the chain: the
+    /// fragment_id MUST be registered in `Storage::Fragments` for the write
+    /// to succeed. Without this, any peer could send arbitrary `Put` to fill
+    /// our disk with garbage. We **fail closed** when the chain query errors
+    /// (e.g. chain unreachable), since accepting unverified writes is worse
+    /// than dropping them.
+    async fn handle_request(
         &self,
         store: &FragmentStore,
+        chain_client: &crate::chain::ChainClient,
         request: FragmentRequest,
     ) -> Result<(FragmentResponse, Option<FragmentId>)> {
         match request {
@@ -485,6 +496,36 @@ impl Network {
                 Ok((FragmentResponse::Data(data), None))
             }
             FragmentRequest::Put { fragment_id, data } => {
+                match chain_client.fragment_exists(&fragment_id).await {
+                    Ok(true) => {} // authorized — proceed to store
+                    Ok(false) => {
+                        warn!(
+                            fragment_id = %hex::encode(fragment_id),
+                            "Rejecting Put: fragment not registered on chain"
+                        );
+                        return Ok((
+                            FragmentResponse::Ack {
+                                success: false,
+                                error: Some("fragment not registered on chain".into()),
+                            },
+                            None,
+                        ));
+                    }
+                    Err(e) => {
+                        warn!(
+                            fragment_id = %hex::encode(fragment_id),
+                            error = %e,
+                            "Rejecting Put: chain check failed (fail-closed)"
+                        );
+                        return Ok((
+                            FragmentResponse::Ack {
+                                success: false,
+                                error: Some("chain unavailable, cannot authorize".into()),
+                            },
+                            None,
+                        ));
+                    }
+                }
                 match store.store(fragment_id, &data) {
                     Ok(()) => {
                         // Return fragment_id for auto-declare (T056)
