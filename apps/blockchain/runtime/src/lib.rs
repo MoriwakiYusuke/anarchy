@@ -147,7 +147,10 @@ impl frame_system::Config for Runtime {
     type Hash = Hash;
     type Hashing = BlakeTwo256;
     type Lookup = sp_runtime::traits::AccountIdLookup<AccountId, ()>;
-    type MaxConsumers = ConstU32<16>;
+    // (#38-MED-4) headroom for additional pallets (storage / messaging / stealth / nickname).
+    // Bumped from 16 → 64 so accounts referenced by many pallets are not rejected with
+    // `TooManyConsumers` once we add features beyond the original 16-pallet baseline.
+    type MaxConsumers = ConstU32<64>;
     type AccountData = pallet_balances::AccountData<Balance>;
     type SS58Prefix = ConstU16<42>; // Substrate generic (5で始まるアドレス)
 }
@@ -683,20 +686,15 @@ impl_runtime_apis! {
                 .collect()
         }
         
-        fn is_registered_storage_node(operator: [u8; 32], http_url: Vec<u8>) -> bool {
+        fn is_registered_storage_node(operator: [u8; 32]) -> bool {
             // Convert operator bytes to AccountId
             let account_id: AccountId = operator.into();
-            
-            // Check if operator has a registered node
-            if let Some(peer_id) = pallet_storage::OperatorNodes::<Runtime>::get(&account_id) {
-                // Get the node info
-                if let Some(node_info) = pallet_storage::StorageNodes::<Runtime>::get(&peer_id) {
-                    // Verify the http_url matches
-                    return node_info.http_url.to_vec() == http_url;
-                }
-            }
-            
-            false
+
+            // (#27-HIGH-3) Only verify that the operator HAS a registered node.
+            // The previous URL match leaked the stored URL via brute-force probing.
+            pallet_storage::OperatorNodes::<Runtime>::get(&account_id)
+                .and_then(|peer_id| pallet_storage::StorageNodes::<Runtime>::get(&peer_id))
+                .is_some()
         }
         
         // ============ Self-Repair APIs (013-slashing-repair T027-T028) ============

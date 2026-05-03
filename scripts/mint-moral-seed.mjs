@@ -48,6 +48,14 @@ if (args.length < 1) {
 // シードフレーズ取得
 let seedPhrase = args[0]
 if (seedPhrase.toLowerCase() === 'dev') {
+  // (#42-MED-5) `dev` ショートカットは NODE_ENV=development のときだけ許可。
+  // production ノードに対して誤って使うと Alice 残高が他人の秘密鍵経由で
+  // 引き出される事故になる。
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ DEV_PHRASE shortcut is forbidden when NODE_ENV=production.')
+    console.error('   Set NODE_ENV=development or pass an explicit seed phrase.')
+    process.exit(1)
+  }
   seedPhrase = DEV_PHRASE
   console.log('開発用シードフレーズ(DEV_PHRASE)を使用します')
 }

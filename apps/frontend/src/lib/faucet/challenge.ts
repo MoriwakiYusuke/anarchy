@@ -92,6 +92,14 @@ export function verifyProof(challenge: Uint8Array, nonce: bigint, difficulty: nu
  */
 export function hexToBytes(hex: string): Uint8Array {
   const cleanHex = hex.startsWith('0x') ? hex.slice(2) : hex
+  // (#40-LOW-6) validate format — odd length or non-hex chars previously
+  // produced silently corrupted Uint8Array (NaN bytes coerced to 0).
+  if (cleanHex.length % 2 !== 0) {
+    throw new Error(`hexToBytes: hex string must have even length (got ${cleanHex.length})`)
+  }
+  if (!/^[0-9a-fA-F]*$/.test(cleanHex)) {
+    throw new Error('hexToBytes: hex string contains non-hex characters')
+  }
   const bytes = new Uint8Array(cleanHex.length / 2)
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16)

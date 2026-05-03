@@ -15,6 +15,7 @@ import { getWsProvider } from 'polkadot-api/ws-provider/node'
 import { getPolkadotSigner } from 'polkadot-api/signer'
 import { sr25519CreateDerive } from '@polkadot-labs/hdkd'
 import { DEV_PHRASE, entropyToMiniSecret, mnemonicToEntropy } from '@polkadot-labs/hdkd-helpers'
+import { decodeAddress } from '@polkadot/util-crypto'
 
 const WS_ENDPOINT = process.env.WS_ENDPOINT || 'ws://127.0.0.1:9944'
 
@@ -52,6 +53,16 @@ const testAccounts = {
 
 if (testAccounts[targetAddress]) {
   targetAddress = testAccounts[targetAddress]
+}
+
+// (#42-MED-1) SS58 アドレス検証 — 不正なアドレスでスクリプトを走らせて
+// fund を Alice からブラックホールに飛ばす事故を防ぐ。decode に失敗したら exit。
+try {
+  decodeAddress(targetAddress)
+} catch (err) {
+  console.error(`❌ Invalid SS58 address: ${targetAddress}`)
+  console.error(`   ${err.message ?? err}`)
+  process.exit(1)
 }
 
 async function main() {

@@ -151,7 +151,7 @@ start_node() {
 
 start_all() {
     local node_count="${1:-$DEFAULT_NODE_COUNT}"
-    
+
     # 多重起動チェック
     for name in "${NODE_NAMES[@]}"; do
         local pid_file="$DATA_DIR/$name.pid"
@@ -164,15 +164,27 @@ start_all() {
             rm -f "$pid_file"
         fi
     done
-    
+
     # バリデーション
     if [ "$node_count" -lt 1 ] || [ "$node_count" -gt $MAX_NODE_COUNT ]; then
         log_error "Node count must be between 1 and $MAX_NODE_COUNT"
         exit 1
     fi
-    
+
     check_binary
     create_dirs
+
+    # (#36-HIGH-3) ポート衝突を起動前に検出。lsof が無い環境では skip。
+    if command -v lsof >/dev/null 2>&1; then
+        for ((i=0; i<node_count; i++)); do
+            for port in $((BASE_P2P_PORT + i)) $((BASE_P2P_PORT + i + 500)) $((BASE_RPC_PORT + i)); do
+                if lsof -iTCP:"$port" -sTCP:LISTEN -P -n 2>/dev/null | grep -q LISTEN; then
+                    log_error "Port $port is already in use. Stop the conflicting process or pick another base port."
+                    exit 1
+                fi
+            done
+        done
+    fi
     
     # Validator数を決定（最初の2ノード、または全ノードが2未満なら全部）
     local validator_count=2

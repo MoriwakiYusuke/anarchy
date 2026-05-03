@@ -21,7 +21,7 @@ See [`.claude/skills/dev-command/SKILL.md`](.claude/skills/dev-command/SKILL.md)
 - **apps/frontend/** — Next.js 14 App Router + React 18 + TypeScript. Uses PAPI + smoldot light client
 - **packages/wasm-engine/** — Wasm crypto engine (KZG-VSS hybrid via `ark-bls12-381`, Merkle via `rs_merkle`, Blake2b). Built with `wasm-pack`, consumed by frontend as file dependency
 - **scripts/** — PAPI CLI scripts (sudo-mint, transfer, seed mint)
-- **specs/** — Numbered feature specifications (001-identity … 019-direct-messages)
+- **docs/specs/** — Numbered feature specifications (001-identity … 019-direct-messages, 過去の設計資料として保持)
 - **docs/** — Architecture docs, Tor deployment guides
 
 詳細な pallet 実装パターンは [`.claude/skills/backend-patterns/SKILL.md`](.claude/skills/backend-patterns/SKILL.md)、Wasm エンジン内部は [`.claude/skills/wasm-engine/SKILL.md`](.claude/skills/wasm-engine/SKILL.md)、フロント側は [`.claude/skills/frontend-patterns/SKILL.md`](.claude/skills/frontend-patterns/SKILL.md)、セキュリティチェックは [`.claude/skills/security-review/SKILL.md`](.claude/skills/security-review/SKILL.md) を参照。
@@ -74,12 +74,17 @@ The following rules must NEVER be violated. Violations completely destroy trustw
 
 詳細チェックリストは [`.claude/skills/security-review/SKILL.md`](.claude/skills/security-review/SKILL.md)。
 
-### Spec-Driven Development
+### Feature Development Workflow
 
-Feature specifications live in `specs/NNN-feature-name/` with a standard structure: `spec.md`, `plan.md`, `tasks.md`, `research.md`, `quickstart.md`, `contracts/`, `checklists/`. The `.github/agents/` and `.github/prompts/` directories contain SpecKit agents for automated spec workflows.
+新規機能の開発は **Superpowers** スキル群を使う:
 
-<!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at `specs/019-direct-messages/plan.md`.
-<!-- SPECKIT END -->
+- `superpowers:brainstorming` — 要件・設計の探索（実装前に必ず）
+- `superpowers:writing-plans` — multi-step タスクの実装計画作成
+- `superpowers:executing-plans` / `superpowers:subagent-driven-development` — 計画の実行
+- `superpowers:test-driven-development` — 実装前にテストを書く
+- `superpowers:systematic-debugging` — バグ・テスト失敗時
+- `superpowers:verification-before-completion` — "完了" 宣言前の検証
+- `superpowers:requesting-code-review` / `superpowers:receiving-code-review` — レビュー
+- `superpowers:finishing-a-development-branch` — マージ/PR 判断
+
+`docs/specs/NNN-feature-name/` 配下の既存仕様 (001..019) は過去の設計資料として参照可能だが、今後の新規機能で同様のディレクトリは作成しない。

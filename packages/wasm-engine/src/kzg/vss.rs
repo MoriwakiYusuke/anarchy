@@ -391,13 +391,23 @@ fn divide_polynomials(
     }
 
     let mut remainder = a.clone();
-    let b_lead_inv = b.coeffs().last().unwrap().inverse().unwrap();
+    // (#35-FINDING-03) propagate errors instead of unwrap-panic in Wasm.
+    let b_lead = b
+        .coeffs()
+        .last()
+        .ok_or_else(|| KzgError::EncodingError("Divisor polynomial has no leading coefficient".into()))?;
+    let b_lead_inv = b_lead
+        .inverse()
+        .ok_or_else(|| KzgError::EncodingError("Divisor leading coefficient has no inverse".into()))?;
     let b_degree = b.degree();
 
     let mut quotient_coeffs = vec![Fr::zero(); a.degree().saturating_sub(b_degree) + 1];
 
     while !remainder.is_zero() && remainder.degree() >= b_degree {
-        let r_lead = *remainder.coeffs().last().unwrap();
+        let r_lead = *remainder
+            .coeffs()
+            .last()
+            .ok_or_else(|| KzgError::EncodingError("Remainder polynomial empty during division".into()))?;
         let coeff = r_lead * b_lead_inv;
         let shift = remainder.degree() - b_degree;
 
@@ -459,8 +469,11 @@ pub(crate) fn lagrange_interpolate(points: &[(Fr, Fr)]) -> Result<DensePolynomia
             }
         }
 
-        // Scale by y_i / denominator
-        let scale = y_i * denominator.inverse().unwrap();
+        // Scale by y_i / denominator (#35-FINDING-03: propagate inverse failure)
+        let denom_inv = denominator
+            .inverse()
+            .ok_or_else(|| KzgError::EncodingError("Lagrange basis denominator is zero (duplicate x)".into()))?;
+        let scale = y_i * denom_inv;
         let scaled: Vec<Fr> = basis.coeffs().iter().map(|c| *c * scale).collect();
         let term = DensePolynomial::from_coefficients_vec(scaled);
 
@@ -539,7 +552,7 @@ pub fn regenerate_share(
     shares: &[VssShare],
     threshold: u8,
     new_index: u8,
-    _commitment: &KzgCommitment,
+    commitment: &KzgCommitment,
 ) -> Result<(VssShare, KzgProof), KzgError> {
     // Validate inputs
     if shares.len() < threshold as usize {
@@ -548,7 +561,7 @@ pub fn regenerate_share(
     if new_index == 0 {
         return Err(KzgError::InvalidThreshold);
     }
-    
+
     // Check that new_index doesn't conflict with existing share indices
     for share in shares {
         if share.index == new_index {
@@ -573,6 +586,21 @@ pub fn regenerate_share(
 
     // Recover polynomial via Lagrange interpolation
     let polynomial = lagrange_interpolate(&points)?;
+
+    // (#34-FINDING-02) Verify the recovered polynomial commits to the SAME
+    // commitment as the original. Without this check, malicious donor nodes
+    // could collude to produce shares that interpolate to an arbitrary
+    // polynomial — the resulting "regenerated share" would then be unusable
+    // for actual recovery and the new holder would silently hold garbage.
+    //
+    // Computing C' = [f(τ)]₁ from the interpolated polynomial and comparing
+    // against the supplied commitment is mathematically equivalent to verifying
+    // each donor share with `verify_kzg_proof`, but only requires one G1
+    // multi-scalar multiplication instead of N pairings.
+    let recomputed = compute_commitment(&polynomial, srs)?;
+    if recomputed.bytes != commitment.bytes {
+        return Err(KzgError::CommitmentMismatch);
+    }
 
     // Evaluate at new_index to get new share value
     let new_x = Fr::from(new_index as u64);
@@ -600,12 +628,7 @@ pub fn regenerate_share(
     Ok((new_share, proof))
 }
 
-/// Calculate processed data length from original length.
-fn calculate_processed_len(original_len: usize) -> usize {
-    // After compression, data might be smaller
-    // For now, use a generous estimate
-    ((original_len + BYTES_PER_SCALAR - 1) / BYTES_PER_SCALAR) * BYTES_PER_SCALAR
-}
+// (#41-FINDING-10) `calculate_processed_len` was unused dead code; removed.
 
 #[cfg(test)]
 mod tests {

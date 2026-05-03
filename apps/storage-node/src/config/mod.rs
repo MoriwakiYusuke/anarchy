@@ -104,7 +104,10 @@ fn default_srs_path() -> String {
 }
 
 fn default_dev_mode() -> bool {
-    true // Development mode by default (uses test SRS)
+    // SECURITY (#31-H-6): default to false. Test SRS in dev_mode=true is INSECURE
+    // for production (predictable trapdoor). Operators must explicitly opt-in by
+    // setting `dev_mode = true` in config when running locally.
+    false
 }
 
 // NOTE: signer_seed has no default - it MUST be configured explicitly.

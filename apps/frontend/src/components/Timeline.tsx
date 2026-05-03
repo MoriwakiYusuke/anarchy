@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { PolkadotClient } from 'polkadot-api'
 import type { PolkadotSigner } from 'polkadot-api/signer'
 import { useLocale } from '@/i18n'
+import { debugError } from '@/lib/debugLog'
 import { PostItem } from './PostItem'
 import styles from './Timeline.module.css'
 
@@ -203,7 +204,7 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
 
         setPosts(displayPosts)
       } catch (err) {
-        console.error('Failed to fetch posts:', err)
+        debugError('[Timeline] Failed to fetch posts:', err)
       } finally {
         setIsLoading(false)
       }

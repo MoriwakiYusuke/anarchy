@@ -122,9 +122,14 @@ sp_api::decl_runtime_apis! {
         /// Returns a list of (content_hash, is_forgetting_candidate) pairs
         fn get_forgetting_candidates(content_hashes: Vec<ContentHash>) -> Vec<(ContentHash, bool)>;
         
-        /// Verify a storage node registration (PR #22 CRITICAL-3)
-        /// Returns true if the operator is registered and the http_url matches
-        fn is_registered_storage_node(operator: [u8; 32], http_url: Vec<u8>) -> bool;
+        /// Verify a storage node registration (PR #22 CRITICAL-3).
+        ///
+        /// (#27-HIGH-3) Previously this also took the candidate `http_url` and
+        /// compared it on-chain, which let any RPC caller brute-force the
+        /// stored URL of an operator (privacy oracle). The URL parameter has
+        /// been removed; verification of operator identity is sufficient and
+        /// the URL itself stays a server-side concern.
+        fn is_registered_storage_node(operator: [u8; 32]) -> bool;
         
         // ============ Self-Repair APIs (013-slashing-repair T026-T028) ============
         
@@ -861,6 +866,8 @@ pub mod pallet {
 
         /// Invalid KZG proof (pairing check failed)
         InvalidKzgProof,
+        /// Invalid share value length (expected 32 bytes)
+        InvalidShareValue,
         /// Challenge not found
         ChallengeNotFound,
         /// Node not challenged (no active challenge)
@@ -1101,7 +1108,8 @@ pub mod pallet {
             // Check fragment exists
             ensure!(Fragments::<T>::contains_key(fragment_id), Error::<T>::FragmentNotFound);
 
-            // Update FragmentHolders
+            // Update FragmentHolders — track whether actual modification happened
+            let mut modified = false;
             FragmentHolders::<T>::try_mutate(fragment_id, |holders| -> DispatchResult {
                 // Idempotency check - if already holding, just return Ok
                 if holders.iter().any(|h| h == &peer_id) {
@@ -1111,6 +1119,7 @@ pub mod pallet {
                 holders
                     .try_push(peer_id.clone())
                     .map_err(|_| Error::<T>::TooManyHolders)?;
+                modified = true;
                 Ok(())
             })?;
 
@@ -1124,18 +1133,25 @@ pub mod pallet {
                 fragments
                     .try_push(fragment_id)
                     .map_err(|_| Error::<T>::TooManyFragments)?;
+                modified = true;
                 Ok(())
             })?;
 
-            // Increment declaration counter for this block and node
-            DeclareHoldingCountPerBlock::<T>::insert(
-                current_block,
-                &peer_id,
-                crate::rate_limit::increment_declaration_count(current_count),
-            );
+            // SECURITY (#26-CRIT-3): only consume rate-limit budget when state actually changed.
+            // Previously, an idempotent no-op (already declared) still consumed budget, allowing
+            // an adversary to exhaust other operators' rate budget by spamming declared fragments.
+            if modified {
+                DeclareHoldingCountPerBlock::<T>::insert(
+                    current_block,
+                    &peer_id,
+                    crate::rate_limit::increment_declaration_count(current_count),
+                );
+            }
 
-            // Emit event
-            Self::deposit_event(Event::HoldingDeclared { peer_id, fragment_id });
+            // Emit event only on real modification
+            if modified {
+                Self::deposit_event(Event::HoldingDeclared { peer_id, fragment_id });
+            }
 
             Ok(())
         }
@@ -1477,6 +1493,8 @@ pub mod pallet {
         /// # Arguments
         /// * `content_hash` - The content being repaired
         /// * `share_index` - The new share index (should be > original fragment_count)
+        /// * `share_value` - The new share value (32-byte BLS12-381 scalar) — required
+        ///   for real KZG verification. (#26-CRIT-1)
         /// * `kzg_proof` - KZG opening proof (48 bytes)
         #[pallet::call_index(10)]
         #[pallet::weight(Weight::from_parts(100_000_000, 0) + T::DbWeight::get().reads_writes(5, 4))]
@@ -1484,6 +1502,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             content_hash: super::ContentHash,
             share_index: u8,
+            share_value: BoundedVec<u8, ConstU32<32>>,
             kzg_proof: BoundedVec<u8, ConstU32<48>>,
         ) -> DispatchResult {
             let new_holder = ensure_signed(origin)?;
@@ -1511,12 +1530,30 @@ pub mod pallet {
                 Error::<T>::AlreadyHolding
             );
 
-            // Verify KZG proof
-            Self::verify_share_proof(
-                &kzg_fragment.commitment,
+            // (#26-CRIT-1) Real KZG verification — previously this called
+            // `verify_share_proof` which was a stub returning `Ok(true)`,
+            // letting any storage node claim to hold a freshly repaired share
+            // without proving it. Now we pair-check via the same verifier
+            // used by `prove_holding_kzg`.
+            let commitment_arr: [u8; 48] = kzg_fragment.commitment.as_slice()
+                .try_into()
+                .map_err(|_| Error::<T>::InvalidCommitmentLength)?;
+            let share_value_arr: [u8; 32] = share_value.as_slice()
+                .try_into()
+                .map_err(|_| Error::<T>::InvalidShareValue)?;
+            let proof_arr: [u8; 48] = kzg_proof.as_slice()
+                .try_into()
+                .map_err(|_| Error::<T>::InvalidKzgProof)?;
+            let is_valid = crate::kzg::verify_kzg_proof(
+                &commitment_arr,
                 share_index,
-                &kzg_proof,
-            )?;
+                &share_value_arr,
+                &proof_arr,
+            ).map_err(|_| Error::<T>::InvalidKzgProof)?;
+            #[cfg(not(feature = "runtime-benchmarks"))]
+            ensure!(is_valid, Error::<T>::InvalidKzgProof);
+            #[cfg(feature = "runtime-benchmarks")]
+            let _ = is_valid;
 
             // Add new holder to fragment
             KzgFragments::<T>::try_mutate(content_hash, |maybe_fragment| -> DispatchResult {
@@ -1861,48 +1898,11 @@ pub mod pallet {
             candidates
         }
 
-        /// Verify a KZG share proof (T017)
-        ///
-        /// Validates that a share value is correct for the given commitment
-        /// using KZG polynomial commitment verification.
-        ///
-        /// Returns true if the proof is valid, false otherwise.
-        pub fn verify_share_proof(
-            commitment_bytes: &[u8],
-            _share_index: u8,
-            proof_bytes: &[u8],
-        ) -> Result<bool, Error<T>> {
-            // Basic validation
-            if commitment_bytes.len() != 48 {
-                return Err(Error::<T>::InvalidCommitmentLength);
-            }
-            if proof_bytes.len() != 48 {
-                return Err(Error::<T>::InvalidKzgProof);
-            }
-            
-            // KZG proof verification is done in wasm-engine
-            // For on-chain verification, we delegate to the kzg module
-            // which uses the pre-compiled SRS
-            
-            // Note: Full KZG verification requires:
-            // 1. Commitment C (48 bytes)
-            // 2. Proof π (48 bytes)
-            // 3. Point x (share_index)
-            // 4. Value y (share value)
-            // 
-            // The verification checks: e(C - [y]₁, [1]₂) = e(π, [τ - x]₂)
-            //
-            // For now, we perform basic format validation.
-            // Full pairing check would require arkworks integration in runtime,
-            // which is computationally expensive. In production, consider:
-            // - Off-chain worker verification
-            // - Optimistic verification with fraud proofs
-            // - Host function for pairing operations
-            
-            // TODO: Implement full KZG pairing verification
-            // For MVP, we trust the proof format and rely on economic incentives
-            Ok(true)
-        }
+        // (#26-CRIT-1) The previous `verify_share_proof` stub has been removed.
+        // Repair / holding declaration paths now call `crate::kzg::verify_kzg_proof`
+        // directly (the same verifier used by `prove_holding_kzg`), which performs
+        // the real BLS12-381 pairing check against the embedded τ G2 from the
+        // Ethereum KZG ceremony.
 
         /// Slash a node for failed challenges (T046)
         ///
@@ -1922,41 +1922,38 @@ pub mod pallet {
             node: T::AccountId,
             content_hash: ContentHash,
         ) -> DispatchResult {
-            // Verify ProofRecord exists and not already slashed
-            let mut record = ProofRecords::<T>::get(content_hash, &node);
-            
-            // Check if already slashed
-            if record.slashed {
-                return Err(Error::<T>::AlreadySlashed.into());
-            }
-            
-            // Get pending rewards for this node
-            let pending = PendingRewards::<T>::get(&node);
-            
-            // Calculate 50% penalty
-            let penalty = pending / 2;
-            
+            // SECURITY (#27-HIGH-4): use mutate() for atomic read-modify-write on ProofRecords
+            // to avoid inter-block races where two slash paths could both observe slashed=false.
+            let penalty: u128 = ProofRecords::<T>::try_mutate(
+                content_hash,
+                &node,
+                |record| -> Result<u128, DispatchError> {
+                    if record.slashed {
+                        return Err(Error::<T>::AlreadySlashed.into());
+                    }
+                    record.slashed = true;
+                    let pending = PendingRewards::<T>::get(&node);
+                    Ok(pending / 2)
+                },
+            )?;
+
             // Apply penalty: reduce pending rewards
             PendingRewards::<T>::mutate(&node, |p| {
                 *p = p.saturating_sub(penalty);
             });
-            
+
             // Move penalty to RepairRewardPool for this content
             RepairRewardPools::<T>::mutate(content_hash, |pool| {
                 *pool = pool.saturating_add(penalty);
             });
-            
-            // Mark node as slashed
-            record.slashed = true;
-            ProofRecords::<T>::insert(content_hash, &node, record);
-            
+
             // Emit event
             Self::deposit_event(Event::NodeSlashed {
                 node: node.clone(),
                 content_hash,
                 penalty_amount: penalty,
             });
-            
+
             Ok(())
         }
     }

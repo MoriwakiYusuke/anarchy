@@ -20,7 +20,6 @@
   "dependencies": {
     "@polkadot-labs/hdkd": "^0.0.26",
     "@polkadot-labs/hdkd-helpers": "^0.0.27",
-    "@polkadot/api": "^16.0.0",
     "@polkadot/extension-dapp": "^0.62.0",
     "@polkadot/keyring": "^14.0.0",
     "@polkadot/util": "^14.0.0",

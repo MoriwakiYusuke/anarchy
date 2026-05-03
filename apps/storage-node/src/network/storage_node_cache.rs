@@ -9,10 +9,68 @@
 //! removal during garbage collection.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
+
+/// Maximum length of an accepted storage-node URL.
+const MAX_URL_LEN: usize = 256;
+
+/// (#31-H-5) Validate an incoming gossip URL before it is cached / health-checked.
+///
+/// Rejects:
+/// - Non-http(s) schemes
+/// - URLs longer than [`MAX_URL_LEN`]
+/// - Malformed URLs (`url::Url::parse` failure)
+/// - URLs whose host is missing, an IP literal in a private / loopback /
+///   link-local range, the literal `localhost`, or an mDNS `*.local` name
+///
+/// This is a server-side fetch target (see `health_check`), so the
+/// rejection list mirrors classic SSRF defences. Public hostnames /
+/// public IPv4 / global IPv6 are allowed.
+fn validate_endpoint_url(url: &str) -> Result<(), &'static str> {
+    if url.len() > MAX_URL_LEN {
+        return Err("URL too long");
+    }
+    let parsed = url::Url::parse(url).map_err(|_| "URL parse failed")?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return Err("scheme must be http or https"),
+    }
+    let host = parsed.host_str().ok_or("URL has no host")?;
+    if host.eq_ignore_ascii_case("localhost") || host.to_ascii_lowercase().ends_with(".local") {
+        return Err("host is localhost or .local");
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        match ip {
+            IpAddr::V4(v4) => {
+                if v4.is_loopback() || v4.is_private() || v4.is_link_local()
+                    || v4.is_broadcast() || v4.is_unspecified() || v4.is_multicast()
+                {
+                    return Err("IPv4 address is private/loopback/link-local");
+                }
+            }
+            IpAddr::V6(v6) => {
+                if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
+                    return Err("IPv6 address is loopback/unspecified/multicast");
+                }
+                // Reject ULA (fc00::/7). Stable IpAddr doesn't expose
+                // is_unique_local on stable, so detect manually.
+                let segs = v6.segments();
+                if (segs[0] & 0xfe00) == 0xfc00 {
+                    return Err("IPv6 ULA (fc00::/7) rejected");
+                }
+                // Reject link-local fe80::/10
+                if (segs[0] & 0xffc0) == 0xfe80 {
+                    return Err("IPv6 link-local rejected");
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Default TTL for cached storage node endpoints (5 minutes)
 pub const DEFAULT_STORAGE_NODE_TTL_SECS: u32 = 300;
@@ -25,7 +83,7 @@ pub const STORAGE_NODE_GC_INTERVAL: Duration = Duration::from_secs(60);
 /// FR-515: Storage node HTTP RPC endpoint
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StorageNodeEndpoint {
-    /// HTTP RPC URL (e.g., "http://localhost:3030")
+    /// HTTP RPC URL (e.g., "http://test-node:3030")
     pub url: String,
     
     /// Last successful health check timestamp (Unix seconds)
@@ -103,18 +161,21 @@ impl StorageNodeCache {
     }
     
     /// Add or update a storage node endpoint in the cache
-    /// 
+    ///
     /// Returns true if the endpoint was added/updated
     pub async fn insert(&self, endpoint: StorageNodeEndpoint) -> bool {
-        // Validate URL format
-        if !endpoint.url.starts_with("http://") && !endpoint.url.starts_with("https://") {
+        // (#31-H-5) Validate URL to prevent SSRF — `health_check()` actually
+        // fetches `{url}/health` server-side, so an untrusted gossip peer
+        // could otherwise probe internal services (Redis, metadata endpoints,
+        // etc.) by gossipping crafted URLs.
+        if let Err(reason) = validate_endpoint_url(&endpoint.url) {
             warn!(
-                "Rejecting storage node endpoint with invalid URL format: {}",
-                endpoint.url
+                "Rejecting storage node endpoint URL {}: {}",
+                endpoint.url, reason
             );
             return false;
         }
-        
+
         let entry = CacheEntry {
             endpoint: endpoint.clone(),
             added_at: Instant::now(),
@@ -323,9 +384,9 @@ mod tests {
     
     #[tokio::test]
     async fn test_storage_node_endpoint_creation() {
-        let endpoint = StorageNodeEndpoint::new("http://localhost:3030".to_string());
+        let endpoint = StorageNodeEndpoint::new("http://test-node:3030".to_string());
         
-        assert_eq!(endpoint.url, "http://localhost:3030");
+        assert_eq!(endpoint.url, "http://test-node:3030");
         assert_eq!(endpoint.ttl_secs, DEFAULT_STORAGE_NODE_TTL_SECS);
         assert!(!endpoint.is_expired());
     }
@@ -333,13 +394,13 @@ mod tests {
     #[tokio::test]
     async fn test_cache_insert_and_get() {
         let cache = StorageNodeCache::new();
-        let endpoint = make_test_endpoint("http://localhost:3030");
+        let endpoint = make_test_endpoint("http://test-node:3030");
         
         assert!(cache.insert(endpoint.clone()).await);
         
-        let retrieved = cache.get("http://localhost:3030").await;
+        let retrieved = cache.get("http://test-node:3030").await;
         assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().url, "http://localhost:3030");
+        assert_eq!(retrieved.unwrap().url, "http://test-node:3030");
     }
     
     #[tokio::test]
@@ -359,10 +420,10 @@ mod tests {
     #[tokio::test]
     async fn test_cache_health_check() {
         let cache = StorageNodeCache::new();
-        let endpoint = make_test_endpoint("http://localhost:3030");
+        let endpoint = make_test_endpoint("http://test-node:3030");
         
         cache.insert(endpoint).await;
-        cache.mark_health_checked("http://localhost:3030").await;
+        cache.mark_health_checked("http://test-node:3030").await;
         
         let healthy = cache.get_healthy_by_latency().await;
         assert_eq!(healthy.len(), 1);

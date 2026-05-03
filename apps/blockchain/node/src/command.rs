@@ -121,8 +121,14 @@ fn validate_public_addresses(config: &sc_service::Configuration) -> Result<(), S
     Ok(())
 }
 
-/// Apply Tor mode configuration to network settings
-fn apply_tor_mode(tor_mode: TorMode, config: &mut sc_service::Configuration) {
+/// Apply Tor mode configuration to network settings.
+///
+/// Returns `Err` instead of `process::exit` on misconfiguration so that the
+/// caller can shut down RocksDB and other resources gracefully (#28-CRIT-2).
+fn apply_tor_mode(
+    tor_mode: TorMode,
+    config: &mut sc_service::Configuration,
+) -> Result<(), sc_cli::Error> {
     match tor_mode {
         TorMode::Off => {
             log::info!("🌐 Tor mode: OFF - Direct TCP connections (development only)");
@@ -130,7 +136,7 @@ fn apply_tor_mode(tor_mode: TorMode, config: &mut sc_service::Configuration) {
         TorMode::OutboundOnly => {
             log::warn!("⚠️  Tor mode: OUTBOUND-ONLY - Your inbound IP is EXPOSED!");
             log::warn!("⚠️  Use --tor-mode=forced for full anonymity in production");
-            
+
             if !is_running_under_torsocks() {
                 log::warn!("⚠️  Not running under torsocks. Outbound traffic may leak!");
                 log::warn!("⚠️  Use: ./scripts/anarchy-tor.sh ./anarchy-node --tor-mode=outbound-only");
@@ -139,23 +145,26 @@ fn apply_tor_mode(tor_mode: TorMode, config: &mut sc_service::Configuration) {
         TorMode::Forced => {
             // ① Outbound Lock: Require torsocks environment
             if !is_running_under_torsocks() {
-                log::error!("🚫 Tor mode FORCED requires running under torsocks!");
-                log::error!("🚫 Usage: ./scripts/anarchy-tor.sh ./anarchy-node --tor-mode=forced");
-                std::process::exit(1);
+                return Err(sc_cli::Error::Input(
+                    "Tor mode FORCED requires running under torsocks. \
+                     Usage: ./scripts/anarchy-tor.sh ./anarchy-node --tor-mode=forced"
+                        .to_string(),
+                ));
             }
-            
+
             // ② Inbound Lock: Force listen on localhost only
             let localhost_addr: sc_network::Multiaddr = "/ip4/127.0.0.1/tcp/30333"
                 .parse()
                 .expect("Valid multiaddr");
-            
+
             config.network.listen_addresses = vec![localhost_addr];
-            
+
             log::info!("🔒 Tor mode: FORCED - Full anonymity enabled");
             log::info!("🔒 ① Outbound Lock: All traffic via Tor (torsocks detected)");
             log::info!("🔒 ② Inbound Lock: Listening on 127.0.0.1:30333 only (Onion Service required)");
         }
     }
+    Ok(())
 }
 
 impl SubstrateCli for Cli {
@@ -286,8 +295,8 @@ pub fn run() -> sc_cli::Result<()> {
                 };
                 
                 // Apply Tor mode configuration
-                apply_tor_mode(effective_tor_mode, &mut config);
-                
+                apply_tor_mode(effective_tor_mode, &mut config)?;
+
                 service::new_full(config).map_err(sc_cli::Error::Service)
             })
         }

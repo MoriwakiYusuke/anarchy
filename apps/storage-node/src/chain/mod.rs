@@ -112,8 +112,6 @@ pub struct ChainClient {
     subxt_keypair: SubxtKeypair,
     /// subxt OnlineClient for chain interaction
     subxt_client: Mutex<Option<OnlineClient<SubstrateConfig>>>,
-    /// Connection status
-    connected: bool,
     /// Track holdings: hash → (post_id, index)
     holding_map: Mutex<HashMap<FragmentId, (u64, u32)>>,
     /// Retry configuration for reconnection (Issue 10 fix)
@@ -160,17 +158,17 @@ impl ChainClient {
         failover_manager.set_primary(initial_endpoint).await;
         
         // Try to connect via subxt (may fail if node not running)
-        let (subxt_client, connected) = match OnlineClient::<SubstrateConfig>::from_url(endpoint).await {
+        let subxt_client = match OnlineClient::<SubstrateConfig>::from_url(endpoint).await {
             Ok(client) => {
                 info!(endpoint = endpoint, "Connected to chain via subxt");
-                (Some(client), true)
+                Some(client)
             }
             Err(e) => {
                 warn!(endpoint = endpoint, error = %e, "Failed to connect via subxt, will retry on first use");
-                (None, false)
+                None
             }
         };
-        
+
         Ok(Self {
             endpoint: endpoint.to_string(),
             failover_manager,
@@ -179,7 +177,6 @@ impl ChainClient {
             signer,
             subxt_keypair,
             subxt_client: Mutex::new(subxt_client),
-            connected,
             holding_map: Mutex::new(HashMap::new()),
             retry_config: RetryConfig::default(),
         })
@@ -365,18 +362,33 @@ impl ChainClient {
         }
     }
 
-    /// Check if a fragment is registered on-chain (FR-107)
+    /// Check if a fragment is registered on-chain (FR-107).
+    ///
+    /// (#30-C-2) Used by the libp2p Put handler to authenticate incoming
+    /// fragment writes: only fragment ids that the chain has registered
+    /// (i.e. someone paid for them) may be stored. Without this check,
+    /// any peer could fill our disk with arbitrary data.
+    ///
+    /// Queries `Storage::Fragments(fragment_id)` via subxt dynamic storage.
+    /// `Ok(true)` means the fragment record exists on chain.
     pub async fn fragment_exists(&self, fragment_id: &FragmentId) -> Result<bool> {
-        debug!(fragment_id = %hex::encode(fragment_id), "Checking fragment existence");
-        
-        // Note: Full implementation would query chain:
-        // let storage_query = anarchy::storage().storage().fragments(fragment_id);
-        // let result = self.api.storage().at_latest().await?.fetch(&storage_query).await?;
-        // Ok(result.is_some())
-        
-        // Stub: Return false (fragment not found)
-        warn!("Chain client not connected, returning false for fragment existence");
-        Ok(false)
+        debug!(fragment_id = %hex::encode(fragment_id), "Checking fragment existence on-chain");
+
+        let client = self.ensure_subxt_client().await?;
+        let query = subxt::dynamic::storage(
+            "Storage",
+            "Fragments",
+            vec![Value::from_bytes(fragment_id.to_vec())],
+        );
+        let result = client
+            .storage()
+            .at_latest()
+            .await
+            .context("Failed to acquire storage handle")?
+            .fetch(&query)
+            .await
+            .context("Failed to fetch Fragments storage")?;
+        Ok(result.is_some())
     }
 
     /// Declare holding of a fragment (submits extrinsic)
@@ -610,9 +622,12 @@ impl ChainClient {
         Ok(vec![])
     }
 
-    /// Check connection status
-    pub fn is_connected(&self) -> bool {
-        self.connected
+    /// Check connection status — reflects the actual subxt client state.
+    /// (#31-H-3): the previous `connected: bool` field was set once at construction
+    /// and never updated, so it lied after reconnects/disconnects. Now reads the
+    /// real client state under the mutex.
+    pub async fn is_connected(&self) -> bool {
+        self.subxt_client.lock().await.is_some()
     }
 
     /// Get remaining rate limit quota

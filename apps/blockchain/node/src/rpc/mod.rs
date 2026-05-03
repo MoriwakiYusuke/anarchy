@@ -1,5 +1,6 @@
 //! RPC拡張
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use rand::seq::SliceRandom;
@@ -29,10 +30,19 @@ pub struct StorageNodeRegistry {
     pub nodes: Vec<RegisteredStorageNode>,
     /// Maximum registry size (Issue 7 fix)
     pub max_size: usize,
+    /// (#28-CRIT-3) Per-operator last successful register timestamp (unix secs).
+    /// Used by `register_endpoint` to enforce a minimum interval between
+    /// re-registration attempts and prevent registry-churn DoS.
+    pub last_register_per_operator: HashMap<[u8; 32], u64>,
 }
 
 /// Default maximum registry size (Issue 7 fix - DoS prevention)
 pub const DEFAULT_MAX_REGISTRY_SIZE: usize = 10_000;
+
+/// (#28-CRIT-3) Minimum seconds between successive register_endpoint calls
+/// from the same operator. Set lower than the timestamp-skew window so that
+/// honest restarts always succeed but a single key can't churn the registry.
+pub const MIN_REREGISTER_INTERVAL_SECS: u64 = 30;
 
 impl StorageNodeRegistry {
     /// 新しいレジストリを作成
@@ -40,6 +50,7 @@ impl StorageNodeRegistry {
         Self {
             nodes: Vec::new(),
             max_size: DEFAULT_MAX_REGISTRY_SIZE,
+            last_register_per_operator: HashMap::new(),
         }
     }
 
@@ -49,7 +60,26 @@ impl StorageNodeRegistry {
         Self {
             nodes: Vec::new(),
             max_size,
+            last_register_per_operator: HashMap::new(),
         }
+    }
+
+    /// (#28-CRIT-3) Returns Err if the operator registered within the last
+    /// `MIN_REREGISTER_INTERVAL_SECS` seconds. On success, records `now` as the
+    /// new last-register time for the operator.
+    pub fn check_and_record_operator_rate(
+        &mut self,
+        operator: [u8; 32],
+        now: u64,
+    ) -> Result<(), u64> {
+        if let Some(&last) = self.last_register_per_operator.get(&operator) {
+            let elapsed = now.saturating_sub(last);
+            if elapsed < MIN_REREGISTER_INTERVAL_SECS {
+                return Err(MIN_REREGISTER_INTERVAL_SECS - elapsed);
+            }
+        }
+        self.last_register_per_operator.insert(operator, now);
+        Ok(())
     }
     
     /// ノードを登録（重複チェック付き）
@@ -115,7 +145,12 @@ impl StorageNodeRegistry {
             return None;
         }
         // merkle_rootから64bitシードを取得
-        let seed = u64::from_le_bytes(merkle_root[..8].try_into().unwrap());
+        // SAFETY: merkle_root は [u8; 32] なので [..8] は常に 8 バイト (try_into は infallible)
+        let seed = u64::from_le_bytes(
+            merkle_root[..8]
+                .try_into()
+                .expect("invariant: merkle_root[..8] is always 8 bytes (merkle_root is [u8; 32])"),
+        );
         // シードと断片インデックスを組み合わせてノード選択
         let node_index = (seed as usize).wrapping_add(fragment_index) % online.len();
         Some(online[node_index])
