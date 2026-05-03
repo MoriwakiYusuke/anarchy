@@ -1,11 +1,11 @@
 //! # Reaction Pallet
 //!
 //! PoW-based reaction mining for posts.
-//! Users can react to posts (Like/Boost/Bad) with PoW proof,
+//! Users can react to posts (Like/Bad) with PoW proof,
 //! post authors receive $moral rewards from the reaction reward pool.
 //!
 //! ## Features
-//! - Like, Boost, Bad reactions with PoW proof
+//! - Like, Bad reactions with PoW proof
 //! - Dynamic difficulty adjustment
 //! - Reward distribution from reaction pool
 //! - Foreground mining enforcement (via client)
@@ -233,7 +233,7 @@ pub mod pallet {
         ///
         /// # Arguments
         /// * `post_id` - The post to react to
-        /// * `reaction_type` - Type of reaction (Like/Boost/Bad)
+        /// * `reaction_type` - Type of reaction (Like/Bad)
         /// * `block_number` - Block number used for challenge generation
         /// * `nonce` - PoW nonce that satisfies difficulty
         /// * `cpu_power` - Reported hashrate (for reward calculation)

@@ -4,14 +4,14 @@ PoW-based reaction mining for posts in the Anarchy decentralized SNS.
 
 ## Overview
 
-This pallet enables users to react to posts (Like/Boost/Bad) with client-side PoW proof verification. Post authors receive MORAL token rewards from the reaction reward pool.
+This pallet enables users to react to posts (Like/Bad) with client-side PoW proof verification. Post authors receive MORAL token rewards from the reaction reward pool.
 
 ## Features
 
-- **Reaction Types**: Like (weight 1x), Boost (weight 5x), Bad (weight 0x, no reward)
+- **Reaction Types**: Like (positive, pays author reward) and Bad (negative, no author reward but still PoW-gated and counts toward popularity-score "interest")
 - **PoW Verification**: Client mines nonce, pallet verifies leading-zero-bits
 - **Dynamic Difficulty**: Adjusts based on network reaction rate
-- **Reward Distribution**: Authors receive fixed 1 MORAL per reaction (capped by pool balance)
+- **Reward Distribution**: Authors receive fixed 1 MORAL per Like reaction (capped by pool balance); Bad reactions do not pay a reward
 - **Foreground Enforcement**: Client-side Page Visibility API ensures mining only in active tabs
 - **Stealth Recipients**: Planned feature (not yet implemented, awaiting pallet-stealth)
 
@@ -38,7 +38,7 @@ Submit a reaction with PoW proof.
 
 **Arguments:**
 - `post_id`: Target post identifier
-- `reaction_type`: Like | Boost | Bad
+- `reaction_type`: Like | Bad
 - `block_number`: Block used for challenge generation
 - `nonce`: PoW nonce satisfying difficulty
 - `cpu_power`: Reported hashrate (affects reward calculation)
