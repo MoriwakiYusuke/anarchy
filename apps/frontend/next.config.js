@@ -4,10 +4,6 @@ const nextConfig = {
   // Transpile polkadot packages to handle WASM and SSR issues
   transpilePackages: [
     'anarchy-wasm-engine',
-    '@polkadot/api',
-    '@polkadot/api-augment',
-    '@polkadot/api-base',
-    '@polkadot/api-derive',
     '@polkadot/keyring',
     '@polkadot/networks',
     '@polkadot/rpc-augment',
