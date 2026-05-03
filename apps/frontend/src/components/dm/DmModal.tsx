@@ -33,6 +33,7 @@ import { initSs58Toolkit, type ScanContext } from '@/lib/dm/scanner';
 import type { SendDmContext } from '@/lib/dm/sender';
 import { sendDmReceipt } from '@/lib/dm/receipt';
 import { startDmScanLoop, type DmScanLoopHandle } from '@/lib/dm/worker';
+import { debugError } from '@/lib/debugLog';
 import { useDmStore } from '@/lib/dm/store';
 import { exportDmBackup, importDmBackup } from '@/lib/dm/keyManager';
 import { ConversationList } from './ConversationList';
@@ -123,7 +124,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
         void sendDmReceipt(
           { counterparty: msg.counterparty, refMessageId: msg.messageId, kind: 'delivered' },
           sendCtx,
-        ).catch((err) => console.error('[dm-receipt][delivered]', err));
+        ).catch((err) => debugError('[dm-receipt][delivered]', err));
       },
     });
     loopRef.current = handle;

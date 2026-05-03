@@ -15,6 +15,7 @@ import type { ScanContext } from './scanner';
 import { scanDmInbox } from './scanner';
 import { useDmStore, receiptKey } from './store';
 import type { DmMessageRecord } from './types';
+import { debugError } from '@/lib/debugLog';
 
 export const FOREGROUND_INTERVAL_MS = 15_000;
 export const BACKGROUND_INTERVAL_MS = 5 * 60_000;
@@ -64,7 +65,7 @@ export function startDmScanLoop(options: DmScanLoopOptions): DmScanLoopHandle {
     clearTimeout: (h) => globalThis.clearTimeout(h as ReturnType<typeof setTimeout>),
   };
   const visibility = options.visibilityImpl ?? defaultVisibility();
-  const onError = options.onError ?? ((e) => console.error('[dm-scan]', e));
+  const onError = options.onError ?? ((e) => debugError('[dm-scan]', e));
 
   let stopped = false;
   let pending: unknown = null;

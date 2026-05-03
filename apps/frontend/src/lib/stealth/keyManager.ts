@@ -47,11 +47,31 @@ async function getWasm(): Promise<WasmModule> {
 }
 
 /**
- * Secure wipe utility - overwrite buffer with zeros
+ * Secure wipe utility - overwrite buffer with zeros (JS view 側のみ)。
+ *
+ * Note: ArrayBuffer は共有されているので fill(0) で実バイトもゼロ化される。
+ * ただし JS GC が同じバッファを別の用途に再利用するまでは値が残る可能性が
+ * あるため、機密データには `freeWasmObject` で Rust 線形メモリ側もゼロ化する
+ * 二段構えを取る。
  */
 function secureWipe(buffer: Uint8Array): void {
   if (buffer) {
     buffer.fill(0);
+  }
+}
+
+/**
+ * wasm-bindgen が生成したオブジェクトの `free()` を呼んで Rust 線形メモリを
+ * 即座に解放する。`StealthKeyPairJs` は内部の `spend_key` / `view_key` を
+ * `Zeroizing<Vec<u8>>` で持つので Drop が memset(0) する。
+ *
+ * `free` が無い場合 (テスト mock 等) は no-op。
+ */
+function freeWasmObject(obj: unknown): void {
+  try {
+    (obj as { free?: () => void }).free?.();
+  } catch {
+    // ignore
   }
 }
 
@@ -83,6 +103,10 @@ export class StealthKeyManager {
       metaAddress: wasmKeys.meta_address,
       createdAt: Date.now(),
     };
+    // Rust 線形メモリ上の Zeroizing<Vec<u8>> を即座に解放 (Drop で memset)。
+    // JS GC FinalizationRegistry に任せると秒〜分単位の遅延が発生し、
+    // その間 wasm メモリに spend_key / view_key の生バイトが残る。
+    freeWasmObject(wasmKeys);
 
     // Register cleanup handler
     this.registerCleanupHandler();
@@ -112,6 +136,7 @@ export class StealthKeyManager {
       metaAddress: wasmKeys.meta_address,
       createdAt: Date.now(),
     };
+    freeWasmObject(wasmKeys);
 
     // Register cleanup handler
     this.registerCleanupHandler();
@@ -144,6 +169,7 @@ export class StealthKeyManager {
       metaAddress: wasmKeys.meta_address,
       createdAt: Date.now(),
     };
+    freeWasmObject(wasmKeys);
 
     this.registerCleanupHandler();
   }

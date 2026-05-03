@@ -27,6 +27,7 @@ import type { PolkadotSigner } from 'polkadot-api/signer';
 import type { AccountId, DmMediaRef, DmMetaAddress, SendDmParams, SendDmResult } from './types';
 import { DmError } from './types';
 import { encodeDmContent } from './contentCodec';
+import { debugError, debugWarn } from '@/lib/debugLog';
 
 type WasmModule = typeof import('anarchy-wasm-engine');
 let wasmModule: WasmModule | null = null;
@@ -654,7 +655,7 @@ export async function sendDm(
         } catch (err) {
           const m = err instanceof Error ? err.message : String(err);
           if (/Stale/i.test(m)) {
-            console.warn('[dm-sender] tx1 stale, retrying once');
+            debugWarn('[dm-sender] tx1 stale, retrying once');
             await new Promise((r) => setTimeout(r, 200));
             return await tx1.signAndSubmit(mainSigner);
           }
@@ -668,11 +669,11 @@ export async function sendDm(
       if (/InsufficientBalance|FundsUnavailable|Token::FundsUnavailable|Payment/i.test(msg)) {
         throw new Error(DmError.MainAccountInsufficientBalance);
       }
-      console.error('[dm-sender] tx1 (send_to_stealth) failed:', e);
+      debugError('[dm-sender] tx1 (send_to_stealth) failed:', e);
       throw new Error(`${DmError.TransactionDropped}: tx1 ${msg}`);
     }
     if (!tx1Result.ok) {
-      console.error('[dm-sender] tx1 dispatch error:', tx1Result);
+      debugError('[dm-sender] tx1 dispatch error:', tx1Result);
       throw new Error(DmError.TransactionDropped);
     }
 
@@ -692,11 +693,11 @@ export async function sendDm(
       tx2Result = await tx2.signAndSubmit(stealthSigner);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error('[dm-sender] tx2 (send_dm) failed:', e);
+      debugError('[dm-sender] tx2 (send_dm) failed:', e);
       throw new Error(`${DmError.TransactionDropped}: tx2 ${msg}`);
     }
     if (!tx2Result.ok) {
-      console.error('[dm-sender] tx2 dispatch error:', tx2Result);
+      debugError('[dm-sender] tx2 dispatch error:', tx2Result);
       throw new Error(DmError.TransactionDropped);
     }
 

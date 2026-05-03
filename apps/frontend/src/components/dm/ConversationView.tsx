@@ -24,6 +24,7 @@ import type { TranslationKey } from '@/i18n';
 import { MessageComposer } from './MessageComposer';
 import { DmMediaDisplay } from './DmMediaDisplay';
 import type { SendDmContext } from '@/lib/dm/sender';
+import { debugError } from '@/lib/debugLog';
 import type { AccountId, ConversationState, DmMessageRecord } from '@/lib/dm/types';
 import { decodeDmContent } from '@/lib/dm/contentCodec';
 import styles from './ConversationView.module.css';
@@ -75,7 +76,7 @@ export function ConversationView({
         { counterparty: conversationId, refMessageId: m.messageId, kind: 'read' },
         context,
       ).catch((err) => {
-        console.error('[dm-receipt][read]', err);
+        debugError('[dm-receipt][read]', err);
       });
     }
   }, [context, conversationId, messages]);
