@@ -1101,7 +1101,8 @@ pub mod pallet {
             // Check fragment exists
             ensure!(Fragments::<T>::contains_key(fragment_id), Error::<T>::FragmentNotFound);
 
-            // Update FragmentHolders
+            // Update FragmentHolders — track whether actual modification happened
+            let mut modified = false;
             FragmentHolders::<T>::try_mutate(fragment_id, |holders| -> DispatchResult {
                 // Idempotency check - if already holding, just return Ok
                 if holders.iter().any(|h| h == &peer_id) {
@@ -1111,6 +1112,7 @@ pub mod pallet {
                 holders
                     .try_push(peer_id.clone())
                     .map_err(|_| Error::<T>::TooManyHolders)?;
+                modified = true;
                 Ok(())
             })?;
 
@@ -1124,18 +1126,25 @@ pub mod pallet {
                 fragments
                     .try_push(fragment_id)
                     .map_err(|_| Error::<T>::TooManyFragments)?;
+                modified = true;
                 Ok(())
             })?;
 
-            // Increment declaration counter for this block and node
-            DeclareHoldingCountPerBlock::<T>::insert(
-                current_block,
-                &peer_id,
-                crate::rate_limit::increment_declaration_count(current_count),
-            );
+            // SECURITY (#26-CRIT-3): only consume rate-limit budget when state actually changed.
+            // Previously, an idempotent no-op (already declared) still consumed budget, allowing
+            // an adversary to exhaust other operators' rate budget by spamming declared fragments.
+            if modified {
+                DeclareHoldingCountPerBlock::<T>::insert(
+                    current_block,
+                    &peer_id,
+                    crate::rate_limit::increment_declaration_count(current_count),
+                );
+            }
 
-            // Emit event
-            Self::deposit_event(Event::HoldingDeclared { peer_id, fragment_id });
+            // Emit event only on real modification
+            if modified {
+                Self::deposit_event(Event::HoldingDeclared { peer_id, fragment_id });
+            }
 
             Ok(())
         }
@@ -1922,41 +1931,38 @@ pub mod pallet {
             node: T::AccountId,
             content_hash: ContentHash,
         ) -> DispatchResult {
-            // Verify ProofRecord exists and not already slashed
-            let mut record = ProofRecords::<T>::get(content_hash, &node);
-            
-            // Check if already slashed
-            if record.slashed {
-                return Err(Error::<T>::AlreadySlashed.into());
-            }
-            
-            // Get pending rewards for this node
-            let pending = PendingRewards::<T>::get(&node);
-            
-            // Calculate 50% penalty
-            let penalty = pending / 2;
-            
+            // SECURITY (#27-HIGH-4): use mutate() for atomic read-modify-write on ProofRecords
+            // to avoid inter-block races where two slash paths could both observe slashed=false.
+            let penalty: u128 = ProofRecords::<T>::try_mutate(
+                content_hash,
+                &node,
+                |record| -> Result<u128, DispatchError> {
+                    if record.slashed {
+                        return Err(Error::<T>::AlreadySlashed.into());
+                    }
+                    record.slashed = true;
+                    let pending = PendingRewards::<T>::get(&node);
+                    Ok(pending / 2)
+                },
+            )?;
+
             // Apply penalty: reduce pending rewards
             PendingRewards::<T>::mutate(&node, |p| {
                 *p = p.saturating_sub(penalty);
             });
-            
+
             // Move penalty to RepairRewardPool for this content
             RepairRewardPools::<T>::mutate(content_hash, |pool| {
                 *pool = pool.saturating_add(penalty);
             });
-            
-            // Mark node as slashed
-            record.slashed = true;
-            ProofRecords::<T>::insert(content_hash, &node, record);
-            
+
             // Emit event
             Self::deposit_event(Event::NodeSlashed {
                 node: node.clone(),
                 content_hash,
                 penalty_amount: penalty,
             });
-            
+
             Ok(())
         }
     }

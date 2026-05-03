@@ -184,9 +184,13 @@ pub mod pallet {
                     }
 
                     let validity = T::ChallengeValidity::get();
+                    // SECURITY: dedupe by account only — using (account, block, nonce) allowed
+                    // multiple unsigned txs for the same account in one block to enter the pool.
+                    // On-chain `claim` re-validates so double-claim is impossible, but pool spam
+                    // is now mitigated at the validate_unsigned stage.
                     ValidTransaction::with_tag_prefix("FaucetClaim")
                         .priority(100)
-                        .and_provides((account.clone(), *block_number, *nonce))
+                        .and_provides(account.clone())
                         .longevity(validity.try_into().unwrap_or(64))
                         .propagate(true)
                         .build()

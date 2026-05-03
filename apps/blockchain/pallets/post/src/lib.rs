@@ -200,7 +200,8 @@ pub mod pallet {
         /// * `parent_id` - 親投稿ID（リプライの場合）
         ///
         /// # Cost
-        /// * 50% base + 30% size + 20% storage deposit
+        /// * `total_cost = PostBaseCost + total_size * PostByteCost`
+        /// * 全額焼却（partial deposit ではない）
         #[pallet::call_index(0)]
         #[pallet::weight(T::DbWeight::get().reads_writes(4, 5))]
         pub fn create_post(
