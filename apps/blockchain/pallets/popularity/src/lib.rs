@@ -197,11 +197,10 @@ pub mod pallet {
         PostDeleted { post_id: u64 },
     }
 
-    #[pallet::error]
-    pub enum Error<T> {
-        /// Defensive — pallet-popularity does not currently expose call_index entries.
-        Unreachable,
-    }
+    // No `#[pallet::error]` block: this pallet has no extrinsics. The hooks
+    // (`on_post_created`, `on_reaction`, `on_finalize`) cannot fail — score updates
+    // are saturating, deletion races drop the queue entry silently, and storage
+    // release is best-effort.
 
     impl<T: Config> Pallet<T> {
         /// Recompute effective score by applying decay since `last_touched`.

@@ -264,3 +264,117 @@ fn deletion_pass_respects_max_deletions_per_block() {
         assert_eq!(deleted_posts().len(), 2);
     });
 }
+
+// ===========================================================================
+// Edge cases (review-pass M5 + I3)
+// ===========================================================================
+
+#[test]
+fn scan_pass_handles_score_already_zero() {
+    new_test_ext().execute_with(|| {
+        run_to_block(1);
+        Popularity::on_post_created(0);
+        set_max_post_id(1);
+        // Force the stored_score to 0 (simulating a post that fully decayed already).
+        crate::pallet::PostScores::<Test>::mutate(0, |e| {
+            e.as_mut().unwrap().stored_score = 0;
+        });
+
+        // Should not panic, must mark for deletion (0 < threshold=1000).
+        Popularity::run_scan_pass(2);
+
+        let p = crate::pallet::PostScores::<Test>::get(0).unwrap();
+        assert_eq!(p.stored_score, 0, "decay of 0 stays 0");
+        assert_eq!(p.marked_for_deletion_at, Some(2));
+        assert_eq!(crate::pallet::DeletionQueue::<Test>::get(0), Some(2 + 10));
+    });
+}
+
+#[test]
+fn on_post_created_twice_resets_to_initial_state() {
+    new_test_ext().execute_with(|| {
+        run_to_block(1);
+        Popularity::on_post_created(7);
+
+        // Mutate to a non-default state.
+        crate::pallet::PostScores::<Test>::mutate(7, |e| {
+            let p = e.as_mut().unwrap();
+            p.stored_score = 500;
+            p.like_count = 5;
+            p.dislike_count = 3;
+            p.marked_for_deletion_at = Some(1);
+        });
+
+        // Defensive re-creation. Production won't hit this (post_id is unique),
+        // but if it ever does we want a clean reset, not a stale record.
+        run_to_block(10);
+        Popularity::on_post_created(7);
+
+        let p = crate::pallet::PostScores::<Test>::get(7).expect("entry");
+        assert_eq!(p.stored_score, 10_000, "InitialScore reset");
+        assert_eq!(p.like_count, 0);
+        assert_eq!(p.dislike_count, 0);
+        assert_eq!(p.last_touched, 10);
+        assert!(p.marked_for_deletion_at.is_none());
+    });
+}
+
+#[test]
+fn deletion_pass_drops_queue_entry_when_post_already_gone() {
+    new_test_ext().execute_with(|| {
+        reset_deletion_trackers();
+        run_to_block(1);
+        Popularity::on_post_created(0);
+        Popularity::on_post_created(1);
+        set_max_post_id(2);
+
+        // Both posts are eligible, but post 0 will fail delete (race: post already removed).
+        crate::pallet::PostScores::<Test>::mutate(0, |e| {
+            e.as_mut().unwrap().marked_for_deletion_at = Some(1);
+        });
+        crate::pallet::PostScores::<Test>::mutate(1, |e| {
+            e.as_mut().unwrap().marked_for_deletion_at = Some(1);
+        });
+        crate::pallet::DeletionQueue::<Test>::insert(0u64, 5u64);
+        crate::pallet::DeletionQueue::<Test>::insert(1u64, 5u64);
+
+        fail_delete_for(0);
+
+        run_to_block(5);
+        Popularity::run_deletion_pass(5);
+
+        // Post 0: PostMutator returned Err → queue entry must be dropped, no event,
+        //         no PostScores prune (mutator owns Posts; popularity keeps score
+        //         until next scan re-evaluates).
+        assert!(crate::pallet::DeletionQueue::<Test>::get(0).is_none(), "queue entry dropped on Err");
+        assert!(crate::pallet::PostScores::<Test>::get(0).is_some(), "score not pruned on Err (no double-effect)");
+        assert!(!deleted_posts().contains(&0), "no successful delete for post 0");
+
+        // Post 1: succeeded normally.
+        assert!(crate::pallet::PostScores::<Test>::get(1).is_none());
+        assert!(crate::pallet::DeletionQueue::<Test>::get(1).is_none());
+        assert!(deleted_posts().contains(&1));
+    });
+}
+
+#[test]
+fn decay_apply_clamps_at_production_max_decay_steps() {
+    use sp_runtime::Permill;
+    // The production runtime uses MaxDecaySteps = 1_000_000. With rate 999_950
+    // (production's DecayRatePermill), 1M ticks decays a 100k score essentially
+    // to 0. Verify the clamp prevents pathological loop runtime even when
+    // delta_blocks far exceeds MaxDecaySteps — the function returns the
+    // result of MaxDecaySteps iterations, not delta_blocks iterations.
+    let production_rate = Permill::from_parts(999_950);
+    let production_cap = 1_000_000u32;
+
+    // delta_blocks = u32::MAX, but cap should kick in at 1M iterations.
+    let result = crate::decay::apply(100_000, u32::MAX, production_rate, production_cap);
+    // After 1M iterations of *0.99995, score should be ~0 (since 0.99995^1M ≈ 1.9e-22).
+    assert!(result < 100, "expected near-zero after 1M iterations, got {}", result);
+
+    // Below the cap, behavior is unchanged.
+    let unclamped = crate::decay::apply(100_000, 500, production_rate, production_cap);
+    // 100_000 * 0.99995^500 ≈ 97_530
+    assert!(unclamped >= 97_400 && unclamped <= 97_600, "got {}", unclamped);
+}

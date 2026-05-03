@@ -190,7 +190,7 @@ if [ "$FULL_MODE" = true ]; then
         run_test "Score Default (T062)" "test_score_default.sh"
         run_test "Proof Success Rate (SC-004)" "test_proof_success_rate.sh"
         run_test "GC Timing (SC-005)" "test_gc_timing.sh"
-        run_test "Popularity API smoke" "test_popularity_lifecycle.sh"
+        run_test "Popularity API smoke" "test_popularity_api_smoke.sh"
     else
         echo ""
         echo -e "${YELLOW}Warning: Testnet not running at http://127.0.0.1:9944${NC}"

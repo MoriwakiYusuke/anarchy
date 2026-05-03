@@ -105,6 +105,8 @@ impl crate::PostCountProvider for MockPostCount {
 thread_local! {
     static DELETED: RefCell<Vec<u64>> = RefCell::new(Vec::new());
     static RELEASED: RefCell<Vec<[u8; 32]>> = RefCell::new(Vec::new());
+    /// post_ids for which the mock should return Err (simulating race "post already gone").
+    static FAIL_DELETE: RefCell<std::collections::HashSet<u64>> = RefCell::new(std::collections::HashSet::new());
 }
 
 pub fn deleted_posts() -> Vec<u64> {
@@ -118,11 +120,23 @@ pub fn released_hashes() -> Vec<[u8; 32]> {
 pub fn reset_deletion_trackers() {
     DELETED.with(|c| c.borrow_mut().clear());
     RELEASED.with(|c| c.borrow_mut().clear());
+    FAIL_DELETE.with(|c| c.borrow_mut().clear());
+}
+
+/// Mark a post id so the next `MockPostMutator::delete_post(post_id)` returns Err.
+pub fn fail_delete_for(post_id: u64) {
+    FAIL_DELETE.with(|c| {
+        c.borrow_mut().insert(post_id);
+    });
 }
 
 pub struct MockPostMutator;
 impl pallet_popularity::PostMutator<u64> for MockPostMutator {
     fn delete_post(post_id: u64) -> Result<[u8; 32], frame_support::pallet_prelude::DispatchError> {
+        let should_fail = FAIL_DELETE.with(|c| c.borrow().contains(&post_id));
+        if should_fail {
+            return Err(frame_support::pallet_prelude::DispatchError::Other("mock: post already gone"));
+        }
         DELETED.with(|c| c.borrow_mut().push(post_id));
         // Synthesize a deterministic merkle_root.
         let mut root = [0u8; 32];
