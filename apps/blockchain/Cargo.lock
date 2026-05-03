@@ -182,6 +182,7 @@ dependencies = [
  "pallet-grandpa",
  "pallet-messaging",
  "pallet-nickname",
+ "pallet-popularity",
  "pallet-post",
  "pallet-reaction",
  "pallet-stealth",

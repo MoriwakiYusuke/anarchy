@@ -74,7 +74,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: Cow::Borrowed("anarchy"),
     impl_name: Cow::Borrowed("anarchy"),
     authoring_version: 1,
-    spec_version: 104,  // Bumped: $moral = native token, removed pallet_moral
+    spec_version: 105,  // Bumped: pallet-popularity wired into Post & Reaction
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 2,  // SignedExtra structure changed (no tip)
@@ -239,6 +239,7 @@ impl pallet_post::Config for Runtime {
     type PostBaseCost = ConstU128<100_000_000_000_000>;
     /// バイト単価: 0.001 MORAL/byte
     type PostByteCost = ConstU128<1_000_000_000>;
+    type Popularity = Popularity;
 }
 
 // Faucet Pallet設定
@@ -348,6 +349,28 @@ impl pallet_reaction::Config for Runtime {
     type AdjustmentWindow = ConstU32<10>;
     /// Adjustment divisor: 4 (smooth changes)
     type AdjustmentDivisor = ConstU32<4>;
+    type Popularity = Popularity;
+}
+
+// Popularity Pallet設定 — pallet-post / pallet-reaction の push 通知を受けて
+// PostScores を維持し、人気度ベースのストレージ解放対象を識別する。
+parameter_types! {
+    /// 1 ブロックあたり 0.005% (= 999_950 / 1_000_000) 残す ≒ 半減期 ~96 時間。
+    pub PopularityDecayRate: sp_runtime::Permill = sp_runtime::Permill::from_parts(999_950);
+}
+
+impl pallet_popularity::Config for Runtime {
+    type InitialScore = ConstU64<100_000>;
+    type LikeWeight = ConstU64<100>;
+    type DislikeWeight = ConstU64<50>;
+    type DecayRatePermill = PopularityDecayRate;
+    type LowPopularityThreshold = ConstU64<1_000>;
+    type HysteresisMargin = ConstU64<500>;
+    /// 7 days * 24 h * 600 blocks/h (6s/block) = 100_800
+    type GracePeriod = ConstU32<100_800>;
+    type MaxPostsScannedPerBlock = ConstU32<8>;
+    type MaxDeletionsPerBlock = ConstU32<4>;
+    type MaxDecaySteps = ConstU32<1_000_000>;
 }
 
 // Messaging (DM) Pallet設定 — contracts/pallet-messaging-extrinsics.md §Dependencies
@@ -388,6 +411,7 @@ construct_runtime!(
         Stealth: pallet_stealth,
         Reaction: pallet_reaction,
         Messaging: pallet_messaging,
+        Popularity: pallet_popularity,
     }
 );
 
