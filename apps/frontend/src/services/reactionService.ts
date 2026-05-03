@@ -3,7 +3,7 @@
  * 
  * Handles reaction submission to the blockchain via PAPI.
  * This service communicates with pallet-reaction for submitting
- * PoW-verified reactions (Like/Boost/Bad) to posts.
+ * PoW-verified reactions (Like/Bad) to posts.
  * 
  * Feature: 017-reaction-mining
  */
@@ -30,7 +30,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
  */
 export enum ReactionType {
   Like = 'Like',
-  Boost = 'Boost',
   Bad = 'Bad',
 }
 
@@ -238,26 +237,25 @@ export async function submitReaction(
  * 
  * @param unsafeApi - PAPI unsafe API
  * @param postId - Target post ID
- * @returns Reaction counts (likes, boosts, bads)
+ * @returns Reaction counts (likes, bads)
  */
 export async function getReactionStats(
   unsafeApi: any,
   postId: bigint
-): Promise<{ likes: number; boosts: number; bads: number } | null> {
+): Promise<{ likes: number; bads: number } | null> {
   try {
     const stats = await withTimeout(
-      unsafeApi.query.Reaction.ReactionStatsStorage.getValue(postId) as Promise<{ likes: number; boosts: number; bads: number } | null>,
+      unsafeApi.query.Reaction.ReactionStatsStorage.getValue(postId) as Promise<{ likes: number; bads: number } | null>,
       RPC_TIMEOUT_MS,
       'Reaction.ReactionStatsStorage query'
     )
-    
+
     if (!stats) {
-      return { likes: 0, boosts: 0, bads: 0 }
+      return { likes: 0, bads: 0 }
     }
-    
+
     return {
       likes: Number(stats.likes),
-      boosts: Number(stats.boosts),
       bads: Number(stats.bads),
     }
   } catch {

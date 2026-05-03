@@ -50,7 +50,6 @@ interface Props {
   signer?: PolkadotSigner | null
   /** Reaction counts */
   likes?: number
-  boosts?: number
   bads?: number
 }
 
@@ -66,7 +65,6 @@ export function PostItem({
   account,
   signer,
   likes,
-  boosts,
   bads,
 }: Props) {
   const { t } = useLocale()
@@ -263,7 +261,6 @@ export function PostItem({
           account={account}
           signer={signer}
           likes={likes}
-          boosts={boosts}
           bads={bads}
         />
       </footer>

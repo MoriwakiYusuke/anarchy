@@ -94,7 +94,6 @@ jest.mock('@/services/reactionService', () => ({
   }),
   ReactionType: {
     Like: 'Like',
-    Boost: 'Boost',
     Bad: 'Bad',
   },
 }))

@@ -28,13 +28,6 @@ const ThumbsUpIcon: React.FC<{ filled?: boolean }> = ({ filled }) => (
   </svg>
 )
 
-/** Boost icon (heart) */
-const HeartIcon: React.FC<{ filled?: boolean }> = ({ filled }) => (
-  <svg viewBox="0 0 24 24" width="18" height="18" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
-    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-  </svg>
-)
-
 /** Bad icon (thumbs down) */
 const BadIcon: React.FC = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
@@ -49,8 +42,6 @@ export interface ReactionButtonProps {
   postId: number
   /** Current like count */
   likes?: number
-  /** Current boost count */
-  boosts?: number
   /** Current bad count */
   bads?: number
   /** PAPI client */
@@ -68,7 +59,6 @@ export interface ReactionButtonProps {
 export const ReactionButton: React.FC<ReactionButtonProps> = ({
   postId,
   likes = 0,
-  boosts = 0,
   bads = 0,
   client,
   unsafeApi,
@@ -79,8 +69,8 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
   const { t } = useLocale()
   const [selectedType, setSelectedType] = useState<ReactionType | null>(null)
   const [loading, setLoading] = useState<ReactionType | null>(null)
-  const [localCounts, setLocalCounts] = useState({ likes, boosts, bads })
-  // 投稿ごとに1回のみリアクション可能（Like/Boost/Badのいずれか）
+  const [localCounts, setLocalCounts] = useState({ likes, bads })
+  // 投稿ごとに1回のみリアクション可能（Like/Bad のいずれか）
   const [hasReacted, setHasReacted] = useState(false)
   const [reactedType, setReactedType] = useState<ReactionType | null>(null)
   // チェーン側でAlreadyReactedエラーが返ってきた場合
@@ -113,8 +103,6 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
       const type = pendingTypeRef.current
       if (type === ReactionType.Like) {
         setLocalCounts((c) => ({ ...c, likes: c.likes + 1 }))
-      } else if (type === ReactionType.Boost) {
-        setLocalCounts((c) => ({ ...c, boosts: c.boosts + 1 }))
       } else if (type === ReactionType.Bad) {
         setLocalCounts((c) => ({ ...c, bads: c.bads + 1 }))
       }
@@ -199,22 +187,6 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
             <ThumbsUpIcon filled={false} />,
             <ThumbsUpIcon filled={true} />,
             reactedType === ReactionType.Like
-          )}
-        </button>
-
-        <button
-          type="button"
-          className={`${styles.btn} ${styles.boostBtn} ${reactedType === ReactionType.Boost ? styles.active : ''}`}
-          onClick={() => handleClick(ReactionType.Boost)}
-          disabled={isNotConnected || hasReacted || isProcessing}
-          aria-label="Boost"
-        >
-          {getButtonContent(
-            ReactionType.Boost,
-            localCounts.boosts,
-            <HeartIcon filled={false} />,
-            <HeartIcon filled={true} />,
-            reactedType === ReactionType.Boost
           )}
         </button>
 

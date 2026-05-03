@@ -152,7 +152,6 @@ describe('ReactionService', () => {
   describe('ReactionType enum', () => {
     test('should have correct values', () => {
       expect(ReactionType.Like).toBe('Like')
-      expect(ReactionType.Boost).toBe('Boost')
       expect(ReactionType.Bad).toBe('Bad')
     })
   })
