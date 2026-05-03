@@ -112,8 +112,6 @@ pub struct ChainClient {
     subxt_keypair: SubxtKeypair,
     /// subxt OnlineClient for chain interaction
     subxt_client: Mutex<Option<OnlineClient<SubstrateConfig>>>,
-    /// Connection status
-    connected: bool,
     /// Track holdings: hash → (post_id, index)
     holding_map: Mutex<HashMap<FragmentId, (u64, u32)>>,
     /// Retry configuration for reconnection (Issue 10 fix)
@@ -160,17 +158,17 @@ impl ChainClient {
         failover_manager.set_primary(initial_endpoint).await;
         
         // Try to connect via subxt (may fail if node not running)
-        let (subxt_client, connected) = match OnlineClient::<SubstrateConfig>::from_url(endpoint).await {
+        let subxt_client = match OnlineClient::<SubstrateConfig>::from_url(endpoint).await {
             Ok(client) => {
                 info!(endpoint = endpoint, "Connected to chain via subxt");
-                (Some(client), true)
+                Some(client)
             }
             Err(e) => {
                 warn!(endpoint = endpoint, error = %e, "Failed to connect via subxt, will retry on first use");
-                (None, false)
+                None
             }
         };
-        
+
         Ok(Self {
             endpoint: endpoint.to_string(),
             failover_manager,
@@ -179,7 +177,6 @@ impl ChainClient {
             signer,
             subxt_keypair,
             subxt_client: Mutex::new(subxt_client),
-            connected,
             holding_map: Mutex::new(HashMap::new()),
             retry_config: RetryConfig::default(),
         })
@@ -610,9 +607,12 @@ impl ChainClient {
         Ok(vec![])
     }
 
-    /// Check connection status
-    pub fn is_connected(&self) -> bool {
-        self.connected
+    /// Check connection status — reflects the actual subxt client state.
+    /// (#31-H-3): the previous `connected: bool` field was set once at construction
+    /// and never updated, so it lied after reconnects/disconnects. Now reads the
+    /// real client state under the mutex.
+    pub async fn is_connected(&self) -> bool {
+        self.subxt_client.lock().await.is_some()
     }
 
     /// Get remaining rate limit quota

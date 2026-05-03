@@ -117,7 +117,23 @@ pub struct RpcState {
 /// Create the HTTP RPC router (NFR-002: /metrics endpoint)
 pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics: Metrics) -> Router {
     let auth_state = AuthState::new(auth_enabled);
-    let state = RpcState { 
+
+    // SECURITY (#31-H-4): periodically GC the nonce-replay cache.
+    // Without this the cache grew unboundedly until process restart, defeating its
+    // memory bound and slowing every auth check linearly.
+    if auth_enabled {
+        let gc_state = auth_state.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+            ticker.tick().await; // skip first immediate tick
+            loop {
+                ticker.tick().await;
+                gc_state.gc();
+            }
+        });
+    }
+
+    let state = RpcState {
         store,
         auth: auth_state.clone(),
         metrics,
