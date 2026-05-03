@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { computeChallenge, hexToBytes } from '@/lib/faucet/challenge'
+import { debugLog, debugWarn, debugError } from '@/lib/debugLog'
 import type { WorkerMessage, MineRequest } from '@/lib/faucet/worker'
 
 /** Timeout for RPC calls in milliseconds (30 seconds) */
@@ -254,7 +255,7 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
           'Faucet.Claims pre-check'
         )
         if (alreadyClaimed) {
-          console.log('[useFaucet] Account already claimed (pre-check)')
+          debugLog('[useFaucet] Account already claimed (pre-check)')
           throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
         }
       } catch (preCheckErr: any) {
@@ -263,7 +264,7 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
           throw preCheckErr
         }
         // Otherwise ignore pre-check errors (might not have Claims storage yet)
-        console.warn('[useFaucet] Pre-check error (ignoring):', preCheckErr)
+        debugWarn('[useFaucet] Pre-check error (ignoring):', preCheckErr)
       }
       
       // Submit transaction and wait for finalization
@@ -274,15 +275,15 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
           60_000, // 60秒タイムアウト（Finalizedまで待つため長め）
           'client.submit'
         )
-        console.log('[useFaucet] Transaction finalized:', finalizedResult)
+        debugLog('[useFaucet] Transaction finalized:', finalizedResult)
         
         // Check if the transaction was successful
         if (finalizedResult?.ok === false || finalizedResult?.dispatchError) {
-          console.error('[useFaucet] Transaction failed:', finalizedResult)
+          debugError('[useFaucet] Transaction failed:', finalizedResult)
           throw new Error('AlreadyClaimed: This account has already claimed from the faucet')
         }
       } catch (submitError: any) {
-        console.error('[useFaucet] Submit error:', submitError)
+        debugError('[useFaucet] Submit error:', submitError)
         const message = submitError?.message || submitError?.toString() || 'Submit failed'
         if (
           message.includes('Invalid') || 
@@ -307,7 +308,7 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
       }, 3000)
 
     } catch (err) {
-      console.error('Faucet error:', err)
+      debugError('[useFaucet] Faucet error:', err)
       
       // Workerクリーンアップ
       if (workerRef.current) {
@@ -348,7 +349,8 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
         setError(null)
       }, 5000)
     }
-  }, [client, unsafeApi, account, status, onSuccess])
+    // (#40-MEDIUM-1) include `signer` so that switching account regenerates startMining
+  }, [client, unsafeApi, account, signer, status, onSuccess])
 
   return {
     status,
