@@ -552,7 +552,7 @@ pub fn regenerate_share(
     shares: &[VssShare],
     threshold: u8,
     new_index: u8,
-    _commitment: &KzgCommitment,
+    commitment: &KzgCommitment,
 ) -> Result<(VssShare, KzgProof), KzgError> {
     // Validate inputs
     if shares.len() < threshold as usize {
@@ -561,7 +561,7 @@ pub fn regenerate_share(
     if new_index == 0 {
         return Err(KzgError::InvalidThreshold);
     }
-    
+
     // Check that new_index doesn't conflict with existing share indices
     for share in shares {
         if share.index == new_index {
@@ -586,6 +586,21 @@ pub fn regenerate_share(
 
     // Recover polynomial via Lagrange interpolation
     let polynomial = lagrange_interpolate(&points)?;
+
+    // (#34-FINDING-02) Verify the recovered polynomial commits to the SAME
+    // commitment as the original. Without this check, malicious donor nodes
+    // could collude to produce shares that interpolate to an arbitrary
+    // polynomial — the resulting "regenerated share" would then be unusable
+    // for actual recovery and the new holder would silently hold garbage.
+    //
+    // Computing C' = [f(τ)]₁ from the interpolated polynomial and comparing
+    // against the supplied commitment is mathematically equivalent to verifying
+    // each donor share with `verify_kzg_proof`, but only requires one G1
+    // multi-scalar multiplication instead of N pairings.
+    let recomputed = compute_commitment(&polynomial, srs)?;
+    if recomputed.bytes != commitment.bytes {
+        return Err(KzgError::CommitmentMismatch);
+    }
 
     // Evaluate at new_index to get new share value
     let new_x = Fr::from(new_index as u64);
