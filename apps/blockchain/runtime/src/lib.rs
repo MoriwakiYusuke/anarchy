@@ -147,7 +147,10 @@ impl frame_system::Config for Runtime {
     type Hash = Hash;
     type Hashing = BlakeTwo256;
     type Lookup = sp_runtime::traits::AccountIdLookup<AccountId, ()>;
-    type MaxConsumers = ConstU32<16>;
+    // (#38-MED-4) headroom for additional pallets (storage / messaging / stealth / nickname).
+    // Bumped from 16 → 64 so accounts referenced by many pallets are not rejected with
+    // `TooManyConsumers` once we add features beyond the original 16-pallet baseline.
+    type MaxConsumers = ConstU32<64>;
     type AccountData = pallet_balances::AccountData<Balance>;
     type SS58Prefix = ConstU16<42>; // Substrate generic (5で始まるアドレス)
 }
