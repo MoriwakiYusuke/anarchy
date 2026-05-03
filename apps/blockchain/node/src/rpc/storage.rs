@@ -436,7 +436,9 @@ impl StorageNodeClient {
     fn chain_auth_header(&self, method: &str) -> Option<String> {
         self.chain_keypair.as_ref().map(|kp| {
             let auth = ChainAuth::create(kp, method);
-            serde_json::to_string(&auth).expect("ChainAuth serialization cannot fail")
+            // SAFETY: ChainAuth は String/u64 のみ含むため serde_json での直列化は infallible
+            serde_json::to_string(&auth)
+                .expect("invariant: ChainAuth contains only String/u64 fields, JSON serialization cannot fail")
         })
     }
 
@@ -745,7 +747,12 @@ where
         }
         
         // オンチェーンノードからもmerkle_rootベースで選択（プライバシー保護）
-        let seed = u64::from_le_bytes(merkle_root[..8].try_into().unwrap());
+        // SAFETY: merkle_root は [u8; 32] なので [..8] は常に 8 バイト (try_into は infallible)
+        let seed = u64::from_le_bytes(
+            merkle_root[..8]
+                .try_into()
+                .expect("invariant: merkle_root[..8] is always 8 bytes (merkle_root is [u8; 32])"),
+        );
         let node_index = (seed as usize).wrapping_add(fragment_index) % on_chain_urls.len();
         Some(self.make_storage_client(on_chain_urls[node_index].clone()))
     }
@@ -988,6 +995,19 @@ where
         // 5. ノードをレジストリに追加
         // 注: オンチェーン登録確認は削除。署名検証で十分（正当なsigner_seedを持つものしか登録できない）
         let mut registry = self.storage_nodes.write().await;
+
+        // (#28-CRIT-3) per-operator rate limit — reject churn-DoS attempts
+        if let Err(retry_after) = registry.check_and_record_operator_rate(operator_bytes, now) {
+            return Err(ErrorObject::owned(
+                ErrorCode::ServerError(-32005).code(),
+                format!(
+                    "Rate limited: operator may re-register in {} seconds",
+                    retry_after
+                ),
+                None::<()>,
+            ));
+        }
+
         let node = RegisteredStorageNode::new(url.clone());
         let registered_at = node.registered_at;
         let latency_ms = node.latency_ms;
@@ -1427,7 +1447,10 @@ where
                 None::<()>,
             ));
         }
-        let share_value: [u8; 32] = shard_data[..32].try_into().unwrap();
+        // SAFETY: 直前の length チェックで shard_data.len() >= 32 を保証済み
+        let share_value: [u8; 32] = shard_data[..32]
+            .try_into()
+            .expect("invariant: shard_data.len() >= 32 was just validated above");
 
         // 6. KZG proof検証 (FR-152)
         let is_valid = verify_kzg_proof(
