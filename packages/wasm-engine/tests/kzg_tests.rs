@@ -472,7 +472,9 @@ fn t028_verify_with_tampered_share_value_fails() {
     // T035 will make this test actually fail with invalid data
     // For now, placeholder returns true, so we just test API
     assert!(result.is_ok(), "verify_kzg_proof should not panic");
-    // TODO: After T035, this should be: assert!(!result.unwrap());
+    // (#34-FINDING-01) Real KZG verification is implemented in wasm-engine,
+    // so failure cases must actually return false rather than only "not panic".
+    assert!(!result.unwrap(), "tampered/invalid proof must fail verification");
 }
 
 #[test]
@@ -498,7 +500,9 @@ fn t028_verify_with_wrong_index_fails() {
     let result = verify_kzg_proof(commitment, wrong_index, &share.value, proof);
     
     assert!(result.is_ok(), "verify_kzg_proof should not panic");
-    // TODO: After T035, this should be: assert!(!result.unwrap());
+    // (#34-FINDING-01) Real KZG verification is implemented in wasm-engine,
+    // so failure cases must actually return false rather than only "not panic".
+    assert!(!result.unwrap(), "tampered/invalid proof must fail verification");
 }
 
 #[test]
@@ -524,7 +528,9 @@ fn t028_verify_with_invalid_proof_fails() {
     // T035 will implement actual verification
     // For now, placeholder returns true, but API should work
     assert!(result.is_ok(), "verify_kzg_proof should not panic");
-    // TODO: After T035, this should be: assert!(!result.unwrap());
+    // (#34-FINDING-01) Real KZG verification is implemented in wasm-engine,
+    // so failure cases must actually return false rather than only "not panic".
+    assert!(!result.unwrap(), "tampered/invalid proof must fail verification");
 }
 
 // ============================================================================
