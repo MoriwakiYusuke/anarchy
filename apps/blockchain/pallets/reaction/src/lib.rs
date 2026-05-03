@@ -44,19 +44,7 @@ pub mod pallet {
     )]
     pub enum ReactionType {
         Like,
-        Boost,
         Bad,
-    }
-
-    impl ReactionType {
-        /// Get the weight multiplier for reward calculation
-        pub fn weight(&self) -> u128 {
-            match self {
-                ReactionType::Like => 1,
-                ReactionType::Boost => 5,
-                ReactionType::Bad => 0,
-            }
-        }
     }
 
     /// Reaction record
@@ -74,9 +62,7 @@ pub mod pallet {
     #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, Default, PartialEq, Eq)]
     pub struct ReactionStats {
         pub likes: u32,
-        pub boosts: u32,
         pub bads: u32,
-        pub total_weight: u128,
     }
 
     /// Difficulty adjustment state
@@ -303,10 +289,8 @@ pub mod pallet {
             ReactionStatsStorage::<T>::mutate(post_id, |stats| {
                 match reaction_type {
                     ReactionType::Like => stats.likes = stats.likes.saturating_add(1),
-                    ReactionType::Boost => stats.boosts = stats.boosts.saturating_add(1),
                     ReactionType::Bad => stats.bads = stats.bads.saturating_add(1),
                 }
-                stats.total_weight = stats.total_weight.saturating_add(reaction_type.weight());
             });
 
             // Update user reaction count
@@ -416,7 +400,7 @@ pub mod pallet {
         fn do_deposit_to_reaction_pool(amount: u128);
 
         /// Get reaction counts for a post
-        fn get_reaction_counts(post_id: u64) -> Option<(u32, u32, u32)>;
+        fn get_reaction_counts(post_id: u64) -> Option<(u32, u32)>;
 
         /// Get bad reaction count for a post
         fn get_bad_count(post_id: u64) -> u32;
@@ -430,9 +414,9 @@ pub mod pallet {
             Self::deposit_event(Event::RewardPoolDeposit { amount });
         }
 
-        fn get_reaction_counts(post_id: u64) -> Option<(u32, u32, u32)> {
+        fn get_reaction_counts(post_id: u64) -> Option<(u32, u32)> {
             let stats = ReactionStatsStorage::<T>::get(post_id);
-            Some((stats.likes, stats.boosts, stats.bads))
+            Some((stats.likes, stats.bads))
         }
 
         fn get_bad_count(post_id: u64) -> u32 {
