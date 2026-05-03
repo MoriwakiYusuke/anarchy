@@ -576,28 +576,38 @@
   - [x] + EXIF 除去 (`lib/mediaProcessor.ts` 流用)
   - [x] + wasm-engine 拡張 (`dm_media_encrypt` / `dm_media_decrypt`、AES-256-GCM 統一)
 
-### + 3.4 投稿人気度システム
+### + 3.4 投稿人気度システム ✅
 
-> **詳細**: [CONCEPTS.md](CONCEPTS.md#投稿人気度システム) を参照
+> **詳細**: [CONCEPTS.md](CONCEPTS.md#投稿人気度システム) / [docs/superpowers/specs/2026-05-03-post-popularity-design.md](superpowers/specs/2026-05-03-post-popularity-design.md) を参照
 
-- [ ] **人気度スコア計算**
-  - [ ] 高評価（Like）: +N スコア
-  - [ ] 低評価（Dislike）: +M スコア（関心として加点）
-  - [ ] 時間経過: 減衰関数（絶対/相対/ランキング相対）
+- [x] **人気度スコア計算** (pallet-popularity)
+  - [x] 高評価（Like）: +N スコア (`LikeWeight = 100`)
+  - [x] 低評価（Dislike/Bad）: +M スコア（関心として加点、`DislikeWeight = 50`）
+  - [x] 時間経過: 相対減衰 (lazy `decay::apply`、`DecayRatePermill = 999_950`)
   - ~~フェッチ（閲覧）: +1 スコア~~ → **却下** (2026-05-03): Sybil 脆弱 + 匿名性矛盾 (Tor 下で IP dedup 不可) + 処理リソース (validator 負荷 / state bloat / storage→chain report 経路) の三重苦。CONCEPTS.md 参照
+  - 追加変更: `pallet-reaction::ReactionType` から `Boost` を削除し Like/Bad の 2 種に整理 (Reddit 風 N/M モデル)
 
-- [ ] **Popularity Pallet** 作成
-  - [ ] `PostPopularity` ストレージ（score, last_interaction, like_count, dislike_count）
-  - [ ] `on_finalize` で減衰適用
-  - [ ] 閾値以下の投稿をマーク
+- [x] **Popularity Pallet** 作成 (`apps/blockchain/pallets/popularity/`)
+  - [x] `PostPopularity` ストレージ（`stored_score`, `last_touched`, `like_count`, `dislike_count`, `marked_for_deletion_at`）
+  - [x] `on_finalize` で bounded round-robin scan + lazy decay 適用 (`MaxPostsScannedPerBlock = 8`)
+  - [x] 閾値以下の投稿をマーク + ヒステリシス復帰 (`LowPopularityThreshold = 1_000`, `HysteresisMargin = 500`)
 
-- [ ] **削除フロー**
-  - [ ] 猶予期間（例: 7日）経過後に削除指示
-  - [ ] ストレージノードへの削除通知
-  - [ ] オンチェーンメタデータ削除
+- [x] **削除フロー**
+  - [x] 猶予期間（`GracePeriod = 100_800` blocks ≈ 7 日）経過後に削除実行 (`MaxDeletionsPerBlock = 4`)
+  - [x] ストレージノードへの削除通知 (`pallet_storage::Event::ForgottenByPolicy { content_hash }` を emit、`StorageInterface::do_release_fragment` 経由)
+  - [x] オンチェーンメタデータ削除 (`PostMutator::delete_post` が Posts/ContentRefs/MerkleRootToPostId/UserPosts を prune)
 
-- [ ] **Sybil対策**
-  - [ ] 自演スコア操作の防止
+- [x] **Sybil対策**
+  - [x] 既存防御層に依存: `AlreadyReacted` チェック + PoW + faucet rate-limit + `PostBaseCost = 10 MORAL` (skin-in-the-game)。追加対策は v1 では入れず、実害確認後に v2 検討
+
+- [x] **Runtime API** (`PopularityApi`)
+  - [x] `get_effective_score(post_id) -> Option<u64>` (decay 適用後)
+  - [x] `get_net_count(post_id) -> Option<i64>` (= like_count - dislike_count、派生)
+  - [x] `get_post_popularity(post_id) -> Option<PostPopularityRpc>` (一括取得)
+
+- [x] **Spec version bump**: 105 (popularity 追加) → 106 (PopularityApi 追加)
+
+> **未実装 (v2 deferred)**: 永続化オプション（追加料金で削除対象外にする機能）、Reactor reputation/age weighting、Governance による decay rate 動的変更、frontend UI（人気度バッジ / 削除予告通知 / ランキング表示）、create-post + react PAPI helper scripts でのフル E2E。詳細は spec §1.2 参照。
 
 <!-- ### 3.5 ステルスアドレス報酬先対応
 
