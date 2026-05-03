@@ -55,8 +55,8 @@ impl ReactionInterface for MockReaction {
         // No-op in pallet-post tests; reaction pool logic tested in pallet-reaction
     }
 
-    fn get_reaction_counts(_post_id: u64) -> Option<(u32, u32, u32)> {
-        Some((0, 0, 0))
+    fn get_reaction_counts(_post_id: u64) -> Option<(u32, u32)> {
+        Some((0, 0))
     }
 
     fn get_bad_count(_post_id: u64) -> u32 {
