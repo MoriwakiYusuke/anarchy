@@ -38,6 +38,19 @@ impl PopularityInterface for () {
     fn on_reaction(_post_id: u64, _kind: PopularityReactionType) {}
 }
 
+/// Implemented by pallet-post (or test mock) so popularity can iterate posts.
+pub trait PostCountProvider {
+    /// Returns `NextPostId` — the upper bound (exclusive) of the post id space.
+    fn next_post_id() -> u64;
+}
+
+/// No-op implementation — returns 0. Used by mock runtimes that don't have a real post pallet.
+impl PostCountProvider for () {
+    fn next_post_id() -> u64 {
+        0
+    }
+}
+
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;

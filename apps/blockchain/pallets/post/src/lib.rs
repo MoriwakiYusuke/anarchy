@@ -331,3 +331,11 @@ pub mod pallet {
         }
     }
 }
+
+// ============ PostCountProvider Implementation ============
+
+impl<T: Config> pallet_popularity::PostCountProvider for Pallet<T> {
+    fn next_post_id() -> u64 {
+        NextPostId::<T>::get()
+    }
+}
