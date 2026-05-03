@@ -5543,6 +5543,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "pallet-balances",
+ "pallet-popularity",
  "pallet-reaction",
  "pallet-storage",
  "parity-scale-codec",

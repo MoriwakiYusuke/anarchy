@@ -130,6 +130,7 @@ impl pallet_post::Config for Test {
     type MaxContentLength = ConstU32<10000>;
     type PostBaseCost = ConstU128<100>; // テスト用: 基本100
     type PostByteCost = ConstU128<10>;  // テスト用: 1バイトあたり10
+    type Popularity = ();
 }
 
 // テスト環境のビルダー
