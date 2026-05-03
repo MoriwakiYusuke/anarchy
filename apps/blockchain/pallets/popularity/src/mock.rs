@@ -67,6 +67,8 @@ impl pallet_popularity::Config for Test {
     type MaxDeletionsPerBlock = ConstU32<2>;
     type MaxDecaySteps = ConstU32<100_000>;
     type PostCountProvider = MockPostCount;
+    type PostMutator = MockPostMutator;
+    type StorageReleaser = MockStorageReleaser;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
@@ -97,5 +99,42 @@ pub struct MockPostCount;
 impl crate::PostCountProvider for MockPostCount {
     fn next_post_id() -> u64 {
         MAX_POST_ID.with(|c| *c.borrow())
+    }
+}
+
+thread_local! {
+    static DELETED: RefCell<Vec<u64>> = RefCell::new(Vec::new());
+    static RELEASED: RefCell<Vec<[u8; 32]>> = RefCell::new(Vec::new());
+}
+
+pub fn deleted_posts() -> Vec<u64> {
+    DELETED.with(|c| c.borrow().clone())
+}
+
+pub fn released_hashes() -> Vec<[u8; 32]> {
+    RELEASED.with(|c| c.borrow().clone())
+}
+
+pub fn reset_deletion_trackers() {
+    DELETED.with(|c| c.borrow_mut().clear());
+    RELEASED.with(|c| c.borrow_mut().clear());
+}
+
+pub struct MockPostMutator;
+impl pallet_popularity::PostMutator<u64> for MockPostMutator {
+    fn delete_post(post_id: u64) -> Result<[u8; 32], frame_support::pallet_prelude::DispatchError> {
+        DELETED.with(|c| c.borrow_mut().push(post_id));
+        // Synthesize a deterministic merkle_root.
+        let mut root = [0u8; 32];
+        root[0..8].copy_from_slice(&post_id.to_le_bytes());
+        Ok(root)
+    }
+}
+
+pub struct MockStorageReleaser;
+impl pallet_popularity::StorageReleaser for MockStorageReleaser {
+    fn release_fragment(h: [u8; 32]) -> frame_support::pallet_prelude::DispatchResult {
+        RELEASED.with(|c| c.borrow_mut().push(h));
+        Ok(())
     }
 }

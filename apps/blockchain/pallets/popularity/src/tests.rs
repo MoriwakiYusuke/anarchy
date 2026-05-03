@@ -6,6 +6,9 @@ use crate::{
     PopularityInterface, PopularityReactionType,
 };
 
+// `mock::*` already brings in `deleted_posts`, `released_hashes`, `reset_deletion_trackers`
+// via the glob import above.
+
 #[test]
 fn on_post_created_inserts_initial_score() {
     new_test_ext().execute_with(|| {
@@ -201,5 +204,63 @@ fn on_finalize_cursor_wraps_around() {
         // The property: cursor stays in [0, max_post_id) after the pass.
         let cursor = ScanCursor::<Test>::get();
         assert!(cursor < 3, "cursor should wrap, got {}", cursor);
+    });
+}
+
+#[test]
+fn deletion_pass_removes_eligible_posts() {
+    new_test_ext().execute_with(|| {
+        reset_deletion_trackers();
+        run_to_block(1);
+        Popularity::on_post_created(0);
+        set_max_post_id(1);
+
+        // Manually mark + queue with eligible_at = 5
+        crate::pallet::PostScores::<Test>::mutate(0, |e| {
+            e.as_mut().unwrap().marked_for_deletion_at = Some(1);
+        });
+        crate::pallet::DeletionQueue::<Test>::insert(0u64, 5u64);
+
+        run_to_block(5);
+        Popularity::run_deletion_pass(5);
+
+        assert!(crate::pallet::PostScores::<Test>::get(0).is_none());
+        assert!(crate::pallet::DeletionQueue::<Test>::get(0).is_none());
+        assert_eq!(deleted_posts(), vec![0]);
+        assert_eq!(released_hashes().len(), 1);
+    });
+}
+
+#[test]
+fn deletion_pass_skips_posts_within_grace_period() {
+    new_test_ext().execute_with(|| {
+        reset_deletion_trackers();
+        run_to_block(1);
+        Popularity::on_post_created(0);
+        set_max_post_id(1);
+        crate::pallet::DeletionQueue::<Test>::insert(0u64, 100u64);
+
+        Popularity::run_deletion_pass(50);
+        assert!(crate::pallet::PostScores::<Test>::get(0).is_some());
+        assert_eq!(crate::pallet::DeletionQueue::<Test>::get(0), Some(100));
+        assert!(deleted_posts().is_empty());
+    });
+}
+
+#[test]
+fn deletion_pass_respects_max_deletions_per_block() {
+    new_test_ext().execute_with(|| {
+        reset_deletion_trackers();
+        run_to_block(1);
+        for id in 0..5u64 {
+            Popularity::on_post_created(id);
+            crate::pallet::DeletionQueue::<Test>::insert(id, 5u64);
+        }
+        set_max_post_id(5);
+
+        run_to_block(5);
+        Popularity::run_deletion_pass(5);
+        // Mock has MaxDeletionsPerBlock = 2.
+        assert_eq!(deleted_posts().len(), 2);
     });
 }

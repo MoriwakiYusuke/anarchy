@@ -141,6 +141,12 @@ pub mod pallet {
 
         /// Provider of the current upper bound (`NextPostId`) for the post id space.
         type PostCountProvider: super::PostCountProvider;
+
+        /// Mutator that deletes posts when the policy fires.
+        type PostMutator: super::PostMutator<Self::AccountId>;
+
+        /// Storage releaser that drops fragment metadata after deletion.
+        type StorageReleaser: super::StorageReleaser;
     }
 
     #[pallet::storage]
@@ -242,7 +248,7 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_finalize(now: BlockNumberFor<T>) {
             Self::run_scan_pass(now);
-            // Deletion sweep added in Phase 5 (Task 5.3).
+            Self::run_deletion_pass(now);
         }
     }
 
@@ -290,6 +296,31 @@ pub mod pallet {
                 cursor = 0;
             }
             ScanCursor::<T>::put(cursor);
+        }
+
+        pub(crate) fn run_deletion_pass(now: BlockNumberFor<T>) {
+            let limit = T::MaxDeletionsPerBlock::get();
+
+            let candidates: sp_std::vec::Vec<(u64, BlockNumberFor<T>)> = DeletionQueue::<T>::iter()
+                .filter(|(_, eligible_at)| now >= *eligible_at)
+                .take(limit as usize)
+                .collect();
+
+            for (post_id, _) in candidates {
+                match T::PostMutator::delete_post(post_id) {
+                    Ok(merkle_root) => {
+                        // Best-effort — log-only if storage release fails.
+                        let _ = T::StorageReleaser::release_fragment(merkle_root);
+                        PostScores::<T>::remove(post_id);
+                        DeletionQueue::<T>::remove(post_id);
+                        Self::deposit_event(Event::PostDeleted { post_id });
+                    }
+                    Err(_) => {
+                        // Post is gone (race). Drop the queue entry.
+                        DeletionQueue::<T>::remove(post_id);
+                    }
+                }
+            }
         }
     }
 }
