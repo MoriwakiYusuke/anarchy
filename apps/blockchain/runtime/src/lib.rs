@@ -371,6 +371,7 @@ impl pallet_popularity::Config for Runtime {
     type MaxPostsScannedPerBlock = ConstU32<8>;
     type MaxDeletionsPerBlock = ConstU32<4>;
     type MaxDecaySteps = ConstU32<1_000_000>;
+    type PostCountProvider = Post;
 }
 
 // Messaging (DM) Pallet設定 — contracts/pallet-messaging-extrinsics.md §Dependencies

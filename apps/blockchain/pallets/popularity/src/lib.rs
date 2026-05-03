@@ -112,6 +112,9 @@ pub mod pallet {
         /// Decay loop iteration cap (DoS guard for huge `delta_blocks`).
         #[pallet::constant]
         type MaxDecaySteps: Get<u32>;
+
+        /// Provider of the current upper bound (`NextPostId`) for the post id space.
+        type PostCountProvider: super::PostCountProvider;
     }
 
     #[pallet::storage]
@@ -206,6 +209,61 @@ pub mod pallet {
                     }
                 }
             });
+        }
+    }
+
+    #[pallet::hooks]
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        fn on_finalize(now: BlockNumberFor<T>) {
+            Self::run_scan_pass(now);
+            // Deletion sweep added in Phase 5 (Task 5.3).
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        pub(crate) fn run_scan_pass(now: BlockNumberFor<T>) {
+            let max_post_id = T::PostCountProvider::next_post_id();
+            if max_post_id == 0 {
+                return;
+            }
+            let scan_limit = T::MaxPostsScannedPerBlock::get();
+            let threshold = T::LowPopularityThreshold::get();
+            let recovery = threshold.saturating_add(T::HysteresisMargin::get());
+            let mut cursor = ScanCursor::<T>::get();
+            let mut scanned = 0u32;
+
+            while scanned < scan_limit {
+                if cursor >= max_post_id {
+                    cursor = 0;
+                }
+                let id = cursor;
+                cursor = cursor.saturating_add(1);
+                scanned = scanned.saturating_add(1);
+
+                if let Some(mut p) = PostScores::<T>::get(id) {
+                    let eff = Pallet::<T>::effective_score_now(&p);
+
+                    if eff < threshold && p.marked_for_deletion_at.is_none() {
+                        p.marked_for_deletion_at = Some(now);
+                        let eligible_at = now.saturating_add(T::GracePeriod::get());
+                        DeletionQueue::<T>::insert(id, eligible_at);
+                        Self::deposit_event(Event::PostMarkedForDeletion { post_id: id, marked_at: now });
+                    } else if eff >= recovery && p.marked_for_deletion_at.is_some() {
+                        p.marked_for_deletion_at = None;
+                        DeletionQueue::<T>::remove(id);
+                        Self::deposit_event(Event::PostUnmarkedForDeletion { post_id: id });
+                    }
+
+                    p.stored_score = eff;
+                    p.last_touched = now;
+                    PostScores::<T>::insert(id, p);
+                }
+            }
+
+            if cursor >= max_post_id {
+                cursor = 0;
+            }
+            ScanCursor::<T>::put(cursor);
         }
     }
 }

@@ -66,6 +66,7 @@ impl pallet_popularity::Config for Test {
     type MaxPostsScannedPerBlock = ConstU32<4>;
     type MaxDeletionsPerBlock = ConstU32<2>;
     type MaxDecaySteps = ConstU32<100_000>;
+    type PostCountProvider = MockPostCount;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
@@ -75,5 +76,26 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 pub fn run_to_block(n: u64) {
     while System::block_number() < n {
         System::set_block_number(System::block_number() + 1);
+    }
+}
+
+use std::cell::RefCell;
+thread_local! {
+    static MAX_POST_ID: RefCell<u64> = RefCell::new(0);
+}
+
+pub fn set_max_post_id(n: u64) {
+    MAX_POST_ID.with(|c| *c.borrow_mut() = n);
+}
+
+#[allow(dead_code)]
+pub fn reset_max_post_id() {
+    MAX_POST_ID.with(|c| *c.borrow_mut() = 0);
+}
+
+pub struct MockPostCount;
+impl crate::PostCountProvider for MockPostCount {
+    fn next_post_id() -> u64 {
+        MAX_POST_ID.with(|c| *c.borrow())
     }
 }

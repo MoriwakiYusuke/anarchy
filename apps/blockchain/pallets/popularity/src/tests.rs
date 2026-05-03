@@ -106,3 +106,100 @@ fn on_reaction_keeps_mark_when_below_recovery() {
         assert!(DeletionQueue::<Test>::get(7).is_some());
     });
 }
+
+use crate::pallet::ScanCursor;
+
+#[test]
+fn on_finalize_marks_post_below_threshold() {
+    new_test_ext().execute_with(|| {
+        run_to_block(1);
+        Popularity::on_post_created(0);
+        set_max_post_id(1);
+        // Push score artificially below threshold (1000)
+        crate::pallet::PostScores::<Test>::mutate(0, |e| {
+            e.as_mut().unwrap().stored_score = 500;
+        });
+
+        Popularity::run_scan_pass(2);
+
+        let p = crate::pallet::PostScores::<Test>::get(0).unwrap();
+        assert_eq!(p.marked_for_deletion_at, Some(2));
+        assert_eq!(crate::pallet::DeletionQueue::<Test>::get(0), Some(2 + 10));
+    });
+}
+
+#[test]
+fn on_finalize_unmarks_post_above_recovery() {
+    new_test_ext().execute_with(|| {
+        run_to_block(1);
+        Popularity::on_post_created(0);
+        set_max_post_id(1);
+        crate::pallet::PostScores::<Test>::mutate(0, |e| {
+            let p = e.as_mut().unwrap();
+            p.stored_score = 800;
+            p.marked_for_deletion_at = Some(1);
+        });
+        crate::pallet::DeletionQueue::<Test>::insert(0u64, 11u64);
+
+        // Score climbs above recovery (1500)
+        crate::pallet::PostScores::<Test>::mutate(0, |e| {
+            e.as_mut().unwrap().stored_score = 2_000;
+        });
+
+        Popularity::run_scan_pass(2);
+        let p = crate::pallet::PostScores::<Test>::get(0).unwrap();
+        assert!(p.marked_for_deletion_at.is_none());
+        assert!(crate::pallet::DeletionQueue::<Test>::get(0).is_none());
+    });
+}
+
+#[test]
+fn on_finalize_does_not_unmark_within_hysteresis_band() {
+    new_test_ext().execute_with(|| {
+        run_to_block(1);
+        Popularity::on_post_created(0);
+        set_max_post_id(1);
+        crate::pallet::PostScores::<Test>::mutate(0, |e| {
+            let p = e.as_mut().unwrap();
+            p.stored_score = 1_200; // > threshold (1000) but < recovery (1500)
+            p.marked_for_deletion_at = Some(1);
+        });
+        crate::pallet::DeletionQueue::<Test>::insert(0u64, 11u64);
+
+        Popularity::run_scan_pass(2);
+        let p = crate::pallet::PostScores::<Test>::get(0).unwrap();
+        assert!(p.marked_for_deletion_at.is_some(), "should remain marked in hysteresis band");
+    });
+}
+
+#[test]
+fn on_finalize_respects_max_posts_scanned() {
+    new_test_ext().execute_with(|| {
+        run_to_block(1);
+        for id in 0..10u64 {
+            Popularity::on_post_created(id);
+        }
+        set_max_post_id(10);
+
+        Popularity::run_scan_pass(2);
+        // Mock has MaxPostsScannedPerBlock = 4, so cursor should be 4.
+        assert_eq!(ScanCursor::<Test>::get(), 4);
+    });
+}
+
+#[test]
+fn on_finalize_cursor_wraps_around() {
+    new_test_ext().execute_with(|| {
+        run_to_block(1);
+        for id in 0..3u64 {
+            Popularity::on_post_created(id);
+        }
+        set_max_post_id(3);
+        ScanCursor::<Test>::put(2u64);
+
+        Popularity::run_scan_pass(2);
+        // The property: cursor stays in [0, max_post_id) after the pass.
+        let cursor = ScanCursor::<Test>::get();
+        assert!(cursor < 3, "cursor should wrap, got {}", cursor);
+    });
+}
