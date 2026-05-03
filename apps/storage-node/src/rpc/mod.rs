@@ -139,8 +139,15 @@ pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics:
         metrics,
     };
     
+    // (#30-C-1) Restrict CORS to localhost. The storage-node is intended to be
+    // reached only by the chain node co-deployed on the same host (CLAUDE.md
+    // Security Principle #5: frontend never connects to storage-node directly).
+    // Wildcard `Any` previously let any web origin issue HTTP RPC calls.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin([
+            "http://127.0.0.1:9944".parse().expect("static origin parses"),
+            "http://localhost:9944".parse().expect("static origin parses"),
+        ])
         .allow_methods(Any)
         .allow_headers(Any);
 

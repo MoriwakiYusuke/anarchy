@@ -85,35 +85,50 @@ impl FragmentStore {
             );
         }
 
-        // Check capacity
+        // (#31-H-1) Reserve capacity atomically before writing. The previous
+        // load-then-add allowed two concurrent callers to both pass the
+        // capacity check and then both write, exceeding the quota.
         let new_size = data.len() as u64;
-        let current_used = self.used.load(Ordering::Relaxed);
-        if current_used + new_size > self.capacity {
-            bail!("Storage quota exceeded: used {} + {} > capacity {}", 
-                current_used, new_size, self.capacity);
+        let prev = self.used.fetch_add(new_size, Ordering::Relaxed);
+        if prev + new_size > self.capacity {
+            // Roll back the reservation and reject.
+            self.used.fetch_sub(new_size, Ordering::Relaxed);
+            bail!(
+                "Storage quota exceeded: used {} + {} > capacity {}",
+                prev, new_size, self.capacity
+            );
         }
 
         // Get path and create parent dirs
         let path = self.fragment_path(&fragment_id);
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .context("Failed to create fragment directory")?;
+            if let Err(e) = fs::create_dir_all(parent) {
+                self.used.fetch_sub(new_size, Ordering::Relaxed);
+                return Err(anyhow::Error::from(e).context("Failed to create fragment directory"));
+            }
         }
 
-        // Check if already exists (idempotent)
+        // Check if already exists (idempotent) — refund the reservation
         if path.exists() {
+            self.used.fetch_sub(new_size, Ordering::Relaxed);
             debug!(fragment_id = %hex::encode(fragment_id), "Fragment already exists, skipping");
             return Ok(());
         }
 
-        // Write file
-        let mut file = File::create(&path)
-            .context("Failed to create fragment file")?;
-        file.write_all(data)
-            .context("Failed to write fragment data")?;
-
-        // Update usage counter
-        self.used.fetch_add(new_size, Ordering::Relaxed);
+        // Write file — refund the reservation on any failure
+        let mut file = match File::create(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                self.used.fetch_sub(new_size, Ordering::Relaxed);
+                return Err(anyhow::Error::from(e).context("Failed to create fragment file"));
+            }
+        };
+        if let Err(e) = file.write_all(data) {
+            self.used.fetch_sub(new_size, Ordering::Relaxed);
+            // Best-effort cleanup of the partially-written file
+            let _ = fs::remove_file(&path);
+            return Err(anyhow::Error::from(e).context("Failed to write fragment data"));
+        }
 
         info!(
             fragment_id = %hex::encode(fragment_id),
