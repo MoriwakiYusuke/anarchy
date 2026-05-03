@@ -5,9 +5,13 @@ import { blake2b } from 'blakejs'
 import { getSharedWorkerPool } from '@/workers/WorkerPool'
 import { uint8ArrayToBase64 } from '@/lib/postCodec'
 
-// Multiple RPC endpoints for failover (add more nodes as they become available)
-// フェイルオーバー用の複数RPCエンドポイント（ノード追加時はここに追加）
-const RPC_ENDPOINTS: string[] = [
+// (CLAUDE.md §5) Frontend → chain node RPC のみ。
+// Chain node が `storage_uploadFragment` を受け、内部で storage-node の
+// `storage_storeFragment` (port 3030) へ転送する。Frontend が直接
+// storage-node を叩くことは絶対にしない (port 3030 直叩きは禁止)。
+//
+// フェイルオーバー用の複数 chain node エンドポイント（追加時はここに追記）。
+const CHAIN_NODE_RPC_ENDPOINTS: string[] = [
   process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944',
   // TODO: Add more full nodes for redundancy
   // 'http://node2.anarchy.network:9944',
@@ -134,7 +138,7 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
   const rpcCall = useCallback(async <T,>(method: string, params: unknown[]): Promise<T> => {
     let lastError: Error | null = null
     
-    for (const endpoint of RPC_ENDPOINTS) {
+    for (const endpoint of CHAIN_NODE_RPC_ENDPOINTS) {
       try {
         const response = await fetch(endpoint, {
           method: 'POST',
