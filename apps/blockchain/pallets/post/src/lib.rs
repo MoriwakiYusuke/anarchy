@@ -48,6 +48,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use pallet_storage::StorageInterface;
     use pallet_reaction::ReactionInterface;
+    use pallet_popularity::PopularityInterface;
 
     /// $moral残高型（ネイティブトークン）
     pub type BalanceOf<T> = <<T as Config>::NativeToken as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -103,6 +104,9 @@ pub mod pallet {
 
         /// Reaction Pallet for reward pool deposits.
         type Reaction: pallet_reaction::ReactionInterface;
+
+        /// Popularity sink — receives push notifications on post creation.
+        type Popularity: pallet_popularity::PopularityInterface;
 
         /// 投稿の最大長（バイト）
         #[pallet::constant]
@@ -180,6 +184,8 @@ pub mod pallet {
         PostIdOverflow,
         /// Fragment registration in Storage Pallet failed (FR-402)
         FragmentRegistrationFailed,
+        /// Post does not exist (used by PostMutator::delete_post).
+        PostNotFound,
     }
 
     #[pallet::call]
@@ -313,6 +319,9 @@ pub mod pallet {
                 posts.try_push(post_id).map_err(|_| Error::<T>::TooManyPosts)
             })?;
 
+            // Initialize popularity entry for the new post.
+            T::Popularity::on_post_created(post_id);
+
             // イベント発行
             Self::deposit_event(Event::PostCreated {
                 post_id,
@@ -322,5 +331,32 @@ pub mod pallet {
 
             Ok(())
         }
+    }
+}
+
+// ============ PostCountProvider Implementation ============
+
+impl<T: Config> pallet_popularity::PostCountProvider for Pallet<T> {
+    fn next_post_id() -> u64 {
+        NextPostId::<T>::get()
+    }
+}
+
+// ============ PostMutator Implementation ============
+
+impl<T: Config> pallet_popularity::PostMutator<T::AccountId> for Pallet<T> {
+    fn delete_post(post_id: u64) -> Result<[u8; 32], frame_support::pallet_prelude::DispatchError> {
+        let post = Posts::<T>::get(post_id).ok_or(Error::<T>::PostNotFound)?;
+        let merkle_root = post.content_hash;
+
+        Posts::<T>::remove(post_id);
+        ContentRefs::<T>::remove(post_id);
+        MerkleRootToPostId::<T>::remove(merkle_root);
+
+        UserPosts::<T>::mutate(&post.author, |list| {
+            list.retain(|id| *id != post_id);
+        });
+
+        Ok(merkle_root)
     }
 }

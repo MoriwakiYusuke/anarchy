@@ -576,32 +576,44 @@
   - [x] + EXIF 除去 (`lib/mediaProcessor.ts` 流用)
   - [x] + wasm-engine 拡張 (`dm_media_encrypt` / `dm_media_decrypt`、AES-256-GCM 統一)
 
-### + 3.4 投稿人気度システム
+### + 3.4 投稿人気度システム ✅
 
-> **詳細**: [CONCEPTS.md](CONCEPTS.md#投稿人気度システム) を参照
+> **詳細**: [CONCEPTS.md](CONCEPTS.md#投稿人気度システム) / [docs/superpowers/specs/2026-05-03-post-popularity-design.md](superpowers/specs/2026-05-03-post-popularity-design.md) を参照
 
-- [ ] **人気度スコア計算**
-  - [ ] 高評価（Like）: +N スコア
-  - [ ] フェッチ（閲覧）: +1 スコア（ストレージノード取得時）
-  - [ ] 低評価（Dislike）: +M スコア（関心として加点）
-  - [ ] 時間経過: 減衰関数（絶対/相対/ランキング相対）
+- [x] **人気度スコア計算** (pallet-popularity)
+  - [x] 高評価（Like）: +N スコア (`LikeWeight = 100`)
+  - [x] 低評価（Dislike/Bad）: +M スコア（関心として加点、`DislikeWeight = 50`）
+  - [x] 時間経過: 相対減衰 (lazy `decay::apply`、`DecayRatePermill = 999_950`)
+  - ~~フェッチ（閲覧）: +1 スコア~~ → **却下** (2026-05-03): Sybil 脆弱 + 匿名性矛盾 (Tor 下で IP dedup 不可) + 処理リソース (validator 負荷 / state bloat / storage→chain report 経路) の三重苦。CONCEPTS.md 参照
+  - 追加変更: `pallet-reaction::ReactionType` から `Boost` を削除し Like/Bad の 2 種に整理 (Reddit 風 N/M モデル)
 
-- [ ] **Popularity Pallet** 作成
-  - [ ] `PostPopularity` ストレージ（score, last_interaction, like/dislike/fetch_count）
-  - [ ] `on_finalize` で減衰適用
-  - [ ] 閾値以下の投稿をマーク
+- [x] **Popularity Pallet** 作成 (`apps/blockchain/pallets/popularity/`)
+  - [x] `PostPopularity` ストレージ（`stored_score`, `last_touched`, `like_count`, `dislike_count`, `marked_for_deletion_at`）
+  - [x] `on_finalize` で bounded round-robin scan + lazy decay 適用 (`MaxPostsScannedPerBlock = 8`)
+  - [x] 閾値以下の投稿をマーク + ヒステリシス復帰 (`LowPopularityThreshold = 1_000`, `HysteresisMargin = 500`)
 
-- [ ] **削除フロー**
-  - [ ] 猶予期間（例: 7日）経過後に削除指示
-  - [ ] ストレージノードへの削除通知
-  - [ ] オンチェーンメタデータ削除
+- [x] **削除フロー**
+  - [x] 猶予期間（`GracePeriod = 100_800` blocks ≈ 7 日）経過後に削除実行 (`MaxDeletionsPerBlock = 4`)
+  - [x] ストレージノードへの削除通知 (`pallet_storage::Event::ForgottenByPolicy { content_hash }` を emit、`StorageInterface::do_release_fragment` 経由)
+  - [x] オンチェーンメタデータ削除 (`PostMutator::delete_post` が Posts/ContentRefs/MerkleRootToPostId/UserPosts を prune)
 
-- [ ] **Sybil対策**
-  - [ ] 自演スコア操作の防止
+- [x] **Sybil対策**
+  - [x] 既存防御層に依存: `AlreadyReacted` チェック + PoW + faucet rate-limit + `PostBaseCost = 10 MORAL` (skin-in-the-game)。追加対策は v1 では入れず、実害確認後に v2 検討
 
-### 3.5 ステルスアドレス報酬先対応
+- [x] **Runtime API** (`PopularityApi`)
+  - [x] `get_effective_score(post_id) -> Option<u64>` (decay 適用後)
+  - [x] `get_net_count(post_id) -> Option<i64>` (= like_count - dislike_count、派生)
+  - [x] `get_post_popularity(post_id) -> Option<PostPopularityRpc>` (一括取得)
+
+- [x] **Spec version bump**: 104 → 106 (popularity 追加 + PopularityApi 追加)
+
+> **未実装 (v2 deferred)**: 永続化オプション（追加料金で削除対象外にする機能）、Reactor reputation/age weighting、Governance による decay rate 動的変更、frontend UI（人気度バッジ / 削除予告通知 / ランキング表示）、create-post + react PAPI helper scripts でのフル E2E。詳細は spec §1.2 参照。
+
+<!-- ### 3.5 ステルスアドレス報酬先対応
 
 > **目的**: 反応マイニング報酬先にステルスアドレスを指定可能にし、反応者と報酬受取口座の名寄せを防止
+
+#あんまり意味ないからやめる捨て垢にステルス送金すればいいだけだし
 
 - [ ] **pallet-stealth 作成**
   - [ ] ステルスアドレス生成（Ephemeral key + Recipient public key）
@@ -616,7 +628,7 @@
 - [ ] **フロントエンド対応**
   - [ ] ステルスアドレス生成UI
   - [ ] 反応時の報酬先指定オプション
-  - [ ] ステルス報酬スキャナー（受取確認）
+  - [ ] ステルス報酬スキャナー（受取確認） -->
 
 ---
 
@@ -1015,7 +1027,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 > **実装内容**: 017-reaction-mining仕様に基づくPoWベースの反応システムとクリエイター報酬
 
 - [x] + **pallet-reaction**
-  - [x] + 反応データ構造: Like, Boost, Bad
+  - [x] + 反応データ構造: Like, Bad (旧 Boost は §3.4 で Like/Bad へ統合・削除)
   - [x] + ストレージ: Reactions, ReactionStatsStorage, ReactionHistory, ReactionRewardPool
   - [x] + `react()` extrinsic: PoW検証 + 報酬付与
   - [x] + 二重反応防止チェック
@@ -1026,7 +1038,7 @@ Phase 1-3 完了後 ────────── Phase 4 (本番デプロイ)
 - [x] + **報酬システム**
   - [x] + Genesis: ReactionRewardPool 10,000,000 MORAL
   - [x] + 投稿コスト: 80% Storage pool, 10% Reaction pool, 10% burn
-  - [x] + 固定報酬: 1 MORAL/反応 (Like/Boost共通, Bad=0)
+  - [x] + 固定報酬: 1 MORAL/反応 (Like のみ、Bad=0)
   - [x] + プール残高不足時: 反応は記録、報酬なし
 
 - [x] + **クライアント側PoW**

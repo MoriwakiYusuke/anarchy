@@ -1,6 +1,6 @@
 //! Post Palletのテスト
 
-use crate::{self as pallet_post, Error, Event, Posts, NextPostId, UserPosts, ContentRefs};
+use crate::{self as pallet_post, Error, Event, Posts, NextPostId, UserPosts, ContentRefs, MerkleRootToPostId};
 use frame_support::{
     assert_noop, assert_ok,
     traits::{ConstU32, ConstU64, ConstU128, fungible::Mutate},
@@ -45,6 +45,11 @@ impl StorageInterface<u64, u64> for MockStorage {
     fn do_deposit_to_reward_pool(_amount: u128) {
         // No-op in pallet-post tests; reward pool logic tested in pallet-storage
     }
+
+    fn do_release_fragment(_content_hash: [u8; 32]) -> DispatchResult {
+        // No-op in pallet-post tests; release semantics tested in pallet-storage
+        Ok(())
+    }
 }
 
 /// Mock Reaction implementation for Post Pallet tests
@@ -55,8 +60,8 @@ impl ReactionInterface for MockReaction {
         // No-op in pallet-post tests; reaction pool logic tested in pallet-reaction
     }
 
-    fn get_reaction_counts(_post_id: u64) -> Option<(u32, u32, u32)> {
-        Some((0, 0, 0))
+    fn get_reaction_counts(_post_id: u64) -> Option<(u32, u32)> {
+        Some((0, 0))
     }
 
     fn get_bad_count(_post_id: u64) -> u32 {
@@ -130,6 +135,7 @@ impl pallet_post::Config for Test {
     type MaxContentLength = ConstU32<10000>;
     type PostBaseCost = ConstU128<100>; // テスト用: 基本100
     type PostByteCost = ConstU128<10>;  // テスト用: 1バイトあたり10
+    type Popularity = ();
 }
 
 // テスト環境のビルダー
@@ -576,7 +582,7 @@ fn test_storage_deposit_allocation() {
     new_test_ext().execute_with(|| {
         let author = 1u64;
         let initial_balance = Balances::free_balance(author);
-        
+
         let merkle_root = [0xABu8; 32];
         let total_size = 10_000u64;
         let ciphertext_len = total_size + 28;
@@ -597,5 +603,56 @@ fn test_storage_deposit_allocation() {
         // コストが消費されている（詳細な割当は上のtest_cost_calculation_ratioで検証）
         let new_balance = Balances::free_balance(author);
         assert!(new_balance < initial_balance);
+    });
+}
+
+// ============================================================================
+// PostMutator trait impl tests (Task 5.2)
+// ============================================================================
+
+#[test]
+fn delete_post_removes_all_records() {
+    new_test_ext().execute_with(|| {
+        let author = 1u64;
+        let merkle = [42u8; 32];
+        let total_size = 15u64;
+        let ciphertext_len = total_size + 28;
+        let shard_size = ((ciphertext_len + 2) / 3) as u32;
+
+        // 既存の create_post_works と同じパターンで投稿を作成
+        assert_ok!(PostModule::create_post(
+            RuntimeOrigin::signed(author),
+            merkle,
+            3, 5, total_size,
+            ciphertext_len, shard_size, false,
+            None
+        ));
+
+        let post_id = 0u64;
+        // 投稿が存在することを確認
+        let stored = Posts::<Test>::get(post_id).expect("投稿が存在するはず");
+        assert_eq!(stored.content_hash, merkle);
+        assert!(ContentRefs::<Test>::get(post_id).is_some());
+        assert_eq!(MerkleRootToPostId::<Test>::get(merkle), Some(post_id));
+        assert!(UserPosts::<Test>::get(author).contains(&post_id));
+
+        // PostMutator::delete_post を呼び出す
+        let returned = <PostModule as pallet_popularity::PostMutator<u64>>::delete_post(post_id)
+            .expect("削除に成功するはず");
+        assert_eq!(returned, merkle);
+
+        // 全レコードが削除されていることを確認
+        assert!(Posts::<Test>::get(post_id).is_none());
+        assert!(ContentRefs::<Test>::get(post_id).is_none());
+        assert!(MerkleRootToPostId::<Test>::get(merkle).is_none());
+        assert!(!UserPosts::<Test>::get(author).contains(&post_id));
+    });
+}
+
+#[test]
+fn delete_post_returns_post_not_found_for_unknown_id() {
+    new_test_ext().execute_with(|| {
+        let result = <PostModule as pallet_popularity::PostMutator<u64>>::delete_post(999);
+        assert!(result.is_err());
     });
 }

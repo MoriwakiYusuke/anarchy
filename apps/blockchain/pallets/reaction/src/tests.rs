@@ -97,6 +97,7 @@ impl pallet_reaction::Config for Test {
     type TargetReactionRate = ConstU32<10>;
     type AdjustmentWindow = ConstU64<10>;
     type AdjustmentDivisor = ConstU32<2>;
+    type Popularity = ();
 }
 
 fn new_test_ext() -> sp_io::TestExternalities {
@@ -124,14 +125,6 @@ fn test_genesis_config() {
 }
 
 #[test]
-fn test_reaction_type_weights() {
-    use pallet_reaction::ReactionType;
-    assert_eq!(ReactionType::Like.weight(), 1);
-    assert_eq!(ReactionType::Boost.weight(), 5);
-    assert_eq!(ReactionType::Bad.weight(), 0);
-}
-
-#[test]
 fn test_deposit_to_reaction_pool() {
     new_test_ext().execute_with(|| {
         let initial = pallet_reaction::ReactionRewardPool::<Test>::get();
@@ -147,7 +140,7 @@ fn test_deposit_to_reaction_pool() {
 fn test_get_reaction_counts_empty() {
     new_test_ext().execute_with(|| {
         let counts = <Reaction as ReactionInterface>::get_reaction_counts(999);
-        assert_eq!(counts, Some((0, 0, 0)));
+        assert_eq!(counts, Some((0, 0)));
     });
 }
 
@@ -318,29 +311,8 @@ fn test_react_updates_stats() {
         // Check stats after first Like
         let stats = pallet_reaction::ReactionStatsStorage::<Test>::get(post_id);
         assert_eq!(stats.likes, 1);
-        assert_eq!(stats.boosts, 0);
         assert_eq!(stats.bads, 0);
-        assert_eq!(stats.total_weight, 1);  // Like weight = 1
-        
-        // React with Boost (reactor 2)
-        let nonce2 = find_valid_nonce(2u64, block_hash, difficulty);
-        assert_ok!(Reaction::react(
-            RuntimeOrigin::signed(2),
-            post_id,
-            pallet_reaction::ReactionType::Boost,
-            block_number,
-            nonce2,
-            1000,
-            None,
-        ));
-        
-        // Check stats after Boost
-        let stats = pallet_reaction::ReactionStatsStorage::<Test>::get(post_id);
-        assert_eq!(stats.likes, 1);
-        assert_eq!(stats.boosts, 1);
-        assert_eq!(stats.bads, 0);
-        assert_eq!(stats.total_weight, 6);  // 1 + 5 = 6
-        
+
         // React with Bad (reactor 3)
         let nonce3 = find_valid_nonce(3u64, block_hash, difficulty);
         assert_ok!(Reaction::react(
@@ -352,13 +324,11 @@ fn test_react_updates_stats() {
             1000,
             None,
         ));
-        
+
         // Check stats after Bad
         let stats = pallet_reaction::ReactionStatsStorage::<Test>::get(post_id);
         assert_eq!(stats.likes, 1);
-        assert_eq!(stats.boosts, 1);
         assert_eq!(stats.bads, 1);
-        assert_eq!(stats.total_weight, 6);  // Bad weight = 0, total unchanged
     });
 }
 
@@ -629,22 +599,22 @@ fn test_react_without_stealth_recipient() {
         
         let nonce = find_valid_nonce(reactor, block_hash, difficulty);
         
-        // React without stealth recipient (None)
+        // React without stealth recipient (None) — Like gives reward to author.
         assert_ok!(Reaction::react(
             RuntimeOrigin::signed(reactor),
             post_id,
-            pallet_reaction::ReactionType::Boost,
+            pallet_reaction::ReactionType::Like,
             block_number,
             nonce,
             2000,
             None, // No stealth recipient -> reward goes to author
         ));
-        
+
         // Reaction should be recorded
         assert!(pallet_reaction::Reactions::<Test>::contains_key(post_id, reactor));
-        
+
         // Stats should be updated
         let stats = pallet_reaction::ReactionStatsStorage::<Test>::get(post_id);
-        assert_eq!(stats.boosts, 1);
+        assert_eq!(stats.likes, 1);
     });
 }

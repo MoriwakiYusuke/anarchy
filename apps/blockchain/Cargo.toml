@@ -10,6 +10,7 @@ members = [
     "pallets/stealth",
     "pallets/reaction",
     "pallets/messaging",
+    "pallets/popularity",
     "primitives/pow",
 ]
 

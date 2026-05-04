@@ -182,6 +182,7 @@ dependencies = [
  "pallet-grandpa",
  "pallet-messaging",
  "pallet-nickname",
+ "pallet-popularity",
  "pallet-post",
  "pallet-reaction",
  "pallet-stealth",
@@ -5521,12 +5522,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-popularity"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-post"
 version = "0.1.0"
 dependencies = [
  "frame-support",
  "frame-system",
  "pallet-balances",
+ "pallet-popularity",
  "pallet-reaction",
  "pallet-storage",
  "parity-scale-codec",
@@ -5546,6 +5563,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "pallet-balances",
+ "pallet-popularity",
  "parity-scale-codec",
  "primitives-pow",
  "scale-info",
@@ -5607,6 +5625,7 @@ dependencies = [
  "frame-system",
  "kzg-constants",
  "pallet-balances",
+ "pallet-popularity",
  "parity-scale-codec",
  "scale-info",
  "sp-api",

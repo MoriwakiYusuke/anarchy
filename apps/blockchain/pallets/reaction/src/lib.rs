@@ -1,11 +1,11 @@
 //! # Reaction Pallet
 //!
 //! PoW-based reaction mining for posts.
-//! Users can react to posts (Like/Boost/Bad) with PoW proof,
+//! Users can react to posts (Like/Bad) with PoW proof,
 //! post authors receive $moral rewards from the reaction reward pool.
 //!
 //! ## Features
-//! - Like, Boost, Bad reactions with PoW proof
+//! - Like, Bad reactions with PoW proof
 //! - Dynamic difficulty adjustment
 //! - Reward distribution from reaction pool
 //! - Foreground mining enforcement (via client)
@@ -29,6 +29,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::pallet_prelude::*;
+    use pallet_popularity::{PopularityInterface, PopularityReactionType};
     use parity_scale_codec::DecodeWithMemTracking;
     use primitives_pow::{compute_challenge, verify_proof};
     use sp_runtime::Saturating;
@@ -44,19 +45,7 @@ pub mod pallet {
     )]
     pub enum ReactionType {
         Like,
-        Boost,
         Bad,
-    }
-
-    impl ReactionType {
-        /// Get the weight multiplier for reward calculation
-        pub fn weight(&self) -> u128 {
-            match self {
-                ReactionType::Like => 1,
-                ReactionType::Boost => 5,
-                ReactionType::Bad => 0,
-            }
-        }
     }
 
     /// Reaction record
@@ -74,9 +63,7 @@ pub mod pallet {
     #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, Default, PartialEq, Eq)]
     pub struct ReactionStats {
         pub likes: u32,
-        pub boosts: u32,
         pub bads: u32,
-        pub total_weight: u128,
     }
 
     /// Difficulty adjustment state
@@ -129,6 +116,9 @@ pub mod pallet {
         /// Adjustment divisor for smooth difficulty changes
         #[pallet::constant]
         type AdjustmentDivisor: Get<u32>;
+
+        /// Popularity sink — receives push notifications when a reaction is recorded.
+        type Popularity: pallet_popularity::PopularityInterface;
     }
 
     /// Reaction records: (post_id, reactor) -> Reaction
@@ -247,7 +237,7 @@ pub mod pallet {
         ///
         /// # Arguments
         /// * `post_id` - The post to react to
-        /// * `reaction_type` - Type of reaction (Like/Boost/Bad)
+        /// * `reaction_type` - Type of reaction (Like/Bad)
         /// * `block_number` - Block number used for challenge generation
         /// * `nonce` - PoW nonce that satisfies difficulty
         /// * `cpu_power` - Reported hashrate (for reward calculation)
@@ -303,10 +293,8 @@ pub mod pallet {
             ReactionStatsStorage::<T>::mutate(post_id, |stats| {
                 match reaction_type {
                     ReactionType::Like => stats.likes = stats.likes.saturating_add(1),
-                    ReactionType::Boost => stats.boosts = stats.boosts.saturating_add(1),
                     ReactionType::Bad => stats.bads = stats.bads.saturating_add(1),
                 }
-                stats.total_weight = stats.total_weight.saturating_add(reaction_type.weight());
             });
 
             // Update user reaction count
@@ -346,6 +334,13 @@ pub mod pallet {
                     // If pool is empty or mint fails, no reward is paid (reward_paid stays 0)
                 }
             }
+
+            // Push the reaction into popularity (Like/Bad → Like/Dislike).
+            let pop_kind = match reaction_type {
+                ReactionType::Like => PopularityReactionType::Like,
+                ReactionType::Bad => PopularityReactionType::Dislike,
+            };
+            T::Popularity::on_reaction(post_id, pop_kind);
 
             Self::deposit_event(Event::ReactionCreated {
                 post_id,
@@ -416,7 +411,7 @@ pub mod pallet {
         fn do_deposit_to_reaction_pool(amount: u128);
 
         /// Get reaction counts for a post
-        fn get_reaction_counts(post_id: u64) -> Option<(u32, u32, u32)>;
+        fn get_reaction_counts(post_id: u64) -> Option<(u32, u32)>;
 
         /// Get bad reaction count for a post
         fn get_bad_count(post_id: u64) -> u32;
@@ -430,9 +425,9 @@ pub mod pallet {
             Self::deposit_event(Event::RewardPoolDeposit { amount });
         }
 
-        fn get_reaction_counts(post_id: u64) -> Option<(u32, u32, u32)> {
+        fn get_reaction_counts(post_id: u64) -> Option<(u32, u32)> {
             let stats = ReactionStatsStorage::<T>::get(post_id);
-            Some((stats.likes, stats.boosts, stats.bads))
+            Some((stats.likes, stats.bads))
         }
 
         fn get_bad_count(post_id: u64) -> u32 {

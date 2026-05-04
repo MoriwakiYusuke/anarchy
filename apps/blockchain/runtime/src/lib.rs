@@ -74,7 +74,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: Cow::Borrowed("anarchy"),
     impl_name: Cow::Borrowed("anarchy"),
     authoring_version: 1,
-    spec_version: 104,  // Bumped: $moral = native token, removed pallet_moral
+    spec_version: 106,  // Bumped: PopularityApi runtime API added
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 2,  // SignedExtra structure changed (no tip)
@@ -239,6 +239,7 @@ impl pallet_post::Config for Runtime {
     type PostBaseCost = ConstU128<100_000_000_000_000>;
     /// バイト単価: 0.001 MORAL/byte
     type PostByteCost = ConstU128<1_000_000_000>;
+    type Popularity = Popularity;
 }
 
 // Faucet Pallet設定
@@ -348,6 +349,34 @@ impl pallet_reaction::Config for Runtime {
     type AdjustmentWindow = ConstU32<10>;
     /// Adjustment divisor: 4 (smooth changes)
     type AdjustmentDivisor = ConstU32<4>;
+    type Popularity = Popularity;
+}
+
+// Popularity Pallet設定 — pallet-post / pallet-reaction の push 通知を受けて
+// PostScores を維持し、人気度ベースのストレージ解放対象を識別する。
+parameter_types! {
+    /// 1 ブロックあたり 0.005% (= 999_950 / 1_000_000) 減衰。
+    /// 6s/block ≒ 1 時間で約 3% 減 → 半減期 ~23 時間 (= ln(0.5)/ln(0.99995) × 6s)。
+    pub PopularityDecayRate: sp_runtime::Permill = sp_runtime::Permill::from_parts(999_950);
+}
+
+impl pallet_popularity::Config for Runtime {
+    type InitialScore = ConstU64<100_000>;
+    type LikeWeight = ConstU64<100>;
+    type DislikeWeight = ConstU64<50>;
+    type DecayRatePermill = PopularityDecayRate;
+    type LowPopularityThreshold = ConstU64<1_000>;
+    type HysteresisMargin = ConstU64<500>;
+    /// 7 days * 24 h * 600 blocks/h (6s/block) = 100_800
+    type GracePeriod = ConstU32<100_800>;
+    type MaxPostsScannedPerBlock = ConstU32<8>;
+    type MaxDeletionsPerBlock = ConstU32<4>;
+    /// 4x MaxDeletionsPerBlock — amortizes blake2-keyed scan over partially-eligible queues.
+    type MaxDeletionScanReads = ConstU32<16>;
+    type MaxDecaySteps = ConstU32<1_000_000>;
+    type PostCountProvider = Post;
+    type PostMutator = Post;
+    type StorageReleaser = Storage;
 }
 
 // Messaging (DM) Pallet設定 — contracts/pallet-messaging-extrinsics.md §Dependencies
@@ -388,6 +417,7 @@ construct_runtime!(
         Stealth: pallet_stealth,
         Reaction: pallet_reaction,
         Messaging: pallet_messaging,
+        Popularity: pallet_popularity,
     }
 );
 
@@ -599,6 +629,31 @@ impl_runtime_apis! {
                 k: content.k,
                 n: content.n,
                 size: content.size,
+            })
+        }
+    }
+
+    impl pallet_popularity::PopularityApi<Block> for Runtime {
+        fn get_effective_score(post_id: u64) -> Option<u64> {
+            let p = pallet_popularity::pallet::PostScores::<Runtime>::get(post_id)?;
+            Some(pallet_popularity::pallet::Pallet::<Runtime>::effective_score_now_public(&p))
+        }
+
+        fn get_net_count(post_id: u64) -> Option<i64> {
+            let p = pallet_popularity::pallet::PostScores::<Runtime>::get(post_id)?;
+            Some(p.like_count as i64 - p.dislike_count as i64)
+        }
+
+        fn get_post_popularity(post_id: u64) -> Option<pallet_popularity::PostPopularityRpc> {
+            let p = pallet_popularity::pallet::PostScores::<Runtime>::get(post_id)?;
+            let eff = pallet_popularity::pallet::Pallet::<Runtime>::effective_score_now_public(&p);
+            Some(pallet_popularity::PostPopularityRpc {
+                effective_score: eff,
+                like_count: p.like_count,
+                dislike_count: p.dislike_count,
+                net_count: p.like_count as i64 - p.dislike_count as i64,
+                marked_for_deletion_at: p.marked_for_deletion_at,
+                last_touched: p.last_touched,
             })
         }
     }

@@ -20,7 +20,6 @@ interface ContentRef {
 
 interface ReactionStats {
   likes: number
-  boosts: number
   bads: number
 }
 
@@ -178,7 +177,6 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
                     postId: post.id,
                     stats: {
                       likes: Number(stats.likes || 0),
-                      boosts: Number(stats.boosts || 0),
                       bads: Number(stats.bads || 0),
                     }
                   }
@@ -249,7 +247,6 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
           account={account}
           signer={signer}
           likes={post.reactionStats?.likes}
-          boosts={post.reactionStats?.boosts}
           bads={post.reactionStats?.bads}
         />
       ))}

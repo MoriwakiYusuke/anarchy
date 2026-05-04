@@ -206,6 +206,17 @@ pub trait StorageInterface<AccountId, BlockNumber> {
     /// # Arguments
     /// * `amount` - Amount of tokens (in u128) to add to reward pool
     fn do_deposit_to_reward_pool(amount: u128);
+
+    /// Release storage state for a content hash that was deleted under low-popularity policy.
+    ///
+    /// Called by the Popularity Pallet when a post is removed because its score fell below
+    /// the retention threshold. Removes on-chain fragment metadata (`Fragments`/`KzgFragments`),
+    /// proof records (`ProofRecords`), forgetting flags (`ForgettingCandidates`) and fragment
+    /// state (`FragmentStates`), and emits `ForgottenByPolicy` so off-chain storage nodes can
+    /// physically delete the data.
+    ///
+    /// Idempotent — silent no-op (still returns `Ok`) when the fragment is unknown.
+    fn do_release_fragment(content_hash: ContentHash) -> DispatchResult;
 }
 
 #[frame_support::pallet]
@@ -748,6 +759,12 @@ pub mod pallet {
         ForgettingCandidateMarked {
             content_hash: super::ContentHash,
             marked_at: BlockNumberFor<T>,
+        },
+
+        /// Content released because the corresponding post was deleted under low-popularity policy.
+        /// Storage nodes should observe this event and physically delete the underlying fragment data.
+        ForgottenByPolicy {
+            content_hash: super::ContentHash,
         },
 
         /// Content recovered from forgetting candidate (T054)
@@ -1989,5 +2006,66 @@ impl<T: Config> StorageInterface<T::AccountId, BlockNumberFor<T>> for Pallet<T> 
         RewardPoolBalance::<T>::mutate(|balance| {
             *balance = balance.saturating_add(amount);
         });
+    }
+
+    fn do_release_fragment(content_hash: ContentHash) -> DispatchResult {
+        // Idempotent: if no on-chain trace of this fragment exists, return silently
+        // without emitting an event. Otherwise drop every related storage entry and
+        // emit `ForgottenByPolicy` so storage nodes know to physically delete the data.
+        //
+        // Note: `FragmentId` and `ContentHash` are both `[u8; 32]` and pallet-post passes
+        // the same hash (the Merkle root) to both `do_register_fragment` and
+        // `do_register_kzg_fragment`, so we clear both maps using `content_hash`.
+        let mut existed = false;
+        if Fragments::<T>::take(content_hash).is_some() {
+            existed = true;
+        }
+        if KzgFragments::<T>::take(content_hash).is_some() {
+            existed = true;
+        }
+        // ProofRecords is StorageDoubleMap<ContentHash, AccountId, _>; clear all (h, *).
+        // u32::MAX upper bound is fine: the set is bounded by holders per fragment in practice.
+        let _ = ProofRecords::<T>::clear_prefix(content_hash, u32::MAX, None);
+        // Drop forgetting flags + fragment state (presence implies prior registration).
+        if ForgettingCandidates::<T>::take(content_hash).is_some() {
+            existed = true;
+        }
+        if FragmentStates::<T>::contains_key(content_hash) {
+            FragmentStates::<T>::remove(content_hash);
+            existed = true;
+        }
+
+        // Reverse-prune holder bookkeeping: for every node that held this fragment,
+        // remove the fragment_id from its NodeHoldings entry, then drop the
+        // FragmentHolders[content_hash] map. Without this, NodeHoldings keeps the
+        // freed slot occupied indefinitely (review-pass Important #1).
+        let holders = FragmentHolders::<T>::take(content_hash);
+        if !holders.is_empty() {
+            existed = true;
+            for peer_id in holders.iter() {
+                NodeHoldings::<T>::mutate(peer_id, |held| {
+                    held.retain(|fid| fid != &content_hash);
+                });
+            }
+        }
+
+        // Score cache is a per-content key — drop it too so a future re-registration
+        // starts from a clean slate.
+        if ScoreCache::<T>::take(content_hash).is_some() {
+            existed = true;
+        }
+
+        if existed {
+            Self::deposit_event(Event::ForgottenByPolicy { content_hash });
+        }
+        Ok(())
+    }
+}
+
+// ============ StorageReleaser Implementation ============
+
+impl<T: Config> pallet_popularity::StorageReleaser for Pallet<T> {
+    fn release_fragment(content_hash: [u8; 32]) -> frame_support::pallet_prelude::DispatchResult {
+        <Self as StorageInterface<T::AccountId, BlockNumberFor<T>>>::do_release_fragment(content_hash)
     }
 }

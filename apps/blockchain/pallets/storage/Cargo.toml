@@ -32,6 +32,9 @@ ark-std = { version = "0.5", default-features = false }
 # Shared KZG constants
 kzg-constants = { path = "../../../../packages/kzg-constants", default-features = false }
 
+# Popularity (for StorageReleaser shim impl)
+pallet-popularity = { path = "../popularity", default-features = false }
+
 [dev-dependencies]
 sp-core = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }
@@ -55,13 +58,16 @@ std = [
     "ark-serialize/std",
     "ark-std/std",
     "kzg-constants/std",
+    "pallet-popularity/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/std",
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
+    "pallet-popularity/runtime-benchmarks",
 ]
 try-runtime = [
     "frame-support/try-runtime",
     "frame-system/try-runtime",
+    "pallet-popularity/try-runtime",
 ]
