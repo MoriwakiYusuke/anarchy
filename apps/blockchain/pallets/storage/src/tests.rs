@@ -3200,3 +3200,78 @@ fn do_release_fragment_is_idempotent_and_emits_event_when_present() {
         assert_eq!(new_events, 0, "second release is a silent no-op");
     });
 }
+
+/// `do_release_fragment` must reverse-prune the holder bookkeeping (review-pass
+/// Important #1). Without this, NodeHoldings keeps the freed slot occupied
+/// forever and FragmentHolders[content_hash] stays as a stale BoundedVec.
+#[test]
+fn do_release_fragment_clears_holder_bookkeeping_and_score_cache() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let hash: crate::ContentHash = [9u8; 32];
+        // Two distinct peer ids
+        let peer_a: BoundedVec<u8, ConstU32<64>> = b"peer-a".to_vec().try_into().unwrap();
+        let peer_b: BoundedVec<u8, ConstU32<64>> = b"peer-b".to_vec().try_into().unwrap();
+
+        // Seed: this hash is held by both peers; each peer also holds an unrelated fragment
+        // we should NOT touch.
+        let other_hash: crate::ContentHash = [42u8; 32];
+        let mut holders: BoundedVec<BoundedVec<u8, ConstU32<64>>, ConstU32<100>> =
+            BoundedVec::default();
+        holders.try_push(peer_a.clone()).unwrap();
+        holders.try_push(peer_b.clone()).unwrap();
+        crate::FragmentHolders::<Test>::insert(hash, holders);
+
+        let mut held_a: BoundedVec<crate::FragmentId, ConstU32<10_000>> = BoundedVec::default();
+        held_a.try_push(hash).unwrap();
+        held_a.try_push(other_hash).unwrap();
+        crate::NodeHoldings::<Test>::insert(peer_a.clone(), held_a);
+
+        let mut held_b: BoundedVec<crate::FragmentId, ConstU32<10_000>> = BoundedVec::default();
+        held_b.try_push(hash).unwrap();
+        crate::NodeHoldings::<Test>::insert(peer_b.clone(), held_b);
+
+        // Score cache also primed.
+        crate::ScoreCache::<Test>::insert(hash, 9_999u64);
+
+        // And a real Fragments record so the event fires.
+        crate::Fragments::<Test>::insert(
+            hash,
+            crate::FragmentMetadata::<Test> {
+                size: 1,
+                creator: 1u64,
+                created_at: 1,
+            },
+        );
+
+        assert_ok!(
+            <crate::Pallet<Test> as crate::StorageInterface<_, _>>::do_release_fragment(hash)
+        );
+
+        // FragmentHolders entry for `hash` is gone.
+        assert!(
+            !crate::FragmentHolders::<Test>::contains_key(hash),
+            "FragmentHolders[hash] cleared"
+        );
+
+        // NodeHoldings: hash is removed, but other_hash for peer-a survives.
+        let held_a_after = crate::NodeHoldings::<Test>::get(&peer_a);
+        assert!(!held_a_after.contains(&hash), "peer-a no longer counts hash");
+        assert!(held_a_after.contains(&other_hash), "peer-a unrelated holding intact");
+
+        let held_b_after = crate::NodeHoldings::<Test>::get(&peer_b);
+        assert!(!held_b_after.contains(&hash), "peer-b no longer counts hash");
+
+        // ScoreCache cleared.
+        assert!(
+            crate::ScoreCache::<Test>::get(hash).is_none(),
+            "ScoreCache[hash] cleared"
+        );
+
+        // Event emitted.
+        assert!(System::events().iter().any(|r| matches!(
+            r.event,
+            RuntimeEvent::Storage(crate::Event::ForgottenByPolicy { .. })
+        )));
+    });
+}

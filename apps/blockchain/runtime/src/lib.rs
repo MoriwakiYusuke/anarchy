@@ -370,6 +370,8 @@ impl pallet_popularity::Config for Runtime {
     type GracePeriod = ConstU32<100_800>;
     type MaxPostsScannedPerBlock = ConstU32<8>;
     type MaxDeletionsPerBlock = ConstU32<4>;
+    /// 4x MaxDeletionsPerBlock — amortizes blake2-keyed scan over partially-eligible queues.
+    type MaxDeletionScanReads = ConstU32<16>;
     type MaxDecaySteps = ConstU32<1_000_000>;
     type PostCountProvider = Post;
     type PostMutator = Post;

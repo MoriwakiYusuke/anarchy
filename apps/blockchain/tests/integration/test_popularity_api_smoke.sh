@@ -30,7 +30,7 @@
 #
 # Prerequisites: a running --dev node on http://127.0.0.1:9944 (or pass URL as $1).
 #
-# Usage: ./test_popularity_lifecycle.sh [http://127.0.0.1:9944]
+# Usage: ./test_popularity_api_smoke.sh [http://127.0.0.1:9944]
 
 set -euo pipefail
 source "$(dirname "$0")/utils.sh"

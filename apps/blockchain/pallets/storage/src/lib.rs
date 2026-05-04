@@ -2035,6 +2035,26 @@ impl<T: Config> StorageInterface<T::AccountId, BlockNumberFor<T>> for Pallet<T> 
             existed = true;
         }
 
+        // Reverse-prune holder bookkeeping: for every node that held this fragment,
+        // remove the fragment_id from its NodeHoldings entry, then drop the
+        // FragmentHolders[content_hash] map. Without this, NodeHoldings keeps the
+        // freed slot occupied indefinitely (review-pass Important #1).
+        let holders = FragmentHolders::<T>::take(content_hash);
+        if !holders.is_empty() {
+            existed = true;
+            for peer_id in holders.iter() {
+                NodeHoldings::<T>::mutate(peer_id, |held| {
+                    held.retain(|fid| fid != &content_hash);
+                });
+            }
+        }
+
+        // Score cache is a per-content key — drop it too so a future re-registration
+        // starts from a clean slate.
+        if ScoreCache::<T>::take(content_hash).is_some() {
+            existed = true;
+        }
+
         if existed {
             Self::deposit_event(Event::ForgottenByPolicy { content_hash });
         }

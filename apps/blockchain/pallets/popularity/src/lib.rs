@@ -160,6 +160,14 @@ pub mod pallet {
         #[pallet::constant]
         type MaxDeletionsPerBlock: Get<u32>;
 
+        /// Max DeletionQueue entries the deletion pass is allowed to read per block,
+        /// regardless of how many were eligible. Caps weight when the queue contains
+        /// many marked-but-not-yet-eligible posts (Blake2_128Concat key order is
+        /// independent of eligible_at, so eligible candidates may be at any offset).
+        /// Should comfortably exceed `MaxDeletionsPerBlock` to amortize seeking.
+        #[pallet::constant]
+        type MaxDeletionScanReads: Get<u32>;
+
         /// Decay loop iteration cap (DoS guard for huge `delta_blocks`).
         #[pallet::constant]
         type MaxDecaySteps: Get<u32>;
@@ -328,14 +336,26 @@ pub mod pallet {
         }
 
         pub(crate) fn run_deletion_pass(now: BlockNumberFor<T>) {
-            let limit = T::MaxDeletionsPerBlock::get();
+            let delete_limit = T::MaxDeletionsPerBlock::get() as usize;
+            let scan_limit = T::MaxDeletionScanReads::get() as usize;
 
-            let candidates: sp_std::vec::Vec<(u64, BlockNumberFor<T>)> = DeletionQueue::<T>::iter()
-                .filter(|(_, eligible_at)| now >= *eligible_at)
-                .take(limit as usize)
-                .collect();
+            // Walk DeletionQueue with a hard cap on read count: under
+            // `Blake2_128Concat`, key order is independent of `eligible_at`, so
+            // many marked-but-not-yet-eligible entries can sit between eligible
+            // ones. Without `scan_limit`, on_finalize weight could grow with
+            // total marked posts. We collect up to `delete_limit` eligible
+            // candidates while scanning at most `scan_limit` entries.
+            let mut candidates: sp_std::vec::Vec<u64> = sp_std::vec::Vec::new();
+            for (post_id, eligible_at) in DeletionQueue::<T>::iter().take(scan_limit) {
+                if now >= eligible_at {
+                    candidates.push(post_id);
+                    if candidates.len() >= delete_limit {
+                        break;
+                    }
+                }
+            }
 
-            for (post_id, _) in candidates {
+            for post_id in candidates {
                 match T::PostMutator::delete_post(post_id) {
                     Ok(merkle_root) => {
                         // Best-effort — log-only if storage release fails.

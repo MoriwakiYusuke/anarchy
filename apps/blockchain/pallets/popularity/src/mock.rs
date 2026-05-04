@@ -65,6 +65,7 @@ impl pallet_popularity::Config for Test {
     type GracePeriod = ConstU64<10>;
     type MaxPostsScannedPerBlock = ConstU32<4>;
     type MaxDeletionsPerBlock = ConstU32<2>;
+    type MaxDeletionScanReads = ConstU32<8>;
     type MaxDecaySteps = ConstU32<100_000>;
     type PostCountProvider = MockPostCount;
     type PostMutator = MockPostMutator;
