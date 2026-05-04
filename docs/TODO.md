@@ -605,7 +605,7 @@
   - [x] `get_net_count(post_id) -> Option<i64>` (= like_count - dislike_count、派生)
   - [x] `get_post_popularity(post_id) -> Option<PostPopularityRpc>` (一括取得)
 
-- [x] **Spec version bump**: 105 (popularity 追加) → 106 (PopularityApi 追加)
+- [x] **Spec version bump**: 104 → 106 (popularity 追加 + PopularityApi 追加)
 
 > **未実装 (v2 deferred)**: 永続化オプション（追加料金で削除対象外にする機能）、Reactor reputation/age weighting、Governance による decay rate 動的変更、frontend UI（人気度バッジ / 削除予告通知 / ランキング表示）、create-post + react PAPI helper scripts でのフル E2E。詳細は spec §1.2 参照。
 

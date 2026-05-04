@@ -110,7 +110,6 @@ pub mod pallet {
     use sp_runtime::{traits::Saturating, Permill};
 
     #[derive(Clone, Encode, Decode, MaxEncodedLen, TypeInfo, RuntimeDebug, PartialEq, Eq)]
-    #[scale_info(skip_type_params(T))]
     pub struct PostPopularity<BlockNumber> {
         pub stored_score: u64,
         pub last_touched: BlockNumber,
@@ -196,6 +195,13 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type ScanCursor<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+    /// Resume point for `run_deletion_pass`. Holds the last-visited `post_id` so the
+    /// next pass continues with `iter_from` and scans the entire queue fairly under
+    /// `Blake2_128Concat` (where storage order ≠ `eligible_at` order). `None` means
+    /// "start at the beginning" (used at genesis or after the iterator exhausts).
+    #[pallet::storage]
+    pub type DeletionCursor<T: Config> = StorageValue<_, u64, OptionQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -338,22 +344,48 @@ pub mod pallet {
         pub(crate) fn run_deletion_pass(now: BlockNumberFor<T>) {
             let delete_limit = T::MaxDeletionsPerBlock::get() as usize;
             let scan_limit = T::MaxDeletionScanReads::get() as usize;
+            if delete_limit == 0 || scan_limit == 0 {
+                return;
+            }
 
             // Walk DeletionQueue with a hard cap on read count: under
             // `Blake2_128Concat`, key order is independent of `eligible_at`, so
             // many marked-but-not-yet-eligible entries can sit between eligible
-            // ones. Without `scan_limit`, on_finalize weight could grow with
-            // total marked posts. We collect up to `delete_limit` eligible
-            // candidates while scanning at most `scan_limit` entries.
+            // ones. Without a cursor, the same `scan_limit`-long prefix would be
+            // re-scanned every block, starving eligible entries past it.
+            // `DeletionCursor` resumes scanning after the last-visited key so
+            // each block advances through the keyspace.
+            let cursor = DeletionCursor::<T>::get();
+            let mut iter = match cursor {
+                Some(id) => DeletionQueue::<T>::iter_from(DeletionQueue::<T>::hashed_key_for(id)),
+                None => DeletionQueue::<T>::iter(),
+            };
+
             let mut candidates: sp_std::vec::Vec<u64> = sp_std::vec::Vec::new();
-            for (post_id, eligible_at) in DeletionQueue::<T>::iter().take(scan_limit) {
-                if now >= eligible_at {
-                    candidates.push(post_id);
-                    if candidates.len() >= delete_limit {
+            let mut scanned = 0usize;
+            // None ⇒ iterator exhausted this pass; restart from beginning next block.
+            let mut new_cursor: Option<u64> = cursor;
+
+            while scanned < scan_limit {
+                match iter.next() {
+                    Some((post_id, eligible_at)) => {
+                        new_cursor = Some(post_id);
+                        scanned += 1;
+                        if now >= eligible_at {
+                            candidates.push(post_id);
+                            if candidates.len() >= delete_limit {
+                                break;
+                            }
+                        }
+                    }
+                    None => {
+                        new_cursor = None;
                         break;
                     }
                 }
             }
+
+            DeletionCursor::<T>::set(new_cursor);
 
             for post_id in candidates {
                 match T::PostMutator::delete_post(post_id) {

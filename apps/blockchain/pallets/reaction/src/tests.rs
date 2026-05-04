@@ -599,11 +599,11 @@ fn test_react_without_stealth_recipient() {
         
         let nonce = find_valid_nonce(reactor, block_hash, difficulty);
         
-        // React without stealth recipient (None)
+        // React without stealth recipient (None) — Like gives reward to author.
         assert_ok!(Reaction::react(
             RuntimeOrigin::signed(reactor),
             post_id,
-            pallet_reaction::ReactionType::Bad,
+            pallet_reaction::ReactionType::Like,
             block_number,
             nonce,
             2000,
@@ -615,6 +615,6 @@ fn test_react_without_stealth_recipient() {
 
         // Stats should be updated
         let stats = pallet_reaction::ReactionStatsStorage::<Test>::get(post_id);
-        assert_eq!(stats.bads, 1);
+        assert_eq!(stats.likes, 1);
     });
 }

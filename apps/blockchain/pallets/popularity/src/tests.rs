@@ -2,7 +2,7 @@
 
 use crate::{
     mock::*,
-    pallet::{DeletionQueue, PostScores},
+    pallet::{DeletionCursor, DeletionQueue, PostScores},
     PopularityInterface, PopularityReactionType,
 };
 
@@ -354,6 +354,55 @@ fn deletion_pass_drops_queue_entry_when_post_already_gone() {
         assert!(crate::pallet::PostScores::<Test>::get(1).is_none());
         assert!(crate::pallet::DeletionQueue::<Test>::get(1).is_none());
         assert!(deleted_posts().contains(&1));
+    });
+}
+
+#[test]
+fn deletion_pass_cursor_advances_then_wraps() {
+    // Reviewer concern: without a cursor, run_deletion_pass always re-reads the
+    // first `scan_limit` entries in Blake2_128Concat order, starving entries past
+    // it. Verify the cursor advances across passes and eventually wraps to None
+    // after one full traversal of the queue.
+    new_test_ext().execute_with(|| {
+        reset_deletion_trackers();
+        run_to_block(1);
+
+        // 20 entries, none eligible (eligible_at = 1000, now = 50).
+        // Mock has scan_limit = MaxDeletionScanReads = 8.
+        for id in 0..20u64 {
+            Popularity::on_post_created(id);
+            crate::pallet::PostScores::<Test>::mutate(id, |e| {
+                e.as_mut().unwrap().marked_for_deletion_at = Some(1u64);
+            });
+            DeletionQueue::<Test>::insert(id, 1000u64);
+        }
+
+        assert_eq!(DeletionCursor::<Test>::get(), None, "cursor starts unset");
+
+        let mut wrapped_after = None;
+        let mut seen_cursors: std::collections::HashSet<u64> = Default::default();
+        for pass in 1..=10 {
+            Popularity::run_deletion_pass(50);
+            match DeletionCursor::<Test>::get() {
+                Some(id) => {
+                    seen_cursors.insert(id);
+                }
+                None => {
+                    wrapped_after = Some(pass);
+                    break;
+                }
+            }
+        }
+
+        assert!(deleted_posts().is_empty(), "no entries eligible → no deletions");
+        assert!(wrapped_after.is_some(), "cursor must wrap to None after a full traversal");
+        // 20 entries / scan_limit 8 ≈ 3 passes to traverse, leaving cursor distinct
+        // values across at least 2 passes before wrap.
+        assert!(
+            seen_cursors.len() >= 2,
+            "cursor must point to different post_ids across passes (got {} distinct)",
+            seen_cursors.len()
+        );
     });
 }
 

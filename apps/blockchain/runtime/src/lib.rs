@@ -355,7 +355,8 @@ impl pallet_reaction::Config for Runtime {
 // Popularity Pallet設定 — pallet-post / pallet-reaction の push 通知を受けて
 // PostScores を維持し、人気度ベースのストレージ解放対象を識別する。
 parameter_types! {
-    /// 1 ブロックあたり 0.005% (= 999_950 / 1_000_000) 残す ≒ 半減期 ~96 時間。
+    /// 1 ブロックあたり 0.005% (= 999_950 / 1_000_000) 減衰。
+    /// 6s/block ≒ 1 時間で約 3% 減 → 半減期 ~23 時間 (= ln(0.5)/ln(0.99995) × 6s)。
     pub PopularityDecayRate: sp_runtime::Permill = sp_runtime::Permill::from_parts(999_950);
 }
 
