@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useSmoldot } from './useSmoldot';
+import { useChain } from './useChain';
 
 type NicknameApi = {
   query: {
@@ -86,7 +86,7 @@ async function fetchNickname(api: NicknameApi, accountId: string): Promise<strin
  * Safe to call with null/empty accountId (returns null without hitting chain).
  */
 export function useNicknameOf(accountId: string | null | undefined): string | null {
-  const { unsafeApi } = useSmoldot();
+  const { unsafeApi } = useChain();
   const [nickname, setNickname] = useState<string | null>(() =>
     accountId ? (cache.get(accountId) ?? null) : null,
   );

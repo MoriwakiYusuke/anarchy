@@ -4,7 +4,7 @@ import { useCallback } from 'react'
 import { PolkadotClient } from 'polkadot-api'
 import { getPolkadotSigner, PolkadotSigner } from 'polkadot-api/signer'
 import { DEV_PHRASE } from '@polkadot-labs/hdkd-helpers'
-import { useSmoldot } from './useSmoldot'
+import { useChain } from './useChain'
 import type { ConnectionState } from '@/types/connection'
 
 export { isConnected, isSyncing, canPerformOperations } from '@/types/connection'
@@ -19,14 +19,13 @@ export interface UseApiResult {
 }
 
 /**
- * React hook for blockchain API access via smoldot light client
- * 
- * This hook uses smoldot to connect directly to the P2P network
- * without requiring a WebSocket RPC endpoint.
+ * React hook for blockchain API access via WebSocket-backed PAPI client.
+ *
+ * Phase B (PoW migration) で smoldot から WebSocket に切替済み (`useChain`)。
+ * 詳細: lib/chain-client.ts のヘッダコメント参照。
  */
 export function useApi(): UseApiResult {
-  // Use smoldot for connection
-  const { client, unsafeApi, connectionState } = useSmoldot()
+  const { client, unsafeApi, connectionState } = useChain()
 
   // Create signer from seed phrase or derivation path
   // If seedPhrase starts with //, treat it as a derivation path from DEV_PHRASE

@@ -10,8 +10,10 @@
 
 import type { PolkadotSigner } from 'polkadot-api/signer'
 
-/** Timeout for RPC calls in milliseconds (30 seconds) */
-const RPC_TIMEOUT_MS = 30_000
+/** Timeout for RPC calls in milliseconds.
+ *  PoW 移行で block time が 30s に伸びたため finalize 待ちで 60s+。余裕 240s。
+ */
+const RPC_TIMEOUT_MS = 240_000
 
 /**
  * Wrap a promise with timeout

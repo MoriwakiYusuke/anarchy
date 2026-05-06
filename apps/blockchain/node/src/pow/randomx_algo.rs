@@ -26,6 +26,8 @@ pub struct PowSeal {
 }
 
 /// RandomX seed の epoch 長 (block 数)。spec §5.4 で 2048 推奨。
+/// 将来 epoch ローテーションを実装するときに使う想定 (現状は genesis hash 固定)。
+#[allow(dead_code)]
 pub const RANDOMX_EPOCH_BLOCKS: u32 = 2048;
 
 /// RandomX VM ラッパ。

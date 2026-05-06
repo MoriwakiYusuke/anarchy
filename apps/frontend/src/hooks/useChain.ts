@@ -1,9 +1,9 @@
 /**
- * useSmoldot Hook - smoldot Light Client state management
- * @module hooks/useSmoldot
- * 
- * This hook manages the smoldot light client lifecycle and provides
- * connection state information for components.
+ * useChain Hook — Chain (WebSocket) 接続のライフサイクル管理。
+ * @module hooks/useChain
+ *
+ * Phase B 移行: useSmoldot を WebSocket-backed に置き換えた版。
+ * インターフェースは UseSmoldotResult 互換 (status / blockNumber / unsafeApi / client)。
  */
 
 'use client'
@@ -11,45 +11,38 @@
 import { useState, useEffect, useRef } from 'react'
 import { PolkadotClient } from 'polkadot-api'
 import {
-  initSmoldotClient,
-  destroySmoldotClient,
-  isSmoldotInitialized,
-} from '@/lib/smoldot-provider'
+  initChainClient,
+  destroyChainClient,
+  isChainClientInitialized,
+} from '@/lib/chain-client'
 import type { ConnectionState, ConnectionStatus } from '@/types/connection'
 
-/** Spec-defined timeout for initial sync in milliseconds (60 seconds) */
-const SYNC_TIMEOUT_MS = 60_000
+/** Initial sync timeout (ms)。WS は smoldot より速いので短めでよい。 */
+const SYNC_TIMEOUT_MS = 30_000
 
-export interface UseSmoldotResult {
-  /** PAPI client instance (null until connected) */
+export interface UseChainResult {
   client: PolkadotClient | null
-  /** Unsafe API for direct chain queries */
   unsafeApi: any
-  /** Current connection state */
   connectionState: ConnectionState
-  /** Latest block number (null if not connected) */
   blockNumber: number | null
 }
 
 /**
- * React hook for managing smoldot light client connection
- * 
+ * Chain client (WebSocket) のライフサイクルを管理する hook。
+ *
  * Lifecycle:
- * 1. initializing - smoldot worker starting
- * 2. syncing - chain added, waiting for first block
- * 3. connected - ready for operations
- * 4. error - initialization or sync failed
- * 
- * @returns UseSmoldotResult with client, API, connection state, and block number
+ *   1. initializing — WS 接続を開いている
+ *   2. syncing      — 最初の System.Number クエリ待ち
+ *   3. connected    — block 取得済み、定期更新中
+ *   4. error        — タイムアウトまたは接続エラー
  */
-export function useSmoldot(): UseSmoldotResult {
+export function useChain(): UseChainResult {
   const [client, setClient] = useState<PolkadotClient | null>(null)
   const [unsafeApi, setUnsafeApi] = useState<any>(null)
   const [status, setStatus] = useState<ConnectionStatus>('initializing')
   const [errorMessage, setErrorMessage] = useState<string | undefined>()
   const [blockNumber, setBlockNumber] = useState<number | null>(null)
-  
-  // Refs for cleanup
+
   const mountedRef = useRef(true)
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const blockUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -57,22 +50,18 @@ export function useSmoldot(): UseSmoldotResult {
 
   useEffect(() => {
     mountedRef.current = true
-    
-    // Prevent double initialization (React StrictMode / hot reload)
+
     if (hasInitializedRef.current) {
       return
     }
     hasInitializedRef.current = true
 
     const init = async () => {
-      // Function to periodically update block number after connected
-      // (defined at top to allow hoisting for early use)
       const startBlockUpdates = (apiInstance: any) => {
-        // Clear any existing interval
         if (blockUpdateIntervalRef.current) {
           clearInterval(blockUpdateIntervalRef.current)
         }
-        
+        // PoW 後 block time 30s なので 10s ごとに更新で十分。
         blockUpdateIntervalRef.current = setInterval(async () => {
           if (!mountedRef.current) {
             if (blockUpdateIntervalRef.current) {
@@ -85,93 +74,77 @@ export function useSmoldot(): UseSmoldotResult {
             const currentBlock = await apiInstance.query.System.Number.getValue()
             setBlockNumber(currentBlock)
           } catch (err) {
-            console.warn('[useSmoldot] Failed to update block number:', err)
+            console.warn('[useChain] Failed to update block number:', err)
           }
-        }, 6000) // Update every 6 seconds (block time)
+        }, 10000)
       }
-      
+
       try {
-        // Check if already connected (singleton pattern)
-        const alreadyInitialized = isSmoldotInitialized()
-        
-        const clientInstance = await initSmoldotClient()
+        const alreadyInitialized = isChainClientInitialized()
+        const clientInstance = await initChainClient()
         if (!mountedRef.current) return
-        
+
         setClient(clientInstance)
         const api = clientInstance.getUnsafeApi()
-        
-        // If already initialized, skip sync timeout - just verify connection
+
         if (alreadyInitialized) {
           try {
             const currentBlock = await api.query.System.Number.getValue()
             if (!mountedRef.current) return
-            
             setUnsafeApi(api)
             setStatus('connected')
             setBlockNumber(currentBlock)
             startBlockUpdates(api)
             return
           } catch {
-            // Existing connection check failed, falling back to sync
+            // existing connection check failed → proceed to fresh sync
           }
         }
-        
+
         setStatus('syncing')
-        
-        // Set timeout for sync (only for fresh connections)
-        // The timeout is cleared when polling succeeds
+
         syncTimeoutRef.current = setTimeout(() => {
           if (mountedRef.current) {
-            console.error('[useSmoldot] Sync timeout')
+            console.error('[useChain] Sync timeout')
             setStatus('error')
-            setErrorMessage('同期がタイムアウトしました (60秒)')
+            setErrorMessage('チェーン接続がタイムアウトしました (30秒)')
           }
         }, SYNC_TIMEOUT_MS)
-        
-        // Poll for block number - this is more reliable for light clients
-        // that may take time to load metadata
+
         const pollForSync = async () => {
-          const pollInterval = 2000 // 2 seconds between polls
+          const pollInterval = 1500
           let retries = 0
           const maxRetries = SYNC_TIMEOUT_MS / pollInterval
-          
+
           while (mountedRef.current && retries < maxRetries) {
             try {
               const currentBlock = await api.query.System.Number.getValue()
-              
               if (!mountedRef.current) return
-              
-              // Successfully got block number - we're synced
+
               if (syncTimeoutRef.current) {
                 clearTimeout(syncTimeoutRef.current)
                 syncTimeoutRef.current = null
               }
-              
+
               setUnsafeApi(api)
               setStatus('connected')
               setBlockNumber(currentBlock)
-              
-              // Start periodic block updates
               startBlockUpdates(api)
               return
             } catch {
-              // Not ready yet, wait and retry
               retries++
-              await new Promise(resolve => setTimeout(resolve, pollInterval))
+              await new Promise((resolve) => setTimeout(resolve, pollInterval))
             }
           }
         }
-        
+
         pollForSync()
-        
       } catch (err) {
         if (!mountedRef.current) return
-        console.error('[useSmoldot] Initialization failed:', err)
+        console.error('[useChain] Initialization failed:', err)
         setStatus('error')
         setErrorMessage(
-          err instanceof Error 
-            ? err.message 
-            : 'smoldot初期化に失敗しました'
+          err instanceof Error ? err.message : 'チェーン接続初期化に失敗しました',
         )
       }
     }
@@ -180,35 +153,24 @@ export function useSmoldot(): UseSmoldotResult {
 
     return () => {
       mountedRef.current = false
-      
       if (blockUpdateIntervalRef.current) {
         clearInterval(blockUpdateIntervalRef.current)
         blockUpdateIntervalRef.current = null
       }
-      
       if (syncTimeoutRef.current) {
         clearTimeout(syncTimeoutRef.current)
         syncTimeoutRef.current = null
       }
-      
-      // Note: We don't destroy smoldot on unmount because it's a singleton
-      // that may be used by multiple components. It will be cleaned up
-      // when the page unloads.
-      // Also, we don't reset hasInitializedRef to allow reconnection reuse.
+      // Singleton client は unmount で破棄しない (他コンポーネントが利用)。
+      // ページ離脱時に GC 回収される。
     }
   }, [])
 
-  // Build ConnectionState object
   const connectionState: ConnectionState = {
     status,
-    blockNumber: status === 'connected' ? (blockNumber ?? undefined) : undefined,
+    blockNumber: status === 'connected' ? blockNumber ?? undefined : undefined,
     errorMessage: status === 'error' ? errorMessage : undefined,
   }
 
-  return {
-    client,
-    unsafeApi,
-    connectionState,
-    blockNumber,
-  }
+  return { client, unsafeApi, connectionState, blockNumber }
 }

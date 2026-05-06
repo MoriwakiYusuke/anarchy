@@ -15,9 +15,9 @@ import {
  *
  * 設計:
  *  - Playwright `browser.newContext()` で 2 つの独立した browser context を立てる。
- *    各 context は独自の localStorage / IndexedDB / smoldot light client を持つので、
+ *    各 context は独自の localStorage / IndexedDB / chain (WebSocket) client を持つので、
  *    実機 2 台でテストするのと等価な分離が得られる。
- *  - workers: 1 のため 1 ファイル内では順次実行。smoldot per-tab singleton 制約を尊重。
+ *  - workers: 1 のため 1 ファイル内では順次実行。chain client per-tab singleton 制約を尊重。
  *
  * フロー:
  *  1. Alice context: 接続 + stealth 鍵生成 + Publish_or_Republish (chain に current key を確定)
@@ -25,9 +25,9 @@ import {
  *  3. Alice context に戻る: scanner が Bob の dispatch を pickup → incoming bubble 表示 + unread badge
  *
  * 既知の制約:
- *  - smoldot は context 起動から finalized block を fetch するまで時間がかかる
- *    (testnet 起動直後の cold start で 30-60s)。fixture が baseURL に
- *    "Connected" を待つので、起動済みの testnet がある前提。
+ *  - chain client (WebSocket) は context 起動から最初の System.Number クエリまで
+ *    数秒だが PoW dev node 起動直後の cold start では 30-60s かかることもある。
+ *    fixture が baseURL に "Connected" を待つので、起動済みの testnet 前提。
  */
 
 interface MultiUserFixtures {
@@ -111,7 +111,7 @@ test.describe('DM multi-user (Alice ↔ Bob, 2 contexts)', () => {
     // (publishOrRepublishDmKey は Settings タブで終わっている)
     await alicePage.getByRole('dialog').getByRole('tab', { name: /Inbox/i }).click();
     // Alice の inbox に Bob の thread が追加されるのを待つ。SS58 で識別。
-    // smoldot per-tab cold sync + 6s blocktime + scanner 15s interval を考慮して timeout 大きめ。
+    // chain client per-tab cold sync + PoW 30s blocktime + scanner 15s interval を考慮して timeout 大きめ。
     await expect(async () => {
       const threads = alicePage
         .getByRole('dialog')
