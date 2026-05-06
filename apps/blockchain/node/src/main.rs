@@ -6,6 +6,7 @@ mod chain_spec;
 mod cli;
 mod command;
 mod gossip;
+mod pow;
 mod rpc;
 mod service;
 

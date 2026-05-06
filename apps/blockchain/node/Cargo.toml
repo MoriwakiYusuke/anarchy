@@ -30,6 +30,10 @@ sc-client-api = { workspace = true }
 sc-consensus = { workspace = true }
 sc-consensus-aura = { workspace = true }
 sc-consensus-grandpa = { workspace = true }
+sc-consensus-pow = { workspace = true }
+sp-consensus-pow = { workspace = true, default-features = true }
+randomx-rs = { workspace = true, default-features = true }
+frame-support = { workspace = true, default-features = true }
 sc-network = { workspace = true }
 sc-transaction-pool = { workspace = true }
 sc-transaction-pool-api = { workspace = true }
@@ -78,6 +82,7 @@ kzg-constants = { path = "../../../packages/kzg-constants", features = ["std"] }
 anarchy-runtime = { workspace = true, features = ["std"] }
 pallet-post = { workspace = true, features = ["std"] }
 pallet-storage = { workspace = true, features = ["std"] }
+pallet-difficulty = { workspace = true, default-features = true }
 
 [build-dependencies]
 substrate-build-script-utils = "11.0.0"
