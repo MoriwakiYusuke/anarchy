@@ -815,6 +815,67 @@
   - [ ] 統合テスト: chain-node ↔ storage-node の session 確立 → upload → token 失効 → 再取得 のフロー
   - [ ] 既存 `X-Anarchy-Auth` テストが dev fallback 経路として残ることを確認
 
+### + 4.9 Storage Node DB 最適化 (TODO 追加 2026-05-07)
+
+> **目的**: storage-node の fragment 永続化層を「1 fragment = 1 ファイル」のナイーブ実装から、embedded KV ストア (sled / redb / fjall / RocksDB) ベースに置き換えて、fragment 数 100 万件超でもスケールするようにする。
+>
+> **背景**: 現在の [`apps/storage-node/src/storage/mod.rs`](../apps/storage-node/src/storage/mod.rs) は `fs::create_dir_all` + `File::create` + `file.write_all` で fragment ごとに 1 ファイル書き出す。問題点:
+> - **inode インフレ**: 100 万 fragment = 100 万 inode (ext4 で `ls` / `find` が秒オーダー、xfs 推奨だが SD/HDD では fragmentation 累積)
+> - **fsync per fragment**: 書き込みが一切 batch されず writeback 圧迫
+> - **GC / capacity が O(N) 全走査**: `walkdir` crate でディレクトリ再帰 (起動時 + 周期実行)、再起動が遅い
+> - **メタデータ取得に毎回 stat(2)**: `status` RPC で fragment_id ごとに `fs::metadata` を呼ぶ → ホットパスで syscall 過多
+> - **integrity check なし**: 読み出し時に hash 検証していない (line 157 コメントで明言、bit rot 検知不可)
+> - **atomic rename ではない**: `File::create` → `write_all` → close、途中 crash で部分書き fragment が残る (削除側は `path.exists()` で誤検知)
+> - **圧縮なし**: 暗号化済み binary でも prefix 共通領域あり、storage 効率が悪い
+> - **WAL / snapshot ベースのバックアップが取れない**: rsync しかない、incremental が雑
+>
+> **緊急度**: 中。MVP / testnet では問題ないが、real-world dataset (1M+ fragments / per node) で確実に頭打ちになる。mainnet 公開前には完了させたい。
+>
+> **ボリューム感**: 1〜2 週間 (KV 選定 0.5 日 + 移行設計 1 日 + 実装 5〜7 日 + ベンチ 2 日 + テスト/PR review)。
+>
+> **互換性方針** (CLAUDE.md §Compatibility Policy より): 旧フォーマットからのマイグレーション不要。新 storage は wipe して再生成可。
+
+- [ ] **KV エンジン選定** (PoC + ベンチ)
+  - [ ] **候補 A: sled** — pure Rust, log-structured, embed しやすいが mature でない (1.0 未到達)
+  - [ ] **候補 B: redb** — pure Rust, ACID, B-tree、最近活発
+  - [ ] **候補 C: fjall** — pure Rust, LSM-tree, write-heavy 向け
+  - [ ] **候補 D: rocksdb** — C++ FFI, 実績豊富だが build 時間 + バイナリサイズ増
+  - [ ] ベンチ条件: 1M fragments × {64 KiB, 256 KiB, 1 MiB} で `put` / `get` / `delete` / `range_scan` の throughput と p99 レイテンシ、起動時間、`du -sh` (on-disk size)
+
+- [ ] **データモデル設計** (`apps/storage-node/src/storage/`)
+  - [ ] `fragments` CF/tree: `key = fragment_id (32B) → value = bytes`
+  - [ ] `metadata` CF/tree: `key = fragment_id → value = SCALE-encoded { size, created_at, last_accessed_at, ref_count }`
+  - [ ] `index_by_post` CF/tree: `key = (post_id, shard_idx) → value = fragment_id` (post→fragment 逆引き、challenge / repair で必要)
+  - [ ] `total_used_bytes` を engine の sum(metadata.size) ではなく単独 atomic counter として持つ (起動時に 1 回だけ復元)
+
+- [ ] **実装 (`apps/storage-node/src/storage/`)**
+  - [ ] `mod.rs` を `engine.rs` (KV ラッパ) と `repository.rs` (ドメイン層) に分割
+  - [ ] `Repository::store(fragment_id, data)` → engine の `put` + metadata 同時更新 (atomic batch)
+  - [ ] `Repository::load(fragment_id)` → engine の `get`、`last_accessed_at` を非同期 update (write batch でまとめる)
+  - [ ] `Repository::delete(fragment_id)` → atomic batch、`total_used_bytes` 減算
+  - [ ] `Repository::list_by_post(post_id)` → `index_by_post` の prefix scan
+  - [ ] integrity verify: 読み出し時 blake2 hash 比較フラグ (`config.toml` の `verify_on_read = true|false`)
+  - [ ] backup API: engine の `snapshot()` / `checkpoint()` を使った tar 化 → `apps/storage-node/scripts/backup.sh`
+
+- [ ] **GC / capacity 改修** (`apps/storage-node/src/gc/`)
+  - [ ] `walkdir` 全走査を engine の `range_scan(metadata)` に置換
+  - [ ] capacity check は atomic counter 参照のみに変更 (現在は予約とファイル書き出しの 2 段階)
+  - [ ] LRU eviction: `metadata.last_accessed_at` で sorted scan → 古い順に eviction
+
+- [ ] **マイグレーション** (= 不要、wipe & rebuild)
+  - [ ] `--storage-format = files | kv` CLI flag (default kv) を 1 リリースだけ残す → 次リリースで file 経路削除
+  - [ ] `apps/storage-node/scripts/wipe.sh` を docs に明記
+
+- [ ] **テスト**
+  - [ ] `apps/storage-node/src/storage/tests.rs` を engine 切替で同じテストが通るように parameterize
+  - [ ] 1M fragment ベンチ ([`scripts/bench-storage.sh`](../scripts/bench-storage.sh)) を追加
+  - [ ] crash test: write 中に SIGKILL → 起動後に inconsistent fragment が無いこと
+  - [ ] integration: `apps/blockchain/tests/integration/` の Multi-node テストに 100K fragments 投入 + GC 確認を追加
+
+- [ ] **ドキュメント**
+  - [ ] [docs/storage_logic.md](storage_logic.md) §Persistence 章を追記 / 更新
+  - [ ] config option `storage.engine = "redb" | "fjall" | …` の README 追加
+
 ---
 
 ## 構想事項（検討中）
