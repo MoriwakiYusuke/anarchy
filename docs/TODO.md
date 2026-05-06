@@ -672,6 +672,7 @@
 ### 4.4 Mainnet設計・経済パラメータ（トークノミクス統合）
 
 > 4.6の経済設計と統合。詳細設計は 4.5, 4.7 を参照。
+> 現状コードに存在する経済関連変数の全棚卸しは [`docs/economic_parameters.md`](economic_parameters.md) を参照。
 
 - [ ] **経済合理性に基づく定数制定**
   - [ ] PostBaseCost / PostByteCost の最適値検証
@@ -875,6 +876,79 @@
 - [ ] **ドキュメント**
   - [ ] [docs/storage_logic.md](storage_logic.md) §Persistence 章を追記 / 更新
   - [ ] config option `storage.engine = "redb" | "fjall" | …` の README 追加
+
+### + 4.10 ノード運用者ダッシュボード (TODO 追加 2026-05-07)
+
+> **目的**: storage-node / mining-node を自分で運用している人が、自分のノードの状態 (容量・hashrate・収益・peer 健全性・スラッシング履歴) を見るための **ローカル限定 Web UI** を用意する。
+>
+> **スコープ外** (Anarchy 哲学との衝突を避けるため明記):
+> - ❌ 他人のノードを管理する画面 (= 中央集権化)
+> - ❌ 投稿削除 / user ban / KYC 操作 (= "Order Without Rulers" に反する)
+> - ❌ 公開 endpoint (常に `127.0.0.1` バインド + 起動時に認可トークン file 出力)
+>
+> **背景**: 現状の運用者向け可視化は以下のみで、UI が無いため運用者は自分でクエリを書く必要がある:
+> - storage-node: [`apps/storage-node/src/metrics.rs`](../apps/storage-node/src/metrics.rs) に `AtomicU64` カウンタ群 (fragment_count / capacity_used / connected_peers / gossip_messages_* / auth_failures / chain_failovers / chain_latency_ms 等) があるが Prometheus exporter は未配線
+> - chain-node: Substrate 標準の Prometheus exporter (`--prometheus-port 9615`) で best/finalized/peers などは出るが、Anarchy 固有の miner 状態 (hashrate / coinbase 残高 / RandomX mode / authority set 所属 / Tor mode) は出ない
+>
+> **緊急度**: 低-中。MVP では nice-to-have だが、testnet 〜 mainnet で第三者運用者を集めるには必須 (運用者体験の悪さは participation rate に直結)。
+>
+> **ボリューム感**: 1〜2 週間 (バックエンド metrics 追補 3〜4 日 + フロント 4〜5 日 + auth 1 日 + パッケージング 1 日)。
+>
+> **配布方針**: 別バイナリに切らず、storage-node / mining-node の **同一バイナリに静的アセット同梱** (`rust-embed` 等) し、`--console-port 9090` で起動。Tor mode と独立、必ず `127.0.0.1` 限定。
+
+- [ ] **共通バックエンド** (`apps/storage-node/src/console/` & `apps/blockchain/node/src/console/`)
+  - [ ] `mod.rs` — axum サブ router、`127.0.0.1` 強制バインド
+  - [ ] `auth.rs` — 起動時に `~/.anarchy/console-token` (chmod 600) を出力、HTTP は `Authorization: Bearer <token>` 必須
+  - [ ] `assets.rs` — `rust-embed` で SPA 静的ファイル配信
+  - [ ] `events.rs` — Server-Sent Events で metrics を 1s 間隔 push (poll より省 CPU)
+
+- [ ] **Storage operator metrics 拡充** (`apps/storage-node/src/`)
+  - [ ] `metrics.rs` を Prometheus exposition format で `/metrics` endpoint に出す (運用者は Grafana 連携も可能に)
+  - [ ] 追加 metrics:
+    - 自分の AccountId に対する on-chain `Storage.NodeRewards` (累計報酬)
+    - 自分宛の最近のスラッシング event (last 100)
+    - Repair queue 深さ (`apps/storage-node/src/repair/`)
+    - 自分が hold している post 数と byte 数 (現状の fragment_count とは別軸)
+  - [ ] `console/` ハンドラ:
+    - `GET /api/status` → `{ peer_id, version, uptime_sec, tor_mode, onion_addr?, capacity, fragments }`
+    - `GET /api/peers` → libp2p connected peers (peer_id, multiaddr, latency)
+    - `GET /api/rewards/summary` → 24h / 7d / 30d 集計
+    - `GET /api/slashing/recent?limit=20`
+
+- [ ] **Mining operator metrics 拡充** (`apps/blockchain/node/src/`)
+  - [ ] miner thread (`service.rs` 周辺) に hashrate sliding window (1s / 1m / 5m) を追加
+  - [ ] `console/` ハンドラ:
+    - `GET /api/status` → `{ peer_id, best, finalized, tor_mode, onion_addr?, miner_running, randomx_mode }`
+    - `GET /api/miner` → `{ coinbase, hashrate_1s, hashrate_1m, blocks_won_24h, last_won_block_height, current_difficulty, last_10_targets }`
+    - `GET /api/coinbase/balance` → `pallet_balances::Account[coinbase].free` (chain RPC で自分自身に問い合わせ)
+    - `GET /api/authority` → GRANDPA authority set 所属判定 + 直近の vote 統計 (該当時のみ)
+
+- [ ] **共通フロント** (`apps/node-console/`, 新パッケージ)
+  - [ ] Vite + React (SSR 不要、SPA で OK) または Next.js static export — Wasm 不要なので軽量化優先
+  - [ ] 単一ページに `<NodeStatusCard>` (storage / mining 自動判別) + `<MetricsTimeSeries>` (SSE 受信) + `<PeerList>` + `<RewardsPanel>` + `<EventLogTail>`
+  - [ ] i18n EN/JA/ZH (frontend と同じ I18n 規約)
+  - [ ] `pnpm build` で `dist/` を生成 → Rust 側で `rust-embed("./apps/node-console/dist/")`
+  - [ ] **DM などユーザ機能は持たない** (運用者画面と user 画面は完全分離する)
+
+- [ ] **CLI / config**
+  - [ ] storage-node: `--console-port 9090` / `--no-console` フラグ追加 ([`apps/storage-node/src/config/`](../apps/storage-node/src/config/))
+  - [ ] chain-node: 同様 ([`apps/blockchain/node/src/cli.rs`](../apps/blockchain/node/src/cli.rs))
+  - [ ] `mainnet` chain id では default 無効化 (誤って exposed されないように、`--console-port` 明示時のみ有効)
+
+- [ ] **セキュリティ**
+  - [ ] `127.0.0.1` 以外のリクエストを reject (Tor mode と独立にチェック)
+  - [ ] CSRF 対策: SameSite=strict + Origin チェック
+  - [ ] token rotate: SIGHUP で再生成、ファイルパーミッション (chmod 600) を起動時に強制
+  - [ ] 監査ログ: console アクセスは別ファイルに JSON で記録 (誰がいつ何を見たか、ローカル運用者の self-audit 用)
+
+- [ ] **テスト**
+  - [ ] `apps/storage-node/src/console/tests.rs`: 認証失敗 / 認証成功 / 非 localhost reject / SSE 切断 reconnect
+  - [ ] フロント Jest: 各カードがバックエンド response shape の breaking change に追従できること (型生成は OpenAPI or `tRPC` を検討)
+  - [ ] E2E: storage-node 起動 → console 開く → fragment 投入 → カウンタが 1s 内に更新されることを確認
+
+- [ ] **ドキュメント**
+  - [ ] `docs/operator_console.md` 新規 — 起動方法、token 場所、画面の見方、Grafana 連携 (Prometheus `/metrics` 経由)
+  - [ ] [README.md](../README.md) の「ノードを運用する」節からリンク
 
 ---
 
