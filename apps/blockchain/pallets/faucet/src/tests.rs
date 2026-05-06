@@ -89,6 +89,8 @@ impl pallet_faucet::Config for Test {
     type MaxDifficulty = ConstU8<16>;
     type RewardAmount = ConstU128<100_000_000_000_000>;
     type ChallengeValidity = ConstU64<100>;
+    /// Tests: 0 = cap 無効 (旧挙動互換)。capped tests は専用 mock を使う。
+    type TotalCap = ConstU128<0>;
 }
 
 /// Build test externalities

@@ -20,6 +20,8 @@ thread_local! {
     static STORAGE_POOL_DEPOSITS: RefCell<u128> = const { RefCell::new(0) };
     /// `MockStealthReward::do_deposit_to_stealth_reward_pool` に渡された累計額。
     static STEALTH_REWARD_DEPOSITS: RefCell<u128> = const { RefCell::new(0) };
+    /// `MockStealthReward::record_recipient_receive` の呼び出し回数。
+    static STEALTH_RECEIVE_RECORDS: RefCell<u32> = const { RefCell::new(0) };
 }
 
 /// Storage pool への流入累計を取得 (テスト用)。
@@ -32,10 +34,16 @@ pub fn stealth_reward_deposits() -> u128 {
     STEALTH_REWARD_DEPOSITS.with(|c| *c.borrow())
 }
 
+/// StealthReward の受信記録回数を取得 (テスト用)。
+pub fn stealth_receive_records() -> u32 {
+    STEALTH_RECEIVE_RECORDS.with(|c| *c.borrow())
+}
+
 /// プール流入カウンタをリセット (テスト分離用)。
 pub fn reset_pool_deposits() {
     STORAGE_POOL_DEPOSITS.with(|c| *c.borrow_mut() = 0);
     STEALTH_REWARD_DEPOSITS.with(|c| *c.borrow_mut() = 0);
+    STEALTH_RECEIVE_RECORDS.with(|c| *c.borrow_mut() = 0);
 }
 
 /// Mock pallet-storage interface。`do_deposit_to_reward_pool` のみカウント。
@@ -77,6 +85,9 @@ pub struct MockStealthReward;
 impl StealthRewardInterface for MockStealthReward {
     fn do_deposit_to_stealth_reward_pool(amount: u128) {
         STEALTH_REWARD_DEPOSITS.with(|c| *c.borrow_mut() += amount);
+    }
+    fn record_recipient_receive(_ephemeral_pubkey: [u8; 32]) {
+        STEALTH_RECEIVE_RECORDS.with(|c| *c.borrow_mut() += 1);
     }
 }
 

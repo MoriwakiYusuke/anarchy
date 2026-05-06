@@ -63,6 +63,7 @@ pub struct MockStealthReward;
 
 impl StealthRewardInterface for MockStealthReward {
     fn do_deposit_to_stealth_reward_pool(_amount: u128) {}
+    fn record_recipient_receive(_ephemeral_pubkey: [u8; 32]) {}
 }
 
 frame_support::construct_runtime!(

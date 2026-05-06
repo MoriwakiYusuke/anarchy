@@ -24,19 +24,25 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-/// ステルス用リワードプール (10% 還流先) への接続トレイト。
+/// ステルス用リワードプール (TSTS DM 還流先) への接続トレイト。
 ///
 /// `pallet-reaction::ReactionInterface` と同じ形だが、pallet-messaging 独自の
 /// インターフェースとして分離することで依存関係を最小に保ち、実装側 (runtime)
 /// はこれを `pallet-stealth` のリワードプール、または任意の pool 実装に接続する。
+///
+/// TSTS P6 で `record_recipient_receive` を追加し、受信エフェメラル公開鍵ごとの
+/// カウントを更新できるようにした (claim_stealth_reward の按分根拠)。
 pub trait StealthRewardInterface {
     /// 指定量をステルスリワードプールに加算する。
     fn do_deposit_to_stealth_reward_pool(amount: u128);
+    /// 受信エフェメラル公開鍵の受信回数を 1 増やす (TSTS P6)。
+    fn record_recipient_receive(ephemeral_pubkey: [u8; 32]);
 }
 
 /// No-op 実装 (主にテスト/プレースホルダ用)。
 impl StealthRewardInterface for () {
     fn do_deposit_to_stealth_reward_pool(_amount: u128) {}
+    fn record_recipient_receive(_ephemeral_pubkey: [u8; 32]) {}
 }
 
 // Runtime API: フロントエンド scanner が効率的に DmDispatchesByBlock を取得
@@ -309,11 +315,18 @@ pub mod pallet {
             )
             .map_err(|_| Error::<T>::InsufficientStealthBalance)?;
 
-            // 80% storage / 10% stealth reward / 10% 永久 burn (burn_from 済の残り)。
-            let storage_share = total_cost_u128.saturating_mul(80) / 100;
-            let stealth_share = total_cost_u128.saturating_mul(10) / 100;
+            // TSTS v1: 50% storage / 20% stealth reward / 30% 永久 burn.
+            // 旧モデル (80/10/10) からの主要な変更:
+            //  - storage 80→50: post と整合 (DM も storage 報酬流入にする)
+            //  - stealth 10→20: 還流配線完了で受信者にマイクロ報酬
+            //  - burn 10→30: tail emission 0.5 MORAL/block を相殺するデフレ圧の強化
+            // 詳細: docs/economic_model_proposal.md §3.2.4
+            let storage_share = total_cost_u128.saturating_mul(50) / 100;
+            let stealth_share = total_cost_u128.saturating_mul(20) / 100;
             T::Storage::do_deposit_to_reward_pool(storage_share);
             T::StealthReward::do_deposit_to_stealth_reward_pool(stealth_share);
+            // TSTS P6: 受信ステルスのカウントを記録し claim_stealth_reward の按分根拠にする
+            T::StealthReward::record_recipient_receive(ephemeral_pubkey);
 
             let message_id = NextMessageId::<T>::get();
             let next_id = message_id

@@ -269,9 +269,14 @@ pub mod pallet {
                 frame_support::traits::tokens::Fortitude::Polite,
             ).map_err(|_| Error::<T>::InsufficientMoralBalance)?;
 
-            // FR-113: 80%をStorage報酬プールに蓄積、10%をReaction報酬プールに蓄積、10%は永久にburn
-            let storage_pool_amount = total_cost.saturating_mul(80) / 100;
-            let reaction_pool_amount = total_cost.saturating_mul(10) / 100;
+            // TSTS v1 (旧 FR-113 改訂): 50% storage / 20% reaction / 30% 永久 burn.
+            // 旧モデル (80/10/10) からの主要な変更:
+            //  - storage 80→50: tail emission 30% で常時注入があるのでユーザ流入比率を抑える
+            //  - reaction 10→20: 動的 γ の自己平衡を働かせるためプール厚みを確保
+            //  - burn 10→30: tail emission 0.5 MORAL/block を相殺するデフレ圧の強化
+            // 詳細: docs/economic_model_proposal.md §3.2.3
+            let storage_pool_amount = total_cost.saturating_mul(50) / 100;
+            let reaction_pool_amount = total_cost.saturating_mul(20) / 100;
             T::Storage::do_deposit_to_reward_pool(storage_pool_amount);
             T::Reaction::do_deposit_to_reaction_pool(reaction_pool_amount);
 

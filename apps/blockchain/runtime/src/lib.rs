@@ -338,7 +338,7 @@ impl pallet_post::Config for Runtime {
     type Popularity = Popularity;
 }
 
-// Faucet Pallet設定
+// Faucet Pallet設定 (TSTS P7: 累積発行上限を導入)
 impl pallet_faucet::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
     /// 初期難易度: 18ビット（約3秒）
@@ -351,6 +351,9 @@ impl pallet_faucet::Config for Runtime {
     type RewardAmount = ConstU128<100_000_000_000_000>;
     /// チャレンジ有効期限: 100ブロック (BlockNumber = u32)
     type ChallengeValidity = ConstU32<100>;
+    /// 累積発行上限: 100,000 MORAL (1000 claims) — bootstrap 専用 (TSTS sunset).
+    /// この値到達後は `FaucetCapReached` で claim が失敗する。
+    type TotalCap = ConstU128<100_000_000_000_000_000>;
 }
 
 // Storage Pallet設定
@@ -476,18 +479,34 @@ impl pallet_popularity::Config for Runtime {
 }
 
 // Messaging (DM) Pallet設定 — contracts/pallet-messaging-extrinsics.md §Dependencies
-// StealthReward 還流先は pallet-stealth に reward pool trait が追加されるまで no-op (())。
-// 10% の還流分は暫定的に burn と同等の扱いになる (追加 burn としてドキュメント化)。
+//
+// TSTS P6: StealthReward 還流先を pallet_stealth に配線済み。20% が stealth pool に流入し、
+// 受信エフェメラル公開鍵ごとの受信回数も記録される。詳細: docs/economic_model_proposal.md §3.2.4
 parameter_types! {
     pub const DmBaseCost: Balance = 1_000_000_000_000;      // 1 MORAL
     pub const DmByteCost: Balance = 50_000_000_000;         // 0.05 MORAL / byte
     pub const MaxDmCiphertextLen: u64 = 262_144;
 }
 
+/// pallet_messaging::StealthRewardInterface を pallet_stealth::Pallet に橋渡しする adapter。
+///
+/// 直接 `impl<T: pallet_stealth::Config> StealthRewardInterface for pallet_stealth::Pallet<T>`
+/// を書くと pallet_stealth crate が pallet_messaging に依存することになり循環するため、
+/// runtime crate 側でこの薄い adapter を実装する。
+pub struct StealthRewardAdapter;
+impl pallet_messaging::StealthRewardInterface for StealthRewardAdapter {
+    fn do_deposit_to_stealth_reward_pool(amount: u128) {
+        pallet_stealth::Pallet::<Runtime>::deposit_to_reward_pool(amount);
+    }
+    fn record_recipient_receive(ephemeral_pubkey: [u8; 32]) {
+        pallet_stealth::Pallet::<Runtime>::record_recipient_receive(ephemeral_pubkey);
+    }
+}
+
 impl pallet_messaging::Config for Runtime {
     type NativeToken = Balances;
     type Storage = Storage;
-    type StealthReward = ();
+    type StealthReward = StealthRewardAdapter;
     type MaxDispatchesPerBlock = ConstU32<256>;
     type DmBaseCost = DmBaseCost;
     type DmByteCost = DmByteCost;
