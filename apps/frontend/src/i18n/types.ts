@@ -80,6 +80,12 @@ export type TranslationKey =
   | 'post.defaultCostNote'
   | 'post.expand'
   | 'post.collapse'
+  | 'post.reply'
+  | 'post.replyTo'
+  | 'post.viewReply'
+  | 'post.viewReplies'
+  | 'post.hideReplies'
+  | 'post.cancelReply'
   // Reaction
   | 'reaction.pleaseConnect'
   | 'reaction.alreadyReacted'

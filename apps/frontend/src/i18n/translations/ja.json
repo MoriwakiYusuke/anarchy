@@ -257,6 +257,12 @@
   
   "post.expand": "もっと見る",
   "post.collapse": "折りたたむ",
+  "post.reply": "返信",
+  "post.replyTo": "#{id} に返信",
+  "post.viewReplies": "返信を{count}件表示",
+  "post.viewReply": "返信を1件表示",
+  "post.hideReplies": "返信を隠す",
+  "post.cancelReply": "キャンセル",
   "reaction.pleaseConnect": "接続してください",
   "reaction.alreadyReacted": "すでに反応済みです",
   "reaction.submitting": "送信中...",

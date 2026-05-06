@@ -255,6 +255,12 @@
   
   "post.expand": "Show more",
   "post.collapse": "Show less",
+  "post.reply": "Reply",
+  "post.replyTo": "Replying to #{id}",
+  "post.viewReplies": "View {count} replies",
+  "post.viewReply": "View 1 reply",
+  "post.hideReplies": "Hide replies",
+  "post.cancelReply": "Cancel",
   "reaction.pleaseConnect": "Please connect",
   "reaction.alreadyReacted": "Already reacted",
   "reaction.submitting": "Submitting...",

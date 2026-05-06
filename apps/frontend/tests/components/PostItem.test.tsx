@@ -60,6 +60,16 @@ jest.mock('@/hooks/useStorage', () => ({
   }),
 }))
 
+// Mock PostForm — avoids pulling in polkadot-api (ESM) through the component tree
+jest.mock('@/components/PostForm', () => ({
+  PostForm: () => null,
+}))
+
+// Mock ReactionButton — same reason (transitively imports polkadot-api)
+jest.mock('@/components/ReactionButton', () => ({
+  ReactionButton: () => null,
+}))
+
 // Shared pool mock tracking
 const sharedPoolSpy = {
   executeCount: 0,

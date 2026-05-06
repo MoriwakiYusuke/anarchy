@@ -5,7 +5,8 @@ import { PolkadotClient } from 'polkadot-api'
 import type { PolkadotSigner } from 'polkadot-api/signer'
 import { useLocale } from '@/i18n'
 import { debugError } from '@/lib/debugLog'
-import { PostItem } from './PostItem'
+import { PostItem, type NestedReplyData } from './PostItem'
+import type { StorageSigner } from '@/hooks/useStorage'
 import styles from './Timeline.module.css'
 
 interface ContentRef {
@@ -39,12 +40,17 @@ interface Props {
   unsafeApi: any
   account: string | null
   signer: PolkadotSigner | null
+  /** Raw sr25519 signer (AccountContext.mainRawSigner) — required for inline reply storage upload */
+  storageSigner?: StorageSigner | null
   refreshTrigger?: number
+  /** Called when a reply is successfully posted from an inline form, so the page can bump refreshTrigger */
+  onReplyPosted?: () => void
 }
 
-export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }: Props) {
+export function Timeline({ client, unsafeApi, account, signer, storageSigner, refreshTrigger, onReplyPosted }: Props) {
   const { t } = useLocale()
   const [posts, setPosts] = useState<Post[]>([])
+  const [repliesMap, setRepliesMap] = useState<Map<number, NestedReplyData[]>>(new Map())
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -160,25 +166,69 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
           }
         })
 
-        // 最新順（作成ブロック番号の降順）でソート
-        fetchedPosts.sort((a, b) => b.createdAt - a.createdAt)
+        // root を解決: parent チェーンを遡って最上位の post id を返す
+        // 親が posts セットに無い (削除等) 場合は self を root として扱う
+        const postIndex = new Map<number, Post>()
+        for (const p of fetchedPosts) postIndex.set(p.id, p)
+        const rootCache = new Map<number, number>()
+        const resolveRoot = (id: number): number => {
+          const cached = rootCache.get(id)
+          if (cached !== undefined) return cached
+          const visited = new Set<number>()
+          let cur = id
+          while (true) {
+            if (visited.has(cur)) break
+            visited.add(cur)
+            const p = postIndex.get(cur)
+            if (!p || p.parentId === null) break
+            const parent = postIndex.get(p.parentId)
+            if (!parent) break
+            cur = p.parentId
+          }
+          for (const v of visited) rootCache.set(v, cur)
+          return cur
+        }
 
-        // 表示する投稿を50件に制限
-        const displayPosts = fetchedPosts.slice(0, 50)
+        // root ごとに返信を集約 (root 自身は除く)
+        const repliesByRoot = new Map<number, Post[]>()
+        for (const p of fetchedPosts) {
+          const root = resolveRoot(p.id)
+          if (root === p.id) continue
+          const arr = repliesByRoot.get(root) ?? []
+          arr.push(p)
+          repliesByRoot.set(root, arr)
+        }
+        for (const arr of repliesByRoot.values()) {
+          arr.sort((a, b) => a.createdAt - b.createdAt)
+        }
 
-        // リアクション統計を取得（表示する投稿のみ）
+        // トップレベル候補: parent_id が null、または親が posts に存在しない (orphan)
+        const isTopLevel = (p: Post) =>
+          p.parentId === null || !postIndex.has(p.parentId)
+        const topLevel = fetchedPosts.filter(isTopLevel)
+        topLevel.sort((a, b) => b.createdAt - a.createdAt)
+        const displayRoots = topLevel.slice(0, 50)
+
+        // 統計取得対象 = 表示する root 群 + その全返信
+        const statsTargets = new Set<number>()
+        for (const root of displayRoots) {
+          statsTargets.add(root.id)
+          const replies = repliesByRoot.get(root.id) ?? []
+          for (const r of replies) statsTargets.add(r.id)
+        }
+
+        // リアクション統計を取得（表示する投稿 + 返信）
         try {
           if (unsafeApi.query.Reaction?.ReactionStatsStorage?.getValue) {
-            const statsPromises = displayPosts.map(async (post) => {
+            const statsPromises = Array.from(statsTargets).map(async (postId) => {
+              const post = postIndex.get(postId)
+              if (!post) return null
               try {
-                const stats = await unsafeApi.query.Reaction.ReactionStatsStorage.getValue(post.id)
+                const stats = await unsafeApi.query.Reaction.ReactionStatsStorage.getValue(postId)
                 if (stats) {
-                  return {
-                    postId: post.id,
-                    stats: {
-                      likes: Number(stats.likes || 0),
-                      bads: Number(stats.bads || 0),
-                    }
+                  post.reactionStats = {
+                    likes: Number(stats.likes || 0),
+                    bads: Number(stats.bads || 0),
                   }
                 }
               } catch {
@@ -186,21 +236,34 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
               }
               return null
             })
-            const statsResults = await Promise.all(statsPromises)
-            for (const result of statsResults) {
-              if (result) {
-                const post = displayPosts.find(p => p.id === result.postId)
-                if (post) {
-                  post.reactionStats = result.stats
-                }
-              }
-            }
+            await Promise.all(statsPromises)
           }
         } catch {
           // Reaction pallet not available
         }
 
-        setPosts(displayPosts)
+        // 表示用のネスト返信データに変換 (root id -> NestedReplyData[])
+        const repliesData = new Map<number, NestedReplyData[]>()
+        for (const root of displayRoots) {
+          const list = repliesByRoot.get(root.id) ?? []
+          repliesData.set(
+            root.id,
+            list.map((r) => ({
+              id: r.id,
+              author: r.author,
+              contentHash: r.contentHash,
+              createdAt: r.createdAt,
+              parentId: r.parentId,
+              contentRef: r.contentRef,
+              nickname: r.nickname,
+              likes: r.reactionStats?.likes,
+              bads: r.reactionStats?.bads,
+            })),
+          )
+        }
+
+        setPosts(displayRoots)
+        setRepliesMap(repliesData)
       } catch (err) {
         debugError('[Timeline] Failed to fetch posts:', err)
       } finally {
@@ -246,8 +309,11 @@ export function Timeline({ client, unsafeApi, account, signer, refreshTrigger }:
           unsafeApi={unsafeApi}
           account={account}
           signer={signer}
+          storageSigner={storageSigner ?? null}
           likes={post.reactionStats?.likes}
           bads={post.reactionStats?.bads}
+          replies={repliesMap.get(post.id)}
+          onReplyPosted={onReplyPosted}
         />
       ))}
     </div>

@@ -255,6 +255,12 @@
   
   "post.expand": "显示更多",
   "post.collapse": "收起",
+  "post.reply": "回复",
+  "post.replyTo": "回复 #{id}",
+  "post.viewReplies": "查看 {count} 条回复",
+  "post.viewReply": "查看 1 条回复",
+  "post.hideReplies": "隐藏回复",
+  "post.cancelReply": "取消",
   "reaction.pleaseConnect": "请先连接",
   "reaction.alreadyReacted": "已反应过",
   "reaction.submitting": "提交中...",
