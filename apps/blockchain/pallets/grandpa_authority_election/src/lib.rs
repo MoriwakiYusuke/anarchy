@@ -130,7 +130,7 @@ pub mod pallet {
             use sp_runtime::traits::SaturatedConversion;
             let n_u128: u128 = n.saturated_into();
             let period: u128 = T::RotationPeriod::get().saturated_into();
-            if period == 0 || n_u128 % period != 0 {
+            if period == 0 || !n_u128.is_multiple_of(period) {
                 return;
             }
 
