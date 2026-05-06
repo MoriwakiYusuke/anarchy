@@ -180,7 +180,10 @@ impl pallet_timestamp::Config for Runtime {
 parameter_types! {
     pub const TargetBlockTime: u64 = MILLISECS_PER_BLOCK;       // 30_000ms
     pub const DifficultyAdjustWindow: u32 = 60;
-    pub const MinDifficulty: sp_core::U256 = sp_core::U256([10_000, 0, 0, 0]);
+    // 注: 100 は dev/smoke 向け floor。WSL2 等で RandomX が ~30H/s しか出ない環境でも
+    // ブロックが進むよう保守的に設定。production 投入前に bench-randomx.sh で再算出する
+    // (spec §1 では 10_000 推奨)。
+    pub const MinDifficulty: sp_core::U256 = sp_core::U256([100, 0, 0, 0]);
 }
 impl pallet_difficulty::Config for Runtime {
     type TargetBlockTime = TargetBlockTime;
@@ -188,15 +191,19 @@ impl pallet_difficulty::Config for Runtime {
     type MinDifficulty = MinDifficulty;
 }
 
-/// PoW author 抽出アダプタ。PreRuntime ダイジェストから engine ID "ANRC" を探し、
-/// SCALE デコードで AccountId を取り出す。
+/// PoW author 抽出アダプタ。PreRuntime ダイジェストから sc_consensus_pow が書き込む
+/// engine ID `b"pow_"` (= `sp_consensus_pow::POW_ENGINE_ID`) を探し、SCALE デコードで
+/// AccountId を取り出す。chain ローカルな別 ID (例: `b"ANRC"`) を使うと sc_consensus_pow
+/// のマイニングワーカが書き込む PreRuntime と一致せず author が抽出できない。
 pub struct PowAuthorAdapter;
 impl frame_support::traits::FindAuthor<AccountId> for PowAuthorAdapter {
     fn find_author<'a, I>(digests: I) -> Option<AccountId>
     where
         I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
     {
-        const POW_ENGINE_ID: sp_runtime::ConsensusEngineId = *b"ANRC";
+        // sp_consensus_pow::POW_ENGINE_ID = [b'p', b'o', b'w', b'_'] と同値。
+        // runtime は sp-consensus-pow に依存させたくないので生バイトで記述する。
+        const POW_ENGINE_ID: sp_runtime::ConsensusEngineId = *b"pow_";
         for (id, mut data) in digests {
             if id == POW_ENGINE_ID {
                 if let Ok(a) = AccountId::decode(&mut data) {

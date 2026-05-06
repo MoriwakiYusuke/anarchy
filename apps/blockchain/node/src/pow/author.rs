@@ -1,12 +1,15 @@
 //! PreRuntime digest に miner の AccountId を埋め込み、runtime 側で抽出するための
-//! `FindAuthor` 実装。Engine ID は `b"ANRC"` (Anarchy)。
+//! `FindAuthor` 実装。Engine ID は `sp_consensus_pow::POW_ENGINE_ID` (= `b"pow_"`)。
+//! sc_consensus_pow のマイニングワーカが PreRuntime ダイジェストに使う engine ID と
+//! 一致させる必要がある。chain ローカルな別 ID (例: b"ANRC") を使うと runtime 側で
+//! author が抽出できず block reward が常にスキップされる。
 
 use frame_support::traits::FindAuthor;
 use parity_scale_codec::Decode;
 use sp_runtime::AccountId32;
 use sp_runtime::ConsensusEngineId;
 
-pub const POW_ENGINE_ID: ConsensusEngineId = *b"ANRC";
+pub use sp_consensus_pow::POW_ENGINE_ID;
 
 pub struct PowAuthor;
 
@@ -43,7 +46,8 @@ mod tests {
     fn returns_none_for_unknown_engine_id() {
         let acc = AccountId32::from([1u8; 32]);
         let bytes = acc.encode();
-        let result = PowAuthor::find_author(vec![(*b"WRNG", bytes.as_slice())]);
+        // sp_consensus_pow::POW_ENGINE_ID 以外 (例: 旧 b"ANRC" や b"aura") は無視される
+        let result = PowAuthor::find_author(vec![(*b"ANRC", bytes.as_slice())]);
         assert_eq!(result, None);
     }
 
