@@ -5,6 +5,7 @@ import { PolkadotClient } from 'polkadot-api'
 import type { PolkadotSigner } from 'polkadot-api/signer'
 import { useLocale } from '@/i18n'
 import { debugError } from '@/lib/debugLog'
+import { computeRootMap, groupRepliesByRoot, isTopLevel } from '@/lib/threadGrouping'
 import { PostItem, type NestedReplyData } from './PostItem'
 import type { StorageSigner } from '@/hooks/useStorage'
 import styles from './Timeline.module.css'
@@ -40,7 +41,8 @@ interface Props {
   unsafeApi: any
   account: string | null
   signer: PolkadotSigner | null
-  /** Raw sr25519 signer (AccountContext.mainRawSigner) — required for inline reply storage upload */
+  /** Raw sr25519 signer (AccountContext.mainRawSigner). 任意 — 指定された場合のみ
+   *  インライン返信のフラグメントアップロードに署名を付与する (`UploadFragmentRequest.auth` は optional)。 */
   storageSigner?: StorageSigner | null
   refreshTrigger?: number
   /** Called when a reply is successfully posted from an inline form, so the page can bump refreshTrigger */
@@ -166,65 +168,27 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
           }
         })
 
-        // root を解決: parent チェーンを遡って最上位の post id を返す
-        // 親が posts セットに無い (削除等) 場合は self を root として扱う
+        // root 解決と返信グルーピングは threadGrouping ヘルパーに分離 (単体テスト対象)
         const postIndex = new Map<number, Post>()
         for (const p of fetchedPosts) postIndex.set(p.id, p)
-        const rootCache = new Map<number, number>()
-        const resolveRoot = (id: number): number => {
-          const cached = rootCache.get(id)
-          if (cached !== undefined) return cached
-          const visited = new Set<number>()
-          let cur = id
-          while (true) {
-            if (visited.has(cur)) break
-            visited.add(cur)
-            const p = postIndex.get(cur)
-            if (!p || p.parentId === null) break
-            const parent = postIndex.get(p.parentId)
-            if (!parent) break
-            cur = p.parentId
-          }
-          for (const v of visited) rootCache.set(v, cur)
-          return cur
-        }
-
-        // root ごとに返信を集約 (root 自身は除く)
-        const repliesByRoot = new Map<number, Post[]>()
-        for (const p of fetchedPosts) {
-          const root = resolveRoot(p.id)
-          if (root === p.id) continue
-          const arr = repliesByRoot.get(root) ?? []
-          arr.push(p)
-          repliesByRoot.set(root, arr)
-        }
-        for (const arr of repliesByRoot.values()) {
-          arr.sort((a, b) => a.createdAt - b.createdAt)
-        }
+        const rootMap = computeRootMap(fetchedPosts)
+        const repliesByRoot = groupRepliesByRoot(fetchedPosts, rootMap)
 
         // トップレベル候補: parent_id が null、または親が posts に存在しない (orphan)
-        const isTopLevel = (p: Post) =>
-          p.parentId === null || !postIndex.has(p.parentId)
-        const topLevel = fetchedPosts.filter(isTopLevel)
+        const topLevel = fetchedPosts.filter((p) => isTopLevel(p, postIndex))
         topLevel.sort((a, b) => b.createdAt - a.createdAt)
         const displayRoots = topLevel.slice(0, 50)
 
-        // 統計取得対象 = 表示する root 群 + その全返信
-        const statsTargets = new Set<number>()
-        for (const root of displayRoots) {
-          statsTargets.add(root.id)
-          const replies = repliesByRoot.get(root.id) ?? []
-          for (const r of replies) statsTargets.add(r.id)
-        }
-
-        // リアクション統計を取得（表示する投稿 + 返信）
+        // リアクション統計取得は表示中の root のみ (最大 50 件) に限定する。
+        // 返信に対する like/bad カウントは初期表示しないトレードオフ:
+        // root に紐付く返信が大量にあると `ReactionStatsStorage.getValue` の並列発行が
+        // タイムライン初期ロードを膨らませるため (Copilot review #51 C5)。
+        // 返信の reaction 集計が必要になったら on-demand 取得に切り替える。
         try {
           if (unsafeApi.query.Reaction?.ReactionStatsStorage?.getValue) {
-            const statsPromises = Array.from(statsTargets).map(async (postId) => {
-              const post = postIndex.get(postId)
-              if (!post) return null
+            const statsPromises = displayRoots.map(async (post) => {
               try {
-                const stats = await unsafeApi.query.Reaction.ReactionStatsStorage.getValue(postId)
+                const stats = await unsafeApi.query.Reaction.ReactionStatsStorage.getValue(post.id)
                 if (stats) {
                   post.reactionStats = {
                     likes: Number(stats.likes || 0),
@@ -234,7 +198,6 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
               } catch {
                 // Individual stats fetch failed
               }
-              return null
             })
             await Promise.all(statsPromises)
           }
@@ -243,6 +206,8 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
         }
 
         // 表示用のネスト返信データに変換 (root id -> NestedReplyData[])
+        // 返信側 likes/bads は undefined のまま (上記トレードオフ通り、ReactionButton 側で
+        // ボタンは表示されるが初期カウントは出ない)。
         const repliesData = new Map<number, NestedReplyData[]>()
         for (const root of displayRoots) {
           const list = repliesByRoot.get(root.id) ?? []

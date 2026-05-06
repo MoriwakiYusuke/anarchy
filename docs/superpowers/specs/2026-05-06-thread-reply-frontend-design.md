@@ -88,7 +88,9 @@ interface Props {
 ```
 
 - `parent_id` を `tx.Post.create_post` に渡す:
-  `parent_id: parentId !== undefined ? parentId : undefined` (BigInt 化は PAPI が自動)
+  `parent_id: parentId !== undefined ? BigInt(parentId) : undefined`
+  (PAPI は `Option<u64>` の内側を BigInt で要求するため明示的に変換する。number を渡すと
+   `Cannot convert N to a BigInt` エラーで送信が失敗する)
 - `parentId` 設定時はフォーム上部に `Replying to #{parentId}` ヘッダー表示
 - `onCancel` 設定時はキャンセルボタン表示
 
@@ -131,10 +133,11 @@ interface Props {
 
 追加クラス:
 
-- `.replyThread` — 親カード直下のラッパー、`border-left: 2px solid var(--accent)`、`padding-left: 16px`
+- `.replyThread` — 親カード直下のラッパー、`border-left: 2px solid var(--border)`、`padding-left: 1rem`
+  (アクセント色だと主張が強すぎるため通常 border 色を使用)
 - `.nestedPost` — ネスト返信用、フォントサイズ若干縮小、背景色変化
-- `.replyCount` — 返信数バッジ (♥ と同じ系統のスタイル)
-- `.replyForm` — インライン PostForm ラッパー (上下マージンとボーダー)
+- `.replyCountBtn` — 返信数バッジ (♥ と同じ系統のスタイル、border-style: dashed)
+- `.replyFormWrapper` — インライン PostForm ラッパー (上下マージンとインデント)
 - `.replyFormHeader` — `Replying to #N` ラベル
 - `.cancelButton`
 
@@ -181,7 +184,8 @@ interface Props {
 - Timeline の root 計算ヘルパー (`computeRootMap`) が:
   - フラットな post 群でトップレベルだけ self-root を返す
   - 親 → 子 → 孫の鎖を root に正しく解決する
-  - orphan (parent が posts に存在しない) は `null` を返す
+  - orphan (parent が posts に存在しない) は **self を root として扱う** (エッジケース表と整合)
+  - 循環参照 (バグで親 = 自分や子→親→子) で無限ループしない
 
 ### E2E (Playwright)
 
