@@ -717,23 +717,23 @@
 ### + 4.7 コンセンサス方式の検討（PoA → PoW/NPoS）
 
 > **詳細**: [CONCEPTS.md](CONCEPTS.md#コンセンサス方式の検討poa--pow) を参照
+> **実装**: Phase A PR #52 (merged) + Phase B PR #NN (in review)
+> **Spec**: [docs/superpowers/specs/2026-05-06-pow-migration-design.md](superpowers/specs/2026-05-06-pow-migration-design.md)
 
-- [ ] **PoW移行検討**
-  - [ ] アルゴリズム選定: sha3pow / RandomX / Ethash
-  - [ ] ASIC耐性の要否判断
-  - [ ] 難易度調整アルゴリズム実装
-  - [ ] ファイナリティ方式変更（GRANDPA → 確率的）
+- [x] **PoW移行検討** (2026-05-NN 完了)
+  - [x] アルゴリズム選定: **RandomX** 採用 (ASIC 耐性 / Anarchy 原則 "誰でも参加" と整合)
+  - [x] ASIC耐性の要否判断: **必要** (匿名・分散原則のため CPU 優位な RandomX を選定)
+  - [x] 難易度調整アルゴリズム実装: **LWMA-3** (Kulupu 流派, unweighted harmonic mean)
+  - [x] ファイナリティ方式変更: **PoW + Permissionless GRANDPA** (top-K miner rotation, sudo 介在なし)
 
-- [ ] **NPoS（Hybrid）検討**
-  - [ ] pallet_staking / pallet_election_provider 導入
-  - [ ] $moralステークによるバリデーター候補参加
-  - [ ] Polkadot/Kusamaモデルの適用検討
-  - [ ] 最小ステーク額の設定
-  - [ ] スラッシング条件の定義
+- [x] **NPoS（Hybrid）検討** → 不採用 (Permissionless GRANDPA で代替)
+  - 理由: NPoS は MORAL ステークが必要で「誰でも参加」原則と矛盾。top-K miner rotation で
+    permissionless finality を実現することで NPoS なしで分散性を確保。
 
-- [ ] **移行計画**
-  - [ ] テストネット後期でPoW/NPoSテスト
-  - [ ] メインネットでの最終選択（ハードフォーク）
+- [x] **移行計画**
+  - [x] Phase A: pallet 3 個 + node/pow モジュール追加 (#52)
+  - [x] Phase B: runtime cutover + RandomX verify + miner loop + chain_spec / CLI / CI / staging integration / docs (#NN)
+  - [x] mainnet runbook 公開: [docs/operations/pow-mainnet-runbook.md](operations/pow-mainnet-runbook.md)
 
 ### + 4.8 Storage ↔ Chain Session 認証強化 (TODO 追加 2026-04-27)
 

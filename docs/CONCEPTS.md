@@ -54,43 +54,31 @@ Faucet:         unsigned tx のまま（影響なし）
 
 ---
 
-## コンセンサス方式の検討（PoA → PoW）
+## ~~コンセンサス方式の検討（PoA → PoW）~~ → 完了 (2026-05-NN)
 
-**背景**:
-現在のAnarchyは Aura/GRANDPA（PoA）を使用。バリデーターは許可制で、
-chain specに公開鍵が登録されたノードのみがブロック生成可能。
-「匿名・分散」を掲げるAnarchyとしては、誰でもマイニング参加できるPoWが理想的。
+> **Status**: ✅ 採用決定・実装完了
+> **採用構成**: RandomX PoW + Permissionless GRANDPA (top-K miner rotation) + LWMA-3
+> **実装**: Phase A PR #52 (merged) + Phase B PR #NN
+> **詳細仕様**: [`docs/superpowers/specs/2026-05-06-pow-migration-design.md`](superpowers/specs/2026-05-06-pow-migration-design.md)
+> **運用**: [`docs/operations/pow-mainnet-runbook.md`](operations/pow-mainnet-runbook.md)
+> **脅威モデル**: [`docs/security/pow-threat-model.md`](security/pow-threat-model.md)
 
-**現状**:
-- コンセンサス: Aura（ブロック生成）+ GRANDPA（ファイナリティ）
-- バリデーター: 許可制（well-known keys: Alice, Bob等）
-- ブロック時間: 6秒固定
+**決定された 4 軸**:
 
-**PoW移行時の変更点**:
-| コンポーネント | 現在（PoA） | PoW移行後 |
-|---|---|---|
-| ブロック生成 | Aura（ラウンドロビン） | sha3pow/RandomX |
-| ファイナリティ | GRANDPA（即時） | 確率的（longest chain） |
-| 参加条件 | 許可制 | **誰でも参加可能** |
-| 電力消費 | 低 | 高 |
-| ブロック時間 | 6秒固定 | 難易度調整で変動 |
+| 軸 | 採用 | 不採用 | 理由 |
+|---|---|---|---|
+| アルゴリズム | RandomX | sha3pow / Ethash | ASIC 耐性 (CPU 優位) で「誰でも参加」を担保 |
+| ASIC 耐性 | あり (必須) | なし | Anarchy 原則と整合 |
+| 難易度調整 | LWMA-3 (Kulupu 流派, unweighted harmonic mean) | DigiShield / Bitcoin 2016-block retarget | 小チェーンで hashrate jump に強く、LWMA-3 は production 実績あり |
+| ファイナリティ | PoW + Permissionless GRANDPA (top-K miner rotation) | Pure Nakamoto / NPoS Hybrid | sudo 介在なしで finality を得る (Kulupu 流派)。NPoS はステーク要求が「誰でも参加」原則と矛盾 |
 
-**PoWアルゴリズム選択肢**:
-| アルゴリズム | 特徴 | ASIC耐性 |
-|---|---|---|
-| sha3pow | シンプル、実装例多い | 低 |
-| RandomX | Monero採用、CPU向け | 高 |
-| Ethash | Ethereum旧PoW | 中 |
-
-**Hybrid案（NPoS）**:
-- $moralをステークして誰でもバリデーター候補に
-- pallet_staking / pallet_election_provider 導入
-- Polkadot/Kusamaと同じ方式
-
-**暫定方針**:
-- 開発〜テストネット初期: PoA維持（安定性重視）
-- テストネット後期: PoW or NPoS をテスト
-- メインネット: PoW / NPoS のいずれかを採用（ハードフォーク）
+**実装ハイライト** (Phase A + Phase B):
+- `pallet_difficulty` (LWMA-3, window=60, target=30s)
+- `pallet_block_reward` (5 MORAL 初期 / 4 年毎 halving / 64 era 上限 / 漸近上限 ≒ 42M MORAL)
+- `pallet_grandpa_authority_election` (top-10 miner、5h ごと自動 rotation、register_grandpa_key extrinsic で opt-in)
+- `node/src/pow/` (RandomX VM + miner thread + PowAuthor PreRuntime decoder)
+- chain_spec の Aura keys 撤廃、`--mine` / `--coinbase` / `--randomx-mode` CLI フラグ
+- 5 staging integration scripts + CI smoke (1 ノード light mode 3min)
 
 ---
 
