@@ -92,10 +92,27 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
+    /// EIP-1559 base fee provider trait (TSTS P2).
+    ///
+    /// post/DM extrinsic 内で `current_base_fee()` を呼び、`base_fee × bytes` を burn する。
+    /// `record_gas(bytes)` で同 block 内の使用量を集計する。
+    /// runtime では `pallet_base_fee::Pallet<Runtime>` を渡す。
+    pub trait BaseFeeProvider {
+        fn current_base_fee() -> u128;
+        fn record_gas(bytes: u32);
+    }
+
+    impl BaseFeeProvider for () {
+        fn current_base_fee() -> u128 {
+            0
+        }
+        fn record_gas(_bytes: u32) {}
+    }
+
     #[pallet::config]
     pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
         // RuntimeEvent is now inferred from frame_system::Config bound
-        
+
         /// ネイティブトークン（$moral）
         type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
 
@@ -119,6 +136,11 @@ pub mod pallet {
         /// 1バイトあたりの追加コスト
         #[pallet::constant]
         type PostByteCost: Get<BalanceOf<Self>>;
+
+        /// EIP-1559 base fee provider (TSTS P2).
+        ///
+        /// `()` を渡すと base fee 機能無効 (旧挙動互換、テスト用)。runtime では pallet_base_fee を渡す。
+        type BaseFee: BaseFeeProvider;
     }
 
     /// 次の投稿ID
@@ -247,7 +269,7 @@ pub mod pallet {
             let current_posts = UserPosts::<T>::get(&who);
             ensure!(!current_posts.is_full(), Error::<T>::TooManyPosts);
 
-            // コスト計算: base_cost + size_cost
+            // コスト計算: base_cost + size_cost + base_fee_burn (TSTS P2)
             let base_cost: u128 = T::PostBaseCost::get()
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
@@ -255,7 +277,12 @@ pub mod pallet {
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
             let size_cost = (total_size as u128).saturating_mul(byte_cost);
-            let total_cost = base_cost.saturating_add(size_cost);
+            // EIP-1559 base fee 加算 (混雑時のみ大きくなる、平常時は ~0)
+            let base_fee_per_byte = <T::BaseFee as BaseFeeProvider>::current_base_fee();
+            let base_fee_burn = (total_size as u128).saturating_mul(base_fee_per_byte);
+            let total_cost = base_cost
+                .saturating_add(size_cost)
+                .saturating_add(base_fee_burn);
             let cost: BalanceOf<T> = total_cost
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
@@ -270,15 +297,16 @@ pub mod pallet {
             ).map_err(|_| Error::<T>::InsufficientMoralBalance)?;
 
             // TSTS v1 (旧 FR-113 改訂): 50% storage / 20% reaction / 30% 永久 burn.
-            // 旧モデル (80/10/10) からの主要な変更:
-            //  - storage 80→50: tail emission 30% で常時注入があるのでユーザ流入比率を抑える
-            //  - reaction 10→20: 動的 γ の自己平衡を働かせるためプール厚みを確保
-            //  - burn 10→30: tail emission 0.5 MORAL/block を相殺するデフレ圧の強化
+            // ただし base_fee_burn 部分は完全 burn (混雑時の自己消費メカニズム) なので、
+            // 配分対象は base_cost + size_cost に限定する。
             // 詳細: docs/economic_model_proposal.md §3.2.3
-            let storage_pool_amount = total_cost.saturating_mul(50) / 100;
-            let reaction_pool_amount = total_cost.saturating_mul(20) / 100;
+            let distributable = base_cost.saturating_add(size_cost);
+            let storage_pool_amount = distributable.saturating_mul(50) / 100;
+            let reaction_pool_amount = distributable.saturating_mul(20) / 100;
             T::Storage::do_deposit_to_reward_pool(storage_pool_amount);
             T::Reaction::do_deposit_to_reaction_pool(reaction_pool_amount);
+            // この block の使用 bytes を base_fee に記録 (次ブロックの base_fee 調整用)
+            <T::BaseFee as BaseFeeProvider>::record_gas(total_size as u32);
 
             // 投稿IDを取得・インクリメント（オーバーフロー防止）
             let post_id = NextPostId::<T>::get();

@@ -73,10 +73,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: Cow::Borrowed("anarchy"),
     impl_name: Cow::Borrowed("anarchy"),
     authoring_version: 1,
-    spec_version: 107,  // Bumped: PoW migration Phase B (pallet_aura removed, PoW pallets wired in)
+    spec_version: 108,  // Bumped: TSTS economic model v1 (block_reward fan-out + tail, base_fee, storage_stake, dynamic γ, stealth wiring, faucet cap)
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
-    transaction_version: 2,  // SignedExtra structure changed (no tip)
+    transaction_version: 3,  // New extrinsics: lock_for_rewards / unlock_reactor / bond / request_release / finalize_release
     system_version: 1,
 };
 
@@ -341,7 +341,42 @@ impl pallet_storage_stake::Config for Runtime {
     type SlashBurnSharePermill = SlashBurnSharePermill;
 }
 
-// Post Pallet設定
+// Base Fee (TSTS P2): EIP-1559 風動的手数料.
+// 詳細: docs/economic_model_proposal.md §3.2.2
+parameter_types! {
+    pub const GasTargetBytesPerBlock: u32 = 50_000;            // 50 KB target
+    pub const BaseFeeMin: u128 = 100;                           // 1e-10 MORAL/byte
+    pub const BaseFeeMax: u128 = 100_000_000_000;                // 0.1 MORAL/byte cap
+    pub const BaseFeeInit: u128 = 10_000;                        // 1e-8 MORAL/byte (genesis)
+}
+impl pallet_base_fee::Config for Runtime {
+    type GasTargetBytesPerBlock = GasTargetBytesPerBlock;
+    type BaseFeeMin = BaseFeeMin;
+    type BaseFeeMax = BaseFeeMax;
+    type BaseFeeInit = BaseFeeInit;
+}
+
+/// pallet_post / pallet_messaging 用の薄い adapter.
+/// それぞれの pallet が独自の `BaseFeeProvider` trait を持つので、ここで両方を満たす。
+pub struct BaseFeeAdapter;
+impl pallet_post::pallet::BaseFeeProvider for BaseFeeAdapter {
+    fn current_base_fee() -> u128 {
+        <pallet_base_fee::Pallet<Runtime> as pallet_base_fee::BaseFeeProvider>::current_base_fee()
+    }
+    fn record_gas(bytes: u32) {
+        <pallet_base_fee::Pallet<Runtime> as pallet_base_fee::BaseFeeProvider>::record_gas(bytes)
+    }
+}
+impl pallet_messaging::BaseFeeProvider for BaseFeeAdapter {
+    fn current_base_fee() -> u128 {
+        <pallet_base_fee::Pallet<Runtime> as pallet_base_fee::BaseFeeProvider>::current_base_fee()
+    }
+    fn record_gas(bytes: u32) {
+        <pallet_base_fee::Pallet<Runtime> as pallet_base_fee::BaseFeeProvider>::record_gas(bytes)
+    }
+}
+
+// Post Pallet設定 (TSTS P2: BaseFee 適用)
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
     type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
@@ -352,6 +387,8 @@ impl pallet_post::Config for Runtime {
     /// バイト単価: 0.001 MORAL/byte
     type PostByteCost = ConstU128<1_000_000_000>;
     type Popularity = Popularity;
+    /// TSTS P2: EIP-1559 base fee (混雑時のみ高くなる、平常時は ~0)
+    type BaseFee = BaseFeeAdapter;
 }
 
 // Faucet Pallet設定 (TSTS P7: 累積発行上限を導入)
@@ -566,6 +603,8 @@ impl pallet_messaging::Config for Runtime {
     type DmByteCost = DmByteCost;
     type MaxDmCiphertextLen = MaxDmCiphertextLen;
     type WeightInfo = pallet_messaging::weights::SubstrateWeight<Runtime>;
+    /// TSTS P2: EIP-1559 base fee
+    type BaseFee = BaseFeeAdapter;
 }
 
 // Runtime構築
@@ -581,6 +620,7 @@ construct_runtime!(
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
         // カスタムパレット (Storage must be before Post for tight coupling)
+        BaseFee: pallet_base_fee,
         StorageStake: pallet_storage_stake,
         Storage: pallet_storage,
         Post: pallet_post,

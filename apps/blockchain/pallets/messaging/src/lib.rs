@@ -45,6 +45,19 @@ impl StealthRewardInterface for () {
     fn record_recipient_receive(_ephemeral_pubkey: [u8; 32]) {}
 }
 
+/// EIP-1559 base fee provider trait (TSTS P2、pallet_post と同じ形)。
+pub trait BaseFeeProvider {
+    fn current_base_fee() -> u128;
+    fn record_gas(bytes: u32);
+}
+
+impl BaseFeeProvider for () {
+    fn current_base_fee() -> u128 {
+        0
+    }
+    fn record_gas(_bytes: u32) {}
+}
+
 // Runtime API: フロントエンド scanner が効率的に DmDispatchesByBlock を取得
 // するためのインターフェース。contracts/pallet-messaging-extrinsics.md §RA 参照。
 //
@@ -121,6 +134,9 @@ pub mod pallet {
 
         /// 重み情報 (benchmarking で生成 / stub)。
         type WeightInfo: WeightInfo;
+
+        /// EIP-1559 base fee provider (TSTS P2). `()` で機能無効。
+        type BaseFee: BaseFeeProvider;
     }
 
     // ------- Storage -------
@@ -286,8 +302,8 @@ pub mod pallet {
                 Error::<T>::TooManyDispatchesInBlock
             );
 
-            // Cost = DmBaseCost + DmByteCost * ciphertext_len。BalanceOf<T> ↔ u128 往復
-            // パターンは pallet-post と同じ (既存 codebase 踏襲)。
+            // Cost = DmBaseCost + DmByteCost * ciphertext_len + base_fee × ciphertext_len (TSTS P2).
+            // BalanceOf<T> ↔ u128 往復パターンは pallet-post と同じ (既存 codebase 踏襲)。
             let base_cost: u128 = T::DmBaseCost::get()
                 .try_into()
                 .map_err(|_| Error::<T>::CostCalculationOverflow)?;
@@ -297,8 +313,16 @@ pub mod pallet {
             let byte_total = (ciphertext_len as u128)
                 .checked_mul(byte_cost)
                 .ok_or(Error::<T>::CostCalculationOverflow)?;
-            let total_cost_u128 = base_cost
+            // base_fee は混雑時の経済 spam 防御。平常時は ~0、攻撃時に指数的に増加。
+            let base_fee_per_byte = <T::BaseFee as BaseFeeProvider>::current_base_fee();
+            let base_fee_burn = (ciphertext_len as u128)
+                .checked_mul(base_fee_per_byte)
+                .ok_or(Error::<T>::CostCalculationOverflow)?;
+            let pre_total = base_cost
                 .checked_add(byte_total)
+                .ok_or(Error::<T>::CostCalculationOverflow)?;
+            let total_cost_u128 = pre_total
+                .checked_add(base_fee_burn)
                 .ok_or(Error::<T>::CostCalculationOverflow)?;
             let total_cost: BalanceOf<T> = total_cost_u128
                 .try_into()
@@ -316,17 +340,16 @@ pub mod pallet {
             .map_err(|_| Error::<T>::InsufficientStealthBalance)?;
 
             // TSTS v1: 50% storage / 20% stealth reward / 30% 永久 burn.
-            // 旧モデル (80/10/10) からの主要な変更:
-            //  - storage 80→50: post と整合 (DM も storage 報酬流入にする)
-            //  - stealth 10→20: 還流配線完了で受信者にマイクロ報酬
-            //  - burn 10→30: tail emission 0.5 MORAL/block を相殺するデフレ圧の強化
+            // base_fee_burn 部分は完全 burn (混雑自己消費) なので配分対象は pre_total に限定。
             // 詳細: docs/economic_model_proposal.md §3.2.4
-            let storage_share = total_cost_u128.saturating_mul(50) / 100;
-            let stealth_share = total_cost_u128.saturating_mul(20) / 100;
+            let storage_share = pre_total.saturating_mul(50) / 100;
+            let stealth_share = pre_total.saturating_mul(20) / 100;
             T::Storage::do_deposit_to_reward_pool(storage_share);
             T::StealthReward::do_deposit_to_stealth_reward_pool(stealth_share);
             // TSTS P6: 受信ステルスのカウントを記録し claim_stealth_reward の按分根拠にする
             T::StealthReward::record_recipient_receive(ephemeral_pubkey);
+            // TSTS P2: この block の使用 bytes を base_fee に記録 (次ブロックの adjustment 用)
+            <T::BaseFee as BaseFeeProvider>::record_gas(ciphertext_len as u32);
 
             let message_id = NextMessageId::<T>::get();
             let next_id = message_id
