@@ -18,6 +18,10 @@ interface Props {
   /** Raw sr25519 signer for storage upload auth. AccountContext.mainRawSigner を渡す。 */
   storageSigner: StorageSigner | null
   onPostSuccess?: () => void
+  /** 返信時の親 post_id。設定されると Replying to ヘッダーが出てキャンセル UI が有効になる */
+  parentId?: number
+  /** インライン返信フォームをキャンセルするコールバック */
+  onCancel?: () => void
 }
 
 // エラーコードから翻訳キーへのマッピング
@@ -98,7 +102,7 @@ function parseError(error: any, t: TranslateFunc): string {
   return t('error.unknown')
 }
 
-export function PostForm({ unsafeApi, signer, storageSigner, onPostSuccess }: Props) {
+export function PostForm({ unsafeApi, signer, storageSigner, onPostSuccess, parentId, onCancel }: Props) {
   const { t } = useLocale()
   const [content, setContent] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -182,7 +186,7 @@ export function PostForm({ unsafeApi, signer, storageSigner, onPostSuccess }: Pr
         ciphertext_len: BigInt(uploadResult.metadata.ciphertextLen),
         shard_size: uploadResult.metadata.shardSize,
         compressed: uploadResult.metadata.compressed,
-        parent_id: undefined
+        parent_id: parentId !== undefined ? BigInt(parentId) : undefined,
       })
 
       const result = await tx.signAndSubmit(signer)
@@ -226,6 +230,23 @@ export function PostForm({ unsafeApi, signer, storageSigner, onPostSuccess }: Pr
 
   return (
     <form className={styles.form} onSubmit={handleSubmit}>
+      {parentId !== undefined && (
+        <div className={styles.replyHeader}>
+          <span className={styles.replyHeaderLabel}>
+            {t('post.replyTo', { id: parentId })}
+          </span>
+          {onCancel && (
+            <button
+              type="button"
+              className={styles.replyCancelBtn}
+              onClick={onCancel}
+              disabled={isSubmitting}
+            >
+              {t('post.cancelReply')}
+            </button>
+          )}
+        </div>
+      )}
       <textarea
         className={styles.textarea}
         placeholder={t('post.placeholder')}

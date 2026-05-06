@@ -132,7 +132,15 @@ export default function Home() {
             </div>
           )}
           <div className={styles.timelineWrapper}>
-            <Timeline client={client} unsafeApi={unsafeApi} account={account} signer={signer} refreshTrigger={refreshTrigger} />
+            <Timeline
+              client={client}
+              unsafeApi={unsafeApi}
+              account={account}
+              signer={signer}
+              storageSigner={mainRawSigner}
+              refreshTrigger={refreshTrigger}
+              onReplyPosted={handlePostSuccess}
+            />
           </div>
         </section>
       </div>

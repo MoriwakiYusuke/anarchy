@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useStorage, type HybridMetadata } from '@/hooks/useStorage'
+import { useStorage, type HybridMetadata, type StorageSigner } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n/context'
 import { decodePostContent, mediaToDataUrl } from '@/lib/postCodec'
 import type { MediaItem as PostMediaItem } from '@/lib/postCodec'
 import { CopyIcon, CheckIcon, ReplyIcon } from '@/components/Icons'
 import { ImageModal } from '@/components/ImageModal'
 import { ReactionButton } from '@/components/ReactionButton'
+import { PostForm } from '@/components/PostForm'
 import type { PolkadotSigner } from 'polkadot-api/signer'
 import styles from './Timeline.module.css'
 
@@ -19,7 +20,7 @@ function shortenAddress(addr: string): string {
   return `${addr.slice(0, 8)}...${addr.slice(-6)}`
 }
 
-interface ContentRef {
+export interface ContentRef {
   root: number[]       // [u8; 32]
   k: number
   n: number
@@ -28,6 +29,19 @@ interface ContentRef {
   ciphertext_len: number
   shard_size: number
   compressed: boolean
+}
+
+/** ネスト返信 1 件分のデータ。Timeline が root ごとに集めて渡す */
+export interface NestedReplyData {
+  id: number
+  author: string
+  contentHash: string
+  createdAt: number
+  parentId: number | null
+  contentRef?: ContentRef
+  nickname?: string
+  likes?: number
+  bads?: number
 }
 
 interface Props {
@@ -48,9 +62,17 @@ interface Props {
   account?: string | null
   /** Polkadot signer */
   signer?: PolkadotSigner | null
+  /** Storage signer for inline reply form upload */
+  storageSigner?: StorageSigner | null
   /** Reaction counts */
   likes?: number
   bads?: number
+  /** 同スレッドの返信一覧 (root ポスト時のみ指定)。block 昇順でソート済みを想定 */
+  replies?: NestedReplyData[]
+  /** ネスト表示モード — Reply ボタンと返信展開トグルを抑制し、インデント付きで描画する */
+  isNested?: boolean
+  /** 返信が投稿されたときに親 (Timeline) へ refresh を要求するコールバック */
+  onReplyPosted?: () => void
 }
 
 export function PostItem({
@@ -64,8 +86,12 @@ export function PostItem({
   unsafeApi,
   account,
   signer,
+  storageSigner,
   likes,
   bads,
+  replies,
+  isNested = false,
+  onReplyPosted,
 }: Props) {
   const { t } = useLocale()
   const { recoverContent, isReady } = useStorage()
@@ -135,6 +161,20 @@ export function PostItem({
   const [copied, setCopied] = useState(false)
   const [modalImage, setModalImage] = useState<{ src: string; filename: string } | null>(null)
   const [expanded, setExpanded] = useState(false)
+  const [replyFormOpen, setReplyFormOpen] = useState(false)
+  const [repliesExpanded, setRepliesExpanded] = useState(false)
+
+  const replyCount = replies?.length ?? 0
+  const canReply = !isNested && Boolean(unsafeApi && signer && account)
+
+  // フォームを開いた後にウォレット切断 (account/signer が null) や
+  // chain disconnect (unsafeApi が null) が起きたら、無効状態のフォームを
+  // 残さないように自動で閉じる (PR #51 review N1)。
+  useEffect(() => {
+    if (replyFormOpen && !canReply) {
+      setReplyFormOpen(false)
+    }
+  }, [replyFormOpen, canReply])
 
   // テキストが長いかどうかを判定（200文字 or 5行以上）
   const isLongContent = typeof content === 'string' && (content.length > 200 || content.split('\n').length > 5)
@@ -149,8 +189,11 @@ export function PostItem({
     }
   }, [author])
 
+  const articleClassName = isNested ? `${styles.post} ${styles.nestedPost}` : styles.post
+
   return (
-    <article className={styles.post}>
+    <div className={isNested ? styles.threadItem : styles.threadRoot}>
+    <article className={articleClassName}>
       <header className={styles.postHeader}>
         <span className={styles.author}>
           {nickname && <span className={styles.nickname}>{nickname}</span>}
@@ -253,16 +296,43 @@ export function PostItem({
               <ReplyIcon size={12} /> Reply to #{parentId}
             </span>
           )}
+          {!isNested && replyCount > 0 && (
+            <button
+              type="button"
+              className={styles.replyCountBtn}
+              onClick={() => setRepliesExpanded((v) => !v)}
+              aria-expanded={repliesExpanded}
+            >
+              <ReplyIcon size={12} />{' '}
+              {repliesExpanded
+                ? t('post.hideReplies')
+                : replyCount === 1
+                  ? t('post.viewReply')
+                  : t('post.viewReplies', { count: replyCount })}
+            </button>
+          )}
         </div>
-        <ReactionButton
-          postId={postId}
-          client={client}
-          unsafeApi={unsafeApi}
-          account={account}
-          signer={signer}
-          likes={likes}
-          bads={bads}
-        />
+        <div className={styles.postActions}>
+          {canReply && (
+            <button
+              type="button"
+              className={styles.replyBtn}
+              onClick={() => setReplyFormOpen((v) => !v)}
+              aria-expanded={replyFormOpen}
+            >
+              <ReplyIcon size={12} /> {t('post.reply')}
+            </button>
+          )}
+          <ReactionButton
+            postId={postId}
+            client={client}
+            unsafeApi={unsafeApi}
+            account={account}
+            signer={signer}
+            likes={likes}
+            bads={bads}
+          />
+        </div>
       </footer>
 
       {/* Image modal */}
@@ -274,5 +344,49 @@ export function PostItem({
         />
       )}
     </article>
+
+    {/* canReply で signer / account / unsafeApi の存在を一度に保証する */}
+    {replyFormOpen && canReply && unsafeApi != null && signer != null && (
+      <div className={styles.replyFormWrapper}>
+        <PostForm
+          unsafeApi={unsafeApi}
+          signer={signer}
+          storageSigner={storageSigner ?? null}
+          parentId={postId}
+          onCancel={() => setReplyFormOpen(false)}
+          onPostSuccess={() => {
+            setReplyFormOpen(false)
+            setRepliesExpanded(true)
+            onReplyPosted?.()
+          }}
+        />
+      </div>
+    )}
+
+    {!isNested && repliesExpanded && replies && replies.length > 0 && (
+      <div className={styles.replyThread}>
+        {replies.map((r) => (
+          <PostItem
+            key={r.id}
+            postId={r.id}
+            author={r.author}
+            contentHash={r.contentHash}
+            createdAt={r.createdAt}
+            parentId={r.parentId}
+            contentRef={r.contentRef}
+            nickname={r.nickname}
+            client={client}
+            unsafeApi={unsafeApi}
+            account={account}
+            signer={signer}
+            storageSigner={storageSigner}
+            likes={r.likes}
+            bads={r.bads}
+            isNested
+          />
+        ))}
+      </div>
+    )}
+    </div>
   )
 }

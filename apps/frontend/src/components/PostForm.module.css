@@ -5,6 +5,42 @@
   padding: 1.5rem;
 }
 
+.replyHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.replyHeaderLabel {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.replyCancelBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.replyCancelBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.replyCancelBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .textarea {
   width: 100%;
   background: var(--bg-primary);

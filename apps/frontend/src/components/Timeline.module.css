@@ -156,6 +156,66 @@
   color: var(--accent);
   opacity: 0.8;
 }
+
+/* Thread reply layout */
+.threadRoot {
+  display: block;
+}
+
+.threadItem {
+  display: block;
+}
+
+.replyThread {
+  margin-left: 1.5rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.nestedPost {
+  background: var(--bg-primary);
+  font-size: 0.95em;
+}
+
+.postActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.replyBtn,
+.replyCountBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: inherit;
+}
+
+.replyBtn:hover,
+.replyCountBtn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.replyCountBtn {
+  border-style: dashed;
+}
+
+.replyFormWrapper {
+  margin-top: 0.75rem;
+  margin-left: 1.5rem;
+}
 /* V2 distributed storage badge */
 .v2Badge {
   font-size: 0.625rem;
