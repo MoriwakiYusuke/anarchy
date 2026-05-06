@@ -449,7 +449,7 @@
   - [x] + `useNickname.test.ts` (471行)
   - [x] + `postCodec.test.ts` (442行)
 
-- [ ] **いいね/bad/ギフト** → **Phase 3.2（反応マイニング）で実装**
+- [x] **いいね/bad/ギフト** → **Phase 3.2（反応マイニング）で実装**
   > オンチェーンスコア反映はReaction Palletと同時に実装。詳細は Phase 3.2 を参照。
 
 
@@ -675,16 +675,10 @@
 
 - [ ] **経済合理性に基づく定数制定**
   - [ ] PostBaseCost / PostByteCost の最適値検証
-<!-- 状況変化: Faucet 難易度は pallet_faucet で base=18 / 動的調整実装済み (§2.3 完了)。
-     報酬額の halving 連動見直しは §4.7 Phase C TODO で別管理。
   - [ ] Faucet報酬額・難易度の調整
--->
   - [ ] ストレージ報酬レート設計
   - [ ] インフレ/デフレ率シミュレーション
-<!-- 状況変化 (Phase B): TX 手数料 0 維持 (CONCEPTS.md 案A 採用) で確定。
-     `runtime/src/lib.rs` の `WeightToFee = ConstU128<0>` で実装済み。
   - [ ] 適切なガス代の設定
--->
   - [ ] 初期供給量・分配比率
 
 <!-- 状況変化 (Phase B PR #53):
@@ -704,9 +698,7 @@
   - [ ] γ（インフレ調整係数）の動的計算（ReactionRewardPool / TotalSupply）
 
 - [ ] **手数料モデル**
-<!-- 状況変化 (Phase B): TX 手数料 0 維持で確定。runtime に焼き込み済み。
   - [ ] TX手数料: 0維持 or Base Fee導入
--->
   - [ ] 投稿コスト: burn維持（デフレ圧力）
   - [ ] Faucet: unsigned tx維持
 
