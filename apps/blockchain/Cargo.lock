@@ -192,6 +192,7 @@ dependencies = [
  "pallet-reaction",
  "pallet-stealth",
  "pallet-storage",
+ "pallet-storage-stake",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",
@@ -5675,6 +5676,22 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "pallet-storage-stake"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
  "sp-core",
  "sp-io",
  "sp-runtime",

@@ -325,6 +325,22 @@ impl pallet_sudo::Config for Runtime {
     type WeightInfo = ();
 }
 
+// Storage Stake (TSTS P4): Storage node の skin-in-the-game.
+// 詳細: docs/economic_model_proposal.md §3.2.5
+parameter_types! {
+    pub const BondPerGB: Balance = 10_000_000_000_000;       // 10 MORAL/GB
+    pub const MinDeclaredCapacity: u64 = 1_073_741_824;       // 1 GB
+    pub const BondReleaseDelay: BlockNumber = 100_800;        // 7 days @ 30s
+    pub SlashBurnSharePermill: Permill = Permill::from_percent(30);
+}
+impl pallet_storage_stake::Config for Runtime {
+    type Currency = Balances;
+    type BondPerGB = BondPerGB;
+    type MinDeclaredCapacity = MinDeclaredCapacity;
+    type BondReleaseDelay = BondReleaseDelay;
+    type SlashBurnSharePermill = SlashBurnSharePermill;
+}
+
 // Post Pallet設定
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
@@ -565,6 +581,7 @@ construct_runtime!(
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
         // カスタムパレット (Storage must be before Post for tight coupling)
+        StorageStake: pallet_storage_stake,
         Storage: pallet_storage,
         Post: pallet_post,
         Faucet: pallet_faucet,
