@@ -1,0 +1,211 @@
+==============================================================================
+ANARCHY ECONOMIC MODEL SIMULATION v2
+Time horizon: 5 years × 365 days = 1825 days
+==============================================================================
+
+### S1 organic 1k→100k DAU ###
+
+=== M0 (current) (days=1825, end DAU=100000) ===
+  Total issuance:        -50,035,638,525 MORAL
+  Total minted:            2,799,500,815 MORAL
+  Total burned:           52,835,139,341 MORAL
+  Storage pool:           42,269,110,657 MORAL
+  Reaction pool:             123,248,174 MORAL
+  Miner revenue (5y):         23,652,000 MORAL
+  Storage paid (5y):                 815 MORAL
+  Reaction paid (5y):      2,764,848,000 MORAL
+  Net supply Δ (mint−burn): -50,035,638,525 MORAL
+
+=== M1 (TSTS proposed) (days=1825, end DAU=100000) ===
+  Total issuance:       -190,247,616,514 MORAL
+  Total minted:            2,904,054,427 MORAL
+  Total burned:          169,466,943,391 MORAL
+  Storage pool:           16,923,568,903 MORAL
+  Reaction pool:              60,136,285 MORAL
+  Stealth pool:            3,821,019,936 MORAL
+  Miner revenue (5y):         11,826,000 MORAL
+  Storage paid (5y):           1,289,233 MORAL
+  Reaction paid (5y):      2,890,739,194 MORAL
+  Final base_fee:               0.100000 MORAL/byte
+  Base-fee burned (5y):  112,458,597,084 MORAL
+  Net supply Δ (mint−burn): -166,562,888,963 MORAL
+
+
+### S2 stagnation 1k DAU ###
+
+=== M0 (current) (days=1825, end DAU=1000) ===
+  Total issuance:           -956,848,584 MORAL
+  Total minted:               89,402,016 MORAL
+  Total burned:            1,046,250,600 MORAL
+  Storage pool:              838,000,464 MORAL
+  Reaction pool:              12,242,560 MORAL
+  Miner revenue (5y):         23,652,000 MORAL
+  Storage paid (5y):                  16 MORAL
+  Reaction paid (5y):         54,750,000 MORAL
+  Net supply Δ (mint−burn):  -956,848,584 MORAL
+
+=== M1 (TSTS proposed) (days=1825, end DAU=1000) ===
+  Total issuance:           -595,430,853 MORAL
+  Total minted:               74,585,304 MORAL
+  Total burned:              201,007,071 MORAL
+  Storage pool:              342,176,567 MORAL
+  Reaction pool:                 634,716 MORAL
+  Stealth pool:               75,664,500 MORAL
+  Miner revenue (5y):         11,826,000 MORAL
+  Storage paid (5y):              25,523 MORAL
+  Reaction paid (5y):         62,533,780 MORAL
+  Final base_fee:               0.000000 MORAL/byte
+  Base-fee burned (5y):            2,243 MORAL
+  Net supply Δ (mint−burn):  -126,421,767 MORAL
+
+
+### S3 spam 100k posts/day on 10k DAU ###
+
+=== M0 (current) (days=1825, end DAU=10000) ===
+  Total issuance:        -28,877,873,300 MORAL
+  Total minted:              582,152,700 MORAL
+  Total burned:           29,460,026,000 MORAL
+  Storage pool:           23,569,020,100 MORAL
+  Reaction pool:           1,932,177,600 MORAL
+  Miner revenue (5y):         23,652,000 MORAL
+  Storage paid (5y):                 700 MORAL
+  Reaction paid (5y):        547,500,000 MORAL
+  Net supply Δ (mint−burn): -28,877,873,300 MORAL
+
+=== M1 (TSTS proposed) (days=1825, end DAU=10000) ===
+  Total issuance:       -120,425,145,050 MORAL
+  Total minted:            2,519,600,750 MORAL
+  Total burned:          111,448,543,740 MORAL
+  Storage pool:            8,217,662,211 MORAL
+  Reaction pool:              26,346,099 MORAL
+  Stealth pool:              756,645,000 MORAL
+  Miner revenue (5y):         11,826,000 MORAL
+  Storage paid (5y):           1,106,289 MORAL
+  Reaction paid (5y):      2,506,468,461 MORAL
+  Final base_fee:               0.100000 MORAL/byte
+  Base-fee burned (5y):   97,177,600,000 MORAL
+  Net supply Δ (mint−burn): -108,928,942,990 MORAL
+
+
+### S4 sybil 1M reactors on 10k DAU ###
+
+=== M0 (current) (days=1825, end DAU=10000) ===
+  Total issuance:         -9,847,928,239 MORAL
+  Total minted:              614,577,761 MORAL
+  Total burned:           10,462,506,000 MORAL
+  Storage pool:            8,371,004,639 MORAL
+  Reaction pool:                       0 MORAL
+  Miner revenue (5y):         23,652,000 MORAL
+  Storage paid (5y):                 161 MORAL
+  Reaction paid (5y):        579,925,600 MORAL
+  Net supply Δ (mint−burn): -9,847,928,239 MORAL
+
+=== M1 (TSTS proposed) (days=1825, end DAU=10000) ===
+  Total issuance:        -37,875,338,058 MORAL
+  Total minted:              594,391,742 MORAL
+  Total burned:           33,779,638,940 MORAL
+  Storage pool:            3,357,005,202 MORAL
+  Reaction pool:               6,100,915 MORAL
+  Stealth pool:              756,645,000 MORAL
+  Miner revenue (5y):         11,826,000 MORAL
+  Storage paid (5y):             255,298 MORAL
+  Reaction paid (5y):        582,110,445 MORAL
+  Final base_fee:               0.100000 MORAL/byte
+  Base-fee burned (5y):   22,425,600,000 MORAL
+  Net supply Δ (mint−burn): -33,185,247,198 MORAL
+
+
+### S5 small but loyal: 5k DAU flat ###
+
+=== M0 (current) (days=1825, end DAU=5000) ===
+  Total issuance:         -4,922,850,919 MORAL
+  Total minted:              308,402,081 MORAL
+  Total burned:            5,231,253,000 MORAL
+  Storage pool:            4,186,002,319 MORAL
+  Reaction pool:              21,212,800 MORAL
+  Miner revenue (5y):         23,652,000 MORAL
+  Storage paid (5y):                  81 MORAL
+  Reaction paid (5y):        273,750,000 MORAL
+  Net supply Δ (mint−burn): -4,922,850,919 MORAL
+
+=== M1 (TSTS proposed) (days=1825, end DAU=5000) ===
+  Total issuance:         -3,044,470,394 MORAL
+  Total minted:              305,610,391 MORAL
+  Total burned:            1,005,035,355 MORAL
+  Storage pool:            1,682,100,401 MORAL
+  Reaction pool:               3,064,138 MORAL
+  Stealth pool:              378,322,500 MORAL
+  Miner revenue (5y):         11,826,000 MORAL
+  Storage paid (5y):             127,649 MORAL
+  Reaction paid (5y):        293,456,742 MORAL
+  Final base_fee:               0.000000 MORAL/byte
+  Base-fee burned (5y):           11,213 MORAL
+  Net supply Δ (mint−burn):  -699,424,964 MORAL
+
+==============================================================================
+KEY METRIC COMPARISON
+==============================================================================
+
+Scenario                                     M0 storage     M1 storage
+S1 organic 1k→100k DAU                   42,269,110,657 16,923,568,903
+S2 stagnation 1k DAU                        838,000,464    342,176,567
+S3 spam 100k posts/day on 10k DAU        23,569,020,100  8,217,662,211
+S4 sybil 1M reactors on 10k DAU           8,371,004,639  3,357,005,202
+S5 small but loyal: 5k DAU flat           4,186,002,319  1,682,100,401
+
+Scenario                                    M0 reaction    M1 reaction
+S1 organic 1k→100k DAU                      123,248,174     60,136,285
+S2 stagnation 1k DAU                         12,242,560        634,716
+S3 spam 100k posts/day on 10k DAU         1,932,177,600     26,346,099
+S4 sybil 1M reactors on 10k DAU                       0      6,100,915
+S5 small but loyal: 5k DAU flat              21,212,800      3,064,138
+
+Scenario                                      M0 issuance      M1 issuance
+S1 organic 1k→100k DAU                    -50,035,638,525 -190,247,616,514
+S2 stagnation 1k DAU                         -956,848,584     -595,430,853
+S3 spam 100k posts/day on 10k DAU         -28,877,873,300 -120,425,145,050
+S4 sybil 1M reactors on 10k DAU            -9,847,928,239  -37,875,338,058
+S5 small but loyal: 5k DAU flat            -4,922,850,919   -3,044,470,394
+
+Scenario                                       M0 miner       M1 miner
+S1 organic 1k→100k DAU                       23,652,000     11,826,000
+S2 stagnation 1k DAU                         23,652,000     11,826,000
+S3 spam 100k posts/day on 10k DAU            23,652,000     11,826,000
+S4 sybil 1M reactors on 10k DAU              23,652,000     11,826,000
+S5 small but loyal: 5k DAU flat              23,652,000     11,826,000
+
+Scenario                                    M1 base_fee      M1 fee burn
+S1 organic 1k→100k DAU                         0.100000  112,458,597,084
+S2 stagnation 1k DAU                           0.000000            2,243
+S3 spam 100k posts/day on 10k DAU              0.100000   97,177,600,000
+S4 sybil 1M reactors on 10k DAU                0.100000   22,425,600,000
+S5 small but loyal: 5k DAU flat                0.000000           11,213
+
+==============================================================================
+SYBIL ATTACK ECONOMICS (S4: 1M Sybil reactors vs 10k DAU)
+==============================================================================
+
+M0 Sybil takes ~76.9% of reaction payouts = 446,096,615 MORAL over 5y
+M1 Sybil takes ~82.6% of reaction payouts = 481,083,012 MORAL over 5y
+   (cap: 5% pool/day prevents pool from draining beyond 95% per epoch)
+
+Sybil PoW cost: ~4 CPU-years over 5y
+   M1 reward / CPU-year = 127,894,068 MORAL
+   M0 reward / CPU-year = 118,593,069 MORAL
+   Cloud CPU cost ~$300/yr × 4 years = $1,128
+   Required token price for Sybil profitability:
+     M0: $0.0000/MORAL
+     M1: $0.0000/MORAL  ← higher = more secure
+
+==============================================================================
+SUMMARY: USER POSTING COST (M1, end of 5y)
+==============================================================================
+S1 organic 1k→100k DAU                  : M0=$  104.10  M1=$    462.88 MORAL/4KB-post
+S2 stagnation 1k DAU                    : M0=$  104.10  M1=$     53.28 MORAL/4KB-post
+S3 spam 100k posts/day on 10k DAU       : M0=$  104.10  M1=$    462.88 MORAL/4KB-post
+S4 sybil 1M reactors on 10k DAU         : M0=$  104.10  M1=$    462.88 MORAL/4KB-post
+S5 small but loyal: 5k DAU flat         : M0=$  104.10  M1=$     53.28 MORAL/4KB-post
+
+==============================================================================
+DONE
+==============================================================================
