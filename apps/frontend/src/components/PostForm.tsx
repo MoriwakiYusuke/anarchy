@@ -186,7 +186,7 @@ export function PostForm({ unsafeApi, signer, storageSigner, onPostSuccess, pare
         ciphertext_len: BigInt(uploadResult.metadata.ciphertextLen),
         shard_size: uploadResult.metadata.shardSize,
         compressed: uploadResult.metadata.compressed,
-        parent_id: parentId,
+        parent_id: parentId !== undefined ? BigInt(parentId) : undefined,
       })
 
       const result = await tx.signAndSubmit(signer)
