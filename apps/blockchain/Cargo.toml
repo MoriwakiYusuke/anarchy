@@ -68,7 +68,8 @@ sc-client-api = "44.0.0"
 sc-consensus = "0.54.0"
 sc-consensus-aura = "0.55.0"
 sc-consensus-grandpa = "0.40.0"
-sc-consensus-pow = { version = "0.56.0" }
+# TODO(phase-b): verify sc-consensus 0.54 ↔ sc-consensus-pow 0.56 trait boundary compat before service.rs wiring
+sc-consensus-pow = "0.56.0"
 sp-consensus-pow = { version = "0.48.0", default-features = false }
 randomx-rs = { version = "1.4.1", default-features = false }
 sc-network = "0.55.0"

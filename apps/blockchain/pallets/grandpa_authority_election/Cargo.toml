@@ -1,0 +1,6 @@
+[package]
+name = "pallet-grandpa-authority-election"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

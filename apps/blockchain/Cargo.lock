@@ -5451,6 +5451,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-block-reward"
+version = "0.1.0"
+
+[[package]]
+name = "pallet-difficulty"
+version = "0.1.0"
+
+[[package]]
 name = "pallet-faucet"
 version = "0.1.0"
 dependencies = [
@@ -5488,6 +5496,10 @@ dependencies = [
  "sp-session",
  "sp-staking",
 ]
+
+[[package]]
+name = "pallet-grandpa-authority-election"
+version = "0.1.0"
 
 [[package]]
 name = "pallet-messaging"
