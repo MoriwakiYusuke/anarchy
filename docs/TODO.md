@@ -331,26 +331,35 @@
   - ~~[ ] アルゴリズム: SHA256 or Blake2b（ASIC耐性不要）~~ → [x] アルゴリズム: Blake2b-256（Substrate標準、SHA256は不採用）
   - ~~[ ] 匿名性: KYC不要、IPログなし~~ → [x] 匿名性: KYC不要、署名不要（unsigned tx）← IPログはノード実装依存のため技術保証できる「署名不要」に変更
 
-### 2.5 smoldot Light Client統合
+### ~~2.5 smoldot Light Client統合~~ → **Phase B PR #53 で撤去** (2026-05-NN)
 
-> **設計方針**: Tor統合を断念したため、smoldotによるLight Client接続でRPC依存を排除し検閲耐性を確保。
-> ブラウザ内でブロックを自分で検証するTrustlessな構成を実現。
+> **当初設計**: Tor統合を断念したため、smoldotによるLight Client接続でRPC依存を排除し検閲耐性を確保する想定だった。
+>
+> **撤去理由** (Phase B mainnet smoke で判明):
+> - smoldot は内部 consensus enum に Babe/Aura/AllAuthorized しか持たず、PoW chain の block announcement を decode できない (`BadBlockAnnounce(DecodeBlockAnnounceError)` を実機 E2E で確認)
+> - そもそも Anarchy の post / DM / storage は `storage_uploadFragment` 等の chain-node RPC 拡張に依存しており、smoldot からは呼べない構造だった (frontend は WS 経路を併用していた)
+> - → smoldot を残しても anonymity 上の利得ゼロ + bundle ~MB の重さ + PoW 非互換 → 撤去して WebSocket (getWsProvider) に統一
+>
+> **代替**: chain-node を Tor hidden service として公開し `wss://<onion>:9944` で接続する運用で anonymity 担保 (docs/Tor.md)
 
-- [x] **smoldot導入** (`apps/frontend/`)
-  - [x] `smoldot` パッケージ追加（v2.0.40）
-  - [x] + シングルトン管理 (`lib/smoldot-provider.ts`)
-  - [x] + `useSmoldot` フック (`hooks/useSmoldot.ts`)
-  - [x] + 接続状態型定義 (`types/connection.ts`)
+- [x] ~~smoldot導入~~ → **撤去** (Phase B):
+  - [-] ~~`smoldot` パッケージ削除~~ (`package.json`)
+  - [-] ~~シングルトン管理~~ (`lib/smoldot-provider.ts` 削除)
+  - [-] ~~`useSmoldot` フック~~ (`hooks/useSmoldot.ts` 削除)
+  - [+] **`getWsProvider` ベースの `lib/chain-client.ts`** 新設 (Phase B)
+  - [+] **`useChain` フック** (`hooks/useChain.ts`) 新設 (Phase B)
+  - [+] 接続状態型定義 (`types/connection.ts`) — comment を WS 文脈に更新
 
-- [x] **チェーンスペック生成・配布**
-  - [x] + chain spec生成スクリプト (`scripts/export-chainspec.sh`)
-  - [x] + ブートノードリスト設定（P2P WebSocket: 30833-30835）
-  - [x] + フロントエンドへのchain spec同梱 (`lib/chainspec.json`)
+- [x] ~~チェーンスペック生成・配布~~ → **撤去** (Phase B、WS は chainspec 不要):
+  - [-] ~~chain spec生成スクリプト~~ (`apps/frontend/scripts/update-chainspec.sh` 削除)
+  - [-] ~~ブートノードリスト設定~~
+  - [-] ~~フロントエンドへの chain spec 同梱~~ (`lib/chainspec.json` 削除)
+  - [+] `NEXT_PUBLIC_CHAIN_RPC_URL` で接続先 override (default: `ws://127.0.0.1:9944`)
 
-- [x] **接続フロー**
-  - [x] + 同期タイムアウト（60秒）
-  - [x] + ブロック番号自動更新（6秒間隔）
-  - [x] + 接続状態表示（initializing/syncing/connected/error）
+- [x] ~~接続フロー~~ → WS 移行で簡素化:
+  - [+] 同期タイムアウト 60s → 30s に短縮 (WS は smoldot より速い)
+  - [+] ブロック番号自動更新 6s → 10s (PoW 30s blocktime に合わせ)
+  - [+] 接続状態表示 (initializing/syncing/connected/error) — useChain で同等の状態管理
 
 - [x] **Faucet改善**
   - [x] + RPCタイムアウト追加（30秒）- ネットワークエラー時のハング防止
@@ -732,8 +741,23 @@
 
 - [x] **移行計画**
   - [x] Phase A: pallet 3 個 + node/pow モジュール追加 (#52)
-  - [x] Phase B: runtime cutover + RandomX verify + miner loop + chain_spec / CLI / CI / staging integration / docs (#NN)
+  - [x] Phase B: runtime cutover + RandomX verify + miner loop + chain_spec / CLI / CI / staging integration / docs (#53)
   - [x] mainnet runbook 公開: [docs/operations/pow-mainnet-runbook.md](operations/pow-mainnet-runbook.md)
+
+- [x] **Phase B 副作用 — frontend 接続経路変更**
+  - [-] ~~smoldot light client~~ (PoW 非互換、§2.5 参照)
+  - [+] **WebSocket (`getWsProvider`)** に統一: `lib/chain-client.ts` / `hooks/useChain.ts`
+  - [+] dev / testnet 起動コマンドに `--mine --coinbase` を自動付与 (`package.json`, `run-multi-node.sh`)
+  - [+] E2E spec 拡充 (`transfer.spec.ts` / `nickname.spec.ts` / `stealth-transfer.spec.ts` / `pow-chain-sync.spec.ts`)
+  - [+] hooks/services の signAndSubmit timeout 30s → 240s (PoW 30s blocktime 対応)
+
+- [ ] **Phase C 残タスク** (mainnet 投入前 or 直後に対応)
+  - [ ] **Equivocation slashing**: `EquivocationReportSystem = ()` で現状二重投票し放題。`pallet_offences` + `pallet_grandpa::report_equivocation` 連動で top-K position を BAN する
+  - [ ] **RandomX seed の epoch rotation**: 現状 genesis hash 固定 (`randomx_algo.rs`)。`RANDOMX_EPOCH_BLOCKS = 2048` 単位で seed 切替へ
+  - [ ] **本番 MinDifficulty チューニング**: 現状 dev 用 `100`。`scripts/bench-randomx.sh` で reference HW の hashrate 実測 → mainnet chain_spec の initial_difficulty を確定
+  - [ ] **Faucet と halving の整合**: 現 100 MORAL/claim 永久 → halving 連動で減額検討 (mainnet 経済データ次第)
+  - [ ] **Genesis bootstrap miner key の運用方針確定**: 焼き込んだ GRANDPA key の秘密鍵を破棄するか、destroy ceremony 公開するか
+  - [ ] **WSL2 timestamp drift**: dev 環境で散発的に "block timestamp too far in the future" reject。実 Linux で再現するか確認、しなければ無対応
 
 ### + 4.8 Storage ↔ Chain Session 認証強化 (TODO 追加 2026-04-27)
 
