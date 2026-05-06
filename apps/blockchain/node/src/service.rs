@@ -401,7 +401,7 @@ pub fn new_full(
                 use sp_core::{H256, U256};
 
                 let seed = client_for_miner.info().genesis_hash.as_ref().to_vec();
-                let mut vm = match crate::pow::randomx_algo::RandomXVm::new(&seed, mine_full) {
+                let vm = match crate::pow::randomx_algo::RandomXVm::new(&seed, mine_full) {
                     Ok(v) => v,
                     Err(e) => {
                         log::error!(target: "pow-miner", "RandomX VM init failed: {}", e);
