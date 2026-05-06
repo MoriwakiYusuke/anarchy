@@ -5,7 +5,7 @@
     "dev:frontend": "pnpm --filter @anarchy/frontend dev",
     "build:frontend": "pnpm --filter @anarchy/frontend build",
     "build:blockchain": "cd apps/blockchain && cargo build --release",
-    "dev:node": "cd apps/blockchain && cargo run -- --dev",
+    "dev:node": "cd apps/blockchain && cargo run -- --dev --mine --coinbase 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY --randomx-mode light",
     "testnet:start": "cd apps/blockchain && ./scripts/run-multi-node.sh start",
     "testnet:stop": "cd apps/blockchain && ./scripts/run-multi-node.sh stop",
     "testnet:status": "cd apps/blockchain && ./scripts/run-multi-node.sh status",

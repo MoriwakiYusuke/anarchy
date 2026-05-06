@@ -93,9 +93,23 @@ start_node() {
     
     local role="Full node"
     local validator_flag=""
+    local mining_flag=""
     if [ "$is_validator" = "true" ]; then
         role="Validator"
         validator_flag="--validator"
+        # PoW 移行後: validator はマイニング参加。各ノード固定の coinbase SS58 を割当。
+        # 並列マイナー対応のため //Alice/Bob/Charlie/Dave/Eve/Ferdie の well-known address を使用。
+        case "$name" in
+            alice)    coinbase="5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" ;;
+            bob)      coinbase="5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" ;;
+            charlie)  coinbase="5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy" ;;
+            dave)     coinbase="5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw" ;;
+            eve)      coinbase="5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL" ;;
+            ferdie)   coinbase="5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY" ;;
+            *)        coinbase="5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" ;;
+        esac
+        # CI / 軽量実行用に light モード。本番採掘 (full 2GB scratchpad) は --randomx-mode fast。
+        mining_flag="--mine --coinbase $coinbase --randomx-mode ${RANDOMX_MODE:-light}"
     fi
     
     log_info "Starting $name node ($role)..."
@@ -138,6 +152,7 @@ start_node() {
         --prometheus-port $prom_port \
         --rpc-cors all \
         $validator_flag \
+        $mining_flag \
         $bootnode_flag \
         $node_key_flag \
         $tor_mode_flag \
