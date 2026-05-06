@@ -404,14 +404,29 @@ spec / PR 説明文 / `docs/security/pow-threat-model.md` に明記。
 - GRANDPA finality が進行
 - RandomX dataset init (2GB) が完了する
 
-### 9.3 Integration (shell, [`apps/blockchain/tests/integration/pow/`](../../../apps/blockchain/tests/integration/pow/))
+### 9.3 Integration テスト配置 (CI vs Staging)
+
+RandomX full mode は dataset 2GB を要求するため、GitHub Actions 標準 runner (7GB RAM) で 3 ノード並走は厳しい。**CI は smoke のみ・本格 integration は staging 手動**の二層構成。
+
+#### 9.3.1 CI (GitHub Actions) で実行
+| テスト | mode | 内容 |
+|---|---|---|
+| pallet unit tests | n/a | §9.1 全件 |
+| 1 ノード smoke | `--randomx-mode light` (256MB) | dev chain で 5 分間ブロック生成、GRANDPA finality 進行を確認 |
+| import-only smoke | n/a | `--mine` 抜きで chain spec → import_queue が成立 |
+
+#### 9.3.2 Staging / 手動 (`apps/blockchain/tests/integration/pow/`)
+mainnet 投入前の release ゲート。`docs/operations/pow-mainnet-runbook.md` のチェックリスト項目として運用者が実行。
+
 | シナリオ | 検証 |
 |---|---|
-| `multi_miner.sh` | 3 ノード (各 `--mine` 別 coinbase) で 30 分稼働、reorg 観察、GRANDPA finality 各ノード一致 |
+| `multi_miner.sh` | 3 ノード (各 `--mine` 別 coinbase, full mode) で 30 分稼働、reorg 観察、GRANDPA finality 各ノード一致 |
 | `hashrate_jump.sh` | hashrate 1000 倍急増シミュレーション (追加 100 ノード起動) → DAA が 60 ブロック以内に target 30s に再収束 |
 | `authority_rotation.sh` | top-10 メンバーが入れ替わる際の GRANDPA `schedule_change` 反映と finality 連続性 |
 | `selfish_mining.sh` | 攻撃ノードが private chain を 6 ブロック秘匿後 publish → reorg されるが finality は守られる |
 | `coinbase_inject.sh` | 不正な PreRuntime digest (壊れた author) → block reject される |
+
+スクリプトは shell ベース (既存 [`apps/blockchain/tests/integration/`](../../../apps/blockchain/tests/integration/) の流儀踏襲)。最低 16GB RAM のマシン推奨。
 
 ### 9.4 Frontend smoke (手動)
 - smoldot で chain head 進行確認
@@ -458,33 +473,61 @@ node が公開:
 
 CLAUDE.md "Compatibility Policy" に従い **chain reset 方式**:
 
-1. `feature/pow-migration` を `main` にマージ
+### 12.1 投入前ゲート (release checklist)
+mainnet 起動前に以下を全て pass させる:
+- [ ] §9.3.2 staging integration 5 シナリオ全件 pass (multi_miner / hashrate_jump / authority_rotation / selfish_mining / coinbase_inject)
+- [ ] `scripts/bench-randomx.sh` で reference HW (8-core CPU) の hashrate 計測 → 初期 difficulty 確定
+- [ ] Prometheus metrics 出力確認 (§10.3 の 6 項目)
+- [ ] `docs/security/pow-threat-model.md` レビュー完了
+- [ ] genesis bootstrap miner の GRANDPA key 物理生成 (オフラインマシン推奨)
+
+### 12.2 投入手順
+1. Phase A + Phase B 両 PR が `main` にマージ済みであること
 2. `apps/blockchain` を release build (production profile)
-3. `production-spec.json` を `cargo run -- build-spec --chain production --raw` で生成
-4. genesis bootstrap miner 1 名を選定し、その GRANDPA key を chain_spec に焼き込み
+3. `cargo run -- build-spec --chain production --raw > production-spec.json` で chain_spec 生成
+4. genesis bootstrap miner の GRANDPA key を chain_spec に焼き込み
 5. 旧チェーンの停止アナウンス → 新 genesis でローンチ
 6. 最初の 600 ブロック (5 時間) で authority rotation が機能していることを確認
 7. monitoring が green なら community mining 解放
 
 migration code / state migration は **書かない** (CLAUDE.md ポリシー)。
 
-## 13. マイルストーン
+## 13. マイルストーンと PR 戦略
+
+レビュー負荷分散と "consensus 切替の破壊的瞬間を 1 PR に閉じ込める" を両立させるため、**2 段階 PR** で進める。
+
+### 13.1 Phase A PR (`feature/pow-migration-pallets`)
+新 pallet 3 つ + node `pow/` モジュールの crate を追加するが、**`construct_runtime!` には組み込まず・`service.rs` も触らない**。チェーンの挙動は完全に従来通り (Aura/GRANDPA)。レビューは pallet ロジックと RandomX algo 単体の妥当性に集中できる。
 
 | # | 内容 | 期間目安 |
 |---|---|---|
-| M1 | stable2503 + `sc-consensus-pow` + `randomx-rs` の `cargo check` 通過 PoC | 1〜2 日 |
-| M2 | `pallet_difficulty` 実装 + unit tests | 2 日 |
-| M3 | `pallet_block_reward` 実装 + unit tests + halving 検証 | 2 日 |
-| M4 | `pallet_grandpa_authority_election` 実装 + unit tests | 3 日 |
-| M5 | `node/src/pow/` モジュール (RandomX algo / author / difficulty) | 3 日 |
-| M6 | `service.rs` 改修, CLI, chain_spec 更新 | 2 日 |
-| M7 | 1 ノード dev mining smoke 通過 | 1 日 |
-| M8 | 3 ノード integration test (multi_miner / hashrate_jump / authority_rotation / selfish_mining / coinbase_inject) | 3 日 |
-| M9 | RandomX 本番チューニング + Prometheus metrics + ベンチで初期 difficulty 確定 | 2 日 |
-| M10 | 脅威モデル / mining setup / mainnet runbook の docs | 2 日 |
-| M11 | PR / レビュー / TODO.md 4 sub-bullet を `[X]` / CONCEPTS.md "コンセンサス方式の検討" を完了マーク | 1 日 |
+| M1 | stable2503 で `sc-consensus-pow` + `randomx-rs` (or Kulupu fork) の `cargo check` 通過。crate を `apps/blockchain/Cargo.toml` workspace に追加 | 1〜2 日 |
+| M2 | `pallets/difficulty/` 実装 (LWMA-3 + DifficultyApi) + unit tests | 2 日 |
+| M3 | `pallets/block_reward/` 実装 (halving + FindAuthor 統合) + unit tests | 2 日 |
+| M4 | `pallets/grandpa_authority_election/` 実装 (top-K rotation + register_grandpa_key) + unit tests | 3 日 |
+| M5 | `node/src/pow/` モジュール (RandomX algo / author / difficulty client) — 単体ユニットテストのみ、service には未配線 | 3 日 |
+| M5.5 | Phase A PR 作成・レビュー・マージ。**この時点で main に乗っても dev chain は Aura/GRANDPA で動き続ける** | 1〜2 日 |
 
-**合計**: 22〜24 営業日 (約 1 ヶ月)
+**Phase A 小計**: 12〜14 営業日
+
+### 13.2 Phase B PR (`feature/pow-migration-cutover`)
+Phase A マージ後に切る。runtime 統合・service 書き換え・chain_spec 更新を**まとめて実施**し、consensus 切替が中途半端な状態で main に居座る期間を作らない。マージ時点で dev chain は PoW に切替わる (chain reset 必須、CLAUDE.md ポリシー)。
+
+| # | 内容 | 期間目安 |
+|---|---|---|
+| M6 | `runtime/src/lib.rs`: `pallet_aura` / `AuraApi` 削除、新 pallet 3 つを `construct_runtime!` に追加、`SessionKeys` から `aura` 削除、`DifficultyApi` 実装 | 1〜2 日 |
+| M7 | `node/src/service.rs`: Aura 関連を `sc_consensus_pow` に置き換え、CLI に `--mine` / `--coinbase` / `--randomx-mode` 追加、chain_spec を production genesis に更新 | 2 日 |
+| M8 | 1 ノード dev mining smoke (`--dev --mine --coinbase //Alice --randomx-mode light`) 通過 | 1 日 |
+| M9 | CI 統合 (§9.3.1): pallet unit + 1 ノード light smoke + import-only smoke を GitHub Actions に組み込み | 1 日 |
+| M10 | Staging integration スクリプト (§9.3.2 の 5 シナリオ) を `apps/blockchain/tests/integration/pow/` に追加・手動実行で全件 pass 確認 | 3 日 |
+| M11 | RandomX 本番チューニング (large pages 設定, full mode 確認) + Prometheus metrics + `scripts/bench-randomx.sh` で初期 difficulty 確定 | 2 日 |
+| M12 | `docs/security/pow-threat-model.md` / `docs/operations/pow-mining-setup.md` / `docs/operations/pow-mainnet-runbook.md` 執筆 | 2 日 |
+| M13 | Phase B PR 作成・レビュー・マージ。`TODO.md §4.7` の 4 sub-bullet を `[X]`、`CONCEPTS.md` "コンセンサス方式の検討" を解決済みマーク | 1〜2 日 |
+
+**Phase B 小計**: 13〜15 営業日
+
+### 13.3 全体合計
+**25〜29 営業日 (約 5〜6 週)**。Phase A と Phase B の間にレビュー待ち時間が入るので暦上は 6〜7 週見込み。
 
 ## 14. 未解決 / フォローアップ
 
