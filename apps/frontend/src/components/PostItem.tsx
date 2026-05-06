@@ -167,6 +167,15 @@ export function PostItem({
   const replyCount = replies?.length ?? 0
   const canReply = !isNested && Boolean(unsafeApi && signer && account)
 
+  // フォームを開いた後にウォレット切断 (account/signer が null) や
+  // chain disconnect (unsafeApi が null) が起きたら、無効状態のフォームを
+  // 残さないように自動で閉じる (PR #51 review N1)。
+  useEffect(() => {
+    if (replyFormOpen && !canReply) {
+      setReplyFormOpen(false)
+    }
+  }, [replyFormOpen, canReply])
+
   // テキストが長いかどうかを判定（200文字 or 5行以上）
   const isLongContent = typeof content === 'string' && (content.length > 200 || content.split('\n').length > 5)
 
@@ -336,7 +345,8 @@ export function PostItem({
       )}
     </article>
 
-    {!isNested && replyFormOpen && unsafeApi != null && signer != null && (
+    {/* canReply で signer / account / unsafeApi の存在を一度に保証する */}
+    {replyFormOpen && canReply && unsafeApi != null && signer != null && (
       <div className={styles.replyFormWrapper}>
         <PostForm
           unsafeApi={unsafeApi}

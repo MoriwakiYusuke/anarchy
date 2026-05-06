@@ -6,15 +6,18 @@
 
 ## 背景
 
-チェーン側 ([apps/blockchain/pallets/post/src/lib.rs](../../../apps/blockchain/pallets/post/src/lib.rs)) は既に
-`Post.parent_id: Option<u64>` を持ち、`create_post` extrinsic も `parent_id` を受け取って
-`ParentPostNotFound` バリデーションを行う。チェーンが保持するのは「親 0..1 個へのポインタ」のみで、
-スレッド構造は持たない。
+> このセクションは **本 PR 着手時点のスナップショット** を記述する。実装後の現在のコードと
+> 食い違っていても問題ない (差分こそが本 PR の成果)。コード参照には行番号を付けず、
+> 後から行が動いても破綻しない形にしてある。
 
-フロントエンドは `parent_id` を読み取り `Reply to #N` バッジを表示する箇所までは実装済み
-([PostItem.tsx:251-255](../../../apps/frontend/src/components/PostItem.tsx#L251-L255))。
-ただし [PostForm.tsx:185](../../../apps/frontend/src/components/PostForm.tsx#L185) は
-`parent_id: undefined` 固定で、**返信を作成する UI は未実装**。
+チェーン側 (`apps/blockchain/pallets/post`) は既に `Post.parent_id: Option<u64>` を持ち、
+`create_post` extrinsic も `parent_id` を受け取って `ParentPostNotFound` バリデーションを行う。
+チェーンが保持するのは「親 0..1 個へのポインタ」のみで、スレッド構造は持たない。
+
+フロントエンド (`apps/frontend/src/components/PostItem.tsx`) は当時、`parent_id` を読み取り
+`Reply to #N` バッジを表示する箇所までは実装済みだった。一方
+`apps/frontend/src/components/PostForm.tsx` は `parent_id: undefined` 固定で、
+**返信を作成する UI は未実装**だった。
 
 本設計では、X (Twitter) 風の UX で返信作成 + スレッド表示をフロントエンドに追加する。
 
@@ -36,7 +39,8 @@
   - `parent_id === null` の場合は自分が root
   - 親が posts セット内に存在しない (削除等) 場合、その post 自身を root として扱う
 - 各 root の `replyCount` は `posts.filter(p => rootIdOf(p) === root.id && p.id !== root.id).length`
-- `rootIdOf(post)` は parent チェーンを遡るヘルパー (BFS / メモ化、orphan は self を返す)
+- `rootIdOf(post)` は **parent チェーンを反復で遡る** ヘルパー (訪問済みノードを Set で
+  管理して循環検知 + 計算結果を Map にメモ化、orphan は self を返す)
 
 ### PostItem (トップレベル)
 
