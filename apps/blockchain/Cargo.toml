@@ -68,9 +68,9 @@ sc-client-api = "44.0.0"
 sc-consensus = "0.54.0"
 sc-consensus-aura = "0.55.0"
 sc-consensus-grandpa = "0.40.0"
-# TODO(phase-b): verify sc-consensus 0.54 ↔ sc-consensus-pow 0.56 trait boundary compat before service.rs wiring
-sc-consensus-pow = "0.56.0"
-sp-consensus-pow = { version = "0.48.0", default-features = false }
+# Aligned with stable2503 versions (sc-consensus 0.54 / sp-runtime 45 / sp-api 40 / sp-core 39)
+sc-consensus-pow = "0.54.0"
+sp-consensus-pow = { version = "0.46.0", default-features = false }
 randomx-rs = { version = "1.4.1", default-features = false }
 sc-network = "0.55.0"
 sc-transaction-pool = "44.1.0"
@@ -107,6 +107,7 @@ pallet-nickname = { path = "pallets/nickname", default-features = false }
 pallet-stealth = { path = "pallets/stealth", default-features = false }
 pallet-reaction = { path = "pallets/reaction", default-features = false }
 pallet-messaging = { path = "pallets/messaging", default-features = false }
+pallet-difficulty = { path = "pallets/difficulty", default-features = false }
 primitives-pow = { path = "primitives/pow", default-features = false }
 anarchy-runtime = { path = "runtime" }
 
