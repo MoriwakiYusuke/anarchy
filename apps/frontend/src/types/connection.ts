@@ -1,5 +1,5 @@
 /**
- * Connection state types for smoldot light client
+ * Connection state types for chain (WebSocket) client
  * @module types/connection
  */
 
@@ -13,7 +13,7 @@ export type ConnectionStatus =
   | 'error'         // エラー発生
 
 /**
- * Connection state interface for useApi/useSmoldot hooks
+ * Connection state interface for useApi/useChain hooks
  */
 export interface ConnectionState {
   /** Current connection status */

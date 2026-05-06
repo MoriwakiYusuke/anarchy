@@ -23,7 +23,7 @@ import {
  * (鍵管理を 1 セッション内で完結させたまま) 検証できる最小フロー。
  *
  * ⚠️  multi-user (Alice ↔ Bob) は別 spec で 2 contexts を使ってテスト予定だが、
- * smoldot per-tab + AccountContext per-tab の制約上、現時点 (2026-05-03)
+ * chain client per-tab + AccountContext per-tab の制約上、現時点 (2026-05-03)
  * では本 self-DM が "send → on-chain → scan → decrypt → display" 全パスを
  * 通すゴールドパスとして十分機能する。
  */

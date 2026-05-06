@@ -18,7 +18,7 @@ See [`.claude/skills/dev-command/SKILL.md`](.claude/skills/dev-command/SKILL.md)
 
 - **apps/blockchain/** — Substrate L1 chain (Cargo workspace): `node/`, `runtime/`, `pallets/` (post / faucet / storage / reaction / stealth / nickname / messaging), `tests/integration/` (shell E2E)
 - **apps/storage-node/** — Off-chain distributed storage daemon (libp2p P2P + axum HTTP JSON-RPC on `:3030`). Auto-registers with blockchain node on startup
-- **apps/frontend/** — Next.js 14 App Router + React 18 + TypeScript. Uses PAPI + smoldot light client
+- **apps/frontend/** — Next.js 14 App Router + React 18 + TypeScript. Uses PAPI via WebSocket (`getWsProvider`) to chain-node `:9944`
 - **packages/wasm-engine/** — Wasm crypto engine (KZG-VSS hybrid via `ark-bls12-381`, Merkle via `rs_merkle`, Blake2b). Built with `wasm-pack`, consumed by frontend as file dependency
 - **scripts/** — PAPI CLI scripts (sudo-mint, transfer, seed mint)
 - **docs/specs/** — Numbered feature specifications (001-identity … 019-direct-messages, 過去の設計資料として保持)
@@ -30,7 +30,7 @@ See [`.claude/skills/dev-command/SKILL.md`](.claude/skills/dev-command/SKILL.md)
 
 **PAPI required, not @polkadot/api**: Polkadot SDK stable2503 uses metadata v16. The legacy `@polkadot/api` does NOT work (produces signature errors). Always use `polkadot-api` (PAPI) with `getUnsafeApi()` for chain interaction.
 
-- **Frontend**: smoldot light client via `getSmProvider` ([apps/frontend/src/lib/smoldot-provider.ts](apps/frontend/src/lib/smoldot-provider.ts))
+- **Frontend**: WebSocket via `getWsProvider` ([apps/frontend/src/lib/chain-client.ts](apps/frontend/src/lib/chain-client.ts)) — `NEXT_PUBLIC_CHAIN_RPC_URL` で onion address を含む override 可。Phase B (PoW migration) で smoldot から切替: smoldot は consensus enum に PoW を持たず、また Anarchy の post / DM / storage は元々 chain-node RPC 拡張に依存しているため smoldot 経由できなかった
 - **Node CLI scripts**: WebSocket via `getWsProvider` ([scripts/](scripts/))
 
 **MORAL token precision**: 12 decimals (1 MORAL = 1_000_000_000_000 units). Post costs: `PostBaseCost + content_bytes × PostByteCost` (defaults: 10 MORAL + 0.1 MORAL/byte).

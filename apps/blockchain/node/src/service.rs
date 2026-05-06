@@ -6,12 +6,10 @@ use anarchy_runtime::{self, opaque::Block, RuntimeApi};
 use futures::FutureExt;
 use log::info;
 use sc_client_api::{Backend, BlockBackend};
-use sc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
 use sc_consensus_grandpa::SharedVoterState;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager, WarpSyncConfig};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
 use sp_runtime::traits::Block as BlockT;
 use std::{sync::Arc, time::Duration};
 
@@ -29,6 +27,52 @@ type FullPool = sc_transaction_pool::BasicPool<
 >;
 
 /// 部分的なノードコンポーネントを構築
+/// PoW Inherent data provider creator (timestamp のみ)。
+/// PowBlockImport / start_mining_worker 両方で使うため free fn で実装し、
+/// 型エイリアスから fn pointer として参照できるようにする。
+fn pow_inherent_data_providers(
+    _parent: <Block as BlockT>::Hash,
+    _: (),
+) -> std::pin::Pin<
+    Box<
+        dyn std::future::Future<
+                Output = Result<
+                    sp_timestamp::InherentDataProvider,
+                    Box<dyn std::error::Error + Send + Sync>,
+                >,
+            > + Send,
+    >,
+> {
+    Box::pin(async move {
+        Ok(sp_timestamp::InherentDataProvider::from_system_time())
+    })
+}
+
+type PowInherentDataProvidersFn = fn(
+    <Block as BlockT>::Hash,
+    (),
+) -> std::pin::Pin<
+    Box<
+        dyn std::future::Future<
+                Output = Result<
+                    sp_timestamp::InherentDataProvider,
+                    Box<dyn std::error::Error + Send + Sync>,
+                >,
+            > + Send,
+    >,
+>;
+
+/// PoW block import: grandpa_block_import を sc_consensus_pow で wrap した型。
+/// PowBlockImport が submit 時の PowIntermediate を生成する。
+type PowBlockImportType = sc_consensus_pow::PowBlockImport<
+    Block,
+    sc_consensus_grandpa::GrandpaBlockImport<FullBackend, Block, FullClient, FullSelectChain>,
+    FullClient,
+    FullSelectChain,
+    crate::pow::RandomXAlgorithm<Block, FullClient>,
+    PowInherentDataProvidersFn,
+>;
+
 pub fn new_partial(
     config: &Configuration,
 ) -> Result<
@@ -39,12 +83,7 @@ pub fn new_partial(
         sc_consensus::DefaultImportQueue<Block>,
         FullPool,
         (
-            sc_consensus_grandpa::GrandpaBlockImport<
-                FullBackend,
-                Block,
-                FullClient,
-                FullSelectChain,
-            >,
+            PowBlockImportType,
             sc_consensus_grandpa::LinkHalf<Block, FullClient, FullSelectChain>,
             Option<Telemetry>,
         ),
@@ -97,30 +136,29 @@ pub fn new_partial(
         telemetry.as_ref().map(|x: &Telemetry| x.handle()),
     )?;
 
-    let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
+    // PoW インポートキュー (Phase B): Aura の代わりに sc_consensus_pow を使用。
+    // import_queue では full_mode 不要 (verify のみ使用) なので light mode 固定。
+    let pow_algo = crate::pow::RandomXAlgorithm::new(client.clone(), false);
 
-    let import_queue =
-        sc_consensus_aura::import_queue::<AuraPair, _, _, _, _, _>(ImportQueueParams {
-            block_import: grandpa_block_import.clone(),
-            justification_import: Some(Box::new(grandpa_block_import.clone())),
-            client: client.clone(),
-            create_inherent_data_providers: move |_, ()| async move {
-                let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+    // grandpa_block_import を PowBlockImport でラップ。
+    // sc_consensus_pow::start_mining_worker が submit() で import_block を呼ぶときに
+    // PowIntermediate を期待する仕組みなので、wrapper が必要。
+    let pow_block_import = sc_consensus_pow::PowBlockImport::new(
+        grandpa_block_import.clone(),
+        client.clone(),
+        pow_algo.clone(),
+        0, // check_inherents_after
+        select_chain.clone(),
+        pow_inherent_data_providers as PowInherentDataProvidersFn,
+    );
 
-                let slot =
-                    sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-                        *timestamp,
-                        slot_duration,
-                    );
-
-                Ok((slot, timestamp))
-            },
-            spawner: &task_manager.spawn_essential_handle(),
-            registry: config.prometheus_registry(),
-            check_for_equivocation: Default::default(),
-            telemetry: telemetry.as_ref().map(|x: &Telemetry| x.handle()),
-            compatibility_mode: Default::default(),
-        })?;
+    let import_queue = sc_consensus_pow::import_queue(
+        Box::new(pow_block_import.clone()),
+        None,
+        pow_algo.clone(),
+        &task_manager.spawn_essential_handle(),
+        config.prometheus_registry(),
+    )?;
 
     Ok(sc_service::PartialComponents {
         client,
@@ -130,12 +168,17 @@ pub fn new_partial(
         keystore_container,
         select_chain,
         transaction_pool: Arc::new(transaction_pool),
-        other: (grandpa_block_import, grandpa_link, telemetry),
+        other: (pow_block_import, grandpa_link, telemetry),
     })
 }
 
 /// フルノードを構築
-pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
+pub fn new_full(
+    config: Configuration,
+    mine: bool,
+    coinbase: Option<String>,
+    randomx_mode: crate::cli::RandomxMode,
+) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
         backend,
@@ -227,8 +270,6 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
     }
 
     let role = config.role;
-    let force_authoring = config.force_authoring;
-    let backoff_authoring_blocks: Option<()> = None;
     let name = config.network.node_name.clone();
     let enable_grandpa = !config.disable_grandpa;
     let prometheus_registry = config.prometheus_registry().cloned();
@@ -294,7 +335,24 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         tracing_execute_block: None,
     })?;
 
-    if role.is_authority() {
+    if mine {
+        use parity_scale_codec::Encode as _;
+        use sp_runtime::AccountId32;
+
+        // --coinbase が未指定なら起動時にエラー
+        let coinbase_str = coinbase
+            .as_ref()
+            .ok_or_else(|| ServiceError::Other("--coinbase is required when --mine is set".into()))?;
+
+        // SS58 アドレスを AccountId32 にパース
+        let coinbase_account: AccountId32 = coinbase_str
+            .parse()
+            .map_err(|e| ServiceError::Other(format!("invalid --coinbase SS58 address: {:?}", e)))?;
+
+        // PreRuntime digest ペイロード = SCALE-encoded AccountId32 bytes
+        // sc_consensus_pow::start_mining_worker が b"ANRC" engine-ID で自動ラップする
+        let pre_runtime_bytes = coinbase_account.encode();
+
         let proposer_factory = sc_basic_authorship::ProposerFactory::new(
             task_manager.spawn_handle(),
             client.clone(),
@@ -303,41 +361,128 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
             telemetry.as_ref().map(|x: &Telemetry| x.handle()),
         );
 
-        let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
+        // PoW ブロック生成 (Phase B)
+        // --randomx-mode に従い full / light dataset を選択する。
+        let pow_algo = crate::pow::RandomXAlgorithm::new(client.clone(), randomx_mode.full_mode());
 
-        let aura = sc_consensus_aura::start_aura::<AuraPair, _, _, _, _, _, _, _, _, _, _>(
-            StartAuraParams {
-                slot_duration,
-                client: client.clone(),
-                select_chain,
-                block_import,
-                proposer_factory,
-                create_inherent_data_providers: move |_, ()| async move {
-                    let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-
-                    let slot =
-                        sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-                            *timestamp,
-                            slot_duration,
-                        );
-
-                    Ok((slot, timestamp))
-                },
-                force_authoring,
-                backoff_authoring_blocks,
-                keystore: keystore_container.keystore(),
-                sync_oracle: sync_service.clone(),
-                justification_sync_link: sync_service.clone(),
-                block_proposal_slot_portion: SlotProportion::new(2f32 / 3f32),
-                max_block_proposal_slot_portion: None,
-                telemetry: telemetry.as_ref().map(|x: &Telemetry| x.handle()),
-                compatibility_mode: Default::default(),
+        let (mining_handle, pow_worker) = sc_consensus_pow::start_mining_worker(
+            Box::new(block_import),
+            client.clone(),
+            select_chain,
+            pow_algo,
+            proposer_factory,
+            sync_service.clone(),
+            sync_service.clone(),
+            Some(pre_runtime_bytes), // coinbase AccountId32 を PreRuntime digest に設定
+            move |_, ()| async move {
+                let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+                Ok(timestamp)
             },
-        )?;
+            Duration::from_secs(10),
+            Duration::from_secs(10),
+        );
 
         task_manager
             .spawn_essential_handle()
-            .spawn_blocking("aura", Some("block-authoring"), aura);
+            .spawn_blocking("pow-build-worker", Some("block-authoring"), pow_worker);
+
+        // sc_consensus_pow::start_mining_worker は build (block proposing) のみ管理する。
+        // 実際の nonce 探索 + seal 提出は別スレッドで行う必要がある (Kulupu / substrate-recipes 流派)。
+        // MiningHandle::submit() の future は内部で !Send な parking_lot guard を捕捉するため、
+        // tokio タスクにできない → std::thread + futures::executor::block_on で回避する。
+        let mine_full = randomx_mode.full_mode();
+        let client_for_miner = client.clone();
+        let mining_handle_for_thread = mining_handle.clone();
+        std::thread::Builder::new()
+            .name("pow-nonce-loop".into())
+            .spawn(move || {
+                use parity_scale_codec::Encode;
+                use sc_client_api::HeaderBackend;
+                use sp_core::{H256, U256};
+
+                let seed = client_for_miner.info().genesis_hash.as_ref().to_vec();
+                let vm = match crate::pow::randomx_algo::RandomXVm::new(&seed, mine_full) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::error!(target: "pow-miner", "RandomX VM init failed: {}", e);
+                        return;
+                    }
+                };
+                log::info!(target: "pow-miner",
+                    "⛏  mining thread started (full_mode={}, seed_len={})",
+                    mine_full, seed.len());
+                let mut nonce: u64 = 0;
+                let mut total_hashes: u64 = 0;
+                let start_time = std::time::Instant::now();
+                loop {
+                    let metadata = match mining_handle_for_thread.metadata() {
+                        Some(m) => m,
+                        None => {
+                            std::thread::sleep(Duration::from_millis(1000));
+                            continue;
+                        }
+                    };
+                    let pre_hash = metadata.pre_hash;
+                    let difficulty = metadata.difficulty;
+                    if difficulty.is_zero() {
+                        std::thread::sleep(Duration::from_millis(1000));
+                        continue;
+                    }
+                    let target = U256::MAX / difficulty;
+                    log::debug!(target: "pow-miner",
+                        "⛏  new build: pre_hash={:?} difficulty={}",
+                        pre_hash, difficulty);
+                    let initial_pre_hash = pre_hash;
+                    let mut hashes_tried: u64 = 0;
+                    loop {
+                        let mut input = Vec::with_capacity(40);
+                        input.extend_from_slice(pre_hash.as_bytes());
+                        input.extend_from_slice(&nonce.to_le_bytes());
+                        let work = vm.hash(&input);
+                        let work_u256 = U256::from_big_endian(&work);
+                        total_hashes = total_hashes.wrapping_add(1);
+                        // hashrate 観測ログ (debug レベル: 5000 hashes ごと、verbose は本番抑止)
+                        if total_hashes % 5000 == 0 {
+                            let elapsed = start_time.elapsed().as_secs_f64();
+                            let hps = total_hashes as f64 / elapsed.max(0.001);
+                            log::debug!(target: "pow-miner",
+                                "⛏  hashrate update: total={} hps={:.1}",
+                                total_hashes, hps);
+                        }
+                        if work_u256 <= target {
+                            let seal_obj = crate::pow::randomx_algo::PowSeal {
+                                nonce,
+                                work: H256::from_slice(&work),
+                            };
+                            let seal_bytes = seal_obj.encode();
+                            let submitted = futures::executor::block_on(
+                                mining_handle_for_thread.submit(seal_bytes),
+                            );
+                            if submitted {
+                                log::info!(target: "pow-miner",
+                                    "🏆 Submitted valid seal at nonce {} (difficulty {})",
+                                    nonce, difficulty);
+                            } else {
+                                log::debug!(target: "pow-miner",
+                                    "submit() rejected seal at nonce {} (likely stale build)",
+                                    nonce);
+                            }
+                            nonce = nonce.wrapping_add(1);
+                            break;
+                        }
+                        nonce = nonce.wrapping_add(1);
+                        hashes_tried = hashes_tried.wrapping_add(1);
+                        if hashes_tried % 256 == 0 {
+                            if let Some(m) = mining_handle_for_thread.metadata() {
+                                if m.pre_hash != initial_pre_hash {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            .expect("pow-nonce-loop thread spawn failed");
     }
 
     if enable_grandpa {

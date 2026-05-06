@@ -19,7 +19,7 @@ import { StealthScanner } from '../../lib/stealth/scanner';
 import { createBalanceStore, type BalanceStore } from '../../lib/stealth/balanceStore';
 import { deriveKeyFromBalance, createStealthSigner } from '../../lib/stealth/signer';
 import type { StealthKeyPair, ScanProgress, DetectedStealthBalance } from '../../lib/stealth/types';
-import { useSmoldot } from '../../hooks/useSmoldot';
+import { useChain } from '../../hooks/useChain';
 
 export default function StealthPage() {
   const { t } = useLocale();
@@ -43,7 +43,7 @@ export default function StealthPage() {
   const [lastScannedBlock, setLastScannedBlock] = useState<number>(0);
   
   // Hooks for blockchain interaction
-  const { unsafeApi, connectionState } = useSmoldot();
+  const { unsafeApi, connectionState } = useChain();
   // Note: Signer integration requires useApi hook from main page context
   // For now, send form will show "coming soon" message
   const signer = null;

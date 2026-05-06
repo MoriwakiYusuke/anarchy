@@ -108,6 +108,8 @@ pallet-stealth = { path = "pallets/stealth", default-features = false }
 pallet-reaction = { path = "pallets/reaction", default-features = false }
 pallet-messaging = { path = "pallets/messaging", default-features = false }
 pallet-difficulty = { path = "pallets/difficulty", default-features = false }
+pallet-block-reward = { path = "pallets/block_reward", default-features = false }
+pallet-grandpa-authority-election = { path = "pallets/grandpa_authority_election", default-features = false }
 primitives-pow = { path = "primitives/pow", default-features = false }
 anarchy-runtime = { path = "runtime" }
 

@@ -19,7 +19,6 @@
 
 use anarchy_runtime::{AccountId, Balance, Signature, WASM_BINARY};
 use sc_service::ChainType;
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
@@ -44,9 +43,9 @@ where
     AccountPublic::from(get_from_seed::<TPublic>(seed)).into_account()
 }
 
-/// Authorityのキーペアを生成
-pub fn authority_keys_from_seed(s: &str) -> (AuraId, GrandpaId) {
-    (get_from_seed::<AuraId>(s), get_from_seed::<GrandpaId>(s))
+/// Authorityのキーペアを生成 (PoW移行後はGrandpa keyのみ)
+pub fn authority_keys_from_seed(s: &str) -> GrandpaId {
+    get_from_seed::<GrandpaId>(s)
 }
 
 /// チェーンのプロパティ（トークン情報）
@@ -79,7 +78,7 @@ pub fn development_config() -> Result<ChainSpec, String> {
     .with_chain_type(ChainType::Development)
     .with_properties(chain_properties())
     .with_genesis_config_patch(testnet_genesis(
-        // 初期オーソリティ
+        // 初期 GRANDPA オーソリティ (PoW 移行後は Aura 不要)
         vec![authority_keys_from_seed("Alice")],
         // Sudoアカウント
         get_account_id_from_seed::<sr25519::Public>("Alice"),
@@ -133,7 +132,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
         vec![
             authority_keys_from_seed("Alice"),
             authority_keys_from_seed("Bob"),
-        ],
+        ], // GRANDPA authority list
         get_account_id_from_seed::<sr25519::Public>("Alice"),
         vec![
             get_account_id_from_seed::<sr25519::Public>("Alice"),
@@ -150,22 +149,22 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
     .build())
 }
 
-/// Genesisコンフィグを構築
+/// Genesisコンフィグを構築 (PoW 移行後: Aura 削除、GRANDPA authority のみ設定)
 fn testnet_genesis(
-    initial_authorities: Vec<(AuraId, GrandpaId)>,
+    initial_grandpa_authorities: Vec<GrandpaId>,
     root_key: AccountId,
     endowed_accounts: Vec<AccountId>,
     _enable_println: bool,
 ) -> serde_json::Value {
     // $moral = ネイティブトークン (12桁精度)
     const INITIAL_MORAL: Balance = 10_000_000_000_000_000; // 10,000 $moral
-    
+
     // 報酬プール初期残高 (dev/testnet用: 1,000,000 MORAL)
     const INITIAL_REWARD_POOL: u128 = 1_000_000_000_000_000_000; // 1,000,000 $moral
-    
+
     // Reaction報酬プール初期残高 (dev/testnet用: 10,000,000 MORAL)
     const INITIAL_REACTION_REWARD_POOL: u128 = 10_000_000_000_000_000_000_000; // 10,000,000 $moral
-    
+
     // Reaction初期難易度 (BaseDifficultyと同じ)
     const INITIAL_REACTION_DIFFICULTY: u8 = 16;
 
@@ -173,11 +172,8 @@ fn testnet_genesis(
         "balances": {
             "balances": endowed_accounts.iter().cloned().map(|k| (k, INITIAL_MORAL)).collect::<Vec<_>>()
         },
-        "aura": {
-            "authorities": initial_authorities.iter().map(|x| x.0.clone()).collect::<Vec<_>>()
-        },
         "grandpa": {
-            "authorities": initial_authorities.iter().map(|x| (x.1.clone(), 1)).collect::<Vec<_>>()
+            "authorities": initial_grandpa_authorities.iter().map(|k| (k.clone(), 1)).collect::<Vec<_>>()
         },
         "sudo": {
             "key": Some(root_key)

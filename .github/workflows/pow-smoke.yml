@@ -1,0 +1,124 @@
+name: PoW Smoke
+
+on:
+  pull_request:
+    paths:
+      - 'apps/blockchain/**'
+      - '.github/workflows/pow-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/blockchain/**'
+      - '.github/workflows/pow-smoke.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  pallet-units:
+    name: Pallet unit tests (difficulty / block_reward / grandpa_authority_election)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      # randomx-rs の build 経路で clang-sys が libclang を要求する。
+      # pallet 単独 build には不要だが、workspace の依存解決で巻き込まれることがあるので入れておく。
+      - name: Install build dependencies (clang / protoc)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev protobuf-compiler
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32v1-none
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/blockchain
+
+      - name: cargo test (new pallets)
+        working-directory: apps/blockchain
+        run: |
+          cargo test \
+            -p pallet-difficulty \
+            -p pallet-block-reward \
+            -p pallet-grandpa-authority-election \
+            --no-fail-fast
+
+      - name: cargo clippy (new pallets, -D warnings)
+        working-directory: apps/blockchain
+        run: |
+          cargo clippy \
+            -p pallet-difficulty \
+            -p pallet-block-reward \
+            -p pallet-grandpa-authority-election \
+            -- -D warnings
+
+  one-node-light-smoke:
+    name: 1-node dev mining smoke (RandomX light, 3 min)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      # randomx-rs (via clang-sys) が libclang を要求、protobuf-compiler は libp2p などの
+      # transitive 依存 (sc-network / multistream-select 系) で必要。
+      - name: Install build dependencies (clang / protoc)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev protobuf-compiler
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/blockchain
+
+      - name: Build node (release)
+        working-directory: apps/blockchain
+        run: cargo build --release -p anarchy-node
+
+      - name: Run --dev --mine for 3 minutes
+        working-directory: apps/blockchain
+        run: |
+          set -euo pipefail
+          SMOKE_DIR="$RUNNER_TEMP/anarchy-pow-smoke"
+          mkdir -p "$SMOKE_DIR"
+          ./target/release/anarchy-node --dev --mine \
+            --coinbase 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY \
+            --randomx-mode light \
+            --base-path "$SMOKE_DIR" \
+            --no-prometheus --no-telemetry \
+            > /tmp/smoke.log 2>&1 &
+          NODE_PID=$!
+          # 180秒待機 (=6 ブロック分 @30s target)
+          sleep 180
+          kill -INT "$NODE_PID" 2>/dev/null || true
+          sleep 5
+
+          echo "=== smoke log tail ==="
+          tail -50 /tmp/smoke.log
+
+          # 検証: best ブロック >= 3 (LWMA-3 の window が小さくても進む確認)
+          BEST=$(grep -oP "best: #\K[0-9]+" /tmp/smoke.log | tail -1 || echo 0)
+          echo "Final best block: $BEST"
+          if [ "${BEST:-0}" -lt 3 ]; then
+            echo "::error::Mining stalled — best block $BEST < 3 after 3 minutes"
+            exit 1
+          fi
+          echo "✅ Mining smoke passed: best block $BEST"
+
+      - name: Upload smoke log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pow-smoke-log
+          path: /tmp/smoke.log
+          retention-days: 7

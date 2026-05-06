@@ -276,6 +276,9 @@ pub fn run() -> sc_cli::Result<()> {
         }
         None => {
             let tor_mode = cli.tor_mode;
+            let mine = cli.mine;
+            let coinbase = cli.coinbase.clone();
+            let randomx_mode = cli.randomx_mode;
             let runner = cli.create_runner(&cli.run)?;
             runner.run_node_until_exit(|mut config| async move {
                 // Validate Onion addresses in --public-addr if any
@@ -283,7 +286,7 @@ pub fn run() -> sc_cli::Result<()> {
                     log::error!("🚫 Invalid public address: {}", e);
                     return Err(sc_cli::Error::Input(e));
                 }
-                
+
                 // Mainnet requires forced Tor mode - override any user setting
                 let effective_tor_mode = if config.chain_spec.id().contains("mainnet") {
                     if tor_mode != TorMode::Forced {
@@ -293,11 +296,12 @@ pub fn run() -> sc_cli::Result<()> {
                 } else {
                     tor_mode
                 };
-                
+
                 // Apply Tor mode configuration
                 apply_tor_mode(effective_tor_mode, &mut config)?;
 
-                service::new_full(config).map_err(sc_cli::Error::Service)
+                service::new_full(config, mine, coinbase, randomx_mode)
+                    .map_err(sc_cli::Error::Service)
             })
         }
     }

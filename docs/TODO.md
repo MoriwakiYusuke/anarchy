@@ -331,26 +331,35 @@
   - ~~[ ] アルゴリズム: SHA256 or Blake2b（ASIC耐性不要）~~ → [x] アルゴリズム: Blake2b-256（Substrate標準、SHA256は不採用）
   - ~~[ ] 匿名性: KYC不要、IPログなし~~ → [x] 匿名性: KYC不要、署名不要（unsigned tx）← IPログはノード実装依存のため技術保証できる「署名不要」に変更
 
-### 2.5 smoldot Light Client統合
+### ~~2.5 smoldot Light Client統合~~ → **Phase B PR #53 で撤去** (2026-05-NN)
 
-> **設計方針**: Tor統合を断念したため、smoldotによるLight Client接続でRPC依存を排除し検閲耐性を確保。
-> ブラウザ内でブロックを自分で検証するTrustlessな構成を実現。
+> **当初設計**: Tor統合を断念したため、smoldotによるLight Client接続でRPC依存を排除し検閲耐性を確保する想定だった。
+>
+> **撤去理由** (Phase B mainnet smoke で判明):
+> - smoldot は内部 consensus enum に Babe/Aura/AllAuthorized しか持たず、PoW chain の block announcement を decode できない (`BadBlockAnnounce(DecodeBlockAnnounceError)` を実機 E2E で確認)
+> - そもそも Anarchy の post / DM / storage は `storage_uploadFragment` 等の chain-node RPC 拡張に依存しており、smoldot からは呼べない構造だった (frontend は WS 経路を併用していた)
+> - → smoldot を残しても anonymity 上の利得ゼロ + bundle ~MB の重さ + PoW 非互換 → 撤去して WebSocket (getWsProvider) に統一
+>
+> **代替**: chain-node を Tor hidden service として公開し `wss://<onion>:9944` で接続する運用で anonymity 担保 (docs/Tor.md)
 
-- [x] **smoldot導入** (`apps/frontend/`)
-  - [x] `smoldot` パッケージ追加（v2.0.40）
-  - [x] + シングルトン管理 (`lib/smoldot-provider.ts`)
-  - [x] + `useSmoldot` フック (`hooks/useSmoldot.ts`)
-  - [x] + 接続状態型定義 (`types/connection.ts`)
+- [x] ~~smoldot導入~~ → **撤去** (Phase B):
+  - [-] ~~`smoldot` パッケージ削除~~ (`package.json`)
+  - [-] ~~シングルトン管理~~ (`lib/smoldot-provider.ts` 削除)
+  - [-] ~~`useSmoldot` フック~~ (`hooks/useSmoldot.ts` 削除)
+  - [+] **`getWsProvider` ベースの `lib/chain-client.ts`** 新設 (Phase B)
+  - [+] **`useChain` フック** (`hooks/useChain.ts`) 新設 (Phase B)
+  - [+] 接続状態型定義 (`types/connection.ts`) — comment を WS 文脈に更新
 
-- [x] **チェーンスペック生成・配布**
-  - [x] + chain spec生成スクリプト (`scripts/export-chainspec.sh`)
-  - [x] + ブートノードリスト設定（P2P WebSocket: 30833-30835）
-  - [x] + フロントエンドへのchain spec同梱 (`lib/chainspec.json`)
+- [x] ~~チェーンスペック生成・配布~~ → **撤去** (Phase B、WS は chainspec 不要):
+  - [-] ~~chain spec生成スクリプト~~ (`apps/frontend/scripts/update-chainspec.sh` 削除)
+  - [-] ~~ブートノードリスト設定~~
+  - [-] ~~フロントエンドへの chain spec 同梱~~ (`lib/chainspec.json` 削除)
+  - [+] `NEXT_PUBLIC_CHAIN_RPC_URL` で接続先 override (default: `ws://127.0.0.1:9944`)
 
-- [x] **接続フロー**
-  - [x] + 同期タイムアウト（60秒）
-  - [x] + ブロック番号自動更新（6秒間隔）
-  - [x] + 接続状態表示（initializing/syncing/connected/error）
+- [x] ~~接続フロー~~ → WS 移行で簡素化:
+  - [+] 同期タイムアウト 60s → 30s に短縮 (WS は smoldot より速い)
+  - [+] ブロック番号自動更新 6s → 10s (PoW 30s blocktime に合わせ)
+  - [+] 接続状態表示 (initializing/syncing/connected/error) — useChain で同等の状態管理
 
 - [x] **Faucet改善**
   - [x] + RPCタイムアウト追加（30秒）- ネットワークエラー時のハング防止
@@ -440,7 +449,7 @@
   - [x] + `useNickname.test.ts` (471行)
   - [x] + `postCodec.test.ts` (442行)
 
-- [ ] **いいね/bad/ギフト** → **Phase 3.2（反応マイニング）で実装**
+- [x] **いいね/bad/ギフト** → **Phase 3.2（反応マイニング）で実装**
   > オンチェーンスコア反映はReaction Palletと同時に実装。詳細は Phase 3.2 を参照。
 
 
@@ -653,7 +662,12 @@
 - [ ] **メインネット準備**
   - [ ] セキュリティ監査
   - [ ] Genesis設定最終化
+<!-- 状況変化 (Phase B / PR #53): PoW + Permissionless GRANDPA に移行したため
+     "validator 招集" の概念自体が消滅。誰でも `--mine` で参加可能、
+     genesis bootstrap miner 1 名のみ chain_spec に焼き込みで完結。
   - [ ] バリデーター招集
+-->
+
 
 ### 4.4 Mainnet設計・経済パラメータ（トークノミクス統合）
 
@@ -667,10 +681,15 @@
   - [ ] 適切なガス代の設定
   - [ ] 初期供給量・分配比率
 
+<!-- 状況変化 (Phase B PR #53):
+     - "バリデーター" 概念は PoW 移行で消滅 (= miner)
+     - 案A (ブロック報酬 mint) を採用、halving 付きで実装済み (pallet_block_reward, 5 MORAL → 4年毎半減)
+     - 案D (EIP-1559) は PoA バリデーター前提で Anarchy 文脈ではミスマッチ → 不採用
 - [ ] **バリデーター報酬設計**
   - [ ] 案A: ブロック報酬mint（シンプル、インフレ）
   - [ ] 案D: Ethereum EIP-1559方式（Base Fee burn + Priority Fee → バリデーター）
   - [ ] インフレ率とデフレ圧力のバランス検証
+-->
 
 - [ ] **ストレージ・反応報酬設計**
   - [ ] ストレージノード報酬設計
@@ -697,6 +716,13 @@
   - [ ] 署名者リスト・閾値設定
   - [ ] ランタイムアップグレード承認フロー
 
+<!-- 哲学レビュー後保留 (Phase B PR #53):
+     「$moral 保有量ベースの投票権」は同 sub-section の "経済的攻撃 ($moral 買い占め) 対策"
+     と内在的に矛盾する (token-weighted = 大口買い占めで支配可能)。
+     さらに on-chain vote は public ledger に記録されるため、Anarchy 匿名性原則と衝突。
+     完全解決には zk-SNARK 投票が必要 = 大物別タスク。
+     governance は Multisig (上記 §4.5 Multisig 導入で対応) に留め、本格 OpenGov は再設計後。
+     spec は: 採掘で finality 投票権が自動付与される現状で十分という見方もある。
 - [ ] **Democracy/OpenGov導入**（将来）
   - [ ] pallet_democracy / pallet_referenda 導入
   - [ ] $moral保有量ベースの投票権
@@ -705,35 +731,56 @@
   - [ ] 緊急時対応（セキュリティパッチ等）の特別ルート
   - [ ] 投票期間・クォーラム閾値の設定
   - [ ] パラメータ変更プロセス
+-->
 
 - [ ] **セキュリティ考慮**
   - [ ] 経済的攻撃（$moral買い占め）対策
   - [ ] 最小投票期間の設定
   - [ ] 提案スパム防止（デポジット要求）
+<!-- 状況変化: Anarchy は anonymity 原則 (Tor/I2P 強制) のため frontend は
+     原則 .onion service 経由で接続する想定。clearnet 公開しないので HTTPS 単独の
+     対応は不要 (Tor 経由なら transport 暗号化は libp2p/Tor が担う)。
+     clearnet ミラーを置く運営者は HTTPS 必須だが、それは運営者責任。
   - [ ] https対応
+-->
 
 ### ~~+ 4.6 経済設計（トークノミクス）~~ → 4.4に統合
 
 ### + 4.7 コンセンサス方式の検討（PoA → PoW/NPoS）
 
 > **詳細**: [CONCEPTS.md](CONCEPTS.md#コンセンサス方式の検討poa--pow) を参照
+> **実装**: Phase A PR #52 (merged) + Phase B PR #NN (in review)
+> **Spec**: [docs/superpowers/specs/2026-05-06-pow-migration-design.md](superpowers/specs/2026-05-06-pow-migration-design.md)
 
-- [ ] **PoW移行検討**
-  - [ ] アルゴリズム選定: sha3pow / RandomX / Ethash
-  - [ ] ASIC耐性の要否判断
-  - [ ] 難易度調整アルゴリズム実装
-  - [ ] ファイナリティ方式変更（GRANDPA → 確率的）
+- [x] **PoW移行検討** (2026-05-NN 完了)
+  - [x] アルゴリズム選定: **RandomX** 採用 (ASIC 耐性 / Anarchy 原則 "誰でも参加" と整合)
+  - [x] ASIC耐性の要否判断: **必要** (匿名・分散原則のため CPU 優位な RandomX を選定)
+  - [x] 難易度調整アルゴリズム実装: **LWMA-3** (Kulupu 流派, unweighted harmonic mean)
+  - [x] ファイナリティ方式変更: **PoW + Permissionless GRANDPA** (top-K miner rotation, sudo 介在なし)
 
-- [ ] **NPoS（Hybrid）検討**
-  - [ ] pallet_staking / pallet_election_provider 導入
-  - [ ] $moralステークによるバリデーター候補参加
-  - [ ] Polkadot/Kusamaモデルの適用検討
-  - [ ] 最小ステーク額の設定
-  - [ ] スラッシング条件の定義
+- [x] **NPoS（Hybrid）検討** → 不採用 (Permissionless GRANDPA で代替)
+  - 理由: NPoS は MORAL ステークが必要で「誰でも参加」原則と矛盾。top-K miner rotation で
+    permissionless finality を実現することで NPoS なしで分散性を確保。
 
-- [ ] **移行計画**
-  - [ ] テストネット後期でPoW/NPoSテスト
-  - [ ] メインネットでの最終選択（ハードフォーク）
+- [x] **移行計画**
+  - [x] Phase A: pallet 3 個 + node/pow モジュール追加 (#52)
+  - [x] Phase B: runtime cutover + RandomX verify + miner loop + chain_spec / CLI / CI / staging integration / docs (#53)
+  - [x] mainnet runbook 公開: [docs/operations/pow-mainnet-runbook.md](operations/pow-mainnet-runbook.md)
+
+- [x] **Phase B 副作用 — frontend 接続経路変更**
+  - [-] ~~smoldot light client~~ (PoW 非互換、§2.5 参照)
+  - [+] **WebSocket (`getWsProvider`)** に統一: `lib/chain-client.ts` / `hooks/useChain.ts`
+  - [+] dev / testnet 起動コマンドに `--mine --coinbase` を自動付与 (`package.json`, `run-multi-node.sh`)
+  - [+] E2E spec 拡充 (`transfer.spec.ts` / `nickname.spec.ts` / `stealth-transfer.spec.ts` / `pow-chain-sync.spec.ts`)
+  - [+] hooks/services の signAndSubmit timeout 30s → 240s (PoW 30s blocktime 対応)
+
+- [ ] **Phase C 残タスク** (mainnet 投入前 or 直後に対応)
+  - [ ] **Equivocation slashing**: `EquivocationReportSystem = ()` で現状二重投票し放題。`pallet_offences` + `pallet_grandpa::report_equivocation` 連動で top-K position を BAN する
+  - [ ] **RandomX seed の epoch rotation**: 現状 genesis hash 固定 (`randomx_algo.rs`)。`RANDOMX_EPOCH_BLOCKS = 2048` 単位で seed 切替へ
+  - [ ] **本番 MinDifficulty チューニング**: 現状 dev 用 `100`。`scripts/bench-randomx.sh` で reference HW の hashrate 実測 → mainnet chain_spec の initial_difficulty を確定
+  - [ ] **Faucet と halving の整合**: 現 100 MORAL/claim 永久 → halving 連動で減額検討 (mainnet 経済データ次第)
+  - [ ] **Genesis bootstrap miner key の運用方針確定**: 焼き込んだ GRANDPA key の秘密鍵を破棄するか、destroy ceremony 公開するか
+  - [ ] **WSL2 timestamp drift**: dev 環境で散発的に "block timestamp too far in the future" reject。実 Linux で再現するか確認、しなければ無対応
 
 ### + 4.8 Storage ↔ Chain Session 認証強化 (TODO 追加 2026-04-27)
 
@@ -767,6 +814,67 @@
   - [ ] storage-node auth テスト更新 (X-Session-Token 経路の正常系・異常系)
   - [ ] 統合テスト: chain-node ↔ storage-node の session 確立 → upload → token 失効 → 再取得 のフロー
   - [ ] 既存 `X-Anarchy-Auth` テストが dev fallback 経路として残ることを確認
+
+### + 4.9 Storage Node DB 最適化 (TODO 追加 2026-05-07)
+
+> **目的**: storage-node の fragment 永続化層を「1 fragment = 1 ファイル」のナイーブ実装から、embedded KV ストア (sled / redb / fjall / RocksDB) ベースに置き換えて、fragment 数 100 万件超でもスケールするようにする。
+>
+> **背景**: 現在の [`apps/storage-node/src/storage/mod.rs`](../apps/storage-node/src/storage/mod.rs) は `fs::create_dir_all` + `File::create` + `file.write_all` で fragment ごとに 1 ファイル書き出す。問題点:
+> - **inode インフレ**: 100 万 fragment = 100 万 inode (ext4 で `ls` / `find` が秒オーダー、xfs 推奨だが SD/HDD では fragmentation 累積)
+> - **fsync per fragment**: 書き込みが一切 batch されず writeback 圧迫
+> - **GC / capacity が O(N) 全走査**: `walkdir` crate でディレクトリ再帰 (起動時 + 周期実行)、再起動が遅い
+> - **メタデータ取得に毎回 stat(2)**: `status` RPC で fragment_id ごとに `fs::metadata` を呼ぶ → ホットパスで syscall 過多
+> - **integrity check なし**: 読み出し時に hash 検証していない (line 157 コメントで明言、bit rot 検知不可)
+> - **atomic rename ではない**: `File::create` → `write_all` → close、途中 crash で部分書き fragment が残る (削除側は `path.exists()` で誤検知)
+> - **圧縮なし**: 暗号化済み binary でも prefix 共通領域あり、storage 効率が悪い
+> - **WAL / snapshot ベースのバックアップが取れない**: rsync しかない、incremental が雑
+>
+> **緊急度**: 中。MVP / testnet では問題ないが、real-world dataset (1M+ fragments / per node) で確実に頭打ちになる。mainnet 公開前には完了させたい。
+>
+> **ボリューム感**: 1〜2 週間 (KV 選定 0.5 日 + 移行設計 1 日 + 実装 5〜7 日 + ベンチ 2 日 + テスト/PR review)。
+>
+> **互換性方針** (CLAUDE.md §Compatibility Policy より): 旧フォーマットからのマイグレーション不要。新 storage は wipe して再生成可。
+
+- [ ] **KV エンジン選定** (PoC + ベンチ)
+  - [ ] **候補 A: sled** — pure Rust, log-structured, embed しやすいが mature でない (1.0 未到達)
+  - [ ] **候補 B: redb** — pure Rust, ACID, B-tree、最近活発
+  - [ ] **候補 C: fjall** — pure Rust, LSM-tree, write-heavy 向け
+  - [ ] **候補 D: rocksdb** — C++ FFI, 実績豊富だが build 時間 + バイナリサイズ増
+  - [ ] ベンチ条件: 1M fragments × {64 KiB, 256 KiB, 1 MiB} で `put` / `get` / `delete` / `range_scan` の throughput と p99 レイテンシ、起動時間、`du -sh` (on-disk size)
+
+- [ ] **データモデル設計** (`apps/storage-node/src/storage/`)
+  - [ ] `fragments` CF/tree: `key = fragment_id (32B) → value = bytes`
+  - [ ] `metadata` CF/tree: `key = fragment_id → value = SCALE-encoded { size, created_at, last_accessed_at, ref_count }`
+  - [ ] `index_by_post` CF/tree: `key = (post_id, shard_idx) → value = fragment_id` (post→fragment 逆引き、challenge / repair で必要)
+  - [ ] `total_used_bytes` を engine の sum(metadata.size) ではなく単独 atomic counter として持つ (起動時に 1 回だけ復元)
+
+- [ ] **実装 (`apps/storage-node/src/storage/`)**
+  - [ ] `mod.rs` を `engine.rs` (KV ラッパ) と `repository.rs` (ドメイン層) に分割
+  - [ ] `Repository::store(fragment_id, data)` → engine の `put` + metadata 同時更新 (atomic batch)
+  - [ ] `Repository::load(fragment_id)` → engine の `get`、`last_accessed_at` を非同期 update (write batch でまとめる)
+  - [ ] `Repository::delete(fragment_id)` → atomic batch、`total_used_bytes` 減算
+  - [ ] `Repository::list_by_post(post_id)` → `index_by_post` の prefix scan
+  - [ ] integrity verify: 読み出し時 blake2 hash 比較フラグ (`config.toml` の `verify_on_read = true|false`)
+  - [ ] backup API: engine の `snapshot()` / `checkpoint()` を使った tar 化 → `apps/storage-node/scripts/backup.sh`
+
+- [ ] **GC / capacity 改修** (`apps/storage-node/src/gc/`)
+  - [ ] `walkdir` 全走査を engine の `range_scan(metadata)` に置換
+  - [ ] capacity check は atomic counter 参照のみに変更 (現在は予約とファイル書き出しの 2 段階)
+  - [ ] LRU eviction: `metadata.last_accessed_at` で sorted scan → 古い順に eviction
+
+- [ ] **マイグレーション** (= 不要、wipe & rebuild)
+  - [ ] `--storage-format = files | kv` CLI flag (default kv) を 1 リリースだけ残す → 次リリースで file 経路削除
+  - [ ] `apps/storage-node/scripts/wipe.sh` を docs に明記
+
+- [ ] **テスト**
+  - [ ] `apps/storage-node/src/storage/tests.rs` を engine 切替で同じテストが通るように parameterize
+  - [ ] 1M fragment ベンチ ([`scripts/bench-storage.sh`](../scripts/bench-storage.sh)) を追加
+  - [ ] crash test: write 中に SIGKILL → 起動後に inconsistent fragment が無いこと
+  - [ ] integration: `apps/blockchain/tests/integration/` の Multi-node テストに 100K fragments 投入 + GC 確認を追加
+
+- [ ] **ドキュメント**
+  - [ ] [docs/storage_logic.md](storage_logic.md) §Persistence 章を追記 / 更新
+  - [ ] config option `storage.engine = "redb" | "fjall" | …` の README 追加
 
 ---
 

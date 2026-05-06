@@ -25,7 +25,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useSmoldot } from '@/hooks/useSmoldot';
+import { useChain } from '@/hooks/useChain';
 import { useAccount } from '@/lib/account/context';
 import { stealthKeyManager } from '@/lib/stealth/keyManager';
 import { getDmMetaAddressFromStealth } from '@/lib/dm/keyManager';
@@ -54,7 +54,7 @@ type Tab = 'inbox' | 'settings';
 
 export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
   const { t } = useLocale();
-  const { unsafeApi } = useSmoldot();
+  const { unsafeApi } = useChain();
   const { account, signer, mainRawSigner } = useAccount();
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('inbox');

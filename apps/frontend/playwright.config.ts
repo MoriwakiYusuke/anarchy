@@ -2,18 +2,22 @@ import { defineConfig, devices } from '@playwright/test'
 
 const PORT = Number(process.env.E2E_PORT ?? 3000)
 
-// Anarchy frontend (Next.js 14 + smoldot + anarchy-wasm-engine) 用の Playwright 設定。
+// Anarchy frontend (Next.js 14 + WebSocket PAPI + anarchy-wasm-engine) 用の Playwright 設定。
 // dev node が別途起動されている前提。webServer で next dev のみ立ち上げる。
+//
+// Phase B 移行: smoldot を撤去し WS provider に統一。SharedArrayBuffer / chainspec
+// regenerate が不要になり、起動が軽くなった。
 export default defineConfig({
   testDir: './e2e',
-  // smoldot client は singleton。並列実行で複数ブラウザが同じ light client を奪い合うと flaky になる。
+  // PAPI client は singleton (chain-client.ts)。同一プロセス内並列で WS 接続を奪い合う
+  // 可能性があるので念のため workers=1 を維持。
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
 
-  // smoldot 初期同期 + Wasm init + extrinsic finalize で 1 分超のテストが普通にあるので長めに。
-  timeout: 120_000,
+  // Wasm init + 複数 extrinsic finalize (PoW 30s blocktime) でテストごと 5 分超もあり得る。
+  timeout: 360_000,
   expect: { timeout: 30_000 },
 
   use: {
@@ -21,9 +25,6 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    launchOptions: {
-      args: ['--enable-features=SharedArrayBuffer'],
-    },
   },
 
   projects: [
@@ -37,7 +38,6 @@ export default defineConfig({
     command: 'pnpm dev',
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
-    // predev で chainspec を再生成 + Next.js dev サーバ初回コンパイルで時間がかかる
     timeout: 180_000,
     stdout: 'pipe',
     stderr: 'pipe',

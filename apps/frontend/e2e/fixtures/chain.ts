@@ -7,7 +7,7 @@ import { test as base, expect, type Page } from '@playwright/test';
  * (`pnpm storage:start`) が事前に起動していること。webServer は Next.js
  * のみを立てる (playwright.config.ts)。
  *
- * smoldot は 1 タブ 1 client なので並列禁止 (workers: 1)。
+ * chain client は per-tab singleton なので並列禁止 (workers: 1)。
  */
 
 interface ChainFixtures {
@@ -21,7 +21,8 @@ interface ChainFixtures {
 
 async function waitForChainConnected(page: Page): Promise<void> {
   // ホーム画面の "Connected" 文字列で chain 接続を判定する。
-  // smoldot の初回 sync は重い (~20s) ため timeout を広めに取る。
+  // WS provider の初期 handshake + 最初の System.Number クエリで数秒、
+  // PoW dev node の起動直後だと余裕をみて 60s 待つ。
   await expect(page.getByText('Connected', { exact: false })).toBeVisible({ timeout: 60_000 });
 }
 
@@ -58,8 +59,7 @@ export const test = base.extend<ChainFixtures>({
         errors.push(`pageerror: ${err.message}`);
       });
       await use();
-      // smoldot の "occupied the CPU for an unreasonable amount of time" は warning。
-      // ここではエラーレベルのみ拾う。
+      // 致命的でない warning (e.g. WS reconnect) はここではスルー。エラーレベルのみ拾う。
       expect(errors, `Unexpected console errors:\n${errors.join('\n')}`).toEqual([]);
     },
     { auto: true },

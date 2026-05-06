@@ -6,8 +6,11 @@ import { computeChallenge, hexToBytes } from '@/lib/faucet/challenge'
 import { debugLog, debugWarn, debugError } from '@/lib/debugLog'
 import type { WorkerMessage, MineRequest } from '@/lib/faucet/worker'
 
-/** Timeout for RPC calls in milliseconds (30 seconds) */
-const RPC_TIMEOUT_MS = 30_000
+/** Timeout for RPC calls in milliseconds.
+ *  PoW 移行で block time が 30s に伸びたため、signAndSubmit (finalize 待ち) は
+ *  最低 1 ブロック + GRANDPA finalize で 60s 超える。余裕を見て 240s に設定。
+ */
+const RPC_TIMEOUT_MS = 240_000
 
 /**
  * Wrap a promise with timeout
