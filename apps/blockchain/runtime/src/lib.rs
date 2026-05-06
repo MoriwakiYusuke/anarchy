@@ -8,8 +8,8 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use parity_scale_codec::Decode;
 use sp_api::impl_runtime_apis;
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
@@ -27,7 +27,7 @@ pub type LazyBlock = sp_runtime::generic::LazyBlock<Header, UncheckedExtrinsic>;
 
 use frame_support::{
     construct_runtime, derive_impl, parameter_types,
-    traits::{ConstBool, ConstU128, ConstU16, ConstU32, ConstU64, ConstU8},
+    traits::{ConstU128, ConstU16, ConstU32, ConstU64, ConstU8},
     weights::{ConstantMultiplier, Weight},
 };
 use pallet_grandpa::AuthorityList as GrandpaAuthorityList;
@@ -62,7 +62,6 @@ pub mod opaque {
 
     impl_opaque_keys! {
         pub struct SessionKeys {
-            pub aura: Aura,
             pub grandpa: Grandpa,
         }
     }
@@ -74,15 +73,15 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: Cow::Borrowed("anarchy"),
     impl_name: Cow::Borrowed("anarchy"),
     authoring_version: 1,
-    spec_version: 106,  // Bumped: PopularityApi runtime API added
+    spec_version: 107,  // Bumped: PoW migration Phase B (pallet_aura removed, PoW pallets wired in)
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 2,  // SignedExtra structure changed (no tip)
     system_version: 1,
 };
 
-/// Block時間（ミリ秒）
-pub const MILLISECS_PER_BLOCK: u64 = 6000;
+/// Block時間（ミリ秒）— PoW ターゲット 30 秒
+pub const MILLISECS_PER_BLOCK: u64 = 30_000;
 
 /// Slot間隔
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
@@ -155,15 +154,6 @@ impl frame_system::Config for Runtime {
     type SS58Prefix = ConstU16<42>; // Substrate generic (5で始まるアドレス)
 }
 
-// Aura設定
-impl pallet_aura::Config for Runtime {
-    type AuthorityId = AuraId;
-    type DisabledValidators = ();
-    type MaxAuthorities = ConstU32<32>;
-    type AllowMultipleBlocksPerSlot = ConstBool<false>;
-    type SlotDuration = pallet_aura::MinimumPeriodTimesTwo<Runtime>;
-}
-
 // Grandpa設定
 // NOTE: EquivocationReportSystem = () で二重署名報告は無効化。
 // 将来的にPoWコンセンサスへ移行予定のため、スラッシング機構は不要。
@@ -181,9 +171,70 @@ impl pallet_grandpa::Config for Runtime {
 // Timestamp設定
 impl pallet_timestamp::Config for Runtime {
     type Moment = u64;
-    type OnTimestampSet = Aura;
+    type OnTimestampSet = ();   // Aura を削除済み。PoW では timestamp が強制される
     type MinimumPeriod = ConstU64<{ SLOT_DURATION / 2 }>;
     type WeightInfo = ();
+}
+
+// PoW difficulty (LWMA-3)
+parameter_types! {
+    pub const TargetBlockTime: u64 = MILLISECS_PER_BLOCK;       // 30_000ms
+    pub const DifficultyAdjustWindow: u32 = 60;
+    pub const MinDifficulty: sp_core::U256 = sp_core::U256([10_000, 0, 0, 0]);
+}
+impl pallet_difficulty::Config for Runtime {
+    type TargetBlockTime = TargetBlockTime;
+    type DifficultyAdjustWindow = DifficultyAdjustWindow;
+    type MinDifficulty = MinDifficulty;
+}
+
+/// PoW author 抽出アダプタ。PreRuntime ダイジェストから engine ID "ANRC" を探し、
+/// SCALE デコードで AccountId を取り出す。
+pub struct PowAuthorAdapter;
+impl frame_support::traits::FindAuthor<AccountId> for PowAuthorAdapter {
+    fn find_author<'a, I>(digests: I) -> Option<AccountId>
+    where
+        I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
+    {
+        const POW_ENGINE_ID: sp_runtime::ConsensusEngineId = *b"ANRC";
+        for (id, mut data) in digests {
+            if id == POW_ENGINE_ID {
+                if let Ok(a) = AccountId::decode(&mut data) {
+                    return Some(a);
+                }
+            }
+        }
+        None
+    }
+}
+
+// Block reward (Bitcoin-style halving)
+parameter_types! {
+    pub const InitialBlockReward: Balance = 5_000_000_000_000;       // 5 MORAL = 5e12
+    pub const HalvingPeriod: BlockNumber = 4_204_800;                 // ~4 years @30s
+    pub const MaxHalvings: u32 = 64;
+}
+impl pallet_block_reward::Config for Runtime {
+    type Currency = Balances;
+    type InitialReward = InitialBlockReward;
+    type HalvingPeriod = HalvingPeriod;
+    type MaxHalvings = MaxHalvings;
+    type AuthorOrigin = PowAuthorAdapter;
+}
+
+// GRANDPA authority election (top-K miner rotation)
+parameter_types! {
+    pub const ElectionWindowSize: u32 = 100;
+    pub const ElectionAuthorityCount: u32 = 10;
+    pub const ElectionRotationPeriod: BlockNumber = 600;     // 5h @30s
+    pub const ElectionRotationDelay: BlockNumber = 10;       // 5min @30s
+}
+impl pallet_grandpa_authority_election::Config for Runtime {
+    type WindowSize = ElectionWindowSize;
+    type AuthorityCount = ElectionAuthorityCount;
+    type RotationPeriod = ElectionRotationPeriod;
+    type RotationDelay = ElectionRotationDelay;
+    type AuthorOrigin = PowAuthorAdapter;
 }
 
 // Balances設定（ネイティブトークン用）
@@ -404,8 +455,10 @@ construct_runtime!(
     pub struct Runtime {
         System: frame_system,
         Timestamp: pallet_timestamp,
-        Aura: pallet_aura,
         Grandpa: pallet_grandpa,
+        Difficulty: pallet_difficulty,
+        BlockReward: pallet_block_reward,
+        GrandpaElection: pallet_grandpa_authority_election,
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
@@ -520,16 +573,6 @@ impl_runtime_apis! {
         }
     }
 
-    impl sp_consensus_aura::AuraApi<Block, AuraId> for Runtime {
-        fn slot_duration() -> sp_consensus_aura::SlotDuration {
-            sp_consensus_aura::SlotDuration::from_millis(SLOT_DURATION)
-        }
-
-        fn authorities() -> Vec<AuraId> {
-            pallet_aura::Authorities::<Runtime>::get().into_inner()
-        }
-    }
-
     impl sp_session::SessionKeys<Block> for Runtime {
         fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
             opaque::SessionKeys::generate(seed)
@@ -566,6 +609,12 @@ impl_runtime_apis! {
             _authority_id: GrandpaId,
         ) -> Option<sp_consensus_grandpa::OpaqueKeyOwnershipProof> {
             None
+        }
+    }
+
+    impl pallet_difficulty::DifficultyApi<Block> for Runtime {
+        fn difficulty() -> sp_core::U256 {
+            Difficulty::current_difficulty()
         }
     }
 

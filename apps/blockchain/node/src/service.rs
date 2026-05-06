@@ -6,12 +6,10 @@ use anarchy_runtime::{self, opaque::Block, RuntimeApi};
 use futures::FutureExt;
 use log::info;
 use sc_client_api::{Backend, BlockBackend};
-use sc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
 use sc_consensus_grandpa::SharedVoterState;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager, WarpSyncConfig};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
 use sp_runtime::traits::Block as BlockT;
 use std::{sync::Arc, time::Duration};
 
@@ -97,30 +95,18 @@ pub fn new_partial(
         telemetry.as_ref().map(|x: &Telemetry| x.handle()),
     )?;
 
-    let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
+    // PoW インポートキュー (Phase B): Aura の代わりに sc_consensus_pow を使用。
+    // RandomXAlgorithm は Phase A の stub (verify は常に false) であり、
+    // 実際の PoW 検証は Phase C で完成する。
+    let pow_algo = crate::pow::RandomXAlgorithm::new(client.clone());
 
-    let import_queue =
-        sc_consensus_aura::import_queue::<AuraPair, _, _, _, _, _>(ImportQueueParams {
-            block_import: grandpa_block_import.clone(),
-            justification_import: Some(Box::new(grandpa_block_import.clone())),
-            client: client.clone(),
-            create_inherent_data_providers: move |_, ()| async move {
-                let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-
-                let slot =
-                    sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-                        *timestamp,
-                        slot_duration,
-                    );
-
-                Ok((slot, timestamp))
-            },
-            spawner: &task_manager.spawn_essential_handle(),
-            registry: config.prometheus_registry(),
-            check_for_equivocation: Default::default(),
-            telemetry: telemetry.as_ref().map(|x: &Telemetry| x.handle()),
-            compatibility_mode: Default::default(),
-        })?;
+    let import_queue = sc_consensus_pow::import_queue(
+        Box::new(grandpa_block_import.clone()),
+        None,
+        pow_algo.clone(),
+        &task_manager.spawn_essential_handle(),
+        config.prometheus_registry(),
+    )?;
 
     Ok(sc_service::PartialComponents {
         client,
@@ -227,8 +213,6 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
     }
 
     let role = config.role;
-    let force_authoring = config.force_authoring;
-    let backoff_authoring_blocks: Option<()> = None;
     let name = config.network.node_name.clone();
     let enable_grandpa = !config.disable_grandpa;
     let prometheus_registry = config.prometheus_registry().cloned();
@@ -303,41 +287,31 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
             telemetry.as_ref().map(|x: &Telemetry| x.handle()),
         );
 
-        let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
+        // PoW ブロック生成 (Phase B)
+        // create_inherent_data_providers はタイムスタンプのみ。
+        // 実際のマイニング (RandomX nonce 探索) は Phase C で実装する。
+        let pow_algo = crate::pow::RandomXAlgorithm::new(client.clone());
 
-        let aura = sc_consensus_aura::start_aura::<AuraPair, _, _, _, _, _, _, _, _, _, _>(
-            StartAuraParams {
-                slot_duration,
-                client: client.clone(),
-                select_chain,
-                block_import,
-                proposer_factory,
-                create_inherent_data_providers: move |_, ()| async move {
-                    let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-
-                    let slot =
-                        sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-                            *timestamp,
-                            slot_duration,
-                        );
-
-                    Ok((slot, timestamp))
-                },
-                force_authoring,
-                backoff_authoring_blocks,
-                keystore: keystore_container.keystore(),
-                sync_oracle: sync_service.clone(),
-                justification_sync_link: sync_service.clone(),
-                block_proposal_slot_portion: SlotProportion::new(2f32 / 3f32),
-                max_block_proposal_slot_portion: None,
-                telemetry: telemetry.as_ref().map(|x: &Telemetry| x.handle()),
-                compatibility_mode: Default::default(),
+        let (_mining_handle, pow_worker) = sc_consensus_pow::start_mining_worker(
+            Box::new(block_import),
+            client.clone(),
+            select_chain,
+            pow_algo,
+            proposer_factory,
+            sync_service.clone(),
+            sync_service.clone(),
+            None, // pre_runtime: miner AccountId は Phase C で設定
+            move |_, ()| async move {
+                let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+                Ok(timestamp)
             },
-        )?;
+            Duration::from_secs(10),
+            Duration::from_secs(10),
+        );
 
         task_manager
             .spawn_essential_handle()
-            .spawn_blocking("aura", Some("block-authoring"), aura);
+            .spawn_blocking("pow-miner", Some("block-authoring"), pow_worker);
     }
 
     if enable_grandpa {

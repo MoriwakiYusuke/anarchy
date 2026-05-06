@@ -28,7 +28,6 @@ sp-storage = { workspace = true }
 sp-transaction-pool = { workspace = true }
 sp-version = { workspace = true }
 sp-genesis-builder = { workspace = true }
-sp-consensus-aura = { workspace = true }
 sp-consensus-grandpa = { workspace = true }
 frame-system-rpc-runtime-api = { workspace = true }
 
@@ -36,8 +35,10 @@ frame-system-rpc-runtime-api = { workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 frame-executive = { workspace = true }
-pallet-aura = { workspace = true }
 pallet-grandpa = { workspace = true }
+pallet-difficulty = { workspace = true }
+pallet-block-reward = { workspace = true }
+pallet-grandpa-authority-election = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
@@ -76,14 +77,15 @@ std = [
     "sp-transaction-pool/std",
     "sp-version/std",
     "sp-genesis-builder/std",
-    "sp-consensus-aura/std",
     "sp-consensus-grandpa/std",
     "frame-support/std",
     "frame-system/std",
     "frame-system-rpc-runtime-api/std",
     "frame-executive/std",
-    "pallet-aura/std",
     "pallet-grandpa/std",
+    "pallet-difficulty/std",
+    "pallet-block-reward/std",
+    "pallet-grandpa-authority-election/std",
     "pallet-balances/std",
     "pallet-timestamp/std",
     "pallet-transaction-payment/std",
@@ -116,8 +118,10 @@ try-runtime = [
     "frame-support/try-runtime",
     "frame-system/try-runtime",
     "frame-executive/try-runtime",
-    "pallet-aura/try-runtime",
     "pallet-grandpa/try-runtime",
+    "pallet-difficulty/try-runtime",
+    "pallet-block-reward/try-runtime",
+    "pallet-grandpa-authority-election/try-runtime",
     "pallet-balances/try-runtime",
     "pallet-timestamp/try-runtime",
     "pallet-transaction-payment/try-runtime",

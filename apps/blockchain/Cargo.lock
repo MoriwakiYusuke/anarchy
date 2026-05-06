@@ -143,7 +143,6 @@ dependencies = [
  "sc-cli",
  "sc-client-api",
  "sc-consensus",
- "sc-consensus-aura",
  "sc-consensus-grandpa",
  "sc-consensus-pow",
  "sc-executor",
@@ -159,7 +158,6 @@ dependencies = [
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
- "sp-consensus-aura",
  "sp-consensus-grandpa",
  "sp-consensus-pow",
  "sp-core",
@@ -181,10 +179,12 @@ dependencies = [
  "frame-support",
  "frame-system",
  "frame-system-rpc-runtime-api",
- "pallet-aura",
  "pallet-balances",
+ "pallet-block-reward",
+ "pallet-difficulty",
  "pallet-faucet",
  "pallet-grandpa",
+ "pallet-grandpa-authority-election",
  "pallet-messaging",
  "pallet-nickname",
  "pallet-popularity",
@@ -201,7 +201,6 @@ dependencies = [
  "serde",
  "sp-api",
  "sp-block-builder",
- "sp-consensus-aura",
  "sp-consensus-grandpa",
  "sp-core",
  "sp-genesis-builder",
@@ -5418,23 +5417,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
-name = "pallet-aura"
-version = "44.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb444f29c9df8a1ea89b4c8b6a026a119b13e5f55fff8c6901103ec8de2a6ad8"
-dependencies = [
- "frame-support",
- "frame-system",
- "log",
- "pallet-timestamp",
- "parity-scale-codec",
- "scale-info",
- "sp-application-crypto",
- "sp-consensus-aura",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-authorship"
 version = "45.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7396,38 +7378,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sc-consensus-aura"
-version = "0.55.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d0a1f71f569e49cd18d5e804782535e017d9f1672defbec1a646f0004f63104"
-dependencies = [
- "async-trait",
- "fork-tree",
- "futures",
- "log",
- "parity-scale-codec",
- "parking_lot 0.12.5",
- "sc-block-builder",
- "sc-client-api",
- "sc-consensus",
- "sc-consensus-slots",
- "sc-telemetry",
- "sp-api",
- "sp-application-crypto",
- "sp-block-builder",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-aura",
- "sp-consensus-slots",
- "sp-core",
- "sp-inherents",
- "sp-keystore",
- "sp-runtime",
- "substrate-prometheus-endpoint",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "sc-consensus-grandpa"
 version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7496,30 +7446,6 @@ dependencies = [
  "sp-runtime",
  "substrate-prometheus-endpoint",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "sc-consensus-slots"
-version = "0.54.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfdf4149d192eee16dd02df187cf0a4451c6e66e87b260b872a115a627d17804"
-dependencies = [
- "async-trait",
- "futures",
- "futures-timer",
- "log",
- "parity-scale-codec",
- "sc-client-api",
- "sc-consensus",
- "sc-telemetry",
- "sp-arithmetic",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-slots",
- "sp-core",
- "sp-inherents",
- "sp-runtime",
- "sp-state-machine",
 ]
 
 [[package]]
@@ -8813,23 +8739,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sp-consensus-aura"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edb79fc4bf40bf12755a62b3bd201bb2f8de974b7393d81bee70cccecf40321f"
-dependencies = [
- "async-trait",
- "parity-scale-codec",
- "scale-info",
- "sp-api",
- "sp-application-crypto",
- "sp-consensus-slots",
- "sp-inherents",
- "sp-runtime",
- "sp-timestamp",
-]
-
-[[package]]
 name = "sp-consensus-grandpa"
 version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8857,18 +8766,6 @@ dependencies = [
  "sp-api",
  "sp-core",
  "sp-runtime",
-]
-
-[[package]]
-name = "sp-consensus-slots"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "740ac0574f072dc388239f78c4d19ca5dea530b24a84bfd1124834ec7dc58aea"
-dependencies = [
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-timestamp",
 ]
 
 [[package]]
