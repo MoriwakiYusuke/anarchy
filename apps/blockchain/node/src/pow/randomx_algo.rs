@@ -127,10 +127,14 @@ where
     C: HeaderBackend<B> + HeaderMetadata<B> + ProvideRuntimeApi<B> + Send + Sync + 'static,
     C::Api: pallet_difficulty::DifficultyApi<B>,
 {
-    pub fn new(client: Arc<C>) -> Self {
+    /// `full_mode` が `true` のとき RandomX full dataset (2 GB) を使用する。
+    /// `false` (デフォルト) は light mode (256 MB cache)。
+    pub fn new(client: Arc<C>, full_mode: bool) -> Self {
+        let vm = RandomXVm::new(&[0u8; 32], full_mode)
+            .expect("randomx initial init failed");
         Self {
             diff_client: DifficultyClient::new(client),
-            _vm: Arc::new(Mutex::new(RandomXVm::default())),
+            _vm: Arc::new(Mutex::new(vm)),
             _phantom: std::marker::PhantomData,
         }
     }

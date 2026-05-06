@@ -36,12 +36,50 @@ pub struct Cli {
     pub run: RunCmd,
 
     /// Tor mode for network anonymity
-    /// 
+    ///
     /// - off: No Tor (development only)
     /// - outbound-only: Outbound via Tor, inbound exposed (WARNING)
     /// - forced: Full anonymity via Tor
     #[arg(long, value_enum, default_value_t = TorMode::Off)]
     pub tor_mode: TorMode,
+
+    /// マイニングを有効化する。
+    #[arg(long)]
+    pub mine: bool,
+
+    /// マイナー報酬を受け取るアカウント (SS58 アドレス)。`--mine` 指定時は必須。
+    #[arg(long)]
+    pub coinbase: Option<String>,
+
+    /// RandomX のメモリモード: `fast` (full 2GB dataset, 高速) または `light` (256MB)
+    #[arg(long, value_enum, default_value_t = RandomxMode::Light)]
+    pub randomx_mode: RandomxMode,
+}
+
+/// RandomX VM mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum RandomxMode {
+    /// Full 2GB dataset — fastest, requires significant RAM
+    Fast,
+    /// 256MB cache only — slower but works on memory-constrained machines (default)
+    #[default]
+    Light,
+}
+
+impl std::fmt::Display for RandomxMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RandomxMode::Fast => write!(f, "fast"),
+            RandomxMode::Light => write!(f, "light"),
+        }
+    }
+}
+
+impl RandomxMode {
+    /// Returns `true` when the mode requires a full 2 GB dataset.
+    pub fn full_mode(self) -> bool {
+        matches!(self, RandomxMode::Fast)
+    }
 }
 
 #[derive(Debug, clap::Subcommand)]

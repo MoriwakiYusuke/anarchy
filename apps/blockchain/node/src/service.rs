@@ -96,9 +96,8 @@ pub fn new_partial(
     )?;
 
     // PoW インポートキュー (Phase B): Aura の代わりに sc_consensus_pow を使用。
-    // RandomXAlgorithm は Phase A の stub (verify は常に false) であり、
-    // 実際の PoW 検証は Phase C で完成する。
-    let pow_algo = crate::pow::RandomXAlgorithm::new(client.clone());
+    // import_queue では full_mode 不要 (verify のみ使用) なので light mode 固定。
+    let pow_algo = crate::pow::RandomXAlgorithm::new(client.clone(), false);
 
     let import_queue = sc_consensus_pow::import_queue(
         Box::new(grandpa_block_import.clone()),
@@ -121,7 +120,12 @@ pub fn new_partial(
 }
 
 /// フルノードを構築
-pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
+pub fn new_full(
+    config: Configuration,
+    mine: bool,
+    coinbase: Option<String>,
+    randomx_mode: crate::cli::RandomxMode,
+) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
         backend,
@@ -278,7 +282,24 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         tracing_execute_block: None,
     })?;
 
-    if role.is_authority() {
+    if mine {
+        use parity_scale_codec::Encode as _;
+        use sp_runtime::AccountId32;
+
+        // --coinbase が未指定なら起動時にエラー
+        let coinbase_str = coinbase
+            .as_ref()
+            .ok_or_else(|| ServiceError::Other("--coinbase is required when --mine is set".into()))?;
+
+        // SS58 アドレスを AccountId32 にパース
+        let coinbase_account: AccountId32 = coinbase_str
+            .parse()
+            .map_err(|e| ServiceError::Other(format!("invalid --coinbase SS58 address: {:?}", e)))?;
+
+        // PreRuntime digest ペイロード = SCALE-encoded AccountId32 bytes
+        // sc_consensus_pow::start_mining_worker が b"ANRC" engine-ID で自動ラップする
+        let pre_runtime_bytes = coinbase_account.encode();
+
         let proposer_factory = sc_basic_authorship::ProposerFactory::new(
             task_manager.spawn_handle(),
             client.clone(),
@@ -288,9 +309,8 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         );
 
         // PoW ブロック生成 (Phase B)
-        // create_inherent_data_providers はタイムスタンプのみ。
-        // 実際のマイニング (RandomX nonce 探索) は Phase C で実装する。
-        let pow_algo = crate::pow::RandomXAlgorithm::new(client.clone());
+        // --randomx-mode に従い full / light dataset を選択する。
+        let pow_algo = crate::pow::RandomXAlgorithm::new(client.clone(), randomx_mode.full_mode());
 
         let (_mining_handle, pow_worker) = sc_consensus_pow::start_mining_worker(
             Box::new(block_import),
@@ -300,7 +320,7 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
             proposer_factory,
             sync_service.clone(),
             sync_service.clone(),
-            None, // pre_runtime: miner AccountId は Phase C で設定
+            Some(pre_runtime_bytes), // coinbase AccountId32 を PreRuntime digest に設定
             move |_, ()| async move {
                 let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
                 Ok(timestamp)
