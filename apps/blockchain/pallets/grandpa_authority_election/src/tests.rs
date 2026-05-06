@@ -142,15 +142,15 @@ fn ring_buffer_collects_authors() {
 #[test]
 fn ring_buffer_evicts_old_when_full() {
     new_test_ext().execute_with(|| {
-        // window cap=100 (ConstU32<100>) を超えて 102 ブロック流す
-        for n in 1..=102u64 {
+        // mock の WindowSize=10 を超えて 12 ブロック流す
+        for n in 1..=12u64 {
             run_block_with_author(n, n);
         }
         let buf = RecentAuthors::<Test>::get();
-        assert_eq!(buf.len(), 100);
-        // 最古 (1, 2) が落ちて 3..102 が残る
+        assert_eq!(buf.len(), 10);
+        // 最古 (1, 2) が落ちて 3..=12 が残る
         assert_eq!(buf[0], 3u64);
-        assert_eq!(buf[99], 102u64);
+        assert_eq!(buf[9], 12u64);
     });
 }
 

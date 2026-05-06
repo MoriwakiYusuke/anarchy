@@ -6,7 +6,7 @@
 
 **Architecture:** 各 pallet は単独で unit test 可能。node module は単独で trait impl のみ提供 (service への配線は Phase B)。Phase A マージ時点で `cargo check` / `cargo test --workspace` がすべて通り、main の dev chain は従来通り Aura/GRANDPA で動作。
 
-**Tech Stack:** Polkadot SDK stable2503 (FRAME), `sc-consensus-pow` 0.45.x, `sp-consensus-pow` 0.40.x, `randomx-rs` 1.x (or Kulupu fork), Rust 2021 edition (stable channel + wasm32v1-none target)
+**Tech Stack:** Polkadot SDK stable2503 (FRAME), `sc-consensus-pow = "0.54.0"`, `sp-consensus-pow = "0.46.0"`, `randomx-rs = "1.4.1"`, Rust 2021 edition (stable channel + wasm32v1-none target)
 
 **Spec:** [`docs/superpowers/specs/2026-05-06-pow-migration-design.md`](../specs/2026-05-06-pow-migration-design.md) — 特に §1 確定パラメータ表, §4 Runtime 変更, §5 Node 変更 を参照
 
@@ -62,12 +62,12 @@ Expected: `feature/pow-migration-pallets`
 `apps/blockchain/Cargo.toml` の `[workspace.dependencies]` セクションに以下を追加 (既存の `sc-consensus-grandpa` 行の直後):
 
 ```toml
-sc-consensus-pow = { version = "0.45.0" }
-sp-consensus-pow = { version = "0.40.0", default-features = false }
-randomx-rs = { version = "1.3", default-features = false }
+sc-consensus-pow = "0.54.0"
+sp-consensus-pow = { version = "0.46.0", default-features = false }
+randomx-rs = { version = "1.4.1", default-features = false }
 ```
 
-注: stable2503 のバージョンは [Polkadot SDK release notes](https://github.com/paritytech/polkadot-sdk/releases) で要確認。`sc-consensus-pow` は cargo が解決できる最新を採用してよい (0.45.0 が見つからなければ `cargo search sc-consensus-pow` で確認)。
+注: 上記バージョンは workspace の `sc-consensus = "0.54.0"` / `sc-consensus-grandpa = "0.40.0"` (stable2503) と整合する組み合わせ。`sc-consensus-pow` は同 minor 系を採用することで trait boundary 不整合を回避できる。
 
 - [ ] **Step 0.3: workspace member に 3 pallet を追加**
 

@@ -43,10 +43,11 @@ pub mod pallet {
         type AuthorOrigin: FindAuthor<Self::AccountId>;
     }
 
+    /// 直近 N 件の author を保持する ring buffer。容量は `T::WindowSize` と一致する。
     #[pallet::storage]
     pub type RecentAuthors<T: Config> = StorageValue<
         _,
-        BoundedVec<T::AccountId, ConstU32<100>>,
+        BoundedVec<T::AccountId, T::WindowSize>,
         ValueQuery,
     >;
 
@@ -113,13 +114,18 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_finalize(n: BlockNumberFor<T>) {
+            let cap = T::WindowSize::get() as usize;
+            // window=0 設定では rotation も成立しないので早期 return (defensive guard)。
+            if cap == 0 {
+                return;
+            }
+
             // 1. 現ブロックの author を ring buffer に push
             let digest = <frame_system::Pallet<T>>::digest();
             let pre_runtime_iter = digest.logs.iter().filter_map(|l| l.as_pre_runtime());
             if let Some(author) = T::AuthorOrigin::find_author(pre_runtime_iter) {
                 RecentAuthors::<T>::mutate(|w| {
-                    if w.len() == 100 {
-                        // ConstU32<100> と一致
+                    if w.len() >= cap && !w.is_empty() {
                         let _ = w.remove(0);
                     }
                     let _ = w.try_push(author);

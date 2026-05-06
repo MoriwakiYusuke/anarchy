@@ -38,11 +38,12 @@ pub mod pallet {
     pub type CurrentDifficulty<T> = StorageValue<_, U256, ValueQuery>;
 
     /// 直近 window 件の (difficulty, timestamp_ms) を保持する ring buffer。
-    /// BoundedVec のキャップは `T::DifficultyAdjustWindow` と同じ値を Config 側で揃えること。
+    /// 容量は `T::DifficultyAdjustWindow` と一致するので、Config 値を変えれば
+    /// 自動的にストレージサイズも追従する。
     #[pallet::storage]
     pub type PastDifficultiesAndTimestamps<T: Config> = StorageValue<
         _,
-        BoundedVec<(U256, T::Moment), ConstU32<60>>,
+        BoundedVec<(U256, T::Moment), T::DifficultyAdjustWindow>,
         ValueQuery,
     >;
 
@@ -69,26 +70,38 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        /// 現在の difficulty を返す (Runtime API 用ヘルパ)。
+        pub fn current_difficulty() -> U256 {
+            CurrentDifficulty::<T>::get()
+        }
+
         /// on_finalize から呼ばれる。現ブロックの (diff, ts) を window に push し、
         /// 充填されていれば LWMA-3 で次 difficulty を計算する。
         fn adjust() {
+            let cap = T::DifficultyAdjustWindow::get() as usize;
+            // window=0 設定では LWMA を回せない (ZeroDivision / 即時 mutate panic)。
+            // 早期 return することで現 difficulty を据え置く。Config 設定ミスへの defensive guard。
+            if cap == 0 {
+                return;
+            }
+
             let now = <pallet_timestamp::Pallet<T>>::get();
             let cur_diff = CurrentDifficulty::<T>::get();
 
             PastDifficultiesAndTimestamps::<T>::mutate(|window| {
-                debug_assert!(
-                    T::DifficultyAdjustWindow::get() <= 60,
-                    "DifficultyAdjustWindow ({}) must not exceed BoundedVec cap of 60",
-                    T::DifficultyAdjustWindow::get(),
-                );
-                let cap = T::DifficultyAdjustWindow::get() as usize;
-                if window.len() >= cap {
+                if window.len() >= cap && !window.is_empty() {
                     // 先頭要素を除去して ring buffer をスライド
                     window.remove(0);
                 }
-                let _ = window.try_push((cur_diff, now));
+                // try_push は cap に空きが無いと Err を返すが、上で必ず空けているので
+                // 失敗時は capacity と len の不整合を意味する。debug_assert で気付けるように。
+                let push_result = window.try_push((cur_diff, now));
+                debug_assert!(push_result.is_ok(), "ring buffer push failed despite eviction");
+                if push_result.is_err() {
+                    return;
+                }
 
-                if window.len() < T::DifficultyAdjustWindow::get() as usize {
+                if window.len() < cap {
                     return; // window 未充填 → 据え置き
                 }
 
