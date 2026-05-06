@@ -4,10 +4,14 @@
 //! - `author`: PreRuntime digest decoder (FindAuthor for runtime-side block reward)
 //! - `difficulty`: runtime API `DifficultyApi` への client 経由アクセスラッパ
 //!
-//! `service.rs` は `randomx_algo::RandomXAlgorithm` を直接 import して使う。
-//! `PowAuthor` / `DifficultyClient` は将来 storage_node や CLI tool から参照する
-//! 想定の public re-export — 現状未配線。
+//! `service.rs` は `crate::pow::RandomXAlgorithm` 形式で短く参照したいので主要型は
+//! ここで re-export する。`PowAuthor` / `DifficultyClient` は storage_node や CLI tool
+//! から参照する想定の API 表層。
 
 pub mod author;
 pub mod difficulty;
 pub mod randomx_algo;
+
+pub use author::{PowAuthor, POW_ENGINE_ID};
+pub use difficulty::DifficultyClient;
+pub use randomx_algo::RandomXAlgorithm;

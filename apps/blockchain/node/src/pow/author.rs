@@ -11,6 +11,12 @@ use sp_runtime::ConsensusEngineId;
 
 pub use sp_consensus_pow::POW_ENGINE_ID;
 
+/// PreRuntime digest から AccountId を抽出する `FindAuthor` 実装。
+///
+/// service.rs の miner ループは sc_consensus_pow が PreRuntime digest を直接書く
+/// ため本構造体を直接呼ばないが、storage-node や CLI tool が同じロジックで author
+/// 抽出したいときに使う public surface として保持。
+#[allow(dead_code)]
 pub struct PowAuthor;
 
 impl FindAuthor<AccountId32> for PowAuthor {
