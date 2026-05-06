@@ -13,7 +13,7 @@ use sp_api::impl_runtime_apis;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
-    generic, impl_opaque_keys, Perbill,
+    generic, impl_opaque_keys, Perbill, Permill,
     traits::{BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify},
     transaction_validity::{TransactionSource, TransactionValidity},
     ApplyExtrinsicResult, MultiSignature,
@@ -215,18 +215,56 @@ impl frame_support::traits::FindAuthor<AccountId> for PowAuthorAdapter {
     }
 }
 
-// Block reward (Bitcoin-style halving)
+// Block reward (TSTS v1: 3-way fan-out + tail emission)
+//
+// 旧モデル (v0): 100% miner mint, halving 64 回後に 0 → 51% 攻撃コスト 0
+// 新モデル (v1): 50% miner / 30% storage pool / 20% reaction pool, tail = 0.5 MORAL
+//
+// 詳細: docs/economic_model_proposal.md §3.2.1
 parameter_types! {
     pub const InitialBlockReward: Balance = 5_000_000_000_000;       // 5 MORAL = 5e12
+    pub const TailEmission: Balance = 500_000_000_000;                // 0.5 MORAL = 5e11 (永続)
     pub const HalvingPeriod: BlockNumber = 4_204_800;                 // ~4 years @30s
     pub const MaxHalvings: u32 = 64;
+    pub MinerSharePermill: Permill = Permill::from_percent(50);
+    pub StorageSharePermill: Permill = Permill::from_percent(30);
+    pub ReactionSharePermill: Permill = Permill::from_percent(20);
 }
+
+/// Storage プール sink: pallet_storage::do_deposit_to_reward_pool に転送する adapter。
+///
+/// `pallet_block_reward::PoolDeposit` が要求する単純な `do_deposit(u128)` を
+/// `pallet_storage::StorageInterface` の同名メソッドに直接 forward する。
+pub struct StoragePoolSinkAdapter;
+impl pallet_block_reward::pallet::PoolDeposit for StoragePoolSinkAdapter {
+    fn do_deposit(amount: u128) {
+        <pallet_storage::Pallet<Runtime> as pallet_storage::StorageInterface<
+            AccountId,
+            BlockNumber,
+        >>::do_deposit_to_reward_pool(amount);
+    }
+}
+
+/// Reaction プール sink: pallet_reaction::do_deposit_to_reaction_pool に転送する adapter。
+pub struct ReactionPoolSinkAdapter;
+impl pallet_block_reward::pallet::PoolDeposit for ReactionPoolSinkAdapter {
+    fn do_deposit(amount: u128) {
+        <pallet_reaction::Pallet<Runtime> as pallet_reaction::ReactionInterface>::do_deposit_to_reaction_pool(amount);
+    }
+}
+
 impl pallet_block_reward::Config for Runtime {
     type Currency = Balances;
     type InitialReward = InitialBlockReward;
+    type TailEmission = TailEmission;
     type HalvingPeriod = HalvingPeriod;
     type MaxHalvings = MaxHalvings;
     type AuthorOrigin = PowAuthorAdapter;
+    type MinerSharePermill = MinerSharePermill;
+    type StorageSharePermill = StorageSharePermill;
+    type ReactionSharePermill = ReactionSharePermill;
+    type StoragePoolSink = StoragePoolSinkAdapter;
+    type ReactionPoolSink = ReactionPoolSinkAdapter;
 }
 
 // GRANDPA authority election (top-K miner rotation)
