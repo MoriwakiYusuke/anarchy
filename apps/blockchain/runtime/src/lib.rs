@@ -384,11 +384,12 @@ impl pallet_storage::Config for Runtime {
     type BasePowDifficulty = ConstU8<12>;
     /// HTTP URL最大長: 256バイト
     type MaxHttpUrlLen = ConstU32<256>;
-    /// バイトあたり基本報酬: 1 unit (12 decimals = 1e-12 MORAL/byte).
-    /// NOTE: This is a very conservative default intended primarily for testing.
-    ///       Production deployments should adjust this value based on network
-    ///       economics (token price, desired incentives) and storage costs.
-    type BaseRewardPerByte = ConstU128<1>;
+    /// バイトあたり基本報酬: 5_000_000_000 = 5e-3 MORAL/byte / 1000 = 5 nano-MORAL/byte.
+    ///
+    /// TSTS P3 で旧 1 unit (= 1e-12 MORAL/byte) から 5_000_000_000 に強化。
+    /// シミュレーションで storage 支払総額が ~1,580× に増え、ノード参加インセンティブが立つ。
+    /// プールが target 以下のときは線形 decay されるので過剰流出も起きない。
+    type BaseRewardPerByte = ConstU128<5_000_000_000>;
     /// 報酬対象スコア閾値: 100
     type ScoreThreshold = ConstU64<100>;
     /// スコアヒステリシスマージン: 20 (回復には閾値+20必要)
@@ -397,6 +398,12 @@ impl pallet_storage::Config for Runtime {
     type MaxChallengesPerBlock = ConstU32<10>;
     /// 報酬引き出し下限: 500 MORAL (500_000_000_000_000 with 12 decimals)
     type MinWithdrawalAmount = ConstU128<500_000_000_000_000>;
+    /// Storage pool target balance: 500,000 MORAL.
+    ///
+    /// `calculate_reward_v2` でプール残高がこれ以下になると線形に payout を絞る。
+    /// TSTS P3: σ_storage がターゲットを下回ったときに自動的に支払率が下がるため、
+    /// プール枯渇前のソフトランディングが効く。
+    type StoragePoolTarget = ConstU128<500_000_000_000_000_000>;
 }
 
 // Nickname Pallet設定
@@ -423,16 +430,34 @@ impl pallet_reaction::PostAuthorProvider<AccountId> for PostAuthorProviderImpl {
 }
 
 // 1 MORAL = 1_000_000_000_000 (12 decimals)
+//
+// TSTS P5: Reaction Pallet を動的 γ + reactor decay + reactor lock に拡張。
+// 詳細: docs/economic_model_proposal.md §3.2.6
 parameter_types! {
+    /// 旧固定報酬 (γ_max=0 時の fallback)。動的計算が有効なら未使用。
     pub const ReactionReward: Balance = 1_000_000_000_000;
+}
+
+/// TotalIssuance を pallet_balances から取得する adapter (TSTS P5).
+///
+/// pallet_reaction が pallet_balances に直接依存しないようにするための薄い橋渡し。
+pub struct BalancesTotalIssuance;
+impl pallet_reaction::pallet::TotalIssuanceProvider for BalancesTotalIssuance {
+    fn total_issuance() -> u128 {
+        use sp_runtime::traits::SaturatedConversion;
+        let v = pallet_balances::Pallet::<Runtime>::total_issuance();
+        v.saturated_into()
+    }
 }
 
 impl pallet_reaction::Config for Runtime {
     /// Native token ($moral) for reward payouts
     type NativeToken = Balances;
+    /// ReservableCurrency: reactor_lock の reserve / unreserve 用
+    type ReservableCurrency = Balances;
     /// Provider for getting post authors
     type PostAuthorProvider = PostAuthorProviderImpl;
-    /// Fixed reward: 1 MORAL per reaction
+    /// Fixed reward fallback (γ_max=0 時のみ使用)
     type ReactionReward = ReactionReward;
     /// Base PoW difficulty: 16 leading zero bits
     type BaseDifficulty = ConstU8<16>;
@@ -449,6 +474,19 @@ impl pallet_reaction::Config for Runtime {
     /// Adjustment divisor: 4 (smooth changes)
     type AdjustmentDivisor = ConstU32<4>;
     type Popularity = Popularity;
+    /// TSTS P5: TotalIssuance を pallet_balances から取得する adapter
+    type TotalIssuanceProvider = BalancesTotalIssuance;
+    /// TSTS P5: γ_max = 1% (10000 ppm). 0 にすると ReactionReward に縮退する
+    type GammaMaxPpm = ConstU32<10_000>;
+    /// TSTS P5: reactor decay K = 100 (100 反応で √2 倍薄まる)
+    type ReactorDecayK = ConstU32<100>;
+    /// TSTS P5: per-block payout cap = pool × 17 ppm (≒ 5%/day at 2880 blocks/day)
+    /// 5% × 1e6 / 2880 ≒ 17 ppm. Sybil 大量攻撃でも 1 day で pool の 5% 以上は流出しない。
+    type PerBlockPayoutCapPpm = ConstU32<17>;
+    /// TSTS P5: reactor lock minimum = 0.1 MORAL = 1e11 units
+    type ReactorLockMin = ConstU128<100_000_000_000>;
+    /// TSTS P5: reactor lock duration = 24h = 2880 blocks @ 30s
+    type ReactorLockDuration = ConstU32<2_880>;
 }
 
 // Popularity Pallet設定 — pallet-post / pallet-reaction の push 通知を受けて

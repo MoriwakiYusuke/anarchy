@@ -54,6 +54,54 @@ pub fn calculate_reward_with_threshold(
     base_reward_per_byte.saturating_mul(data_size as u128)
 }
 
+/// Calculate reward with TSTS v1 dynamics (P3): pool ratio decay.
+///
+/// 旧 `calculate_reward_with_threshold` を `pool_balance / pool_target` で線形に減衰させる。
+/// プール残高がターゲット以上なら 100% 支払い、半分なら 50% など。
+/// プール枯渇時に支払いが急に途切れて怠惰行動が支配戦略にならないようにする。
+///
+/// **将来の P4 Storage stake で `√(bond_share)` 補正をここに掛ける**。bond_share は
+/// `(node_bond / total_active_bond)^0.5` で、quadratic Sybil resistance を実現する。
+///
+/// # Arguments
+/// * `data_size` - Size of the content in bytes
+/// * `base_reward_per_byte` - Base reward per byte configured in pallet
+/// * `score` - Current content score (from external scorer)
+/// * `threshold` - Minimum score for reward eligibility
+/// * `pool_balance` - Current σ_storage balance (u128 units)
+/// * `pool_target` - Target σ_storage balance (governance-tunable)
+///
+/// # Returns
+/// * Reward amount (0 if score below threshold or pool empty)
+pub fn calculate_reward_v2(
+    data_size: u32,
+    base_reward_per_byte: u128,
+    score: u64,
+    threshold: u64,
+    pool_balance: u128,
+    pool_target: u128,
+) -> u128 {
+    if score < threshold {
+        return 0;
+    }
+    let base = base_reward_per_byte.saturating_mul(data_size as u128);
+
+    // pool_target=0 を「補正無効 (旧挙動互換)」と解釈する。
+    if pool_target == 0 {
+        return base;
+    }
+
+    // 線形 decay: pool_ratio_ppm = min(1_000_000, pool_balance × 1e6 / pool_target)
+    let pool_ratio_ppm = if pool_balance >= pool_target {
+        1_000_000u128
+    } else {
+        pool_balance.saturating_mul(1_000_000) / pool_target.max(1)
+    };
+
+    // base × pool_ratio_ppm / 1e6 (saturating)
+    base.saturating_mul(pool_ratio_ppm) / 1_000_000
+}
+
 /// Calculate pro-rata distribution when pool is exhausted.
 ///
 /// # Arguments
@@ -94,6 +142,41 @@ pub fn calculate_pro_rata<AccountId: Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calculate_reward_v2_full_pool_returns_base() {
+        // pool_balance >= pool_target → 100% payout
+        let r = calculate_reward_v2(1024, 1_000_000, 150, 100, 1_000_000, 500_000);
+        assert_eq!(r, 1024 * 1_000_000);
+    }
+
+    #[test]
+    fn calculate_reward_v2_half_pool_halves_payout() {
+        // pool_balance = pool_target / 2 → 50% payout
+        let r = calculate_reward_v2(1024, 1_000_000, 150, 100, 250_000, 500_000);
+        assert_eq!(r, 1024 * 1_000_000 / 2);
+    }
+
+    #[test]
+    fn calculate_reward_v2_empty_pool_zero_payout() {
+        // pool_balance = 0 → 0 payout
+        let r = calculate_reward_v2(1024, 1_000_000, 150, 100, 0, 500_000);
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn calculate_reward_v2_below_threshold_zero() {
+        // score < threshold → 0 (pool ratio 関係なし)
+        let r = calculate_reward_v2(1024, 1_000_000, 50, 100, 1_000_000, 500_000);
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn calculate_reward_v2_zero_target_disables_decay() {
+        // pool_target = 0 → 補正無効、旧挙動と同じ
+        let r = calculate_reward_v2(1024, 1_000_000, 150, 100, 0, 0);
+        assert_eq!(r, 1024 * 1_000_000);
+    }
 
     #[test]
     fn test_calculate_reward_above_threshold() {

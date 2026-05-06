@@ -470,6 +470,13 @@ pub mod pallet {
         /// Native token for reward distribution (T084)
         /// Used to mint rewards when claim_reward is called
         type NativeToken: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
+
+        /// Storage pool target balance (TSTS P3).
+        ///
+        /// `calculate_reward_v2` で `pool_balance / pool_target` の比率で線形 decay する。
+        /// 0 を指定すると decay を無効化 (旧挙動互換)。spec §3.2.5 で 500,000 MORAL 推奨。
+        #[pallet::constant]
+        type StoragePoolTarget: Get<u128>;
     }
 
     // ============ Storage ============
@@ -1290,14 +1297,18 @@ pub mod pallet {
             #[cfg(feature = "runtime-benchmarks")]
             let _ = is_valid;
 
-            // Calculate reward (T046-T047)
+            // Calculate reward (T046-T047) — TSTS P3: pool ratio decay 適用
             let score = ScoreCache::<T>::get(content_hash).unwrap_or(1000); // Default high score
             let score_threshold = T::ScoreThreshold::get();
-            let reward = super::rewards::calculate_reward_with_threshold(
+            let pool_balance = RewardPoolBalance::<T>::get();
+            let pool_target = T::StoragePoolTarget::get();
+            let reward = super::rewards::calculate_reward_v2(
                 kzg_fragment.data_size,
                 T::BaseRewardPerByte::get(),
                 score,
                 score_threshold,
+                pool_balance,
+                pool_target,
             );
 
             // Update proof record (FR-104, FR-109, T042)
