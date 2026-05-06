@@ -76,6 +76,11 @@ pub mod pallet {
             let cur_diff = CurrentDifficulty::<T>::get();
 
             PastDifficultiesAndTimestamps::<T>::mutate(|window| {
+                debug_assert!(
+                    T::DifficultyAdjustWindow::get() <= 60,
+                    "DifficultyAdjustWindow ({}) must not exceed BoundedVec cap of 60",
+                    T::DifficultyAdjustWindow::get(),
+                );
                 let cap = T::DifficultyAdjustWindow::get() as usize;
                 if window.len() >= cap {
                     // 先頭要素を除去して ring buffer をスライド
