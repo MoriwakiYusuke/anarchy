@@ -14,8 +14,6 @@ use sp_runtime::{
 type Block = frame_system::mocking::MockBlock<Test>;
 type Balance = u128;
 
-const POW_ENGINE_ID: ConsensusEngineId = *b"ANRC";
-
 construct_runtime!(
     pub enum Test {
         System: frame_system,
@@ -97,7 +95,6 @@ impl pallet_block_reward::Config for Test {
     type HalvingPeriod = HalvingPeriod;
     type MaxHalvings = MaxHalvings;
     type AuthorOrigin = MockAuthor;
-    type RuntimeEvent = RuntimeEvent;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

@@ -41,8 +41,6 @@ pub mod pallet {
         /// PoW author 抽出。Phase A では mock。Phase B で `node/src/pow/author.rs` 由来の
         /// `PowAuthor` を runtime 側で `FindAuthor` impl して渡す。
         type AuthorOrigin: FindAuthor<Self::AccountId>;
-        /// Event 用の RuntimeEvent。
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
     }
 
     #[pallet::event]
@@ -90,12 +88,14 @@ pub mod pallet {
             let author = T::AuthorOrigin::find_author(pre_runtime_iter);
 
             let Some(author) = author else {
+                log::warn!(target: "block_reward", "no author in pre-runtime digest at block {:?}, skipping reward", n);
                 Self::deposit_event(Event::BlockRewardSkipped { reason: SkipReason::NoAuthor });
                 return;
             };
 
             let reward = Self::current_reward(n);
             if reward == BalanceOf::<T>::default() {
+                log::debug!(target: "block_reward", "reward is zero at block {:?} (post-halving), skipping", n);
                 Self::deposit_event(Event::BlockRewardSkipped { reason: SkipReason::ZeroReward });
                 return;
             }
