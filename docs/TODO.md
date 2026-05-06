@@ -662,7 +662,12 @@
 - [ ] **メインネット準備**
   - [ ] セキュリティ監査
   - [ ] Genesis設定最終化
+<!-- 状況変化 (Phase B / PR #53): PoW + Permissionless GRANDPA に移行したため
+     "validator 招集" の概念自体が消滅。誰でも `--mine` で参加可能、
+     genesis bootstrap miner 1 名のみ chain_spec に焼き込みで完結。
   - [ ] バリデーター招集
+-->
+
 
 ### 4.4 Mainnet設計・経済パラメータ（トークノミクス統合）
 
@@ -670,16 +675,27 @@
 
 - [ ] **経済合理性に基づく定数制定**
   - [ ] PostBaseCost / PostByteCost の最適値検証
+<!-- 状況変化: Faucet 難易度は pallet_faucet で base=18 / 動的調整実装済み (§2.3 完了)。
+     報酬額の halving 連動見直しは §4.7 Phase C TODO で別管理。
   - [ ] Faucet報酬額・難易度の調整
+-->
   - [ ] ストレージ報酬レート設計
   - [ ] インフレ/デフレ率シミュレーション
+<!-- 状況変化 (Phase B): TX 手数料 0 維持 (CONCEPTS.md 案A 採用) で確定。
+     `runtime/src/lib.rs` の `WeightToFee = ConstU128<0>` で実装済み。
   - [ ] 適切なガス代の設定
+-->
   - [ ] 初期供給量・分配比率
 
+<!-- 状況変化 (Phase B PR #53):
+     - "バリデーター" 概念は PoW 移行で消滅 (= miner)
+     - 案A (ブロック報酬 mint) を採用、halving 付きで実装済み (pallet_block_reward, 5 MORAL → 4年毎半減)
+     - 案D (EIP-1559) は PoA バリデーター前提で Anarchy 文脈ではミスマッチ → 不採用
 - [ ] **バリデーター報酬設計**
   - [ ] 案A: ブロック報酬mint（シンプル、インフレ）
   - [ ] 案D: Ethereum EIP-1559方式（Base Fee burn + Priority Fee → バリデーター）
   - [ ] インフレ率とデフレ圧力のバランス検証
+-->
 
 - [ ] **ストレージ・反応報酬設計**
   - [ ] ストレージノード報酬設計
@@ -688,7 +704,9 @@
   - [ ] γ（インフレ調整係数）の動的計算（ReactionRewardPool / TotalSupply）
 
 - [ ] **手数料モデル**
+<!-- 状況変化 (Phase B): TX 手数料 0 維持で確定。runtime に焼き込み済み。
   - [ ] TX手数料: 0維持 or Base Fee導入
+-->
   - [ ] 投稿コスト: burn維持（デフレ圧力）
   - [ ] Faucet: unsigned tx維持
 
@@ -706,6 +724,13 @@
   - [ ] 署名者リスト・閾値設定
   - [ ] ランタイムアップグレード承認フロー
 
+<!-- 哲学レビュー後保留 (Phase B PR #53):
+     「$moral 保有量ベースの投票権」は同 sub-section の "経済的攻撃 ($moral 買い占め) 対策"
+     と内在的に矛盾する (token-weighted = 大口買い占めで支配可能)。
+     さらに on-chain vote は public ledger に記録されるため、Anarchy 匿名性原則と衝突。
+     完全解決には zk-SNARK 投票が必要 = 大物別タスク。
+     governance は Multisig (上記 §4.5 Multisig 導入で対応) に留め、本格 OpenGov は再設計後。
+     spec は: 採掘で finality 投票権が自動付与される現状で十分という見方もある。
 - [ ] **Democracy/OpenGov導入**（将来）
   - [ ] pallet_democracy / pallet_referenda 導入
   - [ ] $moral保有量ベースの投票権
@@ -714,12 +739,18 @@
   - [ ] 緊急時対応（セキュリティパッチ等）の特別ルート
   - [ ] 投票期間・クォーラム閾値の設定
   - [ ] パラメータ変更プロセス
+-->
 
 - [ ] **セキュリティ考慮**
   - [ ] 経済的攻撃（$moral買い占め）対策
   - [ ] 最小投票期間の設定
   - [ ] 提案スパム防止（デポジット要求）
+<!-- 状況変化: Anarchy は anonymity 原則 (Tor/I2P 強制) のため frontend は
+     原則 .onion service 経由で接続する想定。clearnet 公開しないので HTTPS 単独の
+     対応は不要 (Tor 経由なら transport 暗号化は libp2p/Tor が担う)。
+     clearnet ミラーを置く運営者は HTTPS 必須だが、それは運営者責任。
   - [ ] https対応
+-->
 
 ### ~~+ 4.6 経済設計（トークノミクス）~~ → 4.4に統合
 
