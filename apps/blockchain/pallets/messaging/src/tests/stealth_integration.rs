@@ -104,6 +104,8 @@ impl pallet_stealth::Config for Test {
     type Currency = Balances;
     type MaxEntriesPerBlock = ConstU32<1000>;
     type WeightInfo = ();
+    /// TSTS F2: tests は cap 0 (claim cap 無効) — claim_stealth_reward は本テストでは呼ばない
+    type ClaimCapPpm = ConstU32<0>;
 }
 
 const MORAL: Balance = 1_000_000_000_000;

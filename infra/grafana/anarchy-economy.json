@@ -1,0 +1,269 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Anarchy TSTS economic model monitoring dashboard. Tracks pool balances, base_fee, total_issuance, miner revenue, and slashing events. Pairs with Substrate Prometheus exporter (default port 9615) and a Prometheus instance scraping the chain node + storage nodes.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Sigma Storage Pool (σ_storage)",
+      "description": "pallet_storage::RewardPoolBalance — TSTS I-2 floor invariant must hold (σ > 0 in stagnation).",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 100000000000000 },
+              { "color": "green", "value": 1000000000000000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "anarchy_storage_reward_pool_balance",
+          "legendFormat": "σ_storage (units)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Sigma Reaction Pool (σ_reaction)",
+      "description": "pallet_reaction::ReactionRewardPool — TSTS I-3 positivity invariant. per-block 5%/day cap で 0 にならないはず。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 1000000000000 },
+              { "color": "green", "value": 100000000000000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "anarchy_reaction_reward_pool",
+          "legendFormat": "σ_reaction (units)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Sigma Stealth Pool (σ_stealth)",
+      "description": "pallet_stealth::StealthRewardPool — DM 還流 20% の累積。claim_stealth_reward で吸い出される。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 } },
+      "targets": [
+        {
+          "expr": "anarchy_stealth_reward_pool",
+          "legendFormat": "σ_stealth (units)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Total Issuance",
+      "description": "pallet_balances::TotalIssuance — net mint vs burn の累積。tail emission により単調増加が期待される (大規模 spam 攻撃時のみ低下)。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 } },
+      "targets": [
+        {
+          "expr": "anarchy_total_issuance",
+          "legendFormat": "TotalIssuance (units)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "EIP-1559 Base Fee (MORAL/byte)",
+      "description": "pallet_base_fee::BaseFee — 平常時 BaseFeeMin (= 1e-10 MORAL/byte) 張り付き。spam 攻撃時のみ膨張、cap 0.1 MORAL/byte。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100000000 },
+              { "color": "red", "value": 50000000000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "anarchy_base_fee",
+          "legendFormat": "base_fee (units/byte)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Block Bytes Used vs Target",
+      "description": "EIP-1559 utilization: target=50_000 bytes/block. 持続的に > target なら base_fee が指数的に上がる。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "decbytes" } },
+      "targets": [
+        {
+          "expr": "anarchy_gas_used_this_block",
+          "legendFormat": "bytes used",
+          "refId": "A"
+        },
+        {
+          "expr": "50000",
+          "legendFormat": "target (50KB)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Miner Revenue per Block",
+      "description": "pallet_block_reward::Event::BlockRewardSplit::miner — TSTS P1 で 50% miner share 設定。tail 後は 0.25 MORAL/block 一定。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "targets": [
+        {
+          "expr": "rate(anarchy_block_reward_miner_total[5m])",
+          "legendFormat": "miner mint/sec",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Storage Bond Locked (TotalActiveBond)",
+      "description": "pallet_storage_stake::TotalActiveBond — TSTS F1 skin-in-the-game の総量。減少は slash か unbond。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 } },
+      "targets": [
+        {
+          "expr": "anarchy_total_active_bond",
+          "legendFormat": "total bond (units)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Slashing Events (rate)",
+      "description": "pallet_storage::Event::NodeSlashed の発生頻度。突発的な急上昇は coordinated outage を疑う。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "expr": "rate(anarchy_node_slashed_total[5m])",
+          "legendFormat": "slashes/sec",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Faucet Total Minted (vs Cap)",
+      "description": "pallet_faucet::TotalMinted — TSTS P7 sunset。FaucetTotalCap = 100,000 MORAL に到達後は claim 失敗。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 } },
+      "targets": [
+        {
+          "expr": "anarchy_faucet_total_minted",
+          "legendFormat": "faucet minted (units)",
+          "refId": "A"
+        },
+        {
+          "expr": "100000000000000000",
+          "legendFormat": "cap (100k MORAL)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Reactor Locks Active",
+      "description": "pallet_reaction::ReactorLocks の active 数 + 累積ロック額。Sybil 攻撃時に急増することを検知。",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "targets": [
+        {
+          "expr": "anarchy_reactor_locks_count",
+          "legendFormat": "active reactor locks",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["anarchy", "tsts", "economic"],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "refresh": 1
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Anarchy TSTS Economy",
+  "uid": "anarchy-tsts-economy",
+  "version": 1,
+  "weekStart": ""
+}

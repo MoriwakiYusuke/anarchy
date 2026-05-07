@@ -51,6 +51,8 @@ impl pallet_stealth::Config for Test {
     type Currency = Balances;
     type MaxEntriesPerBlock = ConstU32<1000>;
     type WeightInfo = ();
+    /// TSTS F2: tests は cap = 10% (mainnet と同等) で claim ロジックを検証
+    type ClaimCapPpm = ConstU32<100_000>;
 }
 
 /// Test accounts

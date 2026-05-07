@@ -5690,6 +5690,7 @@ dependencies = [
  "kzg-constants",
  "pallet-balances",
  "pallet-popularity",
+ "pallet-storage-stake",
  "parity-scale-codec",
  "scale-info",
  "sp-api",

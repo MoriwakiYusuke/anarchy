@@ -477,6 +477,21 @@ pub mod pallet {
         /// 0 を指定すると decay を無効化 (旧挙動互換)。spec §3.2.5 で 500,000 MORAL 推奨。
         #[pallet::constant]
         type StoragePoolTarget: Get<u128>;
+
+        /// Storage stake provider (TSTS F1).
+        ///
+        /// `pallet_storage_stake::BondInfo` を満たす型を受け取り、ノード参加には bond 必須、
+        /// 報酬は `√(bond_share)` で重み付け、proof 失敗 3 連続で bond から slash する。
+        /// テスト/縮退用には `pallet_storage_stake::NoBond` (= bond 機能無効) を渡せる。
+        type StakeProvider: pallet_storage_stake::BondInfo<Self::AccountId>;
+
+        /// Slashing 1 回あたりの bond 削減割合 (Permill ppm).
+        ///
+        /// 例: 50_000 = 5%. failure_count 3 の時点で `do_slash_node` が呼ばれ、
+        /// `bond × SlashRatePerFailPpm / 1e6` を slash する。
+        /// spec §3.2.5 で 5% (= 50_000 ppm) 推奨。0 を指定すると bond slash 無効。
+        #[pallet::constant]
+        type SlashRatePerFailPpm: Get<u32>;
     }
 
     // ============ Storage ============
@@ -872,6 +887,8 @@ pub mod pallet {
         PeerIdTooLong,
         /// HTTP URL is empty or invalid
         InvalidHttpUrl,
+        /// Storage node operator has not bonded (TSTS F1: skin-in-the-game required)
+        NotBonded,
 
         // === KZG-VSS errors (011-kzg-proof-rewards) ===
 
@@ -996,6 +1013,14 @@ pub mod pallet {
         ) -> DispatchResult {
             let operator = ensure_signed(origin)?;
             let current_block = frame_system::Pallet::<T>::block_number();
+
+            // TSTS F1: bond 必須 (skin-in-the-game).
+            // pallet_storage_stake::bond で BondPerGB × declared_capacity_GB をロックしてから呼ぶ。
+            // テスト/縮退用に `pallet_storage_stake::NoBond` を渡すと has_bond は常に true 返却。
+            ensure!(
+                <T::StakeProvider as pallet_storage_stake::BondInfo<T::AccountId>>::has_bond(&operator),
+                Error::<T>::NotBonded
+            );
 
             // Check per-block registration rate limit (FR-410)
             let current_count = RegistrationCountPerBlock::<T>::get(current_block);
@@ -1297,18 +1322,24 @@ pub mod pallet {
             #[cfg(feature = "runtime-benchmarks")]
             let _ = is_valid;
 
-            // Calculate reward (T046-T047) — TSTS P3: pool ratio decay 適用
+            // Calculate reward — TSTS F1: pool ratio decay × √(bond_share)
             let score = ScoreCache::<T>::get(content_hash).unwrap_or(1000); // Default high score
             let score_threshold = T::ScoreThreshold::get();
             let pool_balance = RewardPoolBalance::<T>::get();
             let pool_target = T::StoragePoolTarget::get();
-            let reward = super::rewards::calculate_reward_v2(
+            // bond_share √ 補正: prover の bond と全体 bond を取得し v3 に渡す。
+            // total_active_bond=0 なら補正 OFF (旧挙動互換)。
+            let node_bond = <T::StakeProvider as pallet_storage_stake::BondInfo<T::AccountId>>::bond_amount(&prover);
+            let total_active_bond = <T::StakeProvider as pallet_storage_stake::BondInfo<T::AccountId>>::total_active_bond();
+            let reward = super::rewards::calculate_reward_v3(
                 kzg_fragment.data_size,
                 T::BaseRewardPerByte::get(),
                 score,
                 score_threshold,
                 pool_balance,
                 pool_target,
+                node_bond,
+                total_active_bond,
             );
 
             // Update proof record (FR-104, FR-109, T042)
@@ -1932,27 +1963,30 @@ pub mod pallet {
         // the real BLS12-381 pairing check against the embedded τ G2 from the
         // Ethereum KZG ceremony.
 
-        /// Slash a node for failed challenges (T046)
+        /// Slash a node for failed challenges (T046, TSTS F1).
         ///
         /// Called when a node fails to respond to 3 consecutive challenges.
-        /// Applies 50% penalty to pending rewards and moves funds to RepairRewardPool.
+        /// Applies two-track penalty:
+        ///   1. **Bond slash** (TSTS F1, primary): bond × `SlashRatePerFailPpm` を `T::StakeProvider`
+        ///      経由で削減。skin-in-the-game の本体。`SlashRatePerFailPpm = 0` なら無効。
+        ///   2. **Pending reward forfeit** (legacy): PendingRewards / 2 を取り消し、RepairRewardPool
+        ///      に流す。bond 機能未確立 (NoBond) でも repair 経済が回るための補完経路。
         ///
         /// # Arguments
         /// * `node` - Account ID of the node to slash
         /// * `content_hash` - Content hash for the fragment
         ///
         /// # Effects
-        /// - Sets `slashed = true` on ProofRecord
-        /// - Confiscates 50% of PendingRewards
-        /// - Adds confiscated amount to RepairRewardPools
-        /// - Emits NodeSlashed event
+        /// - Sets `slashed = true` on ProofRecord (idempotent guard)
+        /// - Bond slash: `bond × SlashRatePerFailPpm` が物理 burn (Permill burn share) + free 返却
+        /// - Reward slash: PendingRewards / 2 が RepairRewardPools に移行
+        /// - Emits NodeSlashed event with combined penalty (bond_slash + reward_slash)
         pub fn do_slash_node(
             node: T::AccountId,
             content_hash: ContentHash,
         ) -> DispatchResult {
-            // SECURITY (#27-HIGH-4): use mutate() for atomic read-modify-write on ProofRecords
-            // to avoid inter-block races where two slash paths could both observe slashed=false.
-            let penalty: u128 = ProofRecords::<T>::try_mutate(
+            // (#27-HIGH-4) atomic guard: 二重 slash を防ぐ
+            let reward_penalty: u128 = ProofRecords::<T>::try_mutate(
                 content_hash,
                 &node,
                 |record| -> Result<u128, DispatchError> {
@@ -1965,21 +1999,32 @@ pub mod pallet {
                 },
             )?;
 
-            // Apply penalty: reduce pending rewards
+            // Track 1: Bond slash (TSTS F1).
+            // bond × SlashRatePerFailPpm / 1e6 を pallet_storage_stake::do_slash_bond で削減する。
+            let slash_rate = T::SlashRatePerFailPpm::get() as u128;
+            let bond_amount = <T::StakeProvider as pallet_storage_stake::BondInfo<T::AccountId>>::bond_amount(&node);
+            let bond_slash_amount = bond_amount.saturating_mul(slash_rate) / 1_000_000;
+            let bond_slashed = if bond_slash_amount > 0 {
+                <T::StakeProvider as pallet_storage_stake::BondInfo<T::AccountId>>::slash_bond(&node, bond_slash_amount)
+            } else {
+                0
+            };
+
+            // Track 2: Pending reward slash (legacy, repair pool 経由).
+            // bond 機能を無効化したテスト/runtime でも repair 経路が動くようにする。
             PendingRewards::<T>::mutate(&node, |p| {
-                *p = p.saturating_sub(penalty);
+                *p = p.saturating_sub(reward_penalty);
             });
-
-            // Move penalty to RepairRewardPool for this content
             RepairRewardPools::<T>::mutate(content_hash, |pool| {
-                *pool = pool.saturating_add(penalty);
+                *pool = pool.saturating_add(reward_penalty);
             });
 
-            // Emit event
+            // Combined penalty: bond slash + reward slash. UI / monitoring が両方拾えるよう加算で報告。
+            let combined = bond_slashed.saturating_add(reward_penalty);
             Self::deposit_event(Event::NodeSlashed {
                 node: node.clone(),
                 content_hash,
-                penalty_amount: penalty,
+                penalty_amount: combined,
             });
 
             Ok(())

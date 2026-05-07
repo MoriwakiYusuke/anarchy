@@ -35,6 +35,9 @@ kzg-constants = { path = "../../../../packages/kzg-constants", default-features 
 # Popularity (for StorageReleaser shim impl)
 pallet-popularity = { path = "../popularity", default-features = false }
 
+# Storage stake (TSTS F1: BondInfo trait for skin-in-the-game)
+pallet-storage-stake = { workspace = true }
+
 [dev-dependencies]
 sp-core = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }
@@ -59,6 +62,7 @@ std = [
     "ark-std/std",
     "kzg-constants/std",
     "pallet-popularity/std",
+    "pallet-storage-stake/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/std",

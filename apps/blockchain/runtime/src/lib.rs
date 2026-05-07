@@ -466,6 +466,13 @@ impl pallet_storage::Config for Runtime {
     /// TSTS P3: σ_storage がターゲットを下回ったときに自動的に支払率が下がるため、
     /// プール枯渇前のソフトランディングが効く。
     type StoragePoolTarget = ConstU128<500_000_000_000_000_000>;
+    /// TSTS F1: StakeProvider = StorageStake で skin-in-the-game を有効化。
+    /// register_node で bond 必須、reward は √(bond_share) で重み付け、slash は bond 経由。
+    type StakeProvider = StorageStake;
+    /// TSTS F1: 1 回 slash あたり bond の 5% (= 50_000 ppm) を削減。
+    /// 10 回連続失敗で bond の 50% が削減 → operator は素早く unbond 撤退するか修復するか判断する。
+    /// 0 を指定すると bond slash 無効 (旧挙動: PendingRewards/2 のみ)。
+    type SlashRatePerFailPpm = ConstU32<50_000>;
 }
 
 // Nickname Pallet設定
@@ -480,6 +487,9 @@ impl pallet_stealth::Config for Runtime {
     /// ブロックあたり最大エフェメラルキー登録数: 100
     type MaxEntriesPerBlock = ConstU32<100>;
     type WeightInfo = pallet_stealth::weights::SubstrateWeight<Runtime>;
+    /// TSTS F2: 1 回 claim あたりプール 10% 上限 (= 100_000 ppm).
+    /// 過剰流出による pool 急速枯渇を防ぐ。0 で cap 無効。
+    type ClaimCapPpm = ConstU32<100_000>;
 }
 
 // Reaction Pallet設定

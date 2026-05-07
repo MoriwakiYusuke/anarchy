@@ -54,25 +54,12 @@ pub fn calculate_reward_with_threshold(
     base_reward_per_byte.saturating_mul(data_size as u128)
 }
 
-/// Calculate reward with TSTS v1 dynamics (P3): pool ratio decay.
+/// Calculate reward with TSTS v1 dynamics (P3): pool ratio decay (bond-share 補正なし).
 ///
-/// 旧 `calculate_reward_with_threshold` を `pool_balance / pool_target` で線形に減衰させる。
-/// プール残高がターゲット以上なら 100% 支払い、半分なら 50% など。
-/// プール枯渇時に支払いが急に途切れて怠惰行動が支配戦略にならないようにする。
+/// 後続 (TSTS F1) で bond_share √ 補正を入れた `calculate_reward_v3` も追加した。
+/// 互換性のため v2 はそのまま残し、bond 機能を使わない既存テストはこちらを呼べる。
 ///
-/// **将来の P4 Storage stake で `√(bond_share)` 補正をここに掛ける**。bond_share は
-/// `(node_bond / total_active_bond)^0.5` で、quadratic Sybil resistance を実現する。
-///
-/// # Arguments
-/// * `data_size` - Size of the content in bytes
-/// * `base_reward_per_byte` - Base reward per byte configured in pallet
-/// * `score` - Current content score (from external scorer)
-/// * `threshold` - Minimum score for reward eligibility
-/// * `pool_balance` - Current σ_storage balance (u128 units)
-/// * `pool_target` - Target σ_storage balance (governance-tunable)
-///
-/// # Returns
-/// * Reward amount (0 if score below threshold or pool empty)
+/// `calculate_reward_v3(..., 0, 0)` と等価。
 pub fn calculate_reward_v2(
     data_size: u32,
     base_reward_per_byte: u128,
@@ -81,25 +68,97 @@ pub fn calculate_reward_v2(
     pool_balance: u128,
     pool_target: u128,
 ) -> u128 {
+    calculate_reward_v3(
+        data_size,
+        base_reward_per_byte,
+        score,
+        threshold,
+        pool_balance,
+        pool_target,
+        0,  // node_bond = 0 → bond 補正無効
+        0,  // total_active_bond = 0 → 同上
+    )
+}
+
+/// Calculate reward with TSTS F1 full dynamics: pool ratio decay × √(bond_share).
+///
+/// `√(bond_share)` の意味: ノードの bond が全 active bond のうち占める割合の平方根。
+/// quadratic Sybil resistance を実現する。N 個の Sybil ノードに分散しても
+/// `Σ √(b_i) ≤ √(Σ b_i)` (Jensen) なので 1 ノード集中より報酬総和が **減る**。
+/// 巨大プレイヤー独占の場合も √ で薄まるため寡占を抑制する。
+///
+/// `total_active_bond == 0` のときは「bond 機能未確立」と解釈し、bond 補正を 1.0 にする
+/// (= pool_ratio のみで動く、TSTS P3 互換挙動)。
+///
+/// # Arguments
+/// * `data_size` - Size of the content in bytes
+/// * `base_reward_per_byte` - Base reward per byte configured in pallet
+/// * `score` - Current content score (from external scorer)
+/// * `threshold` - Minimum score for reward eligibility
+/// * `pool_balance` - Current σ_storage balance (u128 units)
+/// * `pool_target` - Target σ_storage balance (governance-tunable)
+/// * `node_bond` - Storage node の bond 額 (u128 units)
+/// * `total_active_bond` - 全ノードの bond 合計 (u128 units)
+///
+/// # Returns
+/// * Reward amount (0 if score below threshold or pool empty)
+pub fn calculate_reward_v3(
+    data_size: u32,
+    base_reward_per_byte: u128,
+    score: u64,
+    threshold: u64,
+    pool_balance: u128,
+    pool_target: u128,
+    node_bond: u128,
+    total_active_bond: u128,
+) -> u128 {
     if score < threshold {
         return 0;
     }
-    let base = base_reward_per_byte.saturating_mul(data_size as u128);
+    let mut reward = base_reward_per_byte.saturating_mul(data_size as u128);
 
-    // pool_target=0 を「補正無効 (旧挙動互換)」と解釈する。
-    if pool_target == 0 {
-        return base;
+    // (1) pool_ratio decay (TSTS P3): pool_target=0 を「補正無効」と解釈
+    if pool_target > 0 {
+        let pool_ratio_ppm = if pool_balance >= pool_target {
+            1_000_000u128
+        } else {
+            pool_balance.saturating_mul(1_000_000) / pool_target.max(1)
+        };
+        reward = reward.saturating_mul(pool_ratio_ppm) / 1_000_000;
     }
 
-    // 線形 decay: pool_ratio_ppm = min(1_000_000, pool_balance × 1e6 / pool_target)
-    let pool_ratio_ppm = if pool_balance >= pool_target {
-        1_000_000u128
-    } else {
-        pool_balance.saturating_mul(1_000_000) / pool_target.max(1)
-    };
+    // (2) √(bond_share) 補正 (TSTS F1): total_active_bond=0 を「補正無効」と解釈
+    if total_active_bond > 0 && node_bond > 0 {
+        // bond_share_ppm = node_bond / total_active_bond × 1_000_000
+        let bond_share_ppm = node_bond
+            .saturating_mul(1_000_000)
+            / total_active_bond.max(1);
+        // sqrt_ppm: x_ppm の平方根を ppm 単位で返す
+        let sqrt_share_ppm = sqrt_ppm(bond_share_ppm);
+        reward = reward.saturating_mul(sqrt_share_ppm) / 1_000_000;
+    }
 
-    // base × pool_ratio_ppm / 1e6 (saturating)
-    base.saturating_mul(pool_ratio_ppm) / 1_000_000
+    reward
+}
+
+/// Newton iteration による整数 sqrt for ppm representation.
+///
+/// 入力: x_ppm = x × 1e6 として、戻り値は sqrt(x) × 1e6.
+/// 例: x_ppm=1_000_000 (= x=1.0) → 戻り値 1_000_000.
+///     x_ppm=  250_000 (= x=0.25) → 戻り値 500_000 (= sqrt(0.25)).
+pub fn sqrt_ppm(x_ppm: u128) -> u128 {
+    let scaled = x_ppm.saturating_mul(1_000_000);
+    if scaled == 0 {
+        return 0;
+    }
+    let mut z = (scaled + 1) / 2;
+    let mut y = scaled;
+    // Newton method: 高々 ~64 反復で収束
+    while z < y {
+        y = z;
+        z = (scaled / z + z) / 2;
+    }
+    y
 }
 
 /// Calculate pro-rata distribution when pool is exhausted.
@@ -176,6 +235,47 @@ mod tests {
         // pool_target = 0 → 補正無効、旧挙動と同じ
         let r = calculate_reward_v2(1024, 1_000_000, 150, 100, 0, 0);
         assert_eq!(r, 1024 * 1_000_000);
+    }
+
+    // ─── TSTS F1: calculate_reward_v3 (with √(bond_share)) ─────────────────────
+
+    #[test]
+    fn calculate_reward_v3_sole_node_full_share() {
+        // node_bond = total_active_bond → bond_share = 1.0 → sqrt = 1.0 → 100%
+        let r = calculate_reward_v3(1024, 1_000_000, 150, 100, 1_000_000, 500_000, 1000, 1000);
+        assert_eq!(r, 1024 * 1_000_000);
+    }
+
+    #[test]
+    fn calculate_reward_v3_quarter_bond_returns_half() {
+        // bond_share = 0.25 → sqrt = 0.5 → 50% payout
+        let r = calculate_reward_v3(1024, 1_000_000, 150, 100, 1_000_000, 500_000, 250, 1000);
+        // 1024 × 1_000_000 = 1_024_000_000 base; × 0.5 = 512_000_000 (整数 sqrt の誤差 ±1)
+        let expected = 512_000_000u128;
+        assert!((r as i128 - expected as i128).abs() <= 2, "got {}", r);
+    }
+
+    #[test]
+    fn calculate_reward_v3_zero_total_bond_disables_correction() {
+        // total_active_bond = 0 → bond 機能未確立、pool_ratio のみで動く
+        let r = calculate_reward_v3(1024, 1_000_000, 150, 100, 1_000_000, 500_000, 0, 0);
+        assert_eq!(r, 1024 * 1_000_000); // pool_ratio = 1.0 (full pool) なのでそのまま
+    }
+
+    #[test]
+    fn calculate_reward_v3_combines_pool_and_bond() {
+        // pool_ratio = 0.5, bond_share = 0.25 → 0.5 × sqrt(0.25) = 0.5 × 0.5 = 0.25
+        let r = calculate_reward_v3(1024, 1_000_000, 150, 100, 250_000, 500_000, 250, 1000);
+        let expected = 1024 * 1_000_000 / 4; // 256_000_000
+        assert!((r as i128 - expected as i128).abs() <= 4, "got {}", r);
+    }
+
+    #[test]
+    fn sqrt_ppm_basic_cases() {
+        assert_eq!(sqrt_ppm(0), 0);
+        assert_eq!(sqrt_ppm(1_000_000), 1_000_000);                    // sqrt(1) = 1
+        let r25 = sqrt_ppm(250_000);
+        assert!((r25 as i128 - 500_000).abs() <= 1, "got {}", r25);    // sqrt(0.25) = 0.5
     }
 
     #[test]
