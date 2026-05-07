@@ -247,13 +247,18 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// 内部 slash. pallet_storage の `do_slash_node` から runtime adapter 経由で呼ばれる。
         ///
-        /// `amount` 分を bond から減算し、`SlashBurnSharePermill` 分を burn (slash) する。
-        /// 残りは将来的に repair pool に流す予定だが、現実装では reserve 解除のみ
-        /// (実 balance には戻さない = 中間状態として burn と等価)。
+        /// `amount` 分を bond から減算し、`SlashBurnSharePermill` 比率で物理 burn する。
+        /// 残りは ノードの free balance に戻す (今後 repair pool 経路と接続するまでの暫定:
+        /// "bond は失効したが資産自体はオペレータに残す" モデル)。
         ///
-        /// 戻り値: 実際に slash された額 (bond 不足で saturate されたら少なくなる)。
+        /// 配分:
+        /// - `slash × SlashBurnSharePermill` を `Currency::slash_reserved` で burn
+        /// - 残り `slash × (1 - SlashBurnSharePermill)` を `Currency::unreserve` で free balance に戻す
+        ///
+        /// 戻り値: 実際に bond から減算された総額 (bond 不足で saturate されたら少なくなる)。
         pub fn do_slash_bond(who: &T::AccountId, amount: u128) -> u128 {
             let mut actual: BalanceOf<T> = 0u32.into();
+            let mut burned_part: BalanceOf<T> = 0u32.into();
 
             let _ = Bonds::<T>::try_mutate(who, |maybe| -> Result<(), DispatchError> {
                 let Some(bond) = maybe.as_mut() else {
@@ -267,11 +272,23 @@ pub mod pallet {
                 bond.amount = bond.amount.saturating_sub(slash);
                 actual = slash;
 
-                // Currency::slash_reserved で reserve から物理 burn
-                let (_imbalance, _missing) = T::Currency::slash_reserved(who, slash);
-                // _imbalance は drop で自動的に negative imbalance として burn される
+                // 配分計算: burn 分と return 分。
+                // `mul_floor` は Permill × Balance を切り捨てで返す (一般的に operator 有利の方向)。
+                let burn_amount = T::SlashBurnSharePermill::get().mul_floor(slash);
+                let return_amount = slash.saturating_sub(burn_amount);
+                burned_part = burn_amount;
 
-                // total active bond を更新
+                // Step 1: burn 分を slash_reserved で物理 burn (NegativeImbalance drop)
+                if burn_amount > 0u32.into() {
+                    let (_imbalance, _missing) = T::Currency::slash_reserved(who, burn_amount);
+                }
+
+                // Step 2: return 分を unreserve で free balance に戻す
+                if return_amount > 0u32.into() {
+                    let _failed = T::Currency::unreserve(who, return_amount);
+                }
+
+                // total active bond を更新 (slash 額全体を減算)
                 TotalActiveBond::<T>::mutate(|t| *t = t.saturating_sub(slash));
 
                 // bond が 0 になったらエントリ削除
@@ -281,16 +298,10 @@ pub mod pallet {
                 Ok(())
             });
 
-            // SlashBurnSharePermill 比率での個別処理は本 pallet では行わず、
-            // slash_reserved による burn のみ行う (= 100% burn 相当)。
-            // 30% burn / 70% repair の細かい配分は P4 の後続 PR で
-            // RepairRewardPools 経路と接続する。
-
-            let burned = actual; // 100% 相当 burn
             Self::deposit_event(Event::Slashed {
                 who: who.clone(),
                 amount: actual,
-                burned,
+                burned: burned_part,
             });
 
             actual.saturated_into()

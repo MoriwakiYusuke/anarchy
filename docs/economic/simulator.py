@@ -14,6 +14,32 @@ Compares:
        tail emission 0.5, storage stake)
 
 Block time = 30s. 1 day = 2880 blocks.
+
+NOTE on units (2026-05-08 alignment with on-chain values):
+  - This simulator works in MORAL (float). 1 MORAL on-chain = 10^12 units.
+  - Constants here use MORAL/byte directly. Translation to runtime ConstU128<X>:
+      MORAL/byte × 10^12 = units/byte
+      e.g. 5 nano-MORAL/byte = 5e-9  → on-chain ConstU128<5_000>
+           BaseFeeMin       = 1e-10 → ConstU128<100>
+           BaseFeeInit      = 1e-8  → ConstU128<10_000>
+           BaseFeeMax       = 1e-1  → ConstU128<100_000_000_000>
+  - Constants in this file (BASE_REWARD_PER_BYTE = 5e-9, BASE_FEE_INIT = 1e-5)
+    use the qualitative magnitudes from spec §3.2.2 / §3.2.5 to demonstrate
+    relative effects (1,580× storage, sybil pool survival, base-fee blowup).
+    Absolute MORAL totals are illustrative — for accurate on-chain forecasts use
+    the runtime constants as the source of truth.
+
+NOTE on user balance constraints (Copilot review #3197956446):
+  - The simulator does NOT model whether users hold enough MORAL to pay for
+    spam/Sybil scenarios. `total_issuance` may go deeply negative under high
+    burn loads (e.g. S3 spam 100k posts/day for 5 years would burn far more
+    MORAL than has ever been minted).
+  - This is INTENTIONAL: it shows the magnitude of the burn pressure if
+    attackers had unlimited budget. In reality the budget constraint binds
+    first — see proposal §4.5 (I-5 spam self-consumption invariant).
+  - For a realistic positivity check: treat displayed `total_issuance` as
+    `cumulative_mint - cumulative_burn`. Any scenario where this goes negative
+    is infeasible without external token injection.
 """
 
 import math

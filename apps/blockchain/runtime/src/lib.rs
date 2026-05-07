@@ -76,7 +76,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_version: 108,  // Bumped: TSTS economic model v1 (block_reward fan-out + tail, base_fee, storage_stake, dynamic γ, stealth wiring, faucet cap)
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
-    transaction_version: 3,  // New extrinsics: lock_for_rewards / unlock_reactor / bond / request_release / finalize_release
+    // SignedExtra 構造は不変 (新 extrinsic 追加のみで形式変更なし)。よって 2 のまま。
+    // 新規 call は `CheckSpecVersion` で spec_version=108 に bound されるので、
+    // 旧クライアントから古い Encode を post すれば SpecVersion チェックで弾かれる。
+    transaction_version: 2,
     system_version: 1,
 };
 
@@ -376,16 +379,18 @@ impl pallet_messaging::BaseFeeProvider for BaseFeeAdapter {
     }
 }
 
-// Post Pallet設定 (TSTS P2: BaseFee 適用)
+// Post Pallet設定 (TSTS P2: BaseFee 適用 + コスト本体を spec §3.2.3 の mainnet 推奨値に更新)
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
     type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
     type Reaction = Reaction;  // Reaction Pallet for reward pool deposits
     type MaxContentLength = ConstU32<1_073_741_824>; // 1GB (画像含むコンテンツ対応)
-    /// 基本コスト: 100 MORAL
-    type PostBaseCost = ConstU128<100_000_000_000_000>;
-    /// バイト単価: 0.001 MORAL/byte
-    type PostByteCost = ConstU128<1_000_000_000>;
+    /// 基本コスト: 50 MORAL (旧 100 MORAL から半減).
+    /// base_fee の上乗せ + 累積 burn 30% でデフレ圧は維持しつつ通常利用の価格を引き下げる。
+    type PostBaseCost = ConstU128<50_000_000_000_000>;
+    /// バイト単価: 0.0008 MORAL/byte (旧 0.001 から微減).
+    /// `PostByteTip` 相当の storage tip 部分。混雑時は base_fee が動的に上乗せされる。
+    type PostByteCost = ConstU128<800_000_000>;
     type Popularity = Popularity;
     /// TSTS P2: EIP-1559 base fee (混雑時のみ高くなる、平常時は ~0)
     type BaseFee = BaseFeeAdapter;
@@ -437,12 +442,16 @@ impl pallet_storage::Config for Runtime {
     type BasePowDifficulty = ConstU8<12>;
     /// HTTP URL最大長: 256バイト
     type MaxHttpUrlLen = ConstU32<256>;
-    /// バイトあたり基本報酬: 5_000_000_000 = 5e-3 MORAL/byte / 1000 = 5 nano-MORAL/byte.
+    /// バイトあたり基本報酬: 5_000 units = 5 × 10^-9 MORAL/byte = 5 nano-MORAL/byte.
     ///
-    /// TSTS P3 で旧 1 unit (= 1e-12 MORAL/byte) から 5_000_000_000 に強化。
+    /// 単位計算: 1 MORAL = 10^12 units, 1 nano-MORAL = 10^-9 MORAL = 10^3 units.
+    /// → 5 nano-MORAL/byte = 5 × 10^3 units/byte = 5_000 units/byte.
+    ///
+    /// TSTS P3 で旧 1 unit (= 1e-12 MORAL/byte) から 5_000 units (= 5e-9 MORAL/byte) に強化。
     /// シミュレーションで storage 支払総額が ~1,580× に増え、ノード参加インセンティブが立つ。
     /// プールが target 以下のときは線形 decay されるので過剰流出も起きない。
-    type BaseRewardPerByte = ConstU128<5_000_000_000>;
+    /// (Copilot review #3197956308 で指摘された 5_000_000_000 → 5_000 への単位修正)
+    type BaseRewardPerByte = ConstU128<5_000>;
     /// 報酬対象スコア閾値: 100
     type ScoreThreshold = ConstU64<100>;
     /// スコアヒステリシスマージン: 20 (回復には閾値+20必要)
@@ -573,9 +582,10 @@ impl pallet_popularity::Config for Runtime {
 //
 // TSTS P6: StealthReward 還流先を pallet_stealth に配線済み。20% が stealth pool に流入し、
 // 受信エフェメラル公開鍵ごとの受信回数も記録される。詳細: docs/economic_model_proposal.md §3.2.4
+// TSTS P2 整合: コスト本体を spec §3.2.4 の mainnet 推奨値 (DmBase=0.5, DmByte=0.04) に更新。
 parameter_types! {
-    pub const DmBaseCost: Balance = 1_000_000_000_000;      // 1 MORAL
-    pub const DmByteCost: Balance = 50_000_000_000;         // 0.05 MORAL / byte
+    pub const DmBaseCost: Balance = 500_000_000_000;        // 0.5 MORAL (旧 1 MORAL から半減)
+    pub const DmByteCost: Balance = 40_000_000_000;         // 0.04 MORAL / byte (旧 0.05 から微減)
     pub const MaxDmCiphertextLen: u64 = 262_144;
 }
 

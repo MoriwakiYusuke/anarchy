@@ -32,10 +32,19 @@
 |---|---|---|
 | PoW miner | block_reward + tx_fees − hash_cost | 採掘継続 / 撤退 / 攻撃 |
 | Storage node | storage_reward − (disk_cost + bandwidth + opportunity_cost_of_stake) | 参加 / 撤退 / 怠惰 / 偽造 |
-| Poster | social_value(post) − post_cost | 投稿 / spam / 沈黙 |
-| Reactor | reaction_reward − cpu_cost | 善意反応 / Sybil farm / 沈黙 |
+| Poster | social_value(post) + author_reaction_income − post_cost | 投稿 / spam / 沈黙 |
+| Reactor | engagement_value − (cpu_cost + lock_opportunity_cost) | 善意反応 / Sybil farm / 沈黙 |
+| Post author | Σ(reactor 報酬) — Like 反応ごとに mint される (本実装の収益主体) | 良質投稿で集客 / バズ狙い |
 | DM 利用者 | privacy − dm_cost | 利用 / 撤退 |
+| DM 受信者 | stealth_reward (P6 配線後) | 受信メタアドレス公開を継続 |
 | 攻撃者 | attack_value − attack_cost | spam / Sybil / 51% / DoS |
+
+> **注 (2026-05-08 修正)**: `pallet_reaction::react` の実装では、Like 反応の報酬は **post author** に
+> mint される (`mint_into(&author, ...)`) — reactor 自身ではない。Reactor は CPU を投下することで
+> 「post author を稼がせる」プロトコルになっている。よって reactor の直接的金銭的効用はゼロまたは
+> マイナス (lock 機会費用 + cpu)。間接的には自身が投稿する側に回ったときに reaction_income を得る
+> インセンティブで、長期的に正となる。Sybil 防御 (γ + decay + lock) は author 稼ぎを薄めることで
+> spam-author を抑える二次効果も持つ。
 
 ### 1.2 現状モデルの 8 大破綻シナリオ
 

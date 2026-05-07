@@ -162,10 +162,11 @@ fn finalize_release_after_delay_returns_bond() {
 }
 
 #[test]
-fn slash_bond_reduces_amount_and_burns() {
+fn slash_bond_reduces_amount_and_burns_share() {
     new_ext().execute_with(|| {
         assert_ok!(StorageStake::bond(RuntimeOrigin::signed(1), 1_073_741_824));
         let initial_total = pallet_balances::Pallet::<Test>::total_issuance();
+        let initial_free = Balances::free_balance(1);
 
         // 1 MORAL slash
         let actual = <StorageStake as BondInfo<u64>>::slash_bond(&1, 1_000_000_000_000);
@@ -174,9 +175,11 @@ fn slash_bond_reduces_amount_and_burns() {
         let bond = StorageStake::bonds(1).expect("still bonded after partial slash");
         assert_eq!(bond.amount, 9_000_000_000_000); // 10 - 1 = 9 MORAL
 
-        // total issuance dropped by 1 MORAL (burn via slash_reserved)
+        // SlashBurnShare = 30% → 1 MORAL × 30% = 0.3 MORAL burn, 0.7 MORAL は free に戻る
         let final_total = pallet_balances::Pallet::<Test>::total_issuance();
-        assert_eq!(initial_total - final_total, 1_000_000_000_000);
+        let final_free = Balances::free_balance(1);
+        assert_eq!(initial_total - final_total, 300_000_000_000); // 0.3 MORAL burn
+        assert_eq!(final_free - initial_free, 700_000_000_000);  // 0.7 MORAL 返却
     });
 }
 
@@ -188,7 +191,7 @@ fn slash_bond_saturates_at_bond_amount() {
         let actual = <StorageStake as BondInfo<u64>>::slash_bond(&1, 100_000_000_000_000);
         assert_eq!(actual, 10_000_000_000_000); // saturated
 
-        // Bond removed entirely
+        // Bond removed entirely (10 MORAL × 30% = 3 MORAL burn, 7 MORAL は free に戻る)
         assert!(StorageStake::bonds(1).is_none());
         assert_eq!(StorageStake::total_active_bond(), 0);
     });
