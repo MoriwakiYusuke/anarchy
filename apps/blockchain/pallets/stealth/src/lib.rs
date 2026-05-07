@@ -27,6 +27,9 @@ pub mod pallet {
         traits::{Currency, ExistenceRequirement},
     };
     use frame_system::pallet_prelude::*;
+    // SCALE encode (claim message hashing 用) — codec は frame_support 経由で再 export 済みだが
+    // 明示する方が読みやすい。
+    use parity_scale_codec::Encode;
 
     /// Currency type alias
     pub type BalanceOf<T> =
@@ -270,35 +273,62 @@ pub mod pallet {
             Ok(())
         }
 
-        /// TSTS F2: stealth reward pool から DM 受信実績に応じて払い出す。
+        /// TSTS F2 / F2.5: stealth reward pool から DM 受信実績に応じて払い出す。
         ///
-        /// 呼び出しモデル: `ephemeral_pubkey` を持つ stealth address の所有者が
-        /// `signed origin` で extrinsic を発行する。payout は signer の `AccountId` に行く。
+        /// 呼び出しモデル: `ephemeral_pubkey` を持つ stealth address の所有者 (= one-time
+        /// stealth 秘密鍵を持つ受信者) が `signed origin` で extrinsic を発行する。
+        /// payout は signer の `AccountId` に行く。
         ///
-        /// **匿名性について**: ephemeral_pubkey の真の所有者であることを on-chain で検証することは
-        /// 現実装ではしない (curve point 検証や ed25519 署名チェックは wasm runtime の重みが大きい)。
-        /// 攻撃者が他人の ephemeral_pubkey を引数に passing しても、mint は **caller 自身の AccountId**
-        /// に行くだけなので「他人の ephemeral_pubkey に紐づく報酬を盗む」攻撃が成立する。
+        /// ## 認可モデル (F2.5)
         ///
-        /// ⚠ そのため **TSTS F2 v1 は認証なしの暫定仕様**。後続 PR で:
-        ///   1. ephemeral_pubkey から導かれる stealth_address の私有鍵による署名検証
-        ///   2. または zk-proof による所有証明
-        /// を導入する。当面は ephemeral_pubkey を秘匿する運用 (recipient のみ知る) を前提とする。
+        /// 受信者は wasm-engine の `derive_stealth_private_key(meta_address, ephemeral_pubkey)` で
+        /// **one-time ed25519 秘密鍵** を導出できる (EIP-5564 準拠)。
+        /// この秘密鍵で `(signer.AccountId, ephemeral_pubkey)` を SCALE encode したメッセージに
+        /// 署名し、検証 message + signature + stealth_pubkey を runtime に渡す。
+        ///
+        /// runtime は `sp_io::crypto::ed25519_verify` で署名検証する。secret_key を持たない
+        /// 攻撃者は他人の `ephemeral_pubkey` で claim しようとしても署名を作れない。
+        ///
+        /// **限界**: on-chain では `(ephemeral_pubkey, stealth_pubkey)` の対応関係を直接検証
+        /// できない (受信者の view_secret が必要)。理論上は攻撃者が **自分が制御する別の
+        /// stealth_pubkey** を渡し、その対応 ephemeral_pubkey の受信実績で claim する余地がある
+        /// が、その場合 attacker は自分自身の受信実績しか claim できないため経済的に無意味。
+        ///
+        /// 完全な対応関係証明 (ephemeral から H(s)*G + K_spend を on-chain 再計算) は
+        /// `K_spend / view_secret` の知識が必要で、後続 PR で zk-proof 化する。
         ///
         /// # Arguments
         /// * `ephemeral_pubkey` - DM 受信時に記録された ephemeral pubkey
+        /// * `stealth_pubkey` - one-time ed25519 公開鍵 (受信者がローカルで導出)
+        /// * `signature` - 上記秘密鍵による (signer, ephemeral_pubkey) の ed25519 署名 (64 bytes)
         ///
         /// # Errors
-        /// * `NoUnclaimedReceives` - 未 claim の受信実績がない (= claimed_count == received_count)
+        /// * `InvalidStealthSignature` - 署名検証失敗
+        /// * `NoUnclaimedReceives` - 未 claim の受信実績がない
         /// * `StealthRewardPoolEmpty` - プールが 0
-        /// * `ClaimAmountTooSmall` - 按分結果が 0 (受信実績が小さすぎる / pool が小さすぎる)
+        /// * `ClaimAmountTooSmall` - 按分結果が 0
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::send_to_stealth())]
         pub fn claim_stealth_reward(
             origin: OriginFor<T>,
             ephemeral_pubkey: [u8; 32],
+            stealth_pubkey: [u8; 32],
+            signature: [u8; 64],
         ) -> DispatchResult {
             let recipient = ensure_signed(origin)?;
+
+            // F2.5: ed25519 署名検証 (sp_io ホスト関数経由 — wasm runtime safe)
+            // メッセージ = SCALE(signer.AccountId, ephemeral_pubkey) で replay attack を防ぐ。
+            //   - 同じ signer 同じ ephemeral_pubkey なら何度送っても同一メッセージになるが、
+            //     `ClaimedReceiveCount` で二重 claim は別途 gate される
+            //   - 別 signer / 別 ephemeral_pubkey は別メッセージ → 流用不可
+            let message = (recipient.clone(), ephemeral_pubkey).encode();
+            let public = sp_core::ed25519::Public::from_raw(stealth_pubkey);
+            let sig = sp_core::ed25519::Signature::from_raw(signature);
+            ensure!(
+                sp_io::crypto::ed25519_verify(&sig, &message, &public),
+                Error::<T>::InvalidStealthSignature
+            );
 
             let received_count = RecipientReceiveCount::<T>::get(ephemeral_pubkey);
             let claimed_count = ClaimedReceiveCount::<T>::get(ephemeral_pubkey);

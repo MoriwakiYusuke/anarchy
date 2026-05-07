@@ -56,12 +56,37 @@ TSTS 経済モデル v1 の主要 KPI を可視化する。設計提案 [docs/ec
 
 ### Substrate Prometheus メトリクス取得
 
-`anarchy_*` プレフィックスのメトリクスは現状 **未実装** (本 PR で追加した dashboard JSON のみ)。
-`pallet-prometheus-exporter` 風の独自 exporter で `pallet_storage::RewardPoolBalance::<Runtime>::get()` 等を読み取って Prometheus に export する後続作業が必要。
+`anarchy_*` プレフィックスのメトリクスは [`scripts/prometheus-exporter.mjs`](../../scripts/prometheus-exporter.mjs)
+で emit する (TSTS F3)。PAPI で chain WS RPC に接続し、storage 値を polling
++ finalizedHead を subscribe してイベント駆動メトリクスをカウントする。
 
-短期的には:
-1. Substrate ノードの組込 Prometheus (`--prometheus-port 9615`) で一般メトリクスを Grafana に取り込む
-2. 補助 `scripts/anarchy-metrics-exporter.ts` を別途用意してチェーン RPC を polling し、独自メトリクス系列を追加で吐く
+```bash
+# 起動
+pnpm exporter:metrics
+# または環境変数で調整
+PORT=9620 WS_ENDPOINT=ws://127.0.0.1:9944 POLL_INTERVAL_MS=15000 \
+  node scripts/prometheus-exporter.mjs
+
+# 動作確認
+curl http://localhost:9620/metrics
+curl http://localhost:9620/healthz
+```
+
+Prometheus scrape 設定例 (`prometheus.yml`):
+
+```yaml
+scrape_configs:
+  - job_name: 'anarchy-substrate'
+    static_configs:
+      - targets: ['localhost:9615']  # Substrate 組込メトリクス
+  - job_name: 'anarchy-economy'
+    static_configs:
+      - targets: ['localhost:9620']  # この exporter
+    scrape_interval: 30s
+```
+
+注: PAPI の metadata で `api.query.<pallet>.<storage>` 名は実 chain の構造に合わせて
+解決される。pallet 名が異なる runtime では exporter の `api.query.*` パスを修正する。
 
 ### インポート手順
 

@@ -183,6 +183,7 @@ dependencies = [
  "pallet-base-fee",
  "pallet-block-reward",
  "pallet-difficulty",
+ "pallet-economic-params",
  "pallet-faucet",
  "pallet-grandpa",
  "pallet-grandpa-authority-election",
@@ -5491,6 +5492,21 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "pallet-economic-params"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
  "sp-core",
  "sp-io",
  "sp-runtime",

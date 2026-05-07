@@ -359,6 +359,34 @@ impl pallet_base_fee::Config for Runtime {
     type BaseFeeInit = BaseFeeInit;
 }
 
+// Economic Params (TSTS F5): governance-tunable パラメータの集中管理 pallet.
+// 詳細: pallet-economic-params/src/lib.rs
+parameter_types! {
+    pub DefaultPostStorageShare: Permill = Permill::from_percent(50);
+    pub DefaultPostReactionShare: Permill = Permill::from_percent(20);
+    pub DefaultDmStorageShare: Permill = Permill::from_percent(50);
+    pub DefaultDmStealthShare: Permill = Permill::from_percent(20);
+    pub DefaultMinerShareEcon: Permill = Permill::from_percent(50);
+    pub DefaultStorageShareEcon: Permill = Permill::from_percent(30);
+    pub DefaultReactionShareEcon: Permill = Permill::from_percent(20);
+}
+impl pallet_economic_params::Config for Runtime {
+    /// mainnet 初期は EnsureRoot (sudo) → 後続で multisig / referenda へ。
+    type GovernanceOrigin = frame_system::EnsureRoot<AccountId>;
+    type DefaultPostStorageSharePermill = DefaultPostStorageShare;
+    type DefaultPostReactionSharePermill = DefaultPostReactionShare;
+    type DefaultDmStorageSharePermill = DefaultDmStorageShare;
+    type DefaultDmStealthSharePermill = DefaultDmStealthShare;
+    type DefaultMinerSharePermill = DefaultMinerShareEcon;
+    type DefaultStorageSharePermill = DefaultStorageShareEcon;
+    type DefaultReactionSharePermill = DefaultReactionShareEcon;
+    type DefaultReactorLockMin = ConstU128<100_000_000_000>;
+    type DefaultBondPerGB = ConstU128<10_000_000_000_000>;
+    type DefaultSlashRatePerFailPpm = ConstU32<50_000>;
+    type DefaultBaseFeeMin = ConstU128<100>;
+    type DefaultBaseFeeMax = ConstU128<100_000_000_000>;
+}
+
 /// pallet_post / pallet_messaging 用の薄い adapter.
 /// それぞれの pallet が独自の `BaseFeeProvider` trait を持つので、ここで両方を満たす。
 pub struct BaseFeeAdapter;
@@ -640,6 +668,7 @@ construct_runtime!(
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
         // カスタムパレット (Storage must be before Post for tight coupling)
+        EconomicParams: pallet_economic_params,
         BaseFee: pallet_base_fee,
         StorageStake: pallet_storage_stake,
         Storage: pallet_storage,

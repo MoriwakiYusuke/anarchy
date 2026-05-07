@@ -112,7 +112,25 @@ fn send_to_stealth_fails_with_insufficient_balance() {
     });
 }
 
-// ─── TSTS F2: claim_stealth_reward extrinsic + compute_claim_amount ─────────────
+// ─── TSTS F2 / F2.5: claim_stealth_reward extrinsic + compute_claim_amount ─────
+
+use parity_scale_codec::Encode;
+use sp_core::{ed25519, Pair};
+
+/// Test helper: ed25519 鍵ペアを seed から決定的に生成し、
+/// `(signer, ephemeral_pubkey)` のメッセージに署名する。
+fn ed25519_sign_for_claim(
+    seed: u8,
+    signer: u64,
+    ephemeral_pubkey: [u8; 32],
+) -> ([u8; 32], [u8; 64]) {
+    let pair = ed25519::Pair::from_seed_slice(&[seed; 32])
+        .expect("seed length 32 → ed25519 Pair");
+    let stealth_pubkey: [u8; 32] = pair.public().into();
+    let message = (signer, ephemeral_pubkey).encode();
+    let signature: [u8; 64] = pair.sign(&message).into();
+    (stealth_pubkey, signature)
+}
 
 #[test]
 fn compute_claim_amount_proportional_to_unclaimed() {
@@ -141,26 +159,71 @@ fn compute_claim_amount_capped_by_per_claim_cap() {
 }
 
 #[test]
-fn claim_stealth_reward_pays_caller_proportionally() {
+fn claim_stealth_reward_pays_caller_with_valid_signature() {
     new_test_ext().execute_with(|| {
-        // pool に 1000 MORAL, ALICE が 5 通受信した想定で claim
         let eph = [9u8; 32];
+        let (stealth_pk, sig) = ed25519_sign_for_claim(7, ALICE, eph);
+
         StealthPallet::deposit_to_reward_pool(1_000_000_000_000_000); // 1000 MORAL
         for _ in 0..5 {
             StealthPallet::record_recipient_receive(eph);
         }
-        // total_received=5 のうち unclaimed=5 → 100% × pool × cap(10%) = pool × 10% = 100 MORAL
         let alice_initial = Balances::free_balance(ALICE);
         assert_ok!(StealthPallet::claim_stealth_reward(
             RuntimeOrigin::signed(ALICE),
             eph,
+            stealth_pk,
+            sig,
         ));
         let alice_final = Balances::free_balance(ALICE);
         assert_eq!(alice_final - alice_initial, 100_000_000_000_000); // 100 MORAL (cap で頭打ち)
-        // pool 残高: 1000 - 100 = 900 MORAL
         assert_eq!(StealthPallet::stealth_reward_pool(), 900_000_000_000_000);
-        // claimed_count が received_count と同期
         assert_eq!(StealthPallet::claimed_receive_count(eph), 5);
+    });
+}
+
+#[test]
+fn claim_stealth_reward_rejects_invalid_signature() {
+    new_test_ext().execute_with(|| {
+        let eph = [9u8; 32];
+        let (stealth_pk, _good_sig) = ed25519_sign_for_claim(7, ALICE, eph);
+        let bad_sig = [0u8; 64]; // 全 0 → 検証失敗
+
+        StealthPallet::deposit_to_reward_pool(1_000_000_000_000_000);
+        for _ in 0..5 {
+            StealthPallet::record_recipient_receive(eph);
+        }
+        assert_noop!(
+            StealthPallet::claim_stealth_reward(
+                RuntimeOrigin::signed(ALICE),
+                eph,
+                stealth_pk,
+                bad_sig,
+            ),
+            Error::<Test>::InvalidStealthSignature
+        );
+    });
+}
+
+#[test]
+fn claim_stealth_reward_rejects_signature_for_different_signer() {
+    new_test_ext().execute_with(|| {
+        let eph = [9u8; 32];
+        // BOB 用に署名を作る
+        let (stealth_pk, sig_for_bob) = ed25519_sign_for_claim(7, BOB, eph);
+
+        StealthPallet::deposit_to_reward_pool(1_000_000_000_000_000);
+        StealthPallet::record_recipient_receive(eph);
+        // ALICE が BOB 用署名を流用しようとしても message が違うので検証失敗
+        assert_noop!(
+            StealthPallet::claim_stealth_reward(
+                RuntimeOrigin::signed(ALICE),
+                eph,
+                stealth_pk,
+                sig_for_bob,
+            ),
+            Error::<Test>::InvalidStealthSignature
+        );
     });
 }
 
@@ -168,10 +231,16 @@ fn claim_stealth_reward_pays_caller_proportionally() {
 fn claim_stealth_reward_fails_without_unclaimed() {
     new_test_ext().execute_with(|| {
         let eph = [9u8; 32];
+        let (stealth_pk, sig) = ed25519_sign_for_claim(7, ALICE, eph);
         StealthPallet::deposit_to_reward_pool(1_000_000_000_000);
-        // 受信 0 のまま claim → NoUnclaimedReceives
+        // 受信 0 のまま claim → NoUnclaimedReceives (署名は valid)
         assert_noop!(
-            StealthPallet::claim_stealth_reward(RuntimeOrigin::signed(ALICE), eph),
+            StealthPallet::claim_stealth_reward(
+                RuntimeOrigin::signed(ALICE),
+                eph,
+                stealth_pk,
+                sig,
+            ),
             Error::<Test>::NoUnclaimedReceives
         );
     });
@@ -181,10 +250,15 @@ fn claim_stealth_reward_fails_without_unclaimed() {
 fn claim_stealth_reward_fails_when_pool_empty() {
     new_test_ext().execute_with(|| {
         let eph = [9u8; 32];
+        let (stealth_pk, sig) = ed25519_sign_for_claim(7, ALICE, eph);
         StealthPallet::record_recipient_receive(eph);
-        // pool に何も deposit してない → StealthRewardPoolEmpty
         assert_noop!(
-            StealthPallet::claim_stealth_reward(RuntimeOrigin::signed(ALICE), eph),
+            StealthPallet::claim_stealth_reward(
+                RuntimeOrigin::signed(ALICE),
+                eph,
+                stealth_pk,
+                sig,
+            ),
             Error::<Test>::StealthRewardPoolEmpty
         );
     });
@@ -194,15 +268,25 @@ fn claim_stealth_reward_fails_when_pool_empty() {
 fn double_claim_returns_no_unclaimed_receives() {
     new_test_ext().execute_with(|| {
         let eph = [9u8; 32];
+        let (stealth_pk, sig) = ed25519_sign_for_claim(7, ALICE, eph);
         StealthPallet::deposit_to_reward_pool(1_000_000_000_000_000);
         for _ in 0..5 {
             StealthPallet::record_recipient_receive(eph);
         }
-        // 1 回目: 成功
-        assert_ok!(StealthPallet::claim_stealth_reward(RuntimeOrigin::signed(ALICE), eph));
+        assert_ok!(StealthPallet::claim_stealth_reward(
+            RuntimeOrigin::signed(ALICE),
+            eph,
+            stealth_pk,
+            sig,
+        ));
         // 2 回目: 新規受信なし → unclaimed=0
         assert_noop!(
-            StealthPallet::claim_stealth_reward(RuntimeOrigin::signed(ALICE), eph),
+            StealthPallet::claim_stealth_reward(
+                RuntimeOrigin::signed(ALICE),
+                eph,
+                stealth_pk,
+                sig,
+            ),
             Error::<Test>::NoUnclaimedReceives
         );
     });
