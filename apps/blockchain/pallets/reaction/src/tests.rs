@@ -58,7 +58,8 @@ impl frame_system::Config for Test {
 
 impl pallet_balances::Config for Test {
     type MaxLocks = ConstU32<50>;
-    type MaxReserves = ();
+    /// Tests: reactor lock の reserve に対応 (TSTS P5)
+    type MaxReserves = ConstU32<50>;
     type ReserveIdentifier = [u8; 8];
     type Balance = u128;
     type RuntimeEvent = RuntimeEvent;
@@ -86,8 +87,18 @@ impl pallet_reaction::PostAuthorProvider<u64> for MockPostAuthorProvider {
     }
 }
 
+/// TSTS P5: 単純な TotalIssuance provider mock。
+/// 既存テストは固定 fallback (γ_max=0) を使うので 0 を返してOK。
+pub struct MockTotalIssuance;
+impl pallet_reaction::pallet::TotalIssuanceProvider for MockTotalIssuance {
+    fn total_issuance() -> u128 {
+        0
+    }
+}
+
 impl pallet_reaction::Config for Test {
     type NativeToken = Balances;
+    type ReservableCurrency = Balances;
     type PostAuthorProvider = MockPostAuthorProvider;
     type ReactionReward = ConstU128<1_000_000_000_000>; // 1 MORAL
     type BaseDifficulty = ConstU8<8>;
@@ -98,6 +109,14 @@ impl pallet_reaction::Config for Test {
     type AdjustmentWindow = ConstU64<10>;
     type AdjustmentDivisor = ConstU32<2>;
     type Popularity = ();
+    /// Tests: γ_max=0 で旧 fixed reward fallback (テストの assert を維持)
+    type TotalIssuanceProvider = MockTotalIssuance;
+    type GammaMaxPpm = ConstU32<0>;
+    type ReactorDecayK = ConstU32<0>;
+    type PerBlockPayoutCapPpm = ConstU32<0>;
+    /// Tests: lock 0 → reactor lock 不要 (旧挙動)
+    type ReactorLockMin = ConstU128<0>;
+    type ReactorLockDuration = ConstU64<0>;
 }
 
 fn new_test_ext() -> sp_io::TestExternalities {
@@ -618,3 +637,44 @@ fn test_react_without_stealth_recipient() {
         assert_eq!(stats.likes, 1);
     });
 }
+
+
+// ─── TSTS P5: compute_reward / sqrt_ppm pure-function tests ─────────────────────
+
+#[test]
+fn sqrt_ppm_identity_at_one() {
+    // sqrt(1.0) = 1.0 → ppm 1_000_000
+    assert_eq!(Reaction::sqrt_ppm(1_000_000), 1_000_000);
+}
+
+#[test]
+fn sqrt_ppm_quarter_returns_half() {
+    // sqrt(0.25) = 0.5 → ppm 500_000
+    let r = Reaction::sqrt_ppm(250_000);
+    // 整数 sqrt なので ±1 ppm の誤差を許容
+    assert!((r as i128 - 500_000).abs() <= 1, "got {}", r);
+}
+
+#[test]
+fn sqrt_ppm_zero_is_zero() {
+    assert_eq!(Reaction::sqrt_ppm(0), 0);
+}
+
+#[test]
+fn compute_reward_falls_back_to_fixed_when_gamma_max_zero() {
+    // γ_max=0 (テスト Config 標準) なら ReactionReward を pool 残高でクリップして返す
+    new_test_ext().execute_with(|| {
+        let pool = 5_000_000_000_000u128; // 5 MORAL
+        let r = Reaction::compute_reward(pool, 0, 0);
+        assert_eq!(r, 1_000_000_000_000); // ReactionReward = 1 MORAL
+    });
+}
+
+#[test]
+fn compute_reward_returns_zero_when_pool_empty_in_fallback() {
+    new_test_ext().execute_with(|| {
+        let r = Reaction::compute_reward(0, 0, 0);
+        assert_eq!(r, 0);
+    });
+}
+

@@ -78,7 +78,7 @@ fn send_dm_succeeds_for_every_bucket_size() {
 }
 
 #[test]
-fn send_dm_splits_fee_80_10_10() {
+fn send_dm_splits_fee_50_20_30() {
     new_test_ext().execute_with(|| {
         let bucket = 4_096u64;
         let cost = expected_cost(bucket);
@@ -93,8 +93,9 @@ fn send_dm_splits_fee_80_10_10() {
             bucket,
         ));
 
-        let storage_share = cost * 80 / 100;
-        let stealth_share = cost * 10 / 100;
+        // TSTS v1: 50% storage / 20% stealth / 30% burn
+        let storage_share = cost * 50 / 100;
+        let stealth_share = cost * 20 / 100;
 
         assert_eq!(storage_pool_deposits(), storage_share);
         assert_eq!(stealth_reward_deposits(), stealth_share);

@@ -672,7 +672,10 @@
 ### 4.4 Mainnet設計・経済パラメータ（トークノミクス統合）
 
 > 4.6の経済設計と統合。詳細設計は 4.5, 4.7 を参照。
-> 現状コードに存在する経済関連変数の全棚卸しは [`docs/economic_parameters.md`](economic_parameters.md) を参照。
+> - 現状コードに存在する経済関連変数の全棚卸し: [`docs/economic_parameters.md`](economic_parameters.md)
+> - **経済モデル設計提案 (TSTS) 2026-05-07**: [`docs/economic_model_proposal.md`](economic_model_proposal.md)
+> - **実装計画 (8〜10 営業日)**: [`docs/economic_model_implementation_plan.md`](economic_model_implementation_plan.md)
+> - シミュレータ: [`docs/economic/simulator.py`](economic/simulator.py)
 
 - [ ] **経済合理性に基づく定数制定**
   - [ ] PostBaseCost / PostByteCost の最適値検証

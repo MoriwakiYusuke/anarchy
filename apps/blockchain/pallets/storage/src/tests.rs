@@ -101,6 +101,8 @@ impl pallet_storage::Config for Test {
     type MaxChallengesPerBlock = ConstU32<10>;       // Rate limit challenges
     type NativeToken = Balances;                     // T084: Use Balances for rewards
     type MinWithdrawalAmount = ConstU128<500_000_000_000_000>; // 500 MORAL (013-slashing-repair)
+    /// Tests: 0 = pool ratio decay 無効 (TSTS P3、旧挙動互換)
+    type StoragePoolTarget = ConstU128<0>;
 }
 
 /// Build test externalities

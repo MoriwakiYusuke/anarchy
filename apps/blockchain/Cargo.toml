@@ -14,6 +14,8 @@ members = [
     "pallets/difficulty",
     "pallets/block_reward",
     "pallets/grandpa_authority_election",
+    "pallets/storage_stake",
+    "pallets/base_fee",
     "primitives/pow",
 ]
 
@@ -110,6 +112,8 @@ pallet-messaging = { path = "pallets/messaging", default-features = false }
 pallet-difficulty = { path = "pallets/difficulty", default-features = false }
 pallet-block-reward = { path = "pallets/block_reward", default-features = false }
 pallet-grandpa-authority-election = { path = "pallets/grandpa_authority_election", default-features = false }
+pallet-storage-stake = { path = "pallets/storage_stake", default-features = false }
+pallet-base-fee = { path = "pallets/base_fee", default-features = false }
 primitives-pow = { path = "primitives/pow", default-features = false }
 anarchy-runtime = { path = "runtime" }
 

@@ -13,7 +13,7 @@ use sp_api::impl_runtime_apis;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
-    generic, impl_opaque_keys, Perbill,
+    generic, impl_opaque_keys, Perbill, Permill,
     traits::{BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify},
     transaction_validity::{TransactionSource, TransactionValidity},
     ApplyExtrinsicResult, MultiSignature,
@@ -73,10 +73,13 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: Cow::Borrowed("anarchy"),
     impl_name: Cow::Borrowed("anarchy"),
     authoring_version: 1,
-    spec_version: 107,  // Bumped: PoW migration Phase B (pallet_aura removed, PoW pallets wired in)
+    spec_version: 108,  // Bumped: TSTS economic model v1 (block_reward fan-out + tail, base_fee, storage_stake, dynamic γ, stealth wiring, faucet cap)
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
-    transaction_version: 2,  // SignedExtra structure changed (no tip)
+    // SignedExtra 構造は不変 (新 extrinsic 追加のみで形式変更なし)。よって 2 のまま。
+    // 新規 call は `CheckSpecVersion` で spec_version=108 に bound されるので、
+    // 旧クライアントから古い Encode を post すれば SpecVersion チェックで弾かれる。
+    transaction_version: 2,
     system_version: 1,
 };
 
@@ -215,18 +218,56 @@ impl frame_support::traits::FindAuthor<AccountId> for PowAuthorAdapter {
     }
 }
 
-// Block reward (Bitcoin-style halving)
+// Block reward (TSTS v1: 3-way fan-out + tail emission)
+//
+// 旧モデル (v0): 100% miner mint, halving 64 回後に 0 → 51% 攻撃コスト 0
+// 新モデル (v1): 50% miner / 30% storage pool / 20% reaction pool, tail = 0.5 MORAL
+//
+// 詳細: docs/economic_model_proposal.md §3.2.1
 parameter_types! {
     pub const InitialBlockReward: Balance = 5_000_000_000_000;       // 5 MORAL = 5e12
+    pub const TailEmission: Balance = 500_000_000_000;                // 0.5 MORAL = 5e11 (永続)
     pub const HalvingPeriod: BlockNumber = 4_204_800;                 // ~4 years @30s
     pub const MaxHalvings: u32 = 64;
+    pub MinerSharePermill: Permill = Permill::from_percent(50);
+    pub StorageSharePermill: Permill = Permill::from_percent(30);
+    pub ReactionSharePermill: Permill = Permill::from_percent(20);
 }
+
+/// Storage プール sink: pallet_storage::do_deposit_to_reward_pool に転送する adapter。
+///
+/// `pallet_block_reward::PoolDeposit` が要求する単純な `do_deposit(u128)` を
+/// `pallet_storage::StorageInterface` の同名メソッドに直接 forward する。
+pub struct StoragePoolSinkAdapter;
+impl pallet_block_reward::pallet::PoolDeposit for StoragePoolSinkAdapter {
+    fn do_deposit(amount: u128) {
+        <pallet_storage::Pallet<Runtime> as pallet_storage::StorageInterface<
+            AccountId,
+            BlockNumber,
+        >>::do_deposit_to_reward_pool(amount);
+    }
+}
+
+/// Reaction プール sink: pallet_reaction::do_deposit_to_reaction_pool に転送する adapter。
+pub struct ReactionPoolSinkAdapter;
+impl pallet_block_reward::pallet::PoolDeposit for ReactionPoolSinkAdapter {
+    fn do_deposit(amount: u128) {
+        <pallet_reaction::Pallet<Runtime> as pallet_reaction::ReactionInterface>::do_deposit_to_reaction_pool(amount);
+    }
+}
+
 impl pallet_block_reward::Config for Runtime {
     type Currency = Balances;
     type InitialReward = InitialBlockReward;
+    type TailEmission = TailEmission;
     type HalvingPeriod = HalvingPeriod;
     type MaxHalvings = MaxHalvings;
     type AuthorOrigin = PowAuthorAdapter;
+    type MinerSharePermill = MinerSharePermill;
+    type StorageSharePermill = StorageSharePermill;
+    type ReactionSharePermill = ReactionSharePermill;
+    type StoragePoolSink = StoragePoolSinkAdapter;
+    type ReactionPoolSink = ReactionPoolSinkAdapter;
 }
 
 // GRANDPA authority election (top-K miner rotation)
@@ -287,20 +328,75 @@ impl pallet_sudo::Config for Runtime {
     type WeightInfo = ();
 }
 
-// Post Pallet設定
+// Storage Stake (TSTS P4): Storage node の skin-in-the-game.
+// 詳細: docs/economic_model_proposal.md §3.2.5
+parameter_types! {
+    pub const BondPerGB: Balance = 10_000_000_000_000;       // 10 MORAL/GB
+    pub const MinDeclaredCapacity: u64 = 1_073_741_824;       // 1 GB
+    pub const BondReleaseDelay: BlockNumber = 100_800;        // 7 days @ 30s
+    pub SlashBurnSharePermill: Permill = Permill::from_percent(30);
+}
+impl pallet_storage_stake::Config for Runtime {
+    type Currency = Balances;
+    type BondPerGB = BondPerGB;
+    type MinDeclaredCapacity = MinDeclaredCapacity;
+    type BondReleaseDelay = BondReleaseDelay;
+    type SlashBurnSharePermill = SlashBurnSharePermill;
+}
+
+// Base Fee (TSTS P2): EIP-1559 風動的手数料.
+// 詳細: docs/economic_model_proposal.md §3.2.2
+parameter_types! {
+    pub const GasTargetBytesPerBlock: u32 = 50_000;            // 50 KB target
+    pub const BaseFeeMin: u128 = 100;                           // 1e-10 MORAL/byte
+    pub const BaseFeeMax: u128 = 100_000_000_000;                // 0.1 MORAL/byte cap
+    pub const BaseFeeInit: u128 = 10_000;                        // 1e-8 MORAL/byte (genesis)
+}
+impl pallet_base_fee::Config for Runtime {
+    type GasTargetBytesPerBlock = GasTargetBytesPerBlock;
+    type BaseFeeMin = BaseFeeMin;
+    type BaseFeeMax = BaseFeeMax;
+    type BaseFeeInit = BaseFeeInit;
+}
+
+/// pallet_post / pallet_messaging 用の薄い adapter.
+/// それぞれの pallet が独自の `BaseFeeProvider` trait を持つので、ここで両方を満たす。
+pub struct BaseFeeAdapter;
+impl pallet_post::pallet::BaseFeeProvider for BaseFeeAdapter {
+    fn current_base_fee() -> u128 {
+        <pallet_base_fee::Pallet<Runtime> as pallet_base_fee::BaseFeeProvider>::current_base_fee()
+    }
+    fn record_gas(bytes: u32) {
+        <pallet_base_fee::Pallet<Runtime> as pallet_base_fee::BaseFeeProvider>::record_gas(bytes)
+    }
+}
+impl pallet_messaging::BaseFeeProvider for BaseFeeAdapter {
+    fn current_base_fee() -> u128 {
+        <pallet_base_fee::Pallet<Runtime> as pallet_base_fee::BaseFeeProvider>::current_base_fee()
+    }
+    fn record_gas(bytes: u32) {
+        <pallet_base_fee::Pallet<Runtime> as pallet_base_fee::BaseFeeProvider>::record_gas(bytes)
+    }
+}
+
+// Post Pallet設定 (TSTS P2: BaseFee 適用 + コスト本体を spec §3.2.3 の mainnet 推奨値に更新)
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
     type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
     type Reaction = Reaction;  // Reaction Pallet for reward pool deposits
     type MaxContentLength = ConstU32<1_073_741_824>; // 1GB (画像含むコンテンツ対応)
-    /// 基本コスト: 100 MORAL
-    type PostBaseCost = ConstU128<100_000_000_000_000>;
-    /// バイト単価: 0.001 MORAL/byte
-    type PostByteCost = ConstU128<1_000_000_000>;
+    /// 基本コスト: 50 MORAL (旧 100 MORAL から半減).
+    /// base_fee の上乗せ + 累積 burn 30% でデフレ圧は維持しつつ通常利用の価格を引き下げる。
+    type PostBaseCost = ConstU128<50_000_000_000_000>;
+    /// バイト単価: 0.0008 MORAL/byte (旧 0.001 から微減).
+    /// `PostByteTip` 相当の storage tip 部分。混雑時は base_fee が動的に上乗せされる。
+    type PostByteCost = ConstU128<800_000_000>;
     type Popularity = Popularity;
+    /// TSTS P2: EIP-1559 base fee (混雑時のみ高くなる、平常時は ~0)
+    type BaseFee = BaseFeeAdapter;
 }
 
-// Faucet Pallet設定
+// Faucet Pallet設定 (TSTS P7: 累積発行上限を導入)
 impl pallet_faucet::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
     /// 初期難易度: 18ビット（約3秒）
@@ -313,6 +409,9 @@ impl pallet_faucet::Config for Runtime {
     type RewardAmount = ConstU128<100_000_000_000_000>;
     /// チャレンジ有効期限: 100ブロック (BlockNumber = u32)
     type ChallengeValidity = ConstU32<100>;
+    /// 累積発行上限: 100,000 MORAL (1000 claims) — bootstrap 専用 (TSTS sunset).
+    /// この値到達後は `FaucetCapReached` で claim が失敗する。
+    type TotalCap = ConstU128<100_000_000_000_000_000>;
 }
 
 // Storage Pallet設定
@@ -343,11 +442,16 @@ impl pallet_storage::Config for Runtime {
     type BasePowDifficulty = ConstU8<12>;
     /// HTTP URL最大長: 256バイト
     type MaxHttpUrlLen = ConstU32<256>;
-    /// バイトあたり基本報酬: 1 unit (12 decimals = 1e-12 MORAL/byte).
-    /// NOTE: This is a very conservative default intended primarily for testing.
-    ///       Production deployments should adjust this value based on network
-    ///       economics (token price, desired incentives) and storage costs.
-    type BaseRewardPerByte = ConstU128<1>;
+    /// バイトあたり基本報酬: 5_000 units = 5 × 10^-9 MORAL/byte = 5 nano-MORAL/byte.
+    ///
+    /// 単位計算: 1 MORAL = 10^12 units, 1 nano-MORAL = 10^-9 MORAL = 10^3 units.
+    /// → 5 nano-MORAL/byte = 5 × 10^3 units/byte = 5_000 units/byte.
+    ///
+    /// TSTS P3 で旧 1 unit (= 1e-12 MORAL/byte) から 5_000 units (= 5e-9 MORAL/byte) に強化。
+    /// シミュレーションで storage 支払総額が ~1,580× に増え、ノード参加インセンティブが立つ。
+    /// プールが target 以下のときは線形 decay されるので過剰流出も起きない。
+    /// (Copilot review #3197956308 で指摘された 5_000_000_000 → 5_000 への単位修正)
+    type BaseRewardPerByte = ConstU128<5_000>;
     /// 報酬対象スコア閾値: 100
     type ScoreThreshold = ConstU64<100>;
     /// スコアヒステリシスマージン: 20 (回復には閾値+20必要)
@@ -356,6 +460,12 @@ impl pallet_storage::Config for Runtime {
     type MaxChallengesPerBlock = ConstU32<10>;
     /// 報酬引き出し下限: 500 MORAL (500_000_000_000_000 with 12 decimals)
     type MinWithdrawalAmount = ConstU128<500_000_000_000_000>;
+    /// Storage pool target balance: 500,000 MORAL.
+    ///
+    /// `calculate_reward_v2` でプール残高がこれ以下になると線形に payout を絞る。
+    /// TSTS P3: σ_storage がターゲットを下回ったときに自動的に支払率が下がるため、
+    /// プール枯渇前のソフトランディングが効く。
+    type StoragePoolTarget = ConstU128<500_000_000_000_000_000>;
 }
 
 // Nickname Pallet設定
@@ -382,16 +492,34 @@ impl pallet_reaction::PostAuthorProvider<AccountId> for PostAuthorProviderImpl {
 }
 
 // 1 MORAL = 1_000_000_000_000 (12 decimals)
+//
+// TSTS P5: Reaction Pallet を動的 γ + reactor decay + reactor lock に拡張。
+// 詳細: docs/economic_model_proposal.md §3.2.6
 parameter_types! {
+    /// 旧固定報酬 (γ_max=0 時の fallback)。動的計算が有効なら未使用。
     pub const ReactionReward: Balance = 1_000_000_000_000;
+}
+
+/// TotalIssuance を pallet_balances から取得する adapter (TSTS P5).
+///
+/// pallet_reaction が pallet_balances に直接依存しないようにするための薄い橋渡し。
+pub struct BalancesTotalIssuance;
+impl pallet_reaction::pallet::TotalIssuanceProvider for BalancesTotalIssuance {
+    fn total_issuance() -> u128 {
+        use sp_runtime::traits::SaturatedConversion;
+        let v = pallet_balances::Pallet::<Runtime>::total_issuance();
+        v.saturated_into()
+    }
 }
 
 impl pallet_reaction::Config for Runtime {
     /// Native token ($moral) for reward payouts
     type NativeToken = Balances;
+    /// ReservableCurrency: reactor_lock の reserve / unreserve 用
+    type ReservableCurrency = Balances;
     /// Provider for getting post authors
     type PostAuthorProvider = PostAuthorProviderImpl;
-    /// Fixed reward: 1 MORAL per reaction
+    /// Fixed reward fallback (γ_max=0 時のみ使用)
     type ReactionReward = ReactionReward;
     /// Base PoW difficulty: 16 leading zero bits
     type BaseDifficulty = ConstU8<16>;
@@ -408,6 +536,19 @@ impl pallet_reaction::Config for Runtime {
     /// Adjustment divisor: 4 (smooth changes)
     type AdjustmentDivisor = ConstU32<4>;
     type Popularity = Popularity;
+    /// TSTS P5: TotalIssuance を pallet_balances から取得する adapter
+    type TotalIssuanceProvider = BalancesTotalIssuance;
+    /// TSTS P5: γ_max = 1% (10000 ppm). 0 にすると ReactionReward に縮退する
+    type GammaMaxPpm = ConstU32<10_000>;
+    /// TSTS P5: reactor decay K = 100 (100 反応で √2 倍薄まる)
+    type ReactorDecayK = ConstU32<100>;
+    /// TSTS P5: per-block payout cap = pool × 17 ppm (≒ 5%/day at 2880 blocks/day)
+    /// 5% × 1e6 / 2880 ≒ 17 ppm. Sybil 大量攻撃でも 1 day で pool の 5% 以上は流出しない。
+    type PerBlockPayoutCapPpm = ConstU32<17>;
+    /// TSTS P5: reactor lock minimum = 0.1 MORAL = 1e11 units
+    type ReactorLockMin = ConstU128<100_000_000_000>;
+    /// TSTS P5: reactor lock duration = 24h = 2880 blocks @ 30s
+    type ReactorLockDuration = ConstU32<2_880>;
 }
 
 // Popularity Pallet設定 — pallet-post / pallet-reaction の push 通知を受けて
@@ -438,23 +579,42 @@ impl pallet_popularity::Config for Runtime {
 }
 
 // Messaging (DM) Pallet設定 — contracts/pallet-messaging-extrinsics.md §Dependencies
-// StealthReward 還流先は pallet-stealth に reward pool trait が追加されるまで no-op (())。
-// 10% の還流分は暫定的に burn と同等の扱いになる (追加 burn としてドキュメント化)。
+//
+// TSTS P6: StealthReward 還流先を pallet_stealth に配線済み。20% が stealth pool に流入し、
+// 受信エフェメラル公開鍵ごとの受信回数も記録される。詳細: docs/economic_model_proposal.md §3.2.4
+// TSTS P2 整合: コスト本体を spec §3.2.4 の mainnet 推奨値 (DmBase=0.5, DmByte=0.04) に更新。
 parameter_types! {
-    pub const DmBaseCost: Balance = 1_000_000_000_000;      // 1 MORAL
-    pub const DmByteCost: Balance = 50_000_000_000;         // 0.05 MORAL / byte
+    pub const DmBaseCost: Balance = 500_000_000_000;        // 0.5 MORAL (旧 1 MORAL から半減)
+    pub const DmByteCost: Balance = 40_000_000_000;         // 0.04 MORAL / byte (旧 0.05 から微減)
     pub const MaxDmCiphertextLen: u64 = 262_144;
+}
+
+/// pallet_messaging::StealthRewardInterface を pallet_stealth::Pallet に橋渡しする adapter。
+///
+/// 直接 `impl<T: pallet_stealth::Config> StealthRewardInterface for pallet_stealth::Pallet<T>`
+/// を書くと pallet_stealth crate が pallet_messaging に依存することになり循環するため、
+/// runtime crate 側でこの薄い adapter を実装する。
+pub struct StealthRewardAdapter;
+impl pallet_messaging::StealthRewardInterface for StealthRewardAdapter {
+    fn do_deposit_to_stealth_reward_pool(amount: u128) {
+        pallet_stealth::Pallet::<Runtime>::deposit_to_reward_pool(amount);
+    }
+    fn record_recipient_receive(ephemeral_pubkey: [u8; 32]) {
+        pallet_stealth::Pallet::<Runtime>::record_recipient_receive(ephemeral_pubkey);
+    }
 }
 
 impl pallet_messaging::Config for Runtime {
     type NativeToken = Balances;
     type Storage = Storage;
-    type StealthReward = ();
+    type StealthReward = StealthRewardAdapter;
     type MaxDispatchesPerBlock = ConstU32<256>;
     type DmBaseCost = DmBaseCost;
     type DmByteCost = DmByteCost;
     type MaxDmCiphertextLen = MaxDmCiphertextLen;
     type WeightInfo = pallet_messaging::weights::SubstrateWeight<Runtime>;
+    /// TSTS P2: EIP-1559 base fee
+    type BaseFee = BaseFeeAdapter;
 }
 
 // Runtime構築
@@ -470,6 +630,8 @@ construct_runtime!(
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
         // カスタムパレット (Storage must be before Post for tight coupling)
+        BaseFee: pallet_base_fee,
+        StorageStake: pallet_storage_stake,
         Storage: pallet_storage,
         Post: pallet_post,
         Faucet: pallet_faucet,

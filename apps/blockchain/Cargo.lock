@@ -180,6 +180,7 @@ dependencies = [
  "frame-system",
  "frame-system-rpc-runtime-api",
  "pallet-balances",
+ "pallet-base-fee",
  "pallet-block-reward",
  "pallet-difficulty",
  "pallet-faucet",
@@ -192,6 +193,7 @@ dependencies = [
  "pallet-reaction",
  "pallet-stealth",
  "pallet-storage",
+ "pallet-storage-stake",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",
@@ -5448,6 +5450,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-base-fee"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-block-reward"
 version = "0.1.0"
 dependencies = [
@@ -5675,6 +5693,22 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "pallet-storage-stake"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
  "sp-core",
  "sp-io",
  "sp-runtime",

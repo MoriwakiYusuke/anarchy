@@ -60,6 +60,29 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// Stealth reward pool (TSTS P6).
+    ///
+    /// `pallet_messaging` の DM コスト 20% 還流 + 将来の追加流入経路を保持する。
+    /// `claim_stealth_reward` extrinsic で受信実績に応じて分配する (現実装は単純按分予定)。
+    /// 単位は MORAL の最小単位 (= 1e-12 MORAL)。
+    #[pallet::storage]
+    #[pallet::getter(fn stealth_reward_pool)]
+    pub type StealthRewardPool<T: Config> = StorageValue<_, u128, ValueQuery>;
+
+    /// 受信エフェメラル公開鍵ごとの累積受信回数 (TSTS P6).
+    ///
+    /// `claim_stealth_reward` の対象選別に使う。匿名性を保つため stealth_address (= AccountId) ではなく
+    /// `[u8; 32]` の ephemeral_pubkey をキーにする (sender 視点の単位)。
+    #[pallet::storage]
+    #[pallet::getter(fn recipient_receive_count)]
+    pub type RecipientReceiveCount<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        [u8; 32],
+        u32,
+        ValueQuery,
+    >;
+
     /// Events
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -70,6 +93,10 @@ pub mod pallet {
             stealth_address: T::AccountId,
             amount: BalanceOf<T>,
         },
+        /// Stealth reward pool に金額が deposit された (TSTS P6)
+        StealthRewardDeposit { amount: u128 },
+        /// 受信エフェメラル公開鍵の受信回数が increment された (TSTS P6)
+        RecipientReceiveCounted { ephemeral_pubkey: [u8; 32], new_count: u32 },
     }
 
     /// Errors
@@ -81,6 +108,33 @@ pub mod pallet {
         TooManyEntriesInBlock,
         /// 送信者の残高不足
         InsufficientBalance,
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Stealth reward pool に額を deposit (TSTS P6).
+        ///
+        /// runtime 側 adapter から呼び出す想定。`pallet_messaging::StealthRewardInterface` を
+        /// 直接 impl すると messaging↔stealth が循環するため、ここでは pallet 内部 helper として
+        /// 公開し、`runtime/src/lib.rs` で trait 適合させる。
+        pub fn deposit_to_reward_pool(amount: u128) {
+            if amount == 0 {
+                return;
+            }
+            StealthRewardPool::<T>::mutate(|p| *p = p.saturating_add(amount));
+            Self::deposit_event(Event::StealthRewardDeposit { amount });
+        }
+
+        /// 受信エフェメラル公開鍵の受信回数を 1 increment する (TSTS P6).
+        ///
+        /// 同じ extrinsic で `deposit_to_reward_pool` と並行に呼ぶ。idempotent ではなく、
+        /// 呼び出し回数 = 受信回数。匿名性のため AccountId ではなく ephemeral_pubkey をキーにする。
+        pub fn record_recipient_receive(ephemeral_pubkey: [u8; 32]) {
+            let new_count = RecipientReceiveCount::<T>::mutate(ephemeral_pubkey, |c| {
+                *c = c.saturating_add(1);
+                *c
+            });
+            Self::deposit_event(Event::RecipientReceiveCounted { ephemeral_pubkey, new_count });
+        }
     }
 
     /// Extrinsics

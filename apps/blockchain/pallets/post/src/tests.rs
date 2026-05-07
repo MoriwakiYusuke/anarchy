@@ -136,6 +136,8 @@ impl pallet_post::Config for Test {
     type PostBaseCost = ConstU128<100>; // テスト用: 基本100
     type PostByteCost = ConstU128<10>;  // テスト用: 1バイトあたり10
     type Popularity = ();
+    /// TSTS P2: tests は base_fee 機能を無効化 (旧挙動互換)
+    type BaseFee = ();
 }
 
 // テスト環境のビルダー

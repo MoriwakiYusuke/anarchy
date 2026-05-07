@@ -159,11 +159,13 @@ fn testnet_genesis(
     // $moral = ネイティブトークン (12桁精度)
     const INITIAL_MORAL: Balance = 10_000_000_000_000_000; // 10,000 $moral
 
-    // 報酬プール初期残高 (dev/testnet用: 1,000,000 MORAL)
-    const INITIAL_REWARD_POOL: u128 = 1_000_000_000_000_000_000; // 1,000,000 $moral
+    // 報酬プール初期残高 (TSTS v1: 100,000 MORAL に縮小).
+    // Block reward 30% 流入で運用中に充填されるので genesis seed は小さくて十分。
+    const INITIAL_REWARD_POOL: u128 = 100_000_000_000_000_000; // 100,000 $moral
 
-    // Reaction報酬プール初期残高 (dev/testnet用: 10,000,000 MORAL)
-    const INITIAL_REACTION_REWARD_POOL: u128 = 10_000_000_000_000_000_000_000; // 10,000,000 $moral
+    // Reaction報酬プール初期残高 (TSTS v1: 100,000 MORAL に縮小).
+    // 動的 γ × decay × per-block cap で自己平衡するので genesis seed は小さくて十分。
+    const INITIAL_REACTION_REWARD_POOL: u128 = 100_000_000_000_000_000; // 100,000 $moral
 
     // Reaction初期難易度 (BaseDifficultyと同じ)
     const INITIAL_REACTION_DIFFICULTY: u8 = 16;

@@ -70,6 +70,14 @@ pub mod pallet {
         /// Challenge validity period (in blocks)
         #[pallet::constant]
         type ChallengeValidity: Get<BlockNumberFor<Self>>;
+
+        /// Faucet 全体の累積発行上限 (TSTS P7)。
+        ///
+        /// `TotalMinted` がこの値以上に達すると claim は `FaucetCapReached` で失敗する。
+        /// mainnet 投入後に永続インフレ尾を残さないための bootstrap 用 sunset 機構。
+        /// 0 を指定すると cap 無効 (旧挙動)。spec §3.2.7 で 100,000 MORAL 推奨。
+        #[pallet::constant]
+        type TotalCap: Get<BalanceOf<Self>>;
     }
 
     /// Faucet claim records - tracks which accounts have claimed
@@ -82,6 +90,13 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn total_claims)]
     pub type TotalClaims<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+    /// Total minted MORAL via faucet (TSTS P7).
+    ///
+    /// `TotalCap` との比較で sunset 制御に使う。`u128` 化して `BalanceOf<T>` 変換コストを抑える。
+    #[pallet::storage]
+    #[pallet::getter(fn total_minted)]
+    pub type TotalMinted<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -104,6 +119,8 @@ pub mod pallet {
         InvalidProof,
         /// The specified block number does not exist
         BlockNotFound,
+        /// Faucet 累積発行上限に到達した (TSTS P7 sunset)
+        FaucetCapReached,
     }
 
     #[pallet::call]
@@ -139,6 +156,7 @@ pub mod pallet {
                 ClaimValidationError::ChallengeExpired => Error::<T>::ChallengeExpired,
                 ClaimValidationError::BlockNotFound => Error::<T>::BlockNotFound,
                 ClaimValidationError::InvalidProof => Error::<T>::InvalidProof,
+                ClaimValidationError::CapReached => Error::<T>::FaucetCapReached,
             })?;
 
             // Mint reward to account
@@ -152,8 +170,9 @@ pub mod pallet {
             };
             FaucetClaims::<T>::insert(&account, record);
 
-            // Increment total claims
+            // Increment total claims and total minted (TSTS P7)
             TotalClaims::<T>::mutate(|c| *c = c.saturating_add(1));
+            TotalMinted::<T>::mutate(|m| *m = m.saturating_add(amount));
 
             // Emit event
             Self::deposit_event(Event::FaucetClaimed {
@@ -180,6 +199,7 @@ pub mod pallet {
                             ClaimValidationError::ChallengeExpired => InvalidTransaction::Custom(2).into(),
                             ClaimValidationError::BlockNotFound => InvalidTransaction::Custom(3).into(),
                             ClaimValidationError::InvalidProof => InvalidTransaction::Custom(4).into(),
+                            ClaimValidationError::CapReached => InvalidTransaction::Custom(5).into(),
                         };
                     }
 
@@ -207,6 +227,8 @@ pub mod pallet {
         ChallengeExpired,
         BlockNotFound,
         InvalidProof,
+        /// Faucet 累積発行上限に到達 (TSTS P7)
+        CapReached,
     }
 
     impl<T: Config> Pallet<T> {
@@ -218,6 +240,18 @@ pub mod pallet {
             block_number: BlockNumberFor<T>,
             nonce: u64,
         ) -> Result<(), ClaimValidationError> {
+            // Check faucet sunset cap (TSTS P7).
+            // TotalCap=0 を「上限なし」と解釈する (旧挙動互換)。それ以外は
+            // `TotalMinted + RewardAmount > TotalCap` で予防的に弾く。
+            let cap = T::TotalCap::get();
+            if cap > BalanceOf::<T>::default() {
+                let minted = TotalMinted::<T>::get();
+                let reward = T::RewardAmount::get();
+                if minted.saturating_add(reward) > cap {
+                    return Err(ClaimValidationError::CapReached);
+                }
+            }
+
             // Check if already claimed
             if FaucetClaims::<T>::contains_key(account) {
                 return Err(ClaimValidationError::AlreadyClaimed);

@@ -88,6 +88,9 @@ impl pallet_storage::Config for Test {
     type MaxChallengesPerBlock = ConstU32<10>;       // Rate limit challenges
     type MinWithdrawalAmount = ConstU128<500_000_000_000_000>; // 500 MORAL withdrawal minimum
     type NativeToken = Balances;                     // T084: Use Balances for rewards
+    /// Tests: 0 = pool ratio decay 無効 (旧挙動互換、reward 計算は全額支払い)。
+    /// pool ratio をテストする専用 case では別 mock を作る。
+    type StoragePoolTarget = ConstU128<0>;
 }
 
 /// Build test externalities

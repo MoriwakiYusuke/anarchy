@@ -63,6 +63,7 @@ pub struct MockStealthReward;
 
 impl StealthRewardInterface for MockStealthReward {
     fn do_deposit_to_stealth_reward_pool(_amount: u128) {}
+    fn record_recipient_receive(_ephemeral_pubkey: [u8; 32]) {}
 }
 
 frame_support::construct_runtime!(
@@ -116,6 +117,8 @@ impl pallet_messaging::Config for Test {
     type DmByteCost = ConstU128<50_000_000_000>;
     type MaxDmCiphertextLen = ConstU64<262_144>;
     type WeightInfo = ();
+    /// TSTS P2: tests は base_fee 機能を無効化
+    type BaseFee = ();
 }
 
 const ALICE: AccountId = 1;
