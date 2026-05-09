@@ -194,6 +194,16 @@ async fn main() -> anyhow::Result<()> {
     let mut gc_check_interval = tokio::time::interval(std::time::Duration::from_secs(60));
     gc_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+    // TODO §4.9 final: periodic touch-buffer flush + LRU eviction trigger.
+    // The touch buffer accumulates `last_accessed_at` updates from every
+    // retrieve call. Flushing every 60s keeps it bounded while batching
+    // hundreds of retrieves into a single write txn. LRU is checked at
+    // the same cadence — if used > 95% capacity, evict to 85%.
+    let mut touch_flush_interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    touch_flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let touch_store = Arc::clone(&store);
+    let lru_store = Arc::clone(&store);
+
     // Setup periodic stale holder GC check interval (T060 - 013-slashing-repair)
     // Check for fragments with excess holders every 5 minutes
     let mut stale_holder_gc_interval = tokio::time::interval(std::time::Duration::from_secs(stale_holder_gc_interval_secs));
@@ -310,6 +320,47 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
                 }
+            }
+            // TODO §4.9 final: Touch buffer flush + LRU eviction trigger.
+            //
+            // 1) Flush all `last_accessed_at` updates queued during the
+            //    last 60s into one write txn. Skipping a flush is OK —
+            //    the buffer just gets bigger; the next tick catches up.
+            //
+            // 2) If usage crossed 95% of capacity, evict LRU down to 85%.
+            //    The 10-percentage-point gap prevents thrashing where the
+            //    next write trips the threshold again immediately.
+            _ = touch_flush_interval.tick() => {
+                let touch_handle = Arc::clone(&touch_store);
+                let lru_handle = Arc::clone(&lru_store);
+                tokio::task::spawn_blocking(move || {
+                    match touch_handle.flush_touch_buffer() {
+                        Ok(0) => {}
+                        Ok(n) => debug!(touched = n, "Flushed touch buffer"),
+                        Err(e) => warn!(error = %e, "Failed to flush touch buffer"),
+                    }
+
+                    let used = lru_handle.used_bytes();
+                    let cap = lru_handle.capacity_bytes();
+                    // Evict when usage > 95%; aim for 85% afterwards.
+                    if cap > 0 && used * 100 > cap * 95 {
+                        let target = cap * 85 / 100;
+                        match lru_handle.evict_lru(target) {
+                            Ok(stats) if stats.bytes_freed > 0 => {
+                                info!(
+                                    fragments = stats.fragments_evicted,
+                                    post_fragments = stats.post_fragments_evicted,
+                                    bytes_freed = stats.bytes_freed,
+                                    used_after = lru_handle.used_bytes(),
+                                    capacity = cap,
+                                    "LRU eviction: capacity > 95%, freed to ~85%"
+                                );
+                            }
+                            Ok(_) => {}
+                            Err(e) => warn!(error = %e, "LRU eviction failed"),
+                        }
+                    }
+                });
             }
             // T060: Stale holder GC polling (013-slashing-repair)
             _ = stale_holder_gc_interval.tick() => {

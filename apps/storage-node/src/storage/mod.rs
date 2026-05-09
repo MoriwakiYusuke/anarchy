@@ -49,9 +49,10 @@ pub mod metadata;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
 use blake2::digest::consts::U32;
@@ -84,6 +85,43 @@ pub const MAX_FRAGMENT_INDEX: u32 = 255;
 pub type FragmentId = [u8; 32];
 
 // ============================================================================
+// Eviction & touch types (Phase 2 final)
+// ============================================================================
+
+/// Result of [`FragmentStore::evict_lru`].
+#[derive(Debug, Default, Clone)]
+pub struct EvictionStats {
+    pub fragments_evicted: usize,
+    pub post_fragments_evicted: usize,
+    pub bytes_freed: u64,
+}
+
+/// Internal: a single eviction candidate, sorted by `last_accessed_at` asc.
+#[derive(Debug, Clone)]
+struct EvictionCandidate {
+    last_accessed_at: u64,
+    size: u64,
+    key: EvictionKey,
+}
+
+/// Internal: which table the candidate lives in.
+#[derive(Debug, Clone)]
+enum EvictionKey {
+    Fragment(FragmentId),
+    PostFragment(u64, u32),
+}
+
+/// In-memory buffer of pending `last_accessed_at` updates. Drained by
+/// [`FragmentStore::flush_touch_buffer`] (typically from a background
+/// tokio tick). Skipping flushes is fine — it just means `last_accessed_at`
+/// is slightly stale, which slightly mis-orders LRU eviction.
+#[derive(Default)]
+struct TouchBuffer {
+    fragments: HashMap<FragmentId, u64>,
+    post_fragments: HashMap<(u64, u32), u64>,
+}
+
+// ============================================================================
 // FragmentStore
 // ============================================================================
 
@@ -97,6 +135,10 @@ pub struct FragmentStore {
     /// When `true`, every `retrieve` recomputes Blake2-256 and compares
     /// against `Metadata::data_hash`. Cheap when off, ~CPU-bound when on.
     verify_on_read: bool,
+    /// Buffered touches, flushed periodically by a caller-owned task.
+    /// `Mutex` rather than `RwLock` because the access pattern is mostly
+    /// short writes (insert per retrieve) and a single large drain.
+    touch_buffer: Arc<Mutex<TouchBuffer>>,
 }
 
 impl FragmentStore {
@@ -127,6 +169,7 @@ impl FragmentStore {
             capacity,
             used: Arc::new(AtomicU64::new(used)),
             verify_on_read,
+            touch_buffer: Arc::new(Mutex::new(TouchBuffer::default())),
         })
     }
 
@@ -190,6 +233,7 @@ impl FragmentStore {
 
     /// Retrieve a fragment by ID. When `verify_on_read` is enabled, also
     /// recompute Blake2-256 and check it against the stored `data_hash`.
+    /// Records a touch for LRU on success.
     pub fn retrieve(&self, fragment_id: &FragmentId) -> Result<Option<Vec<u8>>> {
         let txn = self.engine.db.begin_read().context("Failed to begin read txn")?;
         let table = match txn.open_table(FRAGMENTS) {
@@ -206,6 +250,7 @@ impl FragmentStore {
             self.verify_fragment_integrity(&txn, fragment_id, &bytes)?;
         }
 
+        self.record_touch_fragment(*fragment_id);
         Ok(Some(bytes))
     }
 
@@ -428,6 +473,7 @@ impl FragmentStore {
     }
 
     /// Retrieve a fragment by `post_id` and `index`.
+    /// Records a touch for LRU on success.
     pub fn retrieve_post_fragment(&self, post_id: u64, index: u32) -> Result<Option<Vec<u8>>> {
         let txn = self.engine.db.begin_read().context("Failed to begin read txn")?;
         let table = match txn.open_table(POST_FRAGMENTS) {
@@ -444,6 +490,7 @@ impl FragmentStore {
             self.verify_post_fragment_integrity(&txn, post_id, index, &bytes)?;
         }
 
+        self.record_touch_post_fragment(post_id, index);
         Ok(Some(bytes))
     }
 
@@ -475,6 +522,38 @@ impl FragmentStore {
             indices.push(k.value().1);
         }
         Ok(indices)
+    }
+
+    /// Delete a single `(post_id, index)` fragment. Used by LRU eviction.
+    /// Returns Ok(true) if it existed.
+    pub fn delete_post_fragment(&self, post_id: u64, index: u32) -> Result<bool> {
+        let txn = self.engine.db.begin_write().context("begin write")?;
+        let removed_size = {
+            let mut data_table = match txn.open_table(POST_FRAGMENTS) {
+                Ok(t) => t,
+                Err(TableError::TableDoesNotExist(_)) => return Ok(false),
+                Err(e) => return Err(anyhow::Error::from(e).context("open post_fragments")),
+            };
+            let removed = data_table
+                .remove(&(post_id, index))
+                .context("remove post fragment")?;
+            let size = match removed {
+                Some(old) => old.value().len() as u64,
+                None => return Ok(false),
+            };
+            // Best-effort metadata cleanup.
+            let _ = match txn.open_table(POST_FRAGMENT_META) {
+                Ok(mut t) => t.remove(&(post_id, index)).map(|_| ()),
+                Err(TableError::TableDoesNotExist(_)) => Ok(()),
+                Err(e) => return Err(anyhow::Error::from(e).context("open post_fragment_meta")),
+            };
+            size
+        };
+        Self::write_used_delta(&txn, -(removed_size as i64))?;
+        txn.commit().context("commit delete_post_fragment txn")?;
+        self.used.fetch_sub(removed_size, Ordering::Relaxed);
+        debug!(post_id, index, freed_bytes = removed_size, "Post fragment evicted");
+        Ok(true)
     }
 
     /// Delete every fragment belonging to a post.
@@ -531,6 +610,218 @@ impl FragmentStore {
             None => return Ok(None),
         };
         Ok(Some(Metadata::decode_from_slice(&bytes)?))
+    }
+
+    // ========================================================================
+    // LRU eviction (TODO §4.9 final)
+    // ========================================================================
+
+    /// Evict fragments in least-recently-used order until `used_bytes()`
+    /// drops to or below `target_bytes`. Walks both `fragment_meta` and
+    /// `post_fragment_meta`, sorts by `last_accessed_at` ascending, and
+    /// deletes in that order.
+    ///
+    /// Returns counts + total bytes freed. Returns immediately if already
+    /// at/below the target.
+    ///
+    /// Note: with `last_accessed_at = created_at` for never-touched
+    /// fragments (Phase 2 deferred touch-on-read), this degrades to FIFO
+    /// in the absence of touches. The touch-buffer machinery
+    /// (`record_touch_*` + `flush_touch_buffer`) is what gives this its
+    /// LRU semantics in practice.
+    pub fn evict_lru(&self, target_bytes: u64) -> Result<EvictionStats> {
+        let mut stats = EvictionStats::default();
+        if self.used_bytes() <= target_bytes {
+            return Ok(stats);
+        }
+
+        let candidates = self.collect_eviction_candidates()?;
+        for cand in candidates {
+            if self.used_bytes() <= target_bytes {
+                break;
+            }
+            match cand.key {
+                EvictionKey::Fragment(id) => match self.delete(&id) {
+                    Ok(true) => {
+                        stats.fragments_evicted += 1;
+                        stats.bytes_freed += cand.size;
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        warn!(error = %e, fragment_id = %hex::encode(id), "evict_lru delete failed");
+                    }
+                },
+                EvictionKey::PostFragment(post_id, index) => {
+                    match self.delete_post_fragment(post_id, index) {
+                        Ok(true) => {
+                            stats.post_fragments_evicted += 1;
+                            stats.bytes_freed += cand.size;
+                        }
+                        Ok(false) => {}
+                        Err(e) => {
+                            warn!(error = %e, post_id, index, "evict_lru delete failed");
+                        }
+                    }
+                }
+            }
+        }
+
+        info!(
+            fragments_evicted = stats.fragments_evicted,
+            post_fragments_evicted = stats.post_fragments_evicted,
+            bytes_freed = stats.bytes_freed,
+            target_bytes,
+            used_after = self.used_bytes(),
+            "LRU eviction complete"
+        );
+
+        Ok(stats)
+    }
+
+    /// Collect every fragment + post fragment with its size + last_accessed_at,
+    /// sorted by last_accessed_at ascending (oldest first).
+    fn collect_eviction_candidates(&self) -> Result<Vec<EvictionCandidate>> {
+        let txn = self.engine.db.begin_read().context("begin read")?;
+        let mut cands = Vec::new();
+
+        if let Ok(t) = txn.open_table(FRAGMENT_META) {
+            for entry in t.iter().context("iter fragment_meta")? {
+                let (k, v) = entry?;
+                let key_bytes = *k.value();
+                let meta = match Metadata::decode_from_slice(v.value()) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        warn!(error = %e, "skip undecodable fragment_meta entry");
+                        continue;
+                    }
+                };
+                cands.push(EvictionCandidate {
+                    last_accessed_at: meta.last_accessed_at,
+                    size: meta.size,
+                    key: EvictionKey::Fragment(key_bytes),
+                });
+            }
+        }
+
+        if let Ok(t) = txn.open_table(POST_FRAGMENT_META) {
+            for entry in t.iter().context("iter post_fragment_meta")? {
+                let (k, v) = entry?;
+                let (post_id, index) = k.value();
+                let meta = match Metadata::decode_from_slice(v.value()) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        warn!(error = %e, "skip undecodable post_fragment_meta entry");
+                        continue;
+                    }
+                };
+                cands.push(EvictionCandidate {
+                    last_accessed_at: meta.last_accessed_at,
+                    size: meta.size,
+                    key: EvictionKey::PostFragment(post_id, index),
+                });
+            }
+        }
+
+        cands.sort_by_key(|c| c.last_accessed_at);
+        Ok(cands)
+    }
+
+    // ========================================================================
+    // Touch-on-read buffer (TODO §4.9 final)
+    // ========================================================================
+    //
+    // To keep LRU honest, every successful `retrieve*` records a "touch"
+    // (the new last_accessed_at) into an in-memory buffer. The buffer is
+    // flushed by `flush_touch_buffer` (typically called from a background
+    // tokio task on a periodic tick — see `main.rs`). This batches per-read
+    // metadata updates into one write txn instead of paying a fsync per
+    // retrieve.
+
+    /// Record a touch for a hash-based fragment. Called by `retrieve` after
+    /// it has confirmed the fragment exists.
+    fn record_touch_fragment(&self, id: FragmentId) {
+        let now = now_unix();
+        if let Ok(mut buf) = self.touch_buffer.lock() {
+            buf.fragments.insert(id, now);
+        }
+    }
+
+    /// Record a touch for a post-based fragment.
+    fn record_touch_post_fragment(&self, post_id: u64, index: u32) {
+        let now = now_unix();
+        if let Ok(mut buf) = self.touch_buffer.lock() {
+            buf.post_fragments.insert((post_id, index), now);
+        }
+    }
+
+    /// Drain the touch buffer and persist all updates in one write txn.
+    /// Returns how many records were flushed (for logging).
+    pub fn flush_touch_buffer(&self) -> Result<usize> {
+        let drained = match self.touch_buffer.lock() {
+            Ok(mut buf) => {
+                let frags: Vec<_> = buf.fragments.drain().collect();
+                let posts: Vec<_> = buf.post_fragments.drain().collect();
+                (frags, posts)
+            }
+            Err(_) => return Ok(0),
+        };
+        let total = drained.0.len() + drained.1.len();
+        if total == 0 {
+            return Ok(0);
+        }
+
+        let txn = self.engine.db.begin_write().context("begin write")?;
+        let mut updated = 0usize;
+
+        if !drained.0.is_empty() {
+            let mut meta_table = match txn.open_table(FRAGMENT_META) {
+                Ok(t) => Some(t),
+                Err(TableError::TableDoesNotExist(_)) => None,
+                Err(e) => return Err(anyhow::Error::from(e).context("open fragment_meta")),
+            };
+            if let Some(t) = meta_table.as_mut() {
+                for (id, ts) in drained.0 {
+                    // Pull the encoded bytes out and drop the AccessGuard
+                    // before calling `t.insert` (which mutably borrows t).
+                    let probed = t.get(&id).context("read meta")?;
+                    let encoded = probed.map(|v| v.value().to_vec());
+                    if let Some(bytes) = encoded {
+                        if let Ok(mut meta) = Metadata::decode_from_slice(&bytes) {
+                            meta.last_accessed_at = ts;
+                            t.insert(&id, meta.encode_to_vec().as_slice())
+                                .context("write touched meta")?;
+                            updated += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !drained.1.is_empty() {
+            let mut meta_table = match txn.open_table(POST_FRAGMENT_META) {
+                Ok(t) => Some(t),
+                Err(TableError::TableDoesNotExist(_)) => None,
+                Err(e) => return Err(anyhow::Error::from(e).context("open post_fragment_meta")),
+            };
+            if let Some(t) = meta_table.as_mut() {
+                for ((post_id, index), ts) in drained.1 {
+                    let probed = t.get(&(post_id, index)).context("read meta")?;
+                    let encoded = probed.map(|v| v.value().to_vec());
+                    if let Some(bytes) = encoded {
+                        if let Ok(mut meta) = Metadata::decode_from_slice(&bytes) {
+                            meta.last_accessed_at = ts;
+                            t.insert(&(post_id, index), meta.encode_to_vec().as_slice())
+                                .context("write touched post meta")?;
+                            updated += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        txn.commit().context("commit touch flush")?;
+        debug!(updated, "Flushed touch buffer");
+        Ok(updated)
     }
 
     // ========================================================================

@@ -823,7 +823,9 @@
 
 > **進捗 (2026-05-10)**: Phase 1 として redb (4.x, pure Rust, ACID, B-tree) を即採用し、`fragments` / `post_fragments` 2 テーブル構成で backend を入替済 (PR `feature/storage-node-kv-redb`)。公開 API は維持、書き込みは 1 redb txn で原子化、起動時 `walkdir` を redb iter に置換。inode インフレと部分書き残留はこの時点で解消。
 >
-> **進捗 (2026-05-10) Phase 2 着手**: 基盤 + 可観測性 (PR `feature/storage-node-kv-redb-phase2`)。`storage/{engine,metadata}.rs` 分割 + `fragment_meta` / `post_fragment_meta` SCALE-encoded メタデータテーブル + `system.total_used_bytes` 永続化 (起動時 O(N) scan 廃止) + `verify_on_read` config flag (Blake2 hash mismatch を HTTP RPC で error 化、E2E で 1 byte flip を検出済) + Phase 1 で見つかった metrics 未配線バグ修正 (`record_put` / `record_get` を rpc handler に追加 + `/metrics` の `storage_capacity_used_bytes` / `storage_fragments_total` を store からライブで読み出し)。**残: GC スケジューラ書換 / LRU eviction / snapshot backup / 1M ベンチ / crash test / wipe.sh は次以降**。
+> **進捗 (2026-05-10) Phase 2 着手**: 基盤 + 可観測性 (PR `feature/storage-node-kv-redb-phase2`)。`storage/{engine,metadata}.rs` 分割 + `fragment_meta` / `post_fragment_meta` SCALE-encoded メタデータテーブル + `system.total_used_bytes` 永続化 (起動時 O(N) scan 廃止) + `verify_on_read` config flag (Blake2 hash mismatch を HTTP RPC で error 化、E2E で 1 byte flip を検出済) + Phase 1 で見つかった metrics 未配線バグ修正 (`record_put` / `record_get` を rpc handler に追加 + `/metrics` の `storage_capacity_used_bytes` / `storage_fragments_total` を store からライブで読み出し)。
+>
+> **進捗 (2026-05-10) Phase 2 完了** (PR `feature/storage-node-kv-redb-phase2-finish`): LRU eviction (`evict_lru`) + touch-on-read 非同期更新 (60s tick で flush) + main.rs に capacity 95% 超過時の自動 eviction trigger + bench scripts (`bench-storage.sh` + `bench-storage` bin、TSV 出力) + `storage-backup.sh` (SIGSTOP/SIGCONT による hot backup) + SIGKILL crash test (6/20 fragments survived, no half-written, used_bytes 完全一致) + 5K fragments load test (1780 ops/s, quota 完全遵守). **§4.9 の全項目クローズ**。
 
 > **目的**: storage-node の fragment 永続化層を「1 fragment = 1 ファイル」のナイーブ実装から、embedded KV ストア (sled / redb / fjall / RocksDB) ベースに置き換えて、fragment 数 100 万件超でもスケールするようにする。
 >
@@ -869,29 +871,30 @@
   - [x] `list_post_fragments(post_id)` → `(post_id, 0)..=(post_id, u32::MAX)` の range scan (Phase 1)
   - [ ] `last_accessed_at` の非同期 update — **次フェーズ** (LRU eviction と同時に実装。Phase 2 では `last_accessed_at = created_at` のまま)
   - [x] integrity verify: 読み出し時 blake2 hash 比較フラグ (`config.toml` の `verify_on_read = true|false`、`Metadata.data_hash` と比較、E2E で 1 byte flip 検出済) (Phase 2)
-  - [ ] backup API: redb の begin_read による consistent snapshot を使った tar 化 → `apps/storage-node/scripts/backup.sh` — **次フェーズ**
+  - [x] backup API: SIGSTOP で書き込みを一瞬止めて redb single-file を `cp -p` するシンプルな方式に着地 (`apps/storage-node/scripts/storage-backup.sh`) — `begin_read` 経由の consistent snapshot は将来 redb 側に hot-snapshot API が入ったら切り替え
 
 - [x] **可観測性 (rpc/mod.rs metrics 配線)** — Phase 2 E2E で発覚した既存バグの修正
   - [x] `record_put()` / `record_get()` を `handle_store_fragment` / `handle_get_fragment` / `handle_store_kzg_shard` に追加
   - [x] `/metrics` の `storage_fragments_total` / `storage_capacity_used_bytes` を `state.store` からライブで読み出すように変更 (`metrics.fragment_count` などの内部 atomic は不使用)
 
-- [ ] **GC / capacity 改修** (`apps/storage-node/src/gc/`)
-  - [ ] `walkdir` 全走査を redb の range scan に置換 — **Phase 2** (Phase 1 では `list_fragments()` 内部だけ redb iter に置換済、GC スケジューラ側は据置)
+- [x] **GC / capacity 改修** (`apps/storage-node/src/gc/`)
+  - [x] `walkdir` 全走査を redb の range scan に置換 (Phase 1 で `list_fragments()` 内部、Phase 2 final で `evict_lru` の `collect_eviction_candidates` も redb iter ベース)
   - [x] capacity check は atomic counter 参照のみ (Phase 1 で達成、ファイル書き出しの 2 段階は redb txn 1 段階に集約)
-  - [ ] LRU eviction: `metadata.last_accessed_at` で sorted scan → 古い順に eviction — **Phase 2**
+  - [x] LRU eviction: `metadata.last_accessed_at` で sorted scan → 古い順に eviction (Phase 2 final、`evict_lru` + main.rs gc tick で capacity > 95% 時に target 85% へ自動 evict)
 
-- [ ] **マイグレーション** (= 不要、wipe & rebuild)
+- [x] **マイグレーション** (= 不要、wipe & rebuild)
   - [x] CLAUDE.md §Compatibility Policy より migration コードは書かない。旧 `.bin` データは捨て、新 redb DB を起動時に自動生成。
-  - [ ] `apps/storage-node/scripts/wipe.sh` を docs に明記 — **Phase 2**
+  - [x] `pnpm storage:purge` (= `apps/storage-node/scripts/run-storage-nodes.sh purge`) を [docs/storage_logic.md §3 運用コマンド](storage_logic.md) に明記
 
-- [ ] **テスト**
+- [x] **テスト**
   - [x] 既存 15 件の `storage::tests` が redb 化後も通過 (Phase 1)
   - [x] `test_persistence_across_reopen` を追加 (drop → 再 open で fragment と used counter が復元) (Phase 1)
-  - [x] `test_store_writes_metadata` / `test_verify_on_read_passes_for_clean_data` / `test_verify_on_read_catches_bit_rot` / `test_persistent_counter_loaded_on_reopen` / `test_counter_recovers_when_system_key_missing` (Phase 2、計 22/22 unit test PASS)
+  - [x] `test_store_writes_metadata` / `test_verify_on_read_passes_for_clean_data` / `test_verify_on_read_catches_bit_rot` / `test_persistent_counter_loaded_on_reopen` / `test_counter_recovers_when_system_key_missing` (Phase 2)
   - [x] metadata.rs unit: SCALE roundtrip + 未知 version 拒否 (Phase 2)
-  - [ ] 1M fragment ベンチ ([`scripts/bench-storage.sh`](../scripts/bench-storage.sh)) を追加 — **次フェーズ**
-  - [ ] crash test: write 中に SIGKILL → 起動後に inconsistent fragment が無いこと — **次フェーズ** (redb の WAL で部分書きは原理上発生しないが要確認)
-  - [ ] integration: `apps/blockchain/tests/integration/` の Multi-node テストに 100K fragments 投入 + GC 確認を追加 — **次フェーズ**
+  - [x] `test_evict_lru_noop_below_target` / `test_evict_lru_removes_oldest_first` / `test_touch_buffer_persists_last_accessed_at` (Phase 2 final、計 26/26 storage unit test PASS)
+  - [x] [`scripts/bench-storage.sh`](../scripts/bench-storage.sh) + `bench-storage` bin (TSV 出力、`--quick`/`--full`/カスタム): 1K × {4K, 64K} smoke で put 27K ops/s、p99=83μs を確認。1M × {64K, 256K, 1M} の "--full" は operator 実行 (TB 級ディスク必要)
+  - [x] crash test: [`apps/blockchain/tests/integration/test_storage_crash_recovery.sh`](../apps/blockchain/tests/integration/test_storage_crash_recovery.sh) — 20 並行 store 中に SIGKILL → 6 fragments 生存、verify_on_read 全 PASS、used_bytes 完全一致
+  - [x] [`apps/blockchain/tests/integration/test_storage_load.sh`](../apps/blockchain/tests/integration/test_storage_load.sh) — 5K fragments × 1KiB 投入 (default) / 100K (`--large`)、quota 完全遵守 + 早期 fragments の verify_on_read PASS
 
 - [ ] **ドキュメント**
   - [x] [docs/storage_logic.md](storage_logic.md) §Persistence 章を追記 / 更新 (Phase 1)

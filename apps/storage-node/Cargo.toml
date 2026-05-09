@@ -15,6 +15,12 @@ path = "src/lib.rs"
 name = "anarchy-storage-node"
 path = "src/main.rs"
 
+# Storage layer micro-benchmark — TODO §4.9.
+# `cargo build --release --bin bench-storage` then run with --count / --size.
+[[bin]]
+name = "bench-storage"
+path = "src/bin/bench_storage.rs"
+
 [dependencies]
 # libp2p for P2P networking
 libp2p = { version = "0.54", features = [

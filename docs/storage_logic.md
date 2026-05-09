@@ -214,17 +214,19 @@ HybridShard (シリアライズ形式)
 │  ├─ storage_getKzgShard     → FragmentStore.get()                          │
 │  └─ storage_health          → ヘルスチェック                                │
 ├────────────────────────────────────────────────────────────────────────────┤
-│  FragmentStore (redb-backed, TODO §4.9 Phase 1+2)                          │
+│  FragmentStore (redb-backed, TODO §4.9 完了)                                │
 │  ├─ 保存先: data/fragments.redb (embedded B-tree, ACID)                    │
 │  ├─ 論理テーブル:                                                           │
 │  │   • fragments            : [u8;32] (FragmentId) → bytes                  │
 │  │   • post_fragments       : (u64 post_id, u32 index) → bytes             │
-│  │   • fragment_meta        : [u8;32] → SCALE(Metadata)        (Phase 2)   │
-│  │   • post_fragment_meta   : (u64,u32) → SCALE(Metadata)      (Phase 2)   │
-│  │   • system               : "total_used_bytes" → u64         (Phase 2)   │
+│  │   • fragment_meta        : [u8;32] → SCALE(Metadata)                     │
+│  │   • post_fragment_meta   : (u64,u32) → SCALE(Metadata)                   │
+│  │   • system               : "total_used_bytes" → u64                      │
 │  ├─ 最大サイズ: 1GB / fragment (= MAX_FRAGMENT_SIZE)                        │
 │  ├─ 容量管理: AtomicU64 (起動時 system table から O(1) 復元)                │
-│  └─ verify_on_read: 任意 (config flag、Metadata.data_hash と比較)           │
+│  ├─ verify_on_read: 任意 (config flag、Metadata.data_hash と比較)           │
+│  └─ LRU eviction: capacity > 95% 超過で last_accessed_at の昇順に            │
+│     evict (target 85%)。touch buffer は 60s tick で flush                  │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -234,8 +236,30 @@ HybridShard (シリアライズ形式)
 > 問題があった。Phase 1 で redb (pure Rust, B-tree, ACID) に置換し、書き込みは 1 txn
 > で原子化。Phase 2 で metadata table (SCALE-encoded `{ size, created_at, last_accessed_at,
 > ref_count, data_hash }`)、`system.total_used_bytes` 永続化、`verify_on_read` config flag
-> (Blake2 で bit-rot 検知) を追加。残: GC スケジューラの redb range scan 化 / LRU eviction /
-> snapshot backup / 1M ベンチ。
+> (Blake2 で bit-rot 検知) を追加。
+
+#### 運用コマンド (storage-node 単独)
+
+```bash
+# 起動 / 停止 / 状況確認
+pnpm storage:start [N]      # N ノードを起動 (default 5)
+pnpm storage:stop
+pnpm storage:status
+
+# データ全消去 (= wipe & rebuild)
+#   CLAUDE.md §Compatibility Policy: 旧フォーマットからのマイグレーション
+#   コードは書かない方針。チェーン state・storage 形式に破壊的変更が
+#   入ったら、これで chainspec ごと作り直す。
+pnpm storage:purge
+#   ↑ apps/storage-node/scripts/run-storage-nodes.sh purge と等価。
+#   data/ と logs/ を `rm -rf` する。redb file (fragments.redb) も
+#   含めて完全に消える。次の `storage:start` で空の DB が再生成される。
+
+# ホットバックアップ (storage-node を一瞬だけ SIGSTOP して file copy)
+apps/storage-node/scripts/storage-backup.sh node1 /var/backups/anarchy/
+#   redb は単一ファイルなので, SIGSTOP で fsync 後に cp すれば
+#   begin_write 中の txn と整合した backup が取れる。SIGCONT で再開。
+```
 
 ### 3.3 復元フロー
 
