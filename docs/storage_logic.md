@@ -43,9 +43,9 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        STORAGE NODE (Rust)                                  │
 │  ┌────────────────────────────────┐  ┌────────────────────────────────┐    │
-│  │  HTTP JSON-RPC (:3030)         │  │  FragmentStore                 │    │
-│  │  • storage_storeKzgShard       │  │  • data/fragments/{id}/{i}.bin │    │
-│  │  • storage_getKzgShard         │  │  • 最大 256KB/fragment         │    │
+│  │  HTTP JSON-RPC (:3030)         │  │  FragmentStore (redb)          │    │
+│  │  • storage_storeKzgShard       │  │  • data/fragments.redb         │    │
+│  │  • storage_getKzgShard         │  │  • 最大 1GB/fragment           │    │
 │  │  • storage_health              │  │  • AtomicU64 容量管理          │    │
 │  └────────────────────────────────┘  └────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -214,12 +214,22 @@ HybridShard (シリアライズ形式)
 │  ├─ storage_getKzgShard     → FragmentStore.get()                          │
 │  └─ storage_health          → ヘルスチェック                                │
 ├────────────────────────────────────────────────────────────────────────────┤
-│  FragmentStore                                                             │
-│  ├─ 保存パス: data/fragments/{content_hash_hex}/{index}.bin               │
-│  ├─ 最大サイズ: 256KB / fragment                                           │
-│  └─ 容量管理: AtomicU64 で使用量追跡                                        │
+│  FragmentStore (redb-backed, TODO §4.9 Phase 1)                            │
+│  ├─ 保存先: data/fragments.redb (embedded B-tree, ACID)                    │
+│  ├─ 論理テーブル:                                                           │
+│  │   • fragments        : [u8;32] (FragmentId) → bytes                      │
+│  │   • post_fragments   : (u64 post_id, u32 index) → bytes                 │
+│  ├─ 最大サイズ: 1GB / fragment (= MAX_FRAGMENT_SIZE)                        │
+│  └─ 容量管理: AtomicU64 (起動時に redb 全 scan で復元)                      │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **永続化レイヤ (TODO §4.9)**:
+> 旧実装は 1 fragment = 1 file (`fragments/{xx}/{yy}/{hex}.bin`) で、100 万件規模で
+> inode インフレ・walkdir O(N) 起動・atomic rename 不在 (途中 crash で部分書き残留) の
+> 問題があった。Phase 1 で redb (pure Rust, B-tree, ACID) に置換し、書き込みは 1 txn
+> で原子化。Phase 2 で metadata tree / post 逆引き / atomic counter 永続化 / verify-on-read
+> / snapshot backup を追加予定。
 
 ### 3.3 復元フロー
 

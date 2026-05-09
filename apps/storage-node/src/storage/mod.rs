@@ -1,24 +1,43 @@
 //! Fragment storage management
 //!
-//! Handles local disk storage for fragments with hash verification.
+//! Backed by an embedded redb (B-tree, ACID) database at
+//! `{data_dir}/fragments.redb`. The previous filesystem layout
+//! (`fragments/{xx}/{yy}/{hex}.bin` and `fragments/{post_id}/{index}.bin`)
+//! is gone — see TODO §4.9 for the rationale (inode inflation, walkdir
+//! O(N) startup, missing atomicity).
 //!
-//! ## Storage Modes
+//! ## Logical tables
 //!
-//! 1. **Hash-based** (legacy): `fragments/{hex[0..2]}/{hex[2..4]}/{hex}.bin`
-//! 2. **Post-based** (new): `fragments/{post_id}/{index}.bin`
+//! 1. **`fragments`** — keyed by 32-byte FragmentId, value is the fragment bytes.
+//!    Used for the legacy hash-based API (`store` / `retrieve` / …).
+//! 2. **`post_fragments`** — keyed by `(post_id, index)`, value is the fragment bytes.
+//!    Used by the post-based API (`store_post_fragment` / …). Per-post listing
+//!    uses `range((post_id, 0)..=(post_id, u32::MAX))` for a tight prefix scan.
+//!
+//! Both tables are written under one [`redb::WriteTransaction`] per call, so a
+//! crash mid-write either commits the whole entry or none of it. The previous
+//! `File::create → write_all` two-phase write left partially written
+//! `.bin` files on power loss.
+//!
+//! Total usage is tracked with an in-memory [`AtomicU64`] and recovered on
+//! startup by iterating both tables. For 1M fragments this is dominated by
+//! sequential disk reads inside redb (much faster than `walkdir` + per-file
+//! `stat(2)`).
 
 #[cfg(test)]
 mod tests;
 
-use std::fs::{self, File};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use anyhow::{Context, Result, bail};
-use blake2::{Blake2b, Digest};
+
+use anyhow::{bail, Context, Result};
 use blake2::digest::consts::U32;
-use tracing::{info, debug, warn};
+use blake2::{Blake2b, Digest};
+use redb::{
+    Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition, TableError,
+};
+use tracing::{debug, info, warn};
 
 // ============================================================================
 // Security Constants (T074)
@@ -38,45 +57,58 @@ pub const MAX_FRAGMENT_INDEX: u32 = 255;
 /// Fragment ID type (32 bytes, Blake2-256 hash)
 pub type FragmentId = [u8; 32];
 
-/// Fragment store for local disk storage
+// ============================================================================
+// redb table definitions
+// ============================================================================
+
+const FRAGMENTS: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("fragments");
+const POST_FRAGMENTS: TableDefinition<(u64, u32), &[u8]> = TableDefinition::new("post_fragments");
+
+// ============================================================================
+// FragmentStore
+// ============================================================================
+
+/// Fragment store backed by redb.
 pub struct FragmentStore {
-    /// Base directory for fragments
-    base_dir: PathBuf,
-    /// Maximum capacity in bytes
+    db: Arc<Database>,
     capacity: u64,
-    /// Current used capacity (atomic for thread safety)
+    /// Cached running total of bytes stored across both tables. Persisted
+    /// implicitly via the underlying values; recovered on `new()` by scanning.
     used: Arc<AtomicU64>,
 }
 
 impl FragmentStore {
-    /// Create a new fragment store
+    /// Open (or create) the fragment store at `{data_dir}/fragments.redb`.
     pub fn new(data_dir: &str, capacity: u64) -> Result<Self> {
-        let base_dir = Path::new(data_dir).join("fragments");
-        fs::create_dir_all(&base_dir)
-            .context("Failed to create fragments directory")?;
+        let dir = Path::new(data_dir);
+        std::fs::create_dir_all(dir).context("Failed to create data directory")?;
+        let db_path = dir.join("fragments.redb");
 
-        // Calculate current usage
-        let used = Self::calculate_usage(&base_dir)?;
-        info!(used_bytes = used, capacity_bytes = capacity, "Fragment store opened");
+        let db = Database::create(&db_path).with_context(|| {
+            format!("Failed to open redb database at {}", db_path.display())
+        })?;
+
+        let used = Self::scan_used_bytes(&db)?;
+        info!(
+            used_bytes = used,
+            capacity_bytes = capacity,
+            db_path = %db_path.display(),
+            "Fragment store opened (redb)"
+        );
 
         Ok(Self {
-            base_dir,
+            db: Arc::new(db),
             capacity,
             used: Arc::new(AtomicU64::new(used)),
         })
     }
 
-    /// Store a fragment
-    /// 
-    /// Note: fragment_id is computed from hash(merkle_root || index) by the caller,
-    /// not from the data content. Data integrity is verified via Merkle proof
-    /// on the blockchain node before reaching the storage node.
+    /// Store a fragment under its 32-byte location-based ID.
+    ///
+    /// Note: fragment_id is computed from `hash(merkle_root || index)` by the
+    /// caller, not from the data content. Data integrity is verified via
+    /// Merkle proof on the blockchain node before reaching the storage node.
     pub fn store(&self, fragment_id: FragmentId, data: &[u8]) -> Result<()> {
-        // ============================================================
-        // Security Validation (T074)
-        // ============================================================
-
-        // Fragment size check (max 256KB)
         if data.len() > MAX_FRAGMENT_SIZE {
             bail!(
                 "Fragment size {} exceeds maximum allowed {} bytes",
@@ -85,49 +117,35 @@ impl FragmentStore {
             );
         }
 
+        let new_size = data.len() as u64;
+
         // (#31-H-1) Reserve capacity atomically before writing. The previous
         // load-then-add allowed two concurrent callers to both pass the
         // capacity check and then both write, exceeding the quota.
-        let new_size = data.len() as u64;
         let prev = self.used.fetch_add(new_size, Ordering::Relaxed);
         if prev + new_size > self.capacity {
-            // Roll back the reservation and reject.
             self.used.fetch_sub(new_size, Ordering::Relaxed);
             bail!(
                 "Storage quota exceeded: used {} + {} > capacity {}",
-                prev, new_size, self.capacity
+                prev,
+                new_size,
+                self.capacity
             );
         }
 
-        // Get path and create parent dirs
-        let path = self.fragment_path(&fragment_id);
-        if let Some(parent) = path.parent() {
-            if let Err(e) = fs::create_dir_all(parent) {
+        let already_existed = match self.insert_fragment(&fragment_id, data) {
+            Ok(existed) => existed,
+            Err(e) => {
                 self.used.fetch_sub(new_size, Ordering::Relaxed);
-                return Err(anyhow::Error::from(e).context("Failed to create fragment directory"));
+                return Err(e);
             }
-        }
+        };
 
-        // Check if already exists (idempotent) — refund the reservation
-        if path.exists() {
+        if already_existed {
+            // Idempotent path — refund the reservation we made above.
             self.used.fetch_sub(new_size, Ordering::Relaxed);
             debug!(fragment_id = %hex::encode(fragment_id), "Fragment already exists, skipping");
             return Ok(());
-        }
-
-        // Write file — refund the reservation on any failure
-        let mut file = match File::create(&path) {
-            Ok(f) => f,
-            Err(e) => {
-                self.used.fetch_sub(new_size, Ordering::Relaxed);
-                return Err(anyhow::Error::from(e).context("Failed to create fragment file"));
-            }
-        };
-        if let Err(e) = file.write_all(data) {
-            self.used.fetch_sub(new_size, Ordering::Relaxed);
-            // Best-effort cleanup of the partially-written file
-            let _ = fs::remove_file(&path);
-            return Err(anyhow::Error::from(e).context("Failed to write fragment data"));
         }
 
         info!(
@@ -135,135 +153,154 @@ impl FragmentStore {
             size = data.len(),
             "Fragment stored"
         );
-
         Ok(())
     }
 
-    /// Retrieve a fragment by ID
+    /// Retrieve a fragment by ID.
     pub fn retrieve(&self, fragment_id: &FragmentId) -> Result<Option<Vec<u8>>> {
-        let path = self.fragment_path(fragment_id);
-        
-        if !path.exists() {
-            return Ok(None);
-        }
-
-        let mut file = File::open(&path)
-            .context("Failed to open fragment file")?;
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)
-            .context("Failed to read fragment data")?;
+        let txn = self.db.begin_read().context("Failed to begin read txn")?;
+        let table = match txn.open_table(FRAGMENTS) {
+            Ok(t) => t,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(None),
+            Err(e) => return Err(anyhow::Error::from(e).context("Failed to open fragments table")),
+        };
+        let result = table
+            .get(fragment_id)
+            .context("Failed to read fragment")?
+            .map(|v| v.value().to_vec());
 
         // Note: fragment_id is location-based (hash(merkle_root || index)),
-        // not content-based, so we don't verify hash on read.
-
-        Ok(Some(data))
+        // not content-based, so we don't verify hash on read. (Optional
+        // Blake2 verify-on-read is tracked in TODO §4.9 Phase 2.)
+        Ok(result)
     }
 
-    /// Check if a fragment exists
+    /// Check if a fragment exists.
     pub fn exists(&self, fragment_id: &FragmentId) -> bool {
-        self.fragment_path(fragment_id).exists()
+        match self.fragment_exists_inner(fragment_id) {
+            Ok(b) => b,
+            Err(e) => {
+                warn!(error = %e, "exists() check failed");
+                false
+            }
+        }
     }
 
-    /// Delete a fragment by ID (T085: GC integration)
-    /// 
-    /// Returns Ok(true) if fragment was deleted, Ok(false) if it didn't exist
+    /// Delete a fragment by ID.
+    ///
+    /// Returns Ok(true) if fragment was deleted, Ok(false) if it didn't exist.
     pub fn delete(&self, fragment_id: &FragmentId) -> Result<bool> {
-        let path = self.fragment_path(fragment_id);
-        
-        if !path.exists() {
-            return Ok(false);
-        }
-
-        // Get file size before deletion for usage tracking
-        let size = std::fs::metadata(&path)
-            .map(|m| m.len())
-            .unwrap_or(0);
-
-        // Delete file
-        std::fs::remove_file(&path)
-            .context("Failed to delete fragment file")?;
-
-        // Update usage counter
-        self.used.fetch_sub(size, Ordering::Relaxed);
-
+        let txn = self.db.begin_write().context("Failed to begin write txn")?;
+        let removed_size = {
+            let mut table = match txn.open_table(FRAGMENTS) {
+                Ok(t) => t,
+                Err(TableError::TableDoesNotExist(_)) => return Ok(false),
+                Err(e) => {
+                    return Err(anyhow::Error::from(e).context("Failed to open fragments table"))
+                }
+            };
+            // Split `?` from the match: keeping the `?` inline holds the
+            // `ControlFlow` temporary alive across the early-return path,
+            // which extends the AccessGuard's borrow past `table`'s drop.
+            let removed = table.remove(fragment_id).context("Failed to remove fragment")?;
+            match removed {
+                Some(old) => old.value().len() as u64,
+                None => return Ok(false),
+            }
+        };
+        txn.commit().context("Failed to commit delete txn")?;
+        self.used.fetch_sub(removed_size, Ordering::Relaxed);
         info!(
             fragment_id = %hex::encode(fragment_id),
-            freed_bytes = size,
+            freed_bytes = removed_size,
             "Fragment deleted"
         );
-
         Ok(true)
     }
 
-    /// Delete all fragments (for pool-based GC when reward pool is depleted)
-    ///
-    /// Returns the number of fragments deleted
+    /// Delete every hash-based fragment (pool-based GC when reward pool is depleted).
+    /// Post-based fragments are untouched, matching the previous behavior where
+    /// `walk_fragments` only matched 64-hex stems.
     pub fn delete_all(&self) -> Result<usize> {
-        let mut ids = Vec::new();
-        
-        // Collect all fragment IDs first
-        Self::walk_fragments(&self.base_dir, &mut |id| {
-            ids.push(id);
-            Ok(())
-        })?;
-        
-        let mut deleted = 0;
-        for id in &ids {
-            match self.delete(id) {
-                Ok(true) => deleted += 1,
-                Ok(false) => {} // Already deleted
-                Err(e) => warn!(
-                    fragment_id = %hex::encode(id),
-                    error = %e,
-                    "Failed to delete fragment during delete_all"
-                ),
+        let txn = self.db.begin_write().context("Failed to begin write txn")?;
+        let (deleted, freed) = {
+            let mut table = match txn.open_table(FRAGMENTS) {
+                Ok(t) => t,
+                Err(TableError::TableDoesNotExist(_)) => return Ok(0),
+                Err(e) => {
+                    return Err(anyhow::Error::from(e).context("Failed to open fragments table"))
+                }
+            };
+            // Collect first, then remove — redb forbids mutating a table while
+            // iterating it.
+            let entries: Vec<([u8; 32], u64)> = table
+                .iter()
+                .context("Failed to iterate fragments")?
+                .map(|r| {
+                    r.map(|(k, v)| (*k.value(), v.value().len() as u64))
+                        .map_err(anyhow::Error::from)
+                })
+                .collect::<Result<_>>()?;
+
+            let mut deleted = 0usize;
+            let mut freed = 0u64;
+            for (key, size) in entries {
+                if table.remove(&key)?.is_some() {
+                    deleted += 1;
+                    freed += size;
+                }
             }
-        }
-        
+            (deleted, freed)
+        };
+        txn.commit().context("Failed to commit delete_all txn")?;
+        self.used.fetch_sub(freed, Ordering::Relaxed);
         Ok(deleted)
     }
 
-    /// Get current used capacity
+    /// Get current used capacity.
     pub fn used_bytes(&self) -> u64 {
         self.used.load(Ordering::Relaxed)
     }
 
-    /// Get total capacity
+    /// Get total capacity.
     pub fn capacity_bytes(&self) -> u64 {
         self.capacity
     }
 
-    /// Get number of stored fragments
+    /// Get number of stored hash-based fragments.
     pub fn fragment_count(&self) -> Result<usize> {
-        let mut count = 0;
-        Self::walk_fragments(&self.base_dir, &mut |_| {
-            count += 1;
-            Ok(())
-        })?;
-        Ok(count)
+        let txn = self.db.begin_read().context("Failed to begin read txn")?;
+        match txn.open_table(FRAGMENTS) {
+            Ok(t) => Ok(t.len().context("Failed to count fragments")? as usize),
+            Err(TableError::TableDoesNotExist(_)) => Ok(0),
+            Err(e) => Err(anyhow::Error::from(e).context("Failed to open fragments table")),
+        }
     }
 
-    /// List all fragment IDs
+    /// List all hash-based fragment IDs.
     pub fn list_fragments(&self) -> Result<Vec<FragmentId>> {
-        let mut fragments = Vec::new();
-        Self::walk_fragments(&self.base_dir, &mut |id| {
-            fragments.push(id);
-            Ok(())
-        })?;
-        Ok(fragments)
+        let txn = self.db.begin_read().context("Failed to begin read txn")?;
+        let table = match txn.open_table(FRAGMENTS) {
+            Ok(t) => t,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(e) => {
+                return Err(anyhow::Error::from(e).context("Failed to open fragments table"))
+            }
+        };
+        let mut ids = Vec::with_capacity(table.len().unwrap_or(0) as usize);
+        for entry in table.iter().context("Failed to iterate fragments")? {
+            let (k, _) = entry?;
+            ids.push(*k.value());
+        }
+        Ok(ids)
     }
 
-    // === Post-based storage API (T059: fragments/{post_id}/{index}.bin) ===
+    // ========================================================================
+    // Post-based storage API (T059)
+    // ========================================================================
 
-    /// Store a fragment by post_id and index
-    /// 
-    /// Path: fragments/{post_id}/{index}.bin
+    /// Store a fragment by `post_id` and `index` (T059).
     pub fn store_post_fragment(&self, post_id: u64, index: u32, data: &[u8]) -> Result<()> {
-        // ============================================================
-        // Security Validation (T074)
-        // ============================================================
-
-        // Fragment size check (max 256KB)
         if data.len() > MAX_FRAGMENT_SIZE {
             bail!(
                 "Fragment size {} exceeds maximum allowed {} bytes",
@@ -271,151 +308,137 @@ impl FragmentStore {
                 MAX_FRAGMENT_SIZE
             );
         }
-
-        // Post ID sanity check
         if post_id > MAX_POST_ID {
             bail!("Invalid post_id {}: exceeds maximum {}", post_id, MAX_POST_ID);
         }
-
-        // Fragment index check
         if index > MAX_FRAGMENT_INDEX {
             bail!("Invalid index {}: exceeds maximum {}", index, MAX_FRAGMENT_INDEX);
         }
 
-        // Check capacity
         let new_size = data.len() as u64;
-        let current_used = self.used.load(Ordering::Relaxed);
-        if current_used + new_size > self.capacity {
-            bail!("Storage quota exceeded: used {} + {} > capacity {}", 
-                current_used, new_size, self.capacity);
+        // Atomic reservation, mirroring the hash-based path. The previous
+        // load-then-add pattern allowed two concurrent writers to race past
+        // the quota check.
+        let prev = self.used.fetch_add(new_size, Ordering::Relaxed);
+        if prev + new_size > self.capacity {
+            self.used.fetch_sub(new_size, Ordering::Relaxed);
+            bail!(
+                "Storage quota exceeded: used {} + {} > capacity {}",
+                prev,
+                new_size,
+                self.capacity
+            );
         }
 
-        // Get path and create parent dirs
-        let path = self.post_fragment_path(post_id, index);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .context("Failed to create fragment directory")?;
-        }
+        let already_existed = match self.insert_post_fragment(post_id, index, data) {
+            Ok(existed) => existed,
+            Err(e) => {
+                self.used.fetch_sub(new_size, Ordering::Relaxed);
+                return Err(e);
+            }
+        };
 
-        // Check if already exists (idempotent)
-        if path.exists() {
-            debug!(post_id = post_id, index = index, "Post fragment already exists, skipping");
+        if already_existed {
+            self.used.fetch_sub(new_size, Ordering::Relaxed);
+            debug!(post_id, index, "Post fragment already exists, skipping");
             return Ok(());
         }
 
-        // Write file
-        let mut file = File::create(&path)
-            .context("Failed to create fragment file")?;
-        file.write_all(data)
-            .context("Failed to write fragment data")?;
-
-        // Update usage counter
-        self.used.fetch_add(new_size, Ordering::Relaxed);
-
-        info!(
-            post_id = post_id,
-            index = index,
-            size = data.len(),
-            "Post fragment stored"
-        );
-
+        info!(post_id, index, size = data.len(), "Post fragment stored");
         Ok(())
     }
 
-    /// Retrieve a fragment by post_id and index
+    /// Retrieve a fragment by `post_id` and `index`.
     pub fn retrieve_post_fragment(&self, post_id: u64, index: u32) -> Result<Option<Vec<u8>>> {
-        let path = self.post_fragment_path(post_id, index);
-        
-        if !path.exists() {
-            return Ok(None);
-        }
-
-        let mut file = File::open(&path)
-            .context("Failed to open fragment file")?;
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)
-            .context("Failed to read fragment data")?;
-
-        Ok(Some(data))
+        let txn = self.db.begin_read().context("Failed to begin read txn")?;
+        let table = match txn.open_table(POST_FRAGMENTS) {
+            Ok(t) => t,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(None),
+            Err(e) => {
+                return Err(anyhow::Error::from(e).context("Failed to open post_fragments table"))
+            }
+        };
+        let result = table
+            .get(&(post_id, index))
+            .context("Failed to read post fragment")?
+            .map(|v| v.value().to_vec());
+        Ok(result)
     }
 
-    /// Check if a post fragment exists
+    /// Check if a post fragment exists.
     pub fn post_fragment_exists(&self, post_id: u64, index: u32) -> bool {
-        self.post_fragment_path(post_id, index).exists()
-    }
-
-    /// List fragment indices for a post
-    pub fn list_post_fragments(&self, post_id: u64) -> Result<Vec<u32>> {
-        let post_dir = self.base_dir.join(post_id.to_string());
-        
-        if !post_dir.exists() {
-            return Ok(Vec::new());
-        }
-
-        let mut indices = Vec::new();
-        for entry in fs::read_dir(&post_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "bin") {
-                if let Some(stem) = path.file_stem() {
-                    if let Some(stem_str) = stem.to_str() {
-                        if let Ok(index) = stem_str.parse::<u32>() {
-                            indices.push(index);
-                        }
-                    }
-                }
+        match self.post_fragment_exists_inner(post_id, index) {
+            Ok(b) => b,
+            Err(e) => {
+                warn!(error = %e, "post_fragment_exists() check failed");
+                false
             }
         }
+    }
 
+    /// List fragment indices stored for a given post.
+    pub fn list_post_fragments(&self, post_id: u64) -> Result<Vec<u32>> {
+        let txn = self.db.begin_read().context("Failed to begin read txn")?;
+        let table = match txn.open_table(POST_FRAGMENTS) {
+            Ok(t) => t,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(e) => {
+                return Err(anyhow::Error::from(e).context("Failed to open post_fragments table"))
+            }
+        };
+        let mut indices = Vec::new();
+        let lo = (post_id, 0u32);
+        let hi = (post_id, u32::MAX);
+        for entry in table.range(lo..=hi).context("Failed to range-scan post fragments")? {
+            let (k, _) = entry?;
+            indices.push(k.value().1);
+        }
         Ok(indices)
     }
 
-    /// Delete all fragments for a post
+    /// Delete every fragment belonging to a post.
     pub fn delete_post_fragments(&self, post_id: u64) -> Result<()> {
-        let post_dir = self.base_dir.join(post_id.to_string());
-        
-        if post_dir.exists() {
-            // Calculate size to free
-            let mut freed_size: u64 = 0;
-            for entry in fs::read_dir(&post_dir)? {
-                let entry = entry?;
-                if let Ok(meta) = entry.metadata() {
-                    freed_size += meta.len();
+        let txn = self.db.begin_write().context("Failed to begin write txn")?;
+        let freed = {
+            let mut table = match txn.open_table(POST_FRAGMENTS) {
+                Ok(t) => t,
+                Err(TableError::TableDoesNotExist(_)) => return Ok(()),
+                Err(e) => {
+                    return Err(
+                        anyhow::Error::from(e).context("Failed to open post_fragments table")
+                    )
+                }
+            };
+            let lo = (post_id, 0u32);
+            let hi = (post_id, u32::MAX);
+            let entries: Vec<((u64, u32), u64)> = table
+                .range(lo..=hi)
+                .context("Failed to range-scan post fragments")?
+                .map(|r| {
+                    r.map(|(k, v)| (k.value(), v.value().len() as u64))
+                        .map_err(anyhow::Error::from)
+                })
+                .collect::<Result<_>>()?;
+
+            let mut freed = 0u64;
+            for (key, size) in entries {
+                if table.remove(&key)?.is_some() {
+                    freed += size;
                 }
             }
-
-            // Remove directory
-            fs::remove_dir_all(&post_dir)
-                .context("Failed to remove post fragments directory")?;
-
-            // Update usage counter
-            self.used.fetch_sub(freed_size, Ordering::Relaxed);
-
-            info!(post_id = post_id, freed_bytes = freed_size, "Post fragments deleted");
-        }
-
+            freed
+        };
+        txn.commit().context("Failed to commit delete_post_fragments txn")?;
+        self.used.fetch_sub(freed, Ordering::Relaxed);
+        info!(post_id, freed_bytes = freed, "Post fragments deleted");
         Ok(())
     }
 
-    /// Get the file path for a post fragment: fragments/{post_id}/{index}.bin
-    fn post_fragment_path(&self, post_id: u64, index: u32) -> PathBuf {
-        self.base_dir
-            .join(post_id.to_string())
-            .join(format!("{}.bin", index))
-    }
+    // ========================================================================
+    // Hash helper (public for tests / external callers)
+    // ========================================================================
 
-    // === Internal helpers ===
-
-    /// Get the file path for a fragment (hierarchical: aa/bb/aabb...def.bin)
-    fn fragment_path(&self, fragment_id: &FragmentId) -> PathBuf {
-        let hex = hex::encode(fragment_id);
-        self.base_dir
-            .join(&hex[0..2])
-            .join(&hex[2..4])
-            .join(format!("{}.bin", hex))
-    }
-
-    /// Compute Blake2-256 hash (public for testing)
+    /// Compute Blake2-256 hash of arbitrary bytes.
     pub fn compute_hash(data: &[u8]) -> FragmentId {
         let mut hasher = Blake2b::<U32>::new();
         hasher.update(data);
@@ -425,65 +448,114 @@ impl FragmentStore {
         id
     }
 
-    /// Compute Blake2-256 hash (internal alias)
-    #[allow(dead_code)] // Utility function for future use
-    fn hash(data: &[u8]) -> FragmentId {
-        Self::compute_hash(data)
+    // ========================================================================
+    // Internal helpers
+    // ========================================================================
+
+    /// Insert into `fragments` table. Returns `true` if the fragment already
+    /// existed (caller treats this as idempotent success).
+    fn insert_fragment(&self, fragment_id: &FragmentId, data: &[u8]) -> Result<bool> {
+        let txn = self.db.begin_write().context("Failed to begin write txn")?;
+        let already_existed = {
+            let mut table = txn
+                .open_table(FRAGMENTS)
+                .context("Failed to open fragments table")?;
+            if table
+                .get(fragment_id)
+                .context("Failed to probe fragments table")?
+                .is_some()
+            {
+                true
+            } else {
+                table
+                    .insert(fragment_id, data)
+                    .context("Failed to insert fragment")?;
+                false
+            }
+        };
+        if !already_existed {
+            txn.commit().context("Failed to commit fragment insert")?;
+        }
+        Ok(already_existed)
     }
 
-    /// Calculate current disk usage
-    fn calculate_usage(base_dir: &Path) -> Result<u64> {
-        let mut total = 0u64;
-        Self::walk_fragments(base_dir, &mut |_| {
-            // Note: Could also accumulate file sizes here
-            Ok(())
-        })?;
-
-        // Alternative: walk all .bin files and sum sizes
-        if base_dir.exists() {
-            for entry in walkdir::WalkDir::new(base_dir)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().is_some_and(|ext| ext == "bin"))
+    /// Insert into `post_fragments` table. Returns `true` if `(post_id, index)`
+    /// already had a value.
+    fn insert_post_fragment(&self, post_id: u64, index: u32, data: &[u8]) -> Result<bool> {
+        let txn = self.db.begin_write().context("Failed to begin write txn")?;
+        let already_existed = {
+            let mut table = txn
+                .open_table(POST_FRAGMENTS)
+                .context("Failed to open post_fragments table")?;
+            if table
+                .get(&(post_id, index))
+                .context("Failed to probe post_fragments table")?
+                .is_some()
             {
-                if let Ok(meta) = entry.metadata() {
-                    total += meta.len();
+                true
+            } else {
+                table
+                    .insert(&(post_id, index), data)
+                    .context("Failed to insert post fragment")?;
+                false
+            }
+        };
+        if !already_existed {
+            txn.commit()
+                .context("Failed to commit post fragment insert")?;
+        }
+        Ok(already_existed)
+    }
+
+    fn fragment_exists_inner(&self, fragment_id: &FragmentId) -> Result<bool> {
+        let txn = self.db.begin_read().context("Failed to begin read txn")?;
+        let table = match txn.open_table(FRAGMENTS) {
+            Ok(t) => t,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(false),
+            Err(e) => return Err(anyhow::Error::from(e)),
+        };
+        Ok(table.get(fragment_id)?.is_some())
+    }
+
+    fn post_fragment_exists_inner(&self, post_id: u64, index: u32) -> Result<bool> {
+        let txn = self.db.begin_read().context("Failed to begin read txn")?;
+        let table = match txn.open_table(POST_FRAGMENTS) {
+            Ok(t) => t,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(false),
+            Err(e) => return Err(anyhow::Error::from(e)),
+        };
+        Ok(table.get(&(post_id, index))?.is_some())
+    }
+
+    /// Recover the running `used` counter on startup by scanning both tables.
+    /// O(N) over fragment count but sequential redb iteration — orders of
+    /// magnitude faster than `walkdir` over the previous `.bin` layout.
+    fn scan_used_bytes(db: &Database) -> Result<u64> {
+        let txn = db.begin_read().context("Failed to begin read txn")?;
+        let mut total: u64 = 0;
+
+        match txn.open_table(FRAGMENTS) {
+            Ok(table) => {
+                for entry in table.iter()? {
+                    let (_, v) = entry?;
+                    total += v.value().len() as u64;
                 }
             }
+            Err(TableError::TableDoesNotExist(_)) => {}
+            Err(e) => return Err(anyhow::Error::from(e)),
+        }
+
+        match txn.open_table(POST_FRAGMENTS) {
+            Ok(table) => {
+                for entry in table.iter()? {
+                    let (_, v) = entry?;
+                    total += v.value().len() as u64;
+                }
+            }
+            Err(TableError::TableDoesNotExist(_)) => {}
+            Err(e) => return Err(anyhow::Error::from(e)),
         }
 
         Ok(total)
-    }
-
-    /// Walk all fragment files
-    fn walk_fragments<F>(base_dir: &Path, f: &mut F) -> Result<()>
-    where
-        F: FnMut(FragmentId) -> Result<()>,
-    {
-        if !base_dir.exists() {
-            return Ok(());
-        }
-
-        for entry in walkdir::WalkDir::new(base_dir)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "bin"))
-        {
-            if let Some(stem) = entry.path().file_stem() {
-                if let Some(hex_str) = stem.to_str() {
-                    if hex_str.len() == 64 {
-                        if let Ok(bytes) = hex::decode(hex_str) {
-                            if bytes.len() == 32 {
-                                let mut id = [0u8; 32];
-                                id.copy_from_slice(&bytes);
-                                f(id)?;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
     }
 }
