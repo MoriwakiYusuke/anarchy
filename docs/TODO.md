@@ -854,22 +854,22 @@
   <!-- 見送り (C++ FFI による build 時間 / バイナリサイズ増、pure Rust スタックを崩したくない):
   - [ ] **候補 D: rocksdb** — C++ FFI, 実績豊富だが build 時間 + バイナリサイズ増 → 見送り
   -->
-  - [ ] ベンチ条件: 1M fragments × {64 KiB, 256 KiB, 1 MiB} で `put` / `get` / `delete` / `range_scan` の throughput と p99 レイテンシ、起動時間、`du -sh` (on-disk size) — **Phase 2** で `scripts/bench-storage.sh` 追加時に実施
+  - [x] ベンチ条件: 1M fragments × {64 KiB, 256 KiB, 1 MiB} で `put` / `get` / `delete` / `range_scan` の throughput と p99 レイテンシ、起動時間、`du -sh` (on-disk size) — Phase 2 finish で [`scripts/bench-storage.sh`](../scripts/bench-storage.sh) + `bench-storage` bin として実装。1M cell は operator 実行 (TB 級ディスク要)、CI では `--quick` (10K cell)
 
-- [ ] **データモデル設計** (`apps/storage-node/src/storage/`)
+- [x] **データモデル設計** (`apps/storage-node/src/storage/`) — `index_by_post` 独立化を除き完了 (条件付き future work)
   - [x] `fragments` table: `key = FragmentId (&[u8;32]) → value = bytes` (Phase 1)
   - [x] `post_fragments` table: `key = (u64 post_id, u32 index) → value = bytes` (Phase 1, 逆引きと値兼用 — challenge/repair で fragment_id 逆引きが要求されたら細分化)
   - [x] `fragment_meta` / `post_fragment_meta` table: `key → SCALE-encoded { version, size, created_at, last_accessed_at, ref_count, data_hash }` (Phase 2、`metadata.rs` に格納)
   - [ ] `index_by_post` table を独立化: 値を `fragment_id` に切り替え、bytes 本体は `fragments` 経由 — **次フェーズ** (challenge / repair で fragment_id 逆引きが必要になったタイミング)
   - [x] `total_used_bytes` を redb の system table に永続化 (起動時 scan 廃止、ただし key 欠損時は fallback 1 回だけ scan して書き戻し) (Phase 2)
 
-- [ ] **実装 (`apps/storage-node/src/storage/`)**
+- [x] **実装 (`apps/storage-node/src/storage/`)**
   - [x] `mod.rs` を `engine.rs` (Database + 全 table 定義) と `metadata.rs` (SCALE struct) と `mod.rs` (FragmentStore = ドメイン層) に分割 (Phase 2)
   - [x] `store(fragment_id, data)` → redb の `insert` を 1 write txn (atomic) (Phase 1)
   - [x] `retrieve(fragment_id)` → redb の `get` (Phase 1)
   - [x] `delete(fragment_id)` → 1 write txn、`used` 減算 (Phase 1)
   - [x] `list_post_fragments(post_id)` → `(post_id, 0)..=(post_id, u32::MAX)` の range scan (Phase 1)
-  - [ ] `last_accessed_at` の非同期 update — **次フェーズ** (LRU eviction と同時に実装。Phase 2 では `last_accessed_at = created_at` のまま)
+  - [x] `last_accessed_at` の非同期 update (Phase 2 finish): `record_touch_*` で in-memory TouchBuffer に積み、main.rs の 60s tick で `flush_touch_buffer` が 1 write txn で書き出す (read ホットパスに fsync を載せない)
   - [x] integrity verify: 読み出し時 blake2 hash 比較フラグ (`config.toml` の `verify_on_read = true|false`、`Metadata.data_hash` と比較、E2E で 1 byte flip 検出済) (Phase 2)
   - [x] backup API: SIGSTOP で書き込みを一瞬止めて redb single-file を `cp -p` するシンプルな方式に着地 (`apps/storage-node/scripts/storage-backup.sh`) — `begin_read` 経由の consistent snapshot は将来 redb 側に hot-snapshot API が入ったら切り替え
 
@@ -896,8 +896,8 @@
   - [x] crash test: [`apps/blockchain/tests/integration/test_storage_crash_recovery.sh`](../apps/blockchain/tests/integration/test_storage_crash_recovery.sh) — 20 並行 store 中に SIGKILL → 6 fragments 生存、verify_on_read 全 PASS、used_bytes 完全一致
   - [x] [`apps/blockchain/tests/integration/test_storage_load.sh`](../apps/blockchain/tests/integration/test_storage_load.sh) — 5K fragments × 1KiB 投入 (default) / 100K (`--large`)、quota 完全遵守 + 早期 fragments の verify_on_read PASS
 
-- [ ] **ドキュメント**
-  - [x] [docs/storage_logic.md](storage_logic.md) §Persistence 章を追記 / 更新 (Phase 1)
+- [x] **ドキュメント**
+  - [x] [docs/storage_logic.md](storage_logic.md) §Persistence 章を追記 / 更新 (Phase 1) + LRU eviction 行 + 運用コマンド表 (Phase 2 finish)
   <!-- 現状 redb 一択で書く対象がない。fjall を Phase 2 で評価して採用したら復活:
   - [ ] config option `storage.engine = "redb" | "fjall" | …` の README 追加
   -->
