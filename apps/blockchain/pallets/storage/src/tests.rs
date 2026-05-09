@@ -103,6 +103,10 @@ impl pallet_storage::Config for Test {
     type MinWithdrawalAmount = ConstU128<500_000_000_000_000>; // 500 MORAL (013-slashing-repair)
     /// Tests: 0 = pool ratio decay 無効 (TSTS P3、旧挙動互換)
     type StoragePoolTarget = ConstU128<0>;
+    /// Tests: NoBond = bond 機能無効 (has_bond=true, bond_amount=0, total=0)
+    type StakeProvider = pallet_storage_stake::NoBond;
+    /// Tests: 0 = bond slash 無効 (旧挙動互換: PendingRewards/2 のみで slash)
+    type SlashRatePerFailPpm = ConstU32<0>;
 }
 
 /// Build test externalities

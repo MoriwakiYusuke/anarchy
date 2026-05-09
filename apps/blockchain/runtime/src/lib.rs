@@ -328,6 +328,49 @@ impl pallet_sudo::Config for Runtime {
     type WeightInfo = ();
 }
 
+// TSTS F8: Collective (Council) — multisig governance origin の本体.
+//
+// mainnet 初期: 5 名の council member (sudo が initialize)
+// 中期: 2-of-3 もしくは 3-of-5 majority で economic_params の set_* を発議できる
+// 長期: 削除して referenda に移行 (zk-vote 別 PR)
+//
+// `CouncilCollective` instance を切って独立した collective を構成する。
+parameter_types! {
+    /// Council メンバー上限。spec で 5 名想定。
+    pub const CouncilMaxMembers: u32 = 7;
+    /// Council 提案最大数 (in-flight)。
+    pub const CouncilMaxProposals: u32 = 16;
+    /// 提案投票期間: ~12 hours @ 30s = 1440 blocks.
+    pub const CouncilMotionDuration: BlockNumber = 1_440;
+}
+
+pub type CouncilCollective = pallet_collective::Instance1;
+impl pallet_collective::Config<CouncilCollective> for Runtime {
+    type RuntimeOrigin = RuntimeOrigin;
+    type Proposal = RuntimeCall;
+    type RuntimeEvent = RuntimeEvent;
+    type MotionDuration = CouncilMotionDuration;
+    type MaxProposals = CouncilMaxProposals;
+    type MaxMembers = CouncilMaxMembers;
+    /// `DefaultVote` = `PrimeDefaultVote` (Prime member の票が default)。
+    type DefaultVote = pallet_collective::PrimeDefaultVote;
+    type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
+    /// `SetMembersOrigin` = sudo (mainnet 初期は root が member rotation を行う).
+    /// 後続で Multisig や OpenGov に切替.
+    type SetMembersOrigin = frame_system::EnsureRoot<AccountId>;
+    type MaxProposalWeight = MaxCollectivesProposalWeight;
+    type DisapproveOrigin = frame_system::EnsureRoot<AccountId>;
+    type KillOrigin = frame_system::EnsureRoot<AccountId>;
+    type Consideration = ();
+}
+
+parameter_types! {
+    /// MaxProposalWeight: Council 提案で実行できる call の重み上限.
+    /// MAXIMUM_BLOCK_WEIGHT の 50% を上限にする (operational class と被らないため).
+    pub MaxCollectivesProposalWeight: Weight = sp_runtime::Perbill::from_percent(50)
+        * MAXIMUM_BLOCK_WEIGHT;
+}
+
 // Storage Stake (TSTS P4): Storage node の skin-in-the-game.
 // 詳細: docs/economic_model_proposal.md §3.2.5
 parameter_types! {
@@ -359,6 +402,46 @@ impl pallet_base_fee::Config for Runtime {
     type BaseFeeInit = BaseFeeInit;
 }
 
+// Economic Params (TSTS F5): governance-tunable パラメータの集中管理 pallet.
+// 詳細: pallet-economic-params/src/lib.rs
+parameter_types! {
+    pub DefaultPostStorageShare: Permill = Permill::from_percent(50);
+    pub DefaultPostReactionShare: Permill = Permill::from_percent(20);
+    pub DefaultDmStorageShare: Permill = Permill::from_percent(50);
+    pub DefaultDmStealthShare: Permill = Permill::from_percent(20);
+    pub DefaultMinerShareEcon: Permill = Permill::from_percent(50);
+    pub DefaultStorageShareEcon: Permill = Permill::from_percent(30);
+    pub DefaultReactionShareEcon: Permill = Permill::from_percent(20);
+}
+/// TSTS F8: GovernanceOrigin = `EnsureRoot OR CouncilMajority`.
+///
+/// mainnet 初期は sudo (root) で bootstrap。Council member set 後は council majority も使える。
+/// `EitherOfDiverse` で両方を許可することで段階的移行を実現する:
+///   1. Phase A (現在): root のみ実質使う
+///   2. Phase B: sudo が council members を set + sudo 削除予告 → council majority 経路が main
+///   3. Phase C (zk-vote 後): EitherOfDiverse → Council 単独 or Referenda
+pub type EconomicGovernanceOrigin = frame_support::traits::EitherOfDiverse<
+    frame_system::EnsureRoot<AccountId>,
+    pallet_collective::EnsureProportionAtLeast<AccountId, CouncilCollective, 1, 2>,
+>;
+
+impl pallet_economic_params::Config for Runtime {
+    /// TSTS F8: Root OR Council 過半数. mainnet 初期は root、council 移行後は両立.
+    type GovernanceOrigin = EconomicGovernanceOrigin;
+    type DefaultPostStorageSharePermill = DefaultPostStorageShare;
+    type DefaultPostReactionSharePermill = DefaultPostReactionShare;
+    type DefaultDmStorageSharePermill = DefaultDmStorageShare;
+    type DefaultDmStealthSharePermill = DefaultDmStealthShare;
+    type DefaultMinerSharePermill = DefaultMinerShareEcon;
+    type DefaultStorageSharePermill = DefaultStorageShareEcon;
+    type DefaultReactionSharePermill = DefaultReactionShareEcon;
+    type DefaultReactorLockMin = ConstU128<100_000_000_000>;
+    type DefaultBondPerGB = ConstU128<10_000_000_000_000>;
+    type DefaultSlashRatePerFailPpm = ConstU32<50_000>;
+    type DefaultBaseFeeMin = ConstU128<100>;
+    type DefaultBaseFeeMax = ConstU128<100_000_000_000>;
+}
+
 /// pallet_post / pallet_messaging 用の薄い adapter.
 /// それぞれの pallet が独自の `BaseFeeProvider` trait を持つので、ここで両方を満たす。
 pub struct BaseFeeAdapter;
@@ -379,21 +462,54 @@ impl pallet_messaging::BaseFeeProvider for BaseFeeAdapter {
     }
 }
 
+// TSTS F7: pallet_economic_params の effective_*() を Get<Permill> に橋渡しする adapter 群.
+// runtime の各 pallet が `sp_core::Get<Permill>` を要求するので、薄い ZST struct で実装する。
+pub struct PostStorageShareGetter;
+impl sp_core::Get<Permill> for PostStorageShareGetter {
+    fn get() -> Permill {
+        pallet_economic_params::Pallet::<Runtime>::effective_post_storage_share()
+    }
+}
+pub struct PostReactionShareGetter;
+impl sp_core::Get<Permill> for PostReactionShareGetter {
+    fn get() -> Permill {
+        pallet_economic_params::Pallet::<Runtime>::effective_post_reaction_share()
+    }
+}
+pub struct DmStorageShareGetter;
+impl sp_core::Get<Permill> for DmStorageShareGetter {
+    fn get() -> Permill {
+        pallet_economic_params::Pallet::<Runtime>::effective_dm_storage_share()
+    }
+}
+pub struct DmStealthShareGetter;
+impl sp_core::Get<Permill> for DmStealthShareGetter {
+    fn get() -> Permill {
+        pallet_economic_params::Pallet::<Runtime>::effective_dm_stealth_share()
+    }
+}
+
 // Post Pallet設定 (TSTS P2: BaseFee 適用 + コスト本体を spec §3.2.3 の mainnet 推奨値に更新)
 impl pallet_post::Config for Runtime {
     type NativeToken = Balances;  // $moral = ネイティブトークン
     type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
     type Reaction = Reaction;  // Reaction Pallet for reward pool deposits
     type MaxContentLength = ConstU32<1_073_741_824>; // 1GB (画像含むコンテンツ対応)
-    /// 基本コスト: 50 MORAL (旧 100 MORAL から半減).
-    /// base_fee の上乗せ + 累積 burn 30% でデフレ圧は維持しつつ通常利用の価格を引き下げる。
-    type PostBaseCost = ConstU128<50_000_000_000_000>;
+    /// 基本コスト: 25 MORAL (旧 100 → TSTS v1 50 → bootstrap UX 最終化で 25).
+    ///
+    /// Faucet 100 MORAL で 3〜4 投稿可能 (現状 1 投稿は新規ユーザー UX として厳しい).
+    /// Sybil 攻撃経路は Faucet 側を据え置きで不変、平常時の UX のみ改善する判断.
+    /// Spam 攻撃時は EIP-1559 base_fee が立ち上がって total コストは保たれる.
+    type PostBaseCost = ConstU128<25_000_000_000_000>;
     /// バイト単価: 0.0008 MORAL/byte (旧 0.001 から微減).
     /// `PostByteTip` 相当の storage tip 部分。混雑時は base_fee が動的に上乗せされる。
     type PostByteCost = ConstU128<800_000_000>;
     type Popularity = Popularity;
     /// TSTS P2: EIP-1559 base fee (混雑時のみ高くなる、平常時は ~0)
     type BaseFee = BaseFeeAdapter;
+    /// TSTS F7: governance-tunable share via pallet_economic_params
+    type StorageSharePermill = PostStorageShareGetter;
+    type ReactionSharePermill = PostReactionShareGetter;
 }
 
 // Faucet Pallet設定 (TSTS P7: 累積発行上限を導入)
@@ -466,6 +582,13 @@ impl pallet_storage::Config for Runtime {
     /// TSTS P3: σ_storage がターゲットを下回ったときに自動的に支払率が下がるため、
     /// プール枯渇前のソフトランディングが効く。
     type StoragePoolTarget = ConstU128<500_000_000_000_000_000>;
+    /// TSTS F1: StakeProvider = StorageStake で skin-in-the-game を有効化。
+    /// register_node で bond 必須、reward は √(bond_share) で重み付け、slash は bond 経由。
+    type StakeProvider = StorageStake;
+    /// TSTS F1: 1 回 slash あたり bond の 5% (= 50_000 ppm) を削減。
+    /// 10 回連続失敗で bond の 50% が削減 → operator は素早く unbond 撤退するか修復するか判断する。
+    /// 0 を指定すると bond slash 無効 (旧挙動: PendingRewards/2 のみ)。
+    type SlashRatePerFailPpm = ConstU32<50_000>;
 }
 
 // Nickname Pallet設定
@@ -480,6 +603,12 @@ impl pallet_stealth::Config for Runtime {
     /// ブロックあたり最大エフェメラルキー登録数: 100
     type MaxEntriesPerBlock = ConstU32<100>;
     type WeightInfo = pallet_stealth::weights::SubstrateWeight<Runtime>;
+    /// TSTS F2: 1 回 claim あたりプール 10% 上限 (= 100_000 ppm).
+    /// 過剰流出による pool 急速枯渇を防ぐ。0 で cap 無効。
+    type ClaimCapPpm = ConstU32<100_000>;
+    /// TSTS F10: 対応関係検証は v1 では no-op (F2.5 の ed25519 署名検証のみ).
+    /// 完全な zk-proof 実装は別 PR で curve arithmetic / Groth16 verifier を導入.
+    type CorrespondenceVerifier = ();
 }
 
 // Reaction Pallet設定
@@ -584,8 +713,8 @@ impl pallet_popularity::Config for Runtime {
 // 受信エフェメラル公開鍵ごとの受信回数も記録される。詳細: docs/economic_model_proposal.md §3.2.4
 // TSTS P2 整合: コスト本体を spec §3.2.4 の mainnet 推奨値 (DmBase=0.5, DmByte=0.04) に更新。
 parameter_types! {
-    pub const DmBaseCost: Balance = 500_000_000_000;        // 0.5 MORAL (旧 1 MORAL から半減)
-    pub const DmByteCost: Balance = 40_000_000_000;         // 0.04 MORAL / byte (旧 0.05 から微減)
+    pub const DmBaseCost: Balance = 250_000_000_000;        // 0.25 MORAL (TSTS v1 0.5 → 半減 for UX)
+    pub const DmByteCost: Balance = 40_000_000_000;         // 0.04 MORAL / byte (TSTS v1 維持)
     pub const MaxDmCiphertextLen: u64 = 262_144;
 }
 
@@ -615,6 +744,9 @@ impl pallet_messaging::Config for Runtime {
     type WeightInfo = pallet_messaging::weights::SubstrateWeight<Runtime>;
     /// TSTS P2: EIP-1559 base fee
     type BaseFee = BaseFeeAdapter;
+    /// TSTS F7: governance-tunable share via pallet_economic_params
+    type StorageSharePermill = DmStorageShareGetter;
+    type StealthSharePermill = DmStealthShareGetter;
 }
 
 // Runtime構築
@@ -629,7 +761,10 @@ construct_runtime!(
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
+        // TSTS F8: Council collective (governance origin)
+        Council: pallet_collective::<Instance1>,
         // カスタムパレット (Storage must be before Post for tight coupling)
+        EconomicParams: pallet_economic_params,
         BaseFee: pallet_base_fee,
         StorageStake: pallet_storage_stake,
         Storage: pallet_storage,
@@ -908,6 +1043,25 @@ impl_runtime_apis! {
                     }
                 })
                 .collect()
+        }
+    }
+
+    impl pallet_economic_params::EconomicMetricsApi<Block> for Runtime {
+        fn snapshot() -> pallet_economic_params::EconomicSnapshot {
+            use sp_runtime::traits::SaturatedConversion;
+            pallet_economic_params::EconomicSnapshot {
+                storage_pool: pallet_storage::RewardPoolBalance::<Runtime>::get(),
+                reaction_pool: pallet_reaction::ReactionRewardPool::<Runtime>::get(),
+                stealth_pool: pallet_stealth::StealthRewardPool::<Runtime>::get(),
+                base_fee: pallet_base_fee::BaseFee::<Runtime>::get(),
+                total_active_bond: pallet_storage_stake::TotalActiveBond::<Runtime>::get()
+                    .saturated_into(),
+                faucet_minted: pallet_faucet::TotalMinted::<Runtime>::get(),
+                total_issuance: pallet_balances::Pallet::<Runtime>::total_issuance()
+                    .saturated_into(),
+                gas_used_this_block: pallet_base_fee::GasUsedThisBlock::<Runtime>::get(),
+                reactor_locks_count: pallet_reaction::ReactorLocksCount::<Runtime>::get(),
+            }
         }
     }
 

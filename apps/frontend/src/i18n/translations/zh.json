@@ -38,6 +38,8 @@
   "content.loading": "加载中...",
   "content.error": "加载失败: {error}",
   "post.defaultCostNote": "无法从链上获取，使用默认值",
+  "post.congestionLabel": "网络拥堵",
+  "post.congestionTooltip": "EIP-1559 基础费用正在上升。发帖成本高于平时。拥堵缓解后将自动恢复。",
   "post.cost": "消耗: {cost} MORAL",
   "post.empty": "请输入内容",
   "error.contentTooLong": "内容过长（最大1GB）",

@@ -283,6 +283,15 @@ pub mod pallet {
     #[pallet::getter(fn per_block_payout_accumulator)]
     pub type PerBlockPayoutAccumulator<T: Config> = StorageValue<_, u128, ValueQuery>;
 
+    /// アクティブな ReactorLocks エントリ数 (TSTS F9 monitoring 用 O(1) counter).
+    ///
+    /// `lock_for_rewards` で +1, `unlock_reactor` で -1.
+    /// Prometheus exporter / RuntimeApi が `getEntries()` (O(N)) を避けるためのソフト集計値。
+    /// Copilot review #3199031098 への対処。
+    #[pallet::storage]
+    #[pallet::getter(fn reactor_locks_count)]
+    pub type ReactorLocksCount<T: Config> = StorageValue<_, u32, ValueQuery>;
+
     /// Reactor lock 構造体。
     #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, PartialEq, Eq)]
     pub struct ReactorLock<BlockNumber, Balance> {
@@ -547,6 +556,7 @@ pub mod pallet {
                 .saturating_add(T::ReactorLockDuration::get());
 
             ReactorLocks::<T>::insert(&who, ReactorLock { amount, unlock_at });
+            ReactorLocksCount::<T>::mutate(|c| *c = c.saturating_add(1));
             Self::deposit_event(Event::ReactorLockBonded { who, amount, unlock_at });
             Ok(())
         }
@@ -564,6 +574,7 @@ pub mod pallet {
             // unreserve は失敗しても 0 残差で返るのでチェック不要 (saturating)
             let _ = T::ReservableCurrency::unreserve(&who, lock.amount);
             ReactorLocks::<T>::remove(&who);
+            ReactorLocksCount::<T>::mutate(|c| *c = c.saturating_sub(1));
             Self::deposit_event(Event::ReactorLockReleased { who, amount: lock.amount });
             Ok(())
         }

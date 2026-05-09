@@ -4,6 +4,7 @@ use crate::{self as pallet_messaging, StealthRewardInterface};
 use frame_support::{
     derive_impl,
     dispatch::DispatchResult,
+    parameter_types,
     traits::{ConstU32, ConstU64, ConstU128},
 };
 use pallet_storage::{FragmentId, StorageInterface};
@@ -127,6 +128,11 @@ impl pallet_balances::Config for Test {
 /// 1 MORAL = 10^12。contracts/pallet-messaging-extrinsics.md §Dependencies と同値。
 const MORAL: Balance = 1_000_000_000_000;
 
+parameter_types! {
+    pub DmStorageSharePermill: sp_runtime::Permill = sp_runtime::Permill::from_percent(50);
+    pub DmStealthSharePermill: sp_runtime::Permill = sp_runtime::Permill::from_percent(20);
+}
+
 impl pallet_messaging::Config for Test {
     type NativeToken = Balances;
     type Storage = MockStorage;
@@ -138,6 +144,9 @@ impl pallet_messaging::Config for Test {
     type WeightInfo = ();
     /// TSTS P2: tests は base_fee 機能を無効化
     type BaseFee = ();
+    /// TSTS F7: governance-tunable share (mock は 50/20)
+    type StorageSharePermill = DmStorageSharePermill;
+    type StealthSharePermill = DmStealthSharePermill;
 }
 
 /// Test accounts

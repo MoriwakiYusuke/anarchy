@@ -38,6 +38,8 @@
   "content.loading": "読み込み中...",
   "content.error": "読み込みエラー: {error}",
   "post.defaultCostNote": "チェーンから取得できないためデフォルト値を使用",
+  "post.congestionLabel": "ネットワーク混雑中",
+  "post.congestionTooltip": "EIP-1559 の base fee が上昇しています。投稿コストは平常時より高くなります。混雑が解消すれば自動的に元に戻ります。",
   "post.cost": "コスト: {cost} MORAL",
   "post.empty": "投稿内容を入力してください",
   "error.contentTooLong": "コンテンツが長すぎます（最大1GB）",

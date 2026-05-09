@@ -38,6 +38,8 @@
   "content.loading": "Loading...",
   "content.error": "Failed to load: {error}",
   "post.defaultCostNote": "Using default value (chain unavailable)",
+  "post.congestionLabel": "Network congested",
+  "post.congestionTooltip": "EIP-1559 base fee is elevated; posting costs more than usual. It will return to normal once congestion clears.",
   "post.cost": "Cost: {cost} MORAL",
   "post.empty": "Write something to post",
   "error.contentTooLong": "Content too long (max 1GB)",

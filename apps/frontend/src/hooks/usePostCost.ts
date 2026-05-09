@@ -8,14 +8,27 @@ const UNIT = BigInt(10 ** DECIMALS)
 
 // フォールバック値（runtime設定と同期させる）
 // ブロックチェーンから取得できない場合に使用
-const FALLBACK_BASE_COST = 100   // 100 MORAL
-const FALLBACK_BYTE_COST = 0.001 // 0.001 MORAL/byte
+// TSTS v1 (bootstrap UX 改訂): PostBaseCost=25 MORAL, PostByteCost=0.0008 MORAL/byte
+// → Faucet 100 MORAL で 3〜4 投稿可能 (Sybil 経路は不変、UX のみ改善)
+const FALLBACK_BASE_COST = 25      // 25 MORAL (TSTS v1 改訂)
+const FALLBACK_BYTE_COST = 0.0008  // 0.0008 MORAL/byte (TSTS v1)
+// raw units (12 decimals) を BigInt 整数リテラルで保持。
+// `BigInt(0.0008 * 1e12)` は IEEE-754 rounding (例: 800000000.0000001) で例外を投げる可能性が
+// あるため、最初から整数 bigint を直書きする (Copilot review #3199031111).
+//   25 MORAL × 10^12 = 25_000_000_000_000
+//   0.0008 MORAL × 10^12 = 800_000_000
+const FALLBACK_BASE_COST_RAW: bigint = 25_000_000_000_000n
+const FALLBACK_BYTE_COST_RAW: bigint = 800_000_000n
 
 export interface PostCostConfig {
   baseCost: number      // 基本コスト (human readable)
   byteCost: number      // バイト単価 (human readable)
   baseCostRaw: bigint   // 基本コスト (raw units)
   byteCostRaw: bigint   // バイト単価 (raw units)
+  /** TSTS P2: EIP-1559 base fee (動的, MORAL/byte). 0 なら base_fee 機能未稼働 */
+  baseFee: number
+  /** TSTS P2: base fee の raw 値 (units/byte) */
+  baseFeeRaw: bigint
   isLoading: boolean
   error: string | null
   isFromChain: boolean  // チェーンから取得したかどうか
@@ -30,8 +43,10 @@ export function usePostCost(unsafeApi: any): PostCostConfig {
   const [config, setConfig] = useState<PostCostConfig>({
     baseCost: FALLBACK_BASE_COST,
     byteCost: FALLBACK_BYTE_COST,
-    baseCostRaw: BigInt(FALLBACK_BASE_COST * Number(UNIT)),
-    byteCostRaw: BigInt(FALLBACK_BYTE_COST * Number(UNIT)),
+    baseCostRaw: FALLBACK_BASE_COST_RAW,
+    byteCostRaw: FALLBACK_BYTE_COST_RAW,
+    baseFee: 0,
+    baseFeeRaw: 0n,
     isLoading: true,
     error: null,
     isFromChain: false,
@@ -79,11 +94,30 @@ export function usePostCost(unsafeApi: any): PostCostConfig {
         const baseCost = Number(baseCostBigInt) / Number(UNIT)
         const byteCost = Number(byteCostBigInt) / Number(UNIT)
 
+        // TSTS P2: pallet_base_fee::BaseFee も同時取得 (失敗しても他は更新)
+        let baseFeeRaw = 0n
+        let baseFee = 0
+        try {
+          const baseFeeQuery = unsafeApi.query?.BaseFee?.BaseFee
+            ?? unsafeApi.query?.baseFee?.baseFee
+          if (baseFeeQuery) {
+            const v = await baseFeeQuery.getValue()
+            if (v != null) {
+              baseFeeRaw = BigInt(v.toString())
+              baseFee = Number(baseFeeRaw) / Number(UNIT)
+            }
+          }
+        } catch {
+          // base_fee 取得失敗は致命的でない (旧 chain では未実装) → 0 のまま
+        }
+
         setConfig({
           baseCost,
           byteCost,
           baseCostRaw: baseCostBigInt,
           byteCostRaw: byteCostBigInt,
+          baseFee,
+          baseFeeRaw,
           isLoading: false,
           error: null,
           isFromChain: true,
@@ -106,11 +140,33 @@ export function usePostCost(unsafeApi: any): PostCostConfig {
 }
 
 /**
- * バイト数から投稿コストを計算
+ * バイト数から投稿コストを計算 (TSTS P2 base_fee 込み).
+ *
+ * 数式: total = baseCost + (byteCost + baseFee) × byteCount
+ *
+ * - `baseCost` (固定 50 MORAL): スパム抑止の固定費
+ * - `byteCost` (固定 0.0008 MORAL/byte): storage tip 相当
+ * - `baseFee` (動的, EIP-1559): 平常時 ~0、混雑時に指数的に上昇
+ *
  * @param byteCount コンテンツのバイト数
  * @param config コスト設定
- * @returns 推定コスト (human readable)
+ * @returns 推定コスト (human readable, MORAL)
  */
 export function calculatePostCost(byteCount: number, config: PostCostConfig): number {
-  return config.baseCost + config.byteCost * byteCount
+  return config.baseCost + (config.byteCost + config.baseFee) * byteCount
+}
+
+/**
+ * base_fee の混雑度を相対値 (0..1) で返す.
+ * UI で「平常」「やや混雑」「非常に混雑」を表示するための補助.
+ *
+ * BaseFeeMin=1e-10, BaseFeeMax=1e-1 (MORAL/byte) を仮定.
+ * log10 スケールで 0..1 にマップする.
+ */
+export function baseFeeCongestionLevel(baseFee: number): number {
+  if (baseFee <= 0) return 0
+  const minLog = Math.log10(1e-10)
+  const maxLog = Math.log10(1e-1)
+  const cur = Math.log10(Math.max(baseFee, 1e-12))
+  return Math.max(0, Math.min(1, (cur - minLog) / (maxLog - minLog)))
 }

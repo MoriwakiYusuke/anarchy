@@ -17,7 +17,7 @@ use crate as pallet_messaging;
 use crate::StealthRewardInterface;
 use frame_support::{
     assert_ok,
-    derive_impl,
+    derive_impl, parameter_types,
     traits::{ConstU32, ConstU64, ConstU128},
 };
 use pallet_storage::{FragmentId, StorageInterface};
@@ -104,9 +104,18 @@ impl pallet_stealth::Config for Test {
     type Currency = Balances;
     type MaxEntriesPerBlock = ConstU32<1000>;
     type WeightInfo = ();
+    /// TSTS F2: tests は cap 0 (claim cap 無効) — claim_stealth_reward は本テストでは呼ばない
+    type ClaimCapPpm = ConstU32<0>;
+    /// TSTS F10: tests は no-op verifier
+    type CorrespondenceVerifier = ();
 }
 
 const MORAL: Balance = 1_000_000_000_000;
+
+parameter_types! {
+    pub IntegDmStorageShare: sp_runtime::Permill = sp_runtime::Permill::from_percent(50);
+    pub IntegDmStealthShare: sp_runtime::Permill = sp_runtime::Permill::from_percent(20);
+}
 
 impl pallet_messaging::Config for Test {
     type NativeToken = Balances;
@@ -119,6 +128,9 @@ impl pallet_messaging::Config for Test {
     type WeightInfo = ();
     /// TSTS P2: tests は base_fee 機能を無効化
     type BaseFee = ();
+    /// TSTS F7: governance-tunable share (mock は 50/20)
+    type StorageSharePermill = IntegDmStorageShare;
+    type StealthSharePermill = IntegDmStealthShare;
 }
 
 const ALICE: AccountId = 1;

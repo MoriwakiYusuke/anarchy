@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { Binary } from 'polkadot-api'
-import { usePostCost, calculatePostCost } from '@/hooks/usePostCost'
+import { usePostCost, calculatePostCost, baseFeeCongestionLevel } from '@/hooks/usePostCost'
 import { useStorage, type StorageSigner } from '@/hooks/useStorage'
 import { useLocale } from '@/i18n'
 import MediaUpload from '@/components/MediaUpload'
@@ -276,6 +276,36 @@ export function PostForm({ unsafeApi, signer, storageSigner, onPostSuccess, pare
             <>
               {t('post.cost', { cost: estimatedCost.toFixed(1) })}
               {!costConfig.isFromChain && <span title={t('post.defaultCostNote')}> *</span>}
+              {costConfig.baseFee > 0 && baseFeeCongestionLevel(costConfig.baseFee) > 0.3 && (
+                <>
+                  {' '}
+                  <span
+                    className={styles.congestionBadge}
+                    role="img"
+                    aria-label={t('post.congestionLabel')}
+                    title={t('post.congestionTooltip')}
+                    data-testid="base-fee-congestion-badge"
+                  >
+                    🔥
+                  </span>
+                  {/* visually-hidden text for screen readers (no Tailwind dep) */}
+                  <span
+                    style={{
+                      position: 'absolute',
+                      width: '1px',
+                      height: '1px',
+                      padding: 0,
+                      margin: '-1px',
+                      overflow: 'hidden',
+                      clip: 'rect(0,0,0,0)',
+                      whiteSpace: 'nowrap',
+                      border: 0,
+                    }}
+                  >
+                    {t('post.congestionLabel')} ({costConfig.baseFee.toExponential(2)} MORAL/byte)
+                  </span>
+                </>
+              )}
             </>
           )}
         </span>

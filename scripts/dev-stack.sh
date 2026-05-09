@@ -80,9 +80,16 @@ start_blockchain() {
             log_warn "single-node already running (pid $(cat "$SINGLE_NODE_PID_FILE"))"
             return 0
         fi
-        log_info "starting single dev node (cargo run -- --dev)"
+        log_info "starting single dev node (cargo run -- --dev --mine --coinbase Alice --randomx-mode light)"
         ensure_state_dir
-        ( cd "$BLOCKCHAIN_DIR" && nohup cargo run --release -- --dev > "$SINGLE_NODE_LOG_FILE" 2>&1 & echo $! > "$SINGLE_NODE_PID_FILE" )
+        # PoW 移行後 (#52, #53): single-node でも `--mine --coinbase` が無いと block が進まない。
+        # `package.json` の `dev:node` と一致させる。Alice の AccountId (5Grw…) を coinbase に。
+        ( cd "$BLOCKCHAIN_DIR" && nohup cargo run --release -- \
+            --dev \
+            --mine \
+            --coinbase 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY \
+            --randomx-mode light \
+            > "$SINGLE_NODE_LOG_FILE" 2>&1 & echo $! > "$SINGLE_NODE_PID_FILE" )
     else
         log_info "starting 3-node testnet"
         ( cd "$BLOCKCHAIN_DIR" && ./scripts/run-multi-node.sh start )

@@ -78,6 +78,8 @@ export type TranslationKey =
   | 'post.recording'
   | 'post.success'
   | 'post.defaultCostNote'
+  | 'post.congestionLabel'
+  | 'post.congestionTooltip'
   | 'post.expand'
   | 'post.collapse'
   | 'post.reply'

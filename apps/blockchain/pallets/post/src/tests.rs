@@ -2,7 +2,7 @@
 
 use crate::{self as pallet_post, Error, Event, Posts, NextPostId, UserPosts, ContentRefs, MerkleRootToPostId};
 use frame_support::{
-    assert_noop, assert_ok,
+    assert_noop, assert_ok, parameter_types,
     traits::{ConstU32, ConstU64, ConstU128, fungible::Mutate},
     dispatch::DispatchResult,
 };
@@ -128,6 +128,12 @@ impl pallet_balances::Config for Test {
     type DoneSlashHandler = ();
 }
 
+parameter_types! {
+    // TSTS F7: tests も TSTS v1 値 50/20/30 で動作
+    pub PostStorageSharePermill: sp_runtime::Permill = sp_runtime::Permill::from_percent(50);
+    pub PostReactionSharePermill: sp_runtime::Permill = sp_runtime::Permill::from_percent(20);
+}
+
 impl pallet_post::Config for Test {
     type NativeToken = Balances;
     type Storage = MockStorage;
@@ -138,6 +144,9 @@ impl pallet_post::Config for Test {
     type Popularity = ();
     /// TSTS P2: tests は base_fee 機能を無効化 (旧挙動互換)
     type BaseFee = ();
+    /// TSTS F7: governance-tunable share を ConstU permill 同等で渡す
+    type StorageSharePermill = PostStorageSharePermill;
+    type ReactionSharePermill = PostReactionSharePermill;
 }
 
 // テスト環境のビルダー

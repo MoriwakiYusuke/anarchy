@@ -91,6 +91,10 @@ impl pallet_storage::Config for Test {
     /// Tests: 0 = pool ratio decay 無効 (旧挙動互換、reward 計算は全額支払い)。
     /// pool ratio をテストする専用 case では別 mock を作る。
     type StoragePoolTarget = ConstU128<0>;
+    /// Tests: NoBond = bond 機能無効 (has_bond は常に true 返却、報酬補正なし)
+    type StakeProvider = pallet_storage_stake::NoBond;
+    /// Tests: 0 = bond slash 無効 (旧挙動: PendingRewards/2 のみ)
+    type SlashRatePerFailPpm = ConstU32<0>;
 }
 
 /// Build test externalities

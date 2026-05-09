@@ -28,7 +28,8 @@
     "test:recovery": "cd apps/blockchain/tests/integration && ./test_node_recovery.sh",
     "test:scalability": "cd apps/blockchain/tests/integration && ./test_scalability.sh",
     "test:dm": "cd apps/blockchain/tests/integration/dm && for t in dm-send-receive.sh dm-stealth-linkage.sh dm-multi-device.sh; do ./$t || exit $?; done",
-    "test:e2e": "pnpm --filter @anarchy/frontend test:e2e"
+    "test:e2e": "pnpm --filter @anarchy/frontend test:e2e",
+    "exporter:metrics": "node scripts/prometheus-exporter.mjs"
   },
   "devDependencies": {
     "typescript": "^5.3.3"
