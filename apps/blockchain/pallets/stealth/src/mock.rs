@@ -53,6 +53,8 @@ impl pallet_stealth::Config for Test {
     type WeightInfo = ();
     /// TSTS F2: tests は cap = 10% (mainnet と同等) で claim ロジックを検証
     type ClaimCapPpm = ConstU32<100_000>;
+    /// TSTS F10: tests は no-op verifier (proof 無視で常に true)
+    type CorrespondenceVerifier = ();
 }
 
 /// Test accounts

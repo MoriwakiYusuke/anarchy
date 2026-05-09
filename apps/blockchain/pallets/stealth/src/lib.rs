@@ -19,6 +19,37 @@ mod tests;
 pub use types::*;
 pub use weights::WeightInfo;
 
+/// TSTS F10: stealth ownership ZK verifier trait (scaffold).
+///
+/// `(ephemeral_pubkey, stealth_pubkey, optional_proof)` の対応関係を on-chain で検証する。
+/// 真の所有証明には EIP-5564 公式: `P_stealth = K_spend + H(ECDH(eph, view_sk)) * G` の
+/// view_sk 知識を ZK で示す。本 trait は将来の zk-snark / curve arithmetic 実装
+/// (例: Groth16 verifier) を差し替え可能にするための薄い抽象。
+///
+/// 現実装の `()` no-op は常に true を返し、F2.5 の ed25519 署名検証のみが効く。
+/// Sybil 攻撃モデルでの追加防御線として将来 strict 実装に切替予定。
+pub trait StealthCorrespondenceVerifier {
+    /// `proof` が `(ephemeral_pubkey, stealth_pubkey)` ペアの正当性を証明しているか.
+    ///
+    /// `proof` の形式は具体実装依存 (Groth16 なら 192 bytes 程度、Halo2 なら大きく
+    /// 異なる)。`Vec<u8>` opaque で受け、verifier がデコードする。
+    ///
+    /// no-op 実装は proof を無視して常に true を返す。
+    fn verify(
+        ephemeral_pubkey: &[u8; 32],
+        stealth_pubkey: &[u8; 32],
+        proof: &[u8],
+    ) -> bool;
+}
+
+/// no-op 実装 (TSTS F10 v1 デフォルト).
+/// proof は無視。F2.5 の ed25519 署名検証のみが効く。
+impl StealthCorrespondenceVerifier for () {
+    fn verify(_ephemeral_pubkey: &[u8; 32], _stealth_pubkey: &[u8; 32], _proof: &[u8]) -> bool {
+        true
+    }
+}
+
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
@@ -57,6 +88,21 @@ pub mod pallet {
         /// 過剰流出による pool 急速枯渇を防ぐためのソフト制限。spec で 10% 推奨。
         #[pallet::constant]
         type ClaimCapPpm: Get<u32>;
+
+        /// TSTS F10: (ephemeral_pubkey, stealth_pubkey) 対応関係の検証器.
+        ///
+        /// claim_stealth_reward で ed25519 署名 (F2.5) を通った後、
+        /// **追加で** `(ephemeral_pubkey, stealth_pubkey)` が EIP-5564 の
+        /// `P_stealth = K_spend + H(ECDH(ephemeral, view_secret)) * G` 関係を
+        /// 満たすことを zk-proof で検証する。
+        ///
+        /// 現状の `()` 実装は no-op (常に true を返す) で F2.5 の ed25519 署名検証
+        /// のみが効く。完全な zk verifier は curve arithmetic + zk-snark backend
+        /// (Groth16 / Halo2 / etc.) が必要で、別 PR で実装する。
+        ///
+        /// runtime では `()` を渡せば従来挙動を維持。将来 verifier pallet を
+        /// 接続するときはこの Config 経由で差し替えられる。
+        type CorrespondenceVerifier: StealthCorrespondenceVerifier;
     }
 
     /// ブロック番号ごとのエフェメラル公開鍵リスト
@@ -154,8 +200,10 @@ pub mod pallet {
         StealthRewardPoolEmpty,
         /// claim 額が極小すぎて 0 になった (TSTS F2: 経済的合理性チェック)
         ClaimAmountTooSmall,
-        /// claim_stealth_reward の署名検証失敗 (将来対応用に予約; 現実装では unused)
+        /// claim_stealth_reward の署名検証失敗 (TSTS F2.5: ed25519 署名)
         InvalidStealthSignature,
+        /// claim_stealth_reward の F10 対応関係 proof 検証失敗
+        InvalidCorrespondenceProof,
     }
 
     impl<T: Config> Pallet<T> {
@@ -301,9 +349,12 @@ pub mod pallet {
         /// * `ephemeral_pubkey` - DM 受信時に記録された ephemeral pubkey
         /// * `stealth_pubkey` - one-time ed25519 公開鍵 (受信者がローカルで導出)
         /// * `signature` - 上記秘密鍵による (signer, ephemeral_pubkey) の ed25519 署名 (64 bytes)
+        /// * `correspondence_proof` - TSTS F10 zk-proof (`Vec<u8>`, opaque). no-op verifier
+        ///   なら空 Vec で OK。strict verifier は形式を独自に定義する。
         ///
         /// # Errors
         /// * `InvalidStealthSignature` - 署名検証失敗
+        /// * `InvalidCorrespondenceProof` - F10 zk-proof verifier が拒否
         /// * `NoUnclaimedReceives` - 未 claim の受信実績がない
         /// * `StealthRewardPoolEmpty` - プールが 0
         /// * `ClaimAmountTooSmall` - 按分結果が 0
@@ -314,6 +365,7 @@ pub mod pallet {
             ephemeral_pubkey: [u8; 32],
             stealth_pubkey: [u8; 32],
             signature: [u8; 64],
+            correspondence_proof: sp_std::vec::Vec<u8>,
         ) -> DispatchResult {
             let recipient = ensure_signed(origin)?;
 
@@ -328,6 +380,18 @@ pub mod pallet {
             ensure!(
                 sp_io::crypto::ed25519_verify(&sig, &message, &public),
                 Error::<T>::InvalidStealthSignature
+            );
+
+            // F10: (ephemeral_pubkey, stealth_pubkey) 対応関係の zk-proof 検証.
+            // no-op verifier (`()`) は常に true を返すので、F2.5 のみ効く。
+            // strict verifier (将来) は EIP-5564 の P_stealth = K_spend + H(s)*G を ZK で再現する。
+            ensure!(
+                <T::CorrespondenceVerifier as crate::StealthCorrespondenceVerifier>::verify(
+                    &ephemeral_pubkey,
+                    &stealth_pubkey,
+                    &correspondence_proof,
+                ),
+                Error::<T>::InvalidCorrespondenceProof
             );
 
             let received_count = RecipientReceiveCount::<T>::get(ephemeral_pubkey);

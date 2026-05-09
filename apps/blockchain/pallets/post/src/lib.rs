@@ -141,6 +141,15 @@ pub mod pallet {
         ///
         /// `()` を渡すと base fee 機能無効 (旧挙動互換、テスト用)。runtime では pallet_base_fee を渡す。
         type BaseFee: BaseFeeProvider;
+
+        /// TSTS F7: post コストの storage プール行きシェア (Permill).
+        ///
+        /// runtime では `pallet_economic_params::Pallet::effective_post_storage_share()`
+        /// 経由で governance 可変な値を渡す。`Permill::from_percent(50)` がデフォルト。
+        type StorageSharePermill: Get<sp_runtime::Permill>;
+
+        /// TSTS F7: post コストの reaction プール行きシェア (Permill).
+        type ReactionSharePermill: Get<sp_runtime::Permill>;
     }
 
     /// 次の投稿ID
@@ -296,13 +305,15 @@ pub mod pallet {
                 frame_support::traits::tokens::Fortitude::Polite,
             ).map_err(|_| Error::<T>::InsufficientMoralBalance)?;
 
-            // TSTS v1 (旧 FR-113 改訂): 50% storage / 20% reaction / 30% 永久 burn.
-            // ただし base_fee_burn 部分は完全 burn (混雑時の自己消費メカニズム) なので、
-            // 配分対象は base_cost + size_cost に限定する。
+            // TSTS v1 (旧 FR-113 改訂) / F7 governance-tunable:
+            // base_cost + size_cost を Permill で配分する (default 50% storage / 20% reaction / 30% burn).
+            // base_fee_burn 部分は完全 burn (混雑時の自己消費メカニズム) で配分対象外。
             // 詳細: docs/economic_model_proposal.md §3.2.3
+            // F7: ハードコード `* 50 / 100` を `T::StorageSharePermill::get().mul_floor(...)` に置き換え。
+            // これにより EconomicParams::set_post_storage_share governance call で動的調整可能。
             let distributable = base_cost.saturating_add(size_cost);
-            let storage_pool_amount = distributable.saturating_mul(50) / 100;
-            let reaction_pool_amount = distributable.saturating_mul(20) / 100;
+            let storage_pool_amount = T::StorageSharePermill::get().mul_floor(distributable);
+            let reaction_pool_amount = T::ReactionSharePermill::get().mul_floor(distributable);
             T::Storage::do_deposit_to_reward_pool(storage_pool_amount);
             T::Reaction::do_deposit_to_reaction_pool(reaction_pool_amount);
             // この block の使用 bytes を base_fee に記録 (次ブロックの base_fee 調整用)

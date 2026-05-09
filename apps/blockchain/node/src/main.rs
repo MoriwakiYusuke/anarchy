@@ -5,6 +5,7 @@
 mod chain_spec;
 mod cli;
 mod command;
+mod economic_metrics;
 mod gossip;
 mod pow;
 mod rpc;

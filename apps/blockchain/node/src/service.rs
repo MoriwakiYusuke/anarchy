@@ -293,6 +293,29 @@ pub fn new_full(
         );
         info!("Storage node gossip service spawned");
 
+        // TSTS F9: Anarchy 経済メトリクスを Substrate Prometheus に register + collect.
+        // `--prometheus-port` 未指定なら `prometheus_registry` が None で何もしない。
+        if let Some(registry) = prometheus_registry.as_ref() {
+            match crate::economic_metrics::EconomicMetrics::register(registry) {
+                Ok(metrics) => {
+                    let client_for_metrics = client.clone();
+                    task_manager.spawn_handle().spawn(
+                        "anarchy-economic-metrics",
+                        "anarchy-metrics",
+                        crate::economic_metrics::run_collector(client_for_metrics, metrics),
+                    );
+                    info!("Anarchy economic metrics collector spawned (TSTS F9)");
+                }
+                Err(e) => {
+                    log::warn!(
+                        target: "anarchy_metrics",
+                        "Failed to register economic metrics: {:?}",
+                        e
+                    );
+                }
+            }
+        }
+
         // ストレージノード通信用のSr25519キーペアを起動時に生成
         // このキーペアでX-Chain-Authヘッダーを署名し、ストレージノード側で検証する
         // なりすましは許容（公開鍵のオンチェーン確認はしない）、ミス防止用の軽量認証

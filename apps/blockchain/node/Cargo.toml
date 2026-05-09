@@ -81,6 +81,10 @@ anarchy-runtime = { workspace = true, features = ["std"] }
 pallet-post = { workspace = true, features = ["std"] }
 pallet-storage = { workspace = true, features = ["std"] }
 pallet-difficulty = { workspace = true, default-features = true }
+# TSTS F9: economic metrics (snapshot type + RuntimeApi)
+pallet-economic-params = { workspace = true, features = ["std"] }
+# TSTS F9: Substrate Prometheus endpoint (Gauge / Counter register API)
+substrate-prometheus-endpoint = { version = "0.17.2" }
 
 [build-dependencies]
 substrate-build-script-utils = "11.0.0"

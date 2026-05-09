@@ -61,6 +61,7 @@ pallet-transaction-payment = { version = "45.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "45.0.0", default-features = false }
 pallet-aura = { version = "44.0.0", default-features = false }
 pallet-grandpa = { version = "45.0.0", default-features = false }
+pallet-collective = { version = "45.0.0", default-features = false }
 pallet-sudo = { version = "45.0.0", default-features = false }
 
 # Node dependencies

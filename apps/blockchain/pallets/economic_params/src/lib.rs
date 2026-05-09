@@ -37,6 +37,38 @@ pub use pallet::*;
 #[cfg(test)]
 mod tests;
 
+use parity_scale_codec::{Decode, Encode};
+use scale_info::TypeInfo;
+
+/// TSTS F9: 経済メトリクスのスナップショット (node 側 Prometheus exporter で取得).
+///
+/// runtime から chain client / node 側へ提供する型。各 pallet の主要 storage を
+/// 1 回の Runtime API 呼び出しで一括取得できるようにする (storage_prefix 計算より
+/// 型安全)。
+#[derive(Clone, Encode, Decode, TypeInfo, Debug, PartialEq, Eq, Default)]
+pub struct EconomicSnapshot {
+    pub storage_pool: u128,
+    pub reaction_pool: u128,
+    pub stealth_pool: u128,
+    pub base_fee: u128,
+    pub total_active_bond: u128,
+    pub faucet_minted: u128,
+    pub total_issuance: u128,
+    pub gas_used_this_block: u32,
+}
+
+sp_api::decl_runtime_apis! {
+    /// TSTS F9: 経済メトリクスを Substrate Prometheus 経路に流すための Runtime API.
+    ///
+    /// node service が起動時にこの API を呼び出して、Substrate 標準の prometheus_registry
+    /// に Gauge を register + 定期 polling で更新する。外部 exporter (F3) と冗長だが、
+    /// node 単体で監視可能になる利点がある。
+    pub trait EconomicMetricsApi {
+        /// 直近 best block の経済メトリクス snapshot を返す.
+        fn snapshot() -> EconomicSnapshot;
+    }
+}
+
 #[frame_support::pallet]
 pub mod pallet {
     use frame_support::pallet_prelude::*;

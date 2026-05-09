@@ -174,6 +174,7 @@ fn claim_stealth_reward_pays_caller_with_valid_signature() {
             eph,
             stealth_pk,
             sig,
+            Vec::new(),
         ));
         let alice_final = Balances::free_balance(ALICE);
         assert_eq!(alice_final - alice_initial, 100_000_000_000_000); // 100 MORAL (cap で頭打ち)
@@ -199,6 +200,7 @@ fn claim_stealth_reward_rejects_invalid_signature() {
                 eph,
                 stealth_pk,
                 bad_sig,
+                Vec::new(),
             ),
             Error::<Test>::InvalidStealthSignature
         );
@@ -221,6 +223,7 @@ fn claim_stealth_reward_rejects_signature_for_different_signer() {
                 eph,
                 stealth_pk,
                 sig_for_bob,
+                Vec::new(),
             ),
             Error::<Test>::InvalidStealthSignature
         );
@@ -240,6 +243,7 @@ fn claim_stealth_reward_fails_without_unclaimed() {
                 eph,
                 stealth_pk,
                 sig,
+                Vec::new(),
             ),
             Error::<Test>::NoUnclaimedReceives
         );
@@ -258,6 +262,7 @@ fn claim_stealth_reward_fails_when_pool_empty() {
                 eph,
                 stealth_pk,
                 sig,
+                Vec::new(),
             ),
             Error::<Test>::StealthRewardPoolEmpty
         );
@@ -278,6 +283,7 @@ fn double_claim_returns_no_unclaimed_receives() {
             eph,
             stealth_pk,
             sig,
+            Vec::new(),
         ));
         // 2 回目: 新規受信なし → unclaimed=0
         assert_noop!(
@@ -286,6 +292,7 @@ fn double_claim_returns_no_unclaimed_receives() {
                 eph,
                 stealth_pk,
                 sig,
+                Vec::new(),
             ),
             Error::<Test>::NoUnclaimedReceives
         );

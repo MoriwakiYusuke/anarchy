@@ -47,6 +47,7 @@ pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 pallet-sudo = { workspace = true }
+pallet-collective = { workspace = true }
 
 # Local pallets
 pallet-post = { workspace = true }
@@ -97,6 +98,7 @@ std = [
     "pallet-transaction-payment/std",
     "pallet-transaction-payment-rpc-runtime-api/std",
     "pallet-sudo/std",
+    "pallet-collective/std",
     "pallet-post/std",
     "pallet-faucet/std",
     "pallet-storage/std",
