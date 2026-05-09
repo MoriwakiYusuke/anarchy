@@ -677,13 +677,13 @@
 > - **実装計画 (8〜10 営業日)**: [`docs/economic_model_implementation_plan.md`](economic_model_implementation_plan.md)
 > - シミュレータ: [`docs/economic/simulator.py`](economic/simulator.py)
 
-- [ ] **経済合理性に基づく定数制定**
-  - [ ] PostBaseCost / PostByteCost の最適値検証
-  - [ ] Faucet報酬額・難易度の調整
-  - [ ] ストレージ報酬レート設計
-  - [ ] インフレ/デフレ率シミュレーション
-  - [ ] 適切なガス代の設定
-  - [ ] 初期供給量・分配比率
+- [x] **経済合理性に基づく定数制定** — TSTS v1 で全項目確定 (PR #54, #55、[economic_parameters.md](economic_parameters.md))
+  - [x] PostBaseCost / PostByteCost の最適値検証 — iterative 調整完了 (`50→25 MORAL`, `0.1→0.0008 MORAL/byte`)、根拠は economic_parameters.md
+  - [x] Faucet 報酬額・難易度の調整 — 100 MORAL 報酬 + 難易度 18-28 bit 範囲 (§2.3)
+  - [x] ストレージ報酬レート設計 — Phase 4 で `MinWithdrawalAmount = 500 MORAL` + repair pool 分配、`pallet-economic-params` 経由で governance 可変
+  - [x] インフレ/デフレ率シミュレーション — [`docs/economic/simulator.py`](economic/simulator.py) + `simulator_output.txt`
+  - [x] 適切なガス代の設定 — EIP-1559 Base Fee 実装 (PR #54 commit `200ddb4`)
+  - [x] 初期供給量・分配比率 — [`chain_spec.rs`](../apps/blockchain/node/src/chain_spec.rs) で `INITIAL_MORAL` + `endowed_accounts` を genesis 設定
 
 <!-- 状況変化 (Phase B PR #53):
      - "バリデーター" 概念は PoW 移行で消滅 (= miner)
