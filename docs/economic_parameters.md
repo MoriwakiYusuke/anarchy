@@ -1,41 +1,49 @@
-# Anarchy 経済パラメータ全洗い出し
+# Anarchy 経済パラメータ全棚卸し (TSTS v1)
 
-> **目的**: `docs/TODO.md §4.4 Mainnet設計・経済パラメータ` を埋めるための一次資料。
-> 現状コードに存在する経済関連の変数を、Substrate 標準のものを含めて網羅的に列挙する。
-> mainnet 投入時にどの値をどう調整するかを議論するときの基礎台帳として使うこと。
-
-- 対象コミット: `feature/pow-migration-cutover` (Phase B PoW 移行後)
-- トークン精度: **1 MORAL = 10^12 units (12 decimals)**
-- ブロック時間: **30 秒** → 1 日 ≈ 2,880 ブロック, 1 年 ≈ 1,051,200 ブロック
-
-各パラメータの初期値は実装上のコメントで「dev/testnet 用」と明記されているものが多く、
-mainnet ではほぼ全項目を再検討する前提で読むこと。
+> **ステータス**: TSTS 経済モデル v1 全実装後 (PR #54 + #55) の現状値. mainnet 投入前の最終調整時はこの表を直接更新すること.
+>
+> **対象**: `runtime/src/lib.rs` ベースの実装値. governance 可変な項目は `pallet-economic-params` 経由で `set_*` extrinsic で書き換え可能 (mainnet 初期は `EnsureRoot OR Council 1/2`).
+>
+> **トークン精度**: 1 MORAL = 10^12 units (12 decimals)
+> **ブロック時間**: 30 秒 → 1 日 ≈ 2,880 ブロック, 1 年 ≈ 1,051,200 ブロック
+>
+> **関連ドキュメント**:
+> - 設計提案: [`economic_model_proposal.md`](economic_model_proposal.md)
+> - 実装計画: [`economic_model_implementation_plan.md`](economic_model_implementation_plan.md)
+> - シミュレータ: [`economic/simulator.py`](economic/simulator.py)
 
 ---
 
-## 1. ネイティブ通貨・チェーン全体（Substrate 標準）
+## 0. 凡例
 
-### 1.1 `pallet_balances` ([runtime/src/lib.rs L248-L263](../apps/blockchain/runtime/src/lib.rs#L248-L263))
+各表の `governance` 列の意味:
+- ✅ = `pallet-economic-params::set_*` で governance 可変
+- ❌ = ConstU* 固定 (runtime upgrade が必要)
+- ⚠ = 部分的 governance 可 (default 値のみ tunable, 既存の Config 接続は upgrade 必要)
+
+---
+
+## 1. ネイティブ通貨・チェーン全体
+
+### 1.1 `pallet_balances` ([runtime/src/lib.rs L296-L304](../apps/blockchain/runtime/src/lib.rs#L296))
+
+| 名前 | 値 | governance | 役割 |
+|---|---|---|---|
+| `ExistentialDeposit` | `1` (= 10^-12 MORAL) | ❌ | アカウント維持に必要な最小残高 |
+| `MaxLocks` | `50` | ❌ | アカウントあたりロック数上限 |
+| `MaxReserves` | `()` | ❌ | 予約スロット制限なし |
+| `MaxFreezes` | `0` | ❌ | フリーズ未使用 |
+
+### 1.2 `pallet_transaction_payment` ([runtime/src/lib.rs L308-L322](../apps/blockchain/runtime/src/lib.rs#L308))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
-| `ExistentialDeposit` | `1` (= 10^-12 MORAL) | アカウント維持に必要な最小残高（事実上 0） |
-| `MaxLocks` | `50` | アカウントあたりロック数上限 |
-| `MaxReserves` | `()` | 予約スロット制限なし |
-| `MaxFreezes` | `0` | フリーズ未使用 |
-| `DustRemoval` | `()` | ED 未満は単に消滅 |
+| `WeightToFee` | `ConstantMultiplier<_, ConstU128<0>>` | TX 手数料 0 (post / DM の base fee で代替) |
+| `LengthToFee` | `ConstantMultiplier<_, ConstU128<0>>` | 長さ手数料 0 |
+| `FeeMultiplier` | `Multiplier::one()` | 動的乗数 1.0 固定 |
+| `OperationalFeeMultiplier` | `5` | Operational class 倍率 (手数料 0 で死コード) |
 
-### 1.2 `pallet_transaction_payment` ([runtime/src/lib.rs L267-L281](../apps/blockchain/runtime/src/lib.rs#L267-L281))
-
-| 名前 | 値 | 役割 |
-|---|---|---|
-| `WeightToFee` | `ConstantMultiplier<_, ConstU128<0>>` | **重み手数料 = 0** |
-| `LengthToFee` | `ConstantMultiplier<_, ConstU128<0>>` | **長さ手数料 = 0** |
-| `FeeMultiplier` | `Multiplier::one()` | 動的乗数 1.0 固定（=Base Fee なし） |
-| `OperationalFeeMultiplier` | `5` | Operational class 倍率（手数料 0 のため事実上死コード） |
-| `SignedExtra` | `ChargeTransactionPayment` 削除済 | tip/手数料の徴収経路自体が無い |
-
-### 1.3 `frame_system` ([runtime/src/lib.rs L83-L154](../apps/blockchain/runtime/src/lib.rs#L83-L154))
+### 1.3 `frame_system` ([runtime/src/lib.rs L84-L154](../apps/blockchain/runtime/src/lib.rs#L84))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
@@ -43,7 +51,7 @@ mainnet ではほぼ全項目を再検討する前提で読むこと。
 | `MAXIMUM_BLOCK_LENGTH` | `5 MiB` | ブロックサイズ上限 |
 | `MAXIMUM_BLOCK_WEIGHT` | `(2 兆ps, 5 MiB)` | ref_time 2 秒, proof_size 5 MiB |
 | `NORMAL_DISPATCH_RATIO` | `75 %` | Normal 系 dispatch がブロックの何割使えるか |
-| `BlockHashCount` | `2400` | ブロックハッシュ保持数（≒ 20 時間） |
+| `BlockHashCount` | `2400` | ブロックハッシュ保持数 (≒ 20 時間) |
 | `MaxConsumers` | `64` | アカウントを参照できる pallet 数上限 |
 | `SS58Prefix` | `42` | アドレス prefix |
 
@@ -51,91 +59,152 @@ mainnet ではほぼ全項目を再検討する前提で読むこと。
 
 ## 2. PoW / コンセンサス
 
-### 2.1 `pallet_difficulty` (LWMA-3) ([runtime/src/lib.rs L180-L192](../apps/blockchain/runtime/src/lib.rs#L180-L192))
+### 2.1 `pallet_difficulty` (LWMA-3) ([runtime/src/lib.rs L183-L192](../apps/blockchain/runtime/src/lib.rs#L183))
 
-| 名前 | 値 | 役割 |
-|---|---|---|
-| `TargetBlockTime` | `30_000ms` | LWMA の目標 |
-| `DifficultyAdjustWindow` | `60` | LWMA window（直近 60 ブロック） |
-| `MinDifficulty` | `100` | 床（dev/WSL 向け。production は spec §1 で 10,000 推奨） |
-| `GenesisConfig.initial_difficulty` | （genesis で指定） | 初期難易度 |
+| 名前 | 値 | governance | 役割 |
+|---|---|---|---|
+| `TargetBlockTime` | `30_000ms` | ❌ | LWMA の目標 |
+| `DifficultyAdjustWindow` | `60` | ❌ | LWMA window |
+| `MinDifficulty` | `100` | ❌ | dev/WSL 用 floor (production は spec §1 で 10,000 推奨) |
 
-### 2.2 `pallet_block_reward` ⭐ **インフレ供給の本体** ([runtime/src/lib.rs L219-L230](../apps/blockchain/runtime/src/lib.rs#L219-L230))
+### 2.2 `pallet_block_reward` ⭐ **TSTS P1: 3-way fan-out + tail emission** ([runtime/src/lib.rs L221-L271](../apps/blockchain/runtime/src/lib.rs#L221))
 
-| 名前 | 値 | 役割 |
-|---|---|---|
-| `InitialBlockReward` | `5 MORAL` (`5e12`) | era 0 のブロック報酬 |
-| `HalvingPeriod` | `4_204_800` ブロック (≒ 4 年) | halving 周期 |
-| `MaxHalvings` | `64` | 上限到達後 mint 停止 |
-| `AuthorOrigin` | `PowAuthorAdapter` (engine ID `pow_`) | author 抽出 |
+| 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
+|---|---|---|---|---|
+| `InitialBlockReward` | `5 MORAL` | `5 MORAL` (`5e12` units) | ❌ | era 0 のブロック報酬 |
+| `TailEmission` | (無し) | **`0.5 MORAL`** (`5e11`) | ❌ | 永続下限 — 51 % 攻撃コスト > 0 を保証 |
+| `HalvingPeriod` | `4_204_800` | `4_204_800` blocks (≒ 4 年) | ❌ | halving 周期 |
+| `MaxHalvings` | `64` | `64` | ❌ | 上限到達後 halved 部分は 0 (tail のみ) |
+| `MinerSharePermill` | (100% mint) | **`50%`** | ⚠ via `set_block_reward_shares` | block reward の miner 取り分 |
+| `StorageSharePermill` | — | **`30%`** | ⚠ 同上 | block reward の storage プール流入 |
+| `ReactionSharePermill` | — | **`20%`** | ⚠ 同上 | block reward の reaction プール流入 |
 
-→ 総発行上限（Bitcoin 同型）: `2 × InitialReward × HalvingPeriod` = 約 **42,048,000 MORAL**
+**式**: `reward(h) = max(InitialReward >> halvings(h), TailEmission)`. 各 share を per-block で個別 mint.
 
-### 2.3 `pallet_grandpa_authority_election` ([runtime/src/lib.rs L233-L245](../apps/blockchain/runtime/src/lib.rs#L233-L245))
+**不変条件 I-1 (永続セキュリティ)**: ∀t, BlockReward(t) ≥ TailEmission > 0.
+
+### 2.3 `pallet_grandpa_authority_election` ([runtime/src/lib.rs L275-L290](../apps/blockchain/runtime/src/lib.rs#L275))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
 | `ElectionWindowSize` | `100` | top-K 選出のための観測 window |
 | `ElectionAuthorityCount` | `10` | GRANDPA finalizer 数 |
-| `ElectionRotationPeriod` | `600` ブロック (5 h) | ローテ間隔 |
-| `ElectionRotationDelay` | `10` ブロック (5 min) | 反映遅延 |
+| `ElectionRotationPeriod` | `600` blocks (5 h) | ローテ間隔 |
+| `ElectionRotationDelay` | `10` blocks (5 min) | 反映遅延 |
 
-### 2.4 `pallet_grandpa` ([runtime/src/lib.rs L161-L169](../apps/blockchain/runtime/src/lib.rs#L161-L169))
+### 2.4 `pallet_grandpa` ([runtime/src/lib.rs L161-L169](../apps/blockchain/runtime/src/lib.rs#L161))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
 | `MaxAuthorities` | `32` | finalizer 最大 |
 | `MaxNominators` | `0` | nominator 不在 |
-| `EquivocationReportSystem` | `()` | スラッシング無効（PoW で抑止） |
+| `EquivocationReportSystem` | `()` | スラッシング無効 |
 
 ---
 
-## 3. 投稿コスト・burn / Storage 報酬プール
+## 3. Governance ⭐ **TSTS F8**
 
-### 3.1 `pallet_post` — 投稿コスト ([runtime/src/lib.rs L291-L301](../apps/blockchain/runtime/src/lib.rs#L291-L301))
+### 3.1 `pallet_collective` (Council) ([runtime/src/lib.rs L335-L373](../apps/blockchain/runtime/src/lib.rs#L335))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
-| `PostBaseCost` | **`100 MORAL`** (`1e14`) | 投稿基本コスト |
-| `PostByteCost` | **`0.001 MORAL/byte`** (`1e9`) | バイト単価 |
-| `MaxContentLength` | `1 GB` | 上限 |
+| `CouncilMaxMembers` | `7` | Council メンバー上限 |
+| `CouncilMaxProposals` | `16` | in-flight 提案数上限 |
+| `CouncilMotionDuration` | `1_440` blocks (~12 h) | 投票期間 |
+| `MaxCollectivesProposalWeight` | `50 % × MaxBlockWeight` | 提案で実行できる call の重み上限 |
+| `SetMembersOrigin` | `EnsureRoot` | mainnet 初期は sudo が member rotation |
 
-→ 1 KB 投稿: `100 + 1024 × 0.001 ≈ 101.024 MORAL`, 1 MB: `~1148 MORAL`
-
-### 3.2 投稿コストの分配 ([pallets/post/src/lib.rs L264-L276](../apps/blockchain/pallets/post/src/lib.rs#L264-L276))
-
-| 配分 | 比率 | 行先 |
-|---|---|---|
-| Storage 報酬プール | **80 %** | `RewardPoolBalance` |
-| Reaction 報酬プール | **10 %** | `ReactionRewardPool` |
-| 永久 burn | **10 %** | (`burn_from` の残差として消滅) |
-
-> ⚠ ハードコード比率 (80/10/10)。pallet 定数化されておらず Config から触れない。
+**`EconomicGovernanceOrigin`** = `EitherOfDiverse<EnsureRoot, EnsureProportionAtLeast<Council, 1, 2>>`
+- mainnet 初期: root のみ
+- 中期: council 過半数も有効
+- 長期: zk-vote referenda へ移行 (別 PR)
 
 ---
 
-## 4. Storage Pallet ([runtime](../apps/blockchain/runtime/src/lib.rs#L319-L359) + [pallet](../apps/blockchain/pallets/storage/src/lib.rs))
+## 4. EIP-1559 Base Fee ⭐ **TSTS P2**
 
-### 4.1 報酬計算
+### 4.1 `pallet_base_fee` ([runtime/src/lib.rs L391-L403](../apps/blockchain/runtime/src/lib.rs#L391))
 
-| 名前 | 値 | 役割 |
+| 名前 | 値 (mainnet 推奨) | governance | 役割 |
+|---|---|---|---|
+| `GasTargetBytesPerBlock` | `50_000` (50 KB) | ✅ via `EconomicParams::DefaultGasTarget` (default のみ) | 1 block の target 使用 bytes |
+| `BaseFeeMin` | `100` units (= `1e-10` MORAL/byte) | ✅ via `set_base_fee_range` | base_fee 下限 |
+| `BaseFeeMax` | `100_000_000_000` units (= `0.1` MORAL/byte) | ✅ 同上 | spam 攻撃時の cap |
+| `BaseFeeInit` | `10_000` units (= `1e-8` MORAL/byte) | ❌ | genesis 初期値 |
+
+**式**: 毎 block `on_finalize` で `base_fee × (1 + (used/target − 1) / 8)`, ±12.5% で clamp, `BaseFeeMin..BaseFeeMax` で saturate.
+
+**不変条件 I-5 (Spam 自己消費)**: 持続的 spam で base_fee → BaseFeeMax. 攻撃者の MORAL を有限時間で枯渇.
+
+---
+
+## 5. 投稿コスト・Storage / Reaction 還流 ⭐ **TSTS P3+P7**
+
+### 5.1 `pallet_post` ([runtime/src/lib.rs L495-L510](../apps/blockchain/runtime/src/lib.rs#L495))
+
+| 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
+|---|---|---|---|---|
+| `PostBaseCost` | `100 MORAL` | **`50 MORAL`** | ❌ | 投稿基本コスト (旧から半減) |
+| `PostByteCost` | `0.001 MORAL/byte` | **`0.0008 MORAL/byte`** | ❌ | バイト単価 (旧から微減) |
+| `MaxContentLength` | `1 GB` | `1 GB` | ❌ | 上限 |
+
+### 5.2 投稿コストの分配 ([pallet-post/src/lib.rs](../apps/blockchain/pallets/post/src/lib.rs))
+
+| 旧 (M0) | **現 (TSTS v1)** | governance |
 |---|---|---|
-| `BaseRewardPerByte` | **`1 unit`** (= `1e-12 MORAL/byte`) | proof 成功 1 回あたり = `BaseRewardPerByte × data_size` |
-| `ScoreThreshold` | `100` | 報酬対象スコア（未満は 0 報酬 + ForgettingCandidate） |
-| `ScoreHysteresisMargin` | `20` | 復帰閾値 = `ScoreThreshold + 20` |
-| `MinWithdrawalAmount` | **`500 MORAL`** | 引き出し最小額 |
-| `GenesisConfig.initial_reward_pool` | `1,000,000 MORAL` (testnet) | 初期プール残高 |
+| 80 % storage / 10 % reaction / 10 % burn | **50 % / 20 % / 30 %** | ✅ via `set_post_storage_share` / `set_post_reaction_share` |
 
-### 4.2 PoW (ノード登録) — [pallets/storage/src/pow.rs](../apps/blockchain/pallets/storage/src/pow.rs)
+**配分対象**: `base_cost + size_cost`. base_fee burn 部分は完全 burn (混雑自己消費).
+
+**式**: `post_total = base_cost + (byte_cost + base_fee) × bytes`
+- `storage_share = post_distributable × 50%` → σ_storage 流入
+- `reaction_share = post_distributable × 20%` → σ_reaction 流入
+- `burn_share = 30%` (残差として burn) + `base_fee × bytes` (混雑時に膨張)
+
+---
+
+## 6. Storage Pallet ⭐ **TSTS P3+F1**
+
+### 6.1 報酬計算 ([pallet-storage/src/rewards.rs](../apps/blockchain/pallets/storage/src/rewards.rs))
+
+| 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
+|---|---|---|---|---|
+| `BaseRewardPerByte` | `1` unit (`1e-12` MORAL/byte) | **`5_000` units (= `5e-9` MORAL/byte = 5 nano-MORAL/byte)** | ❌ | proof 成功 1 回あたり = `BaseRewardPerByte × data_size` |
+| `ScoreThreshold` | `100` | `100` | ❌ | 報酬対象スコア |
+| `ScoreHysteresisMargin` | `20` | `20` | ❌ | 復帰閾値 = `ScoreThreshold + 20` |
+| `MinWithdrawalAmount` | `500 MORAL` | `500 MORAL` | ❌ | 引き出し最小額 |
+| `StoragePoolTarget` | — | **`500_000 MORAL`** | ❌ | プール残高がこれ以下なら線形 decay |
+| `SlashRatePerFailPpm` | (50% pending) | **`50_000` ppm (= 5 %/fail)** | ✅ via `set_slash_rate_per_fail_ppm` | 1 failed challenge あたり bond 削減割合 |
+
+**式 (`calculate_reward_v3`)**:
+```
+reward = BaseRewardPerByte × data_size
+       × min(1, σ_storage / σ_target)            ← pool ratio decay (P3)
+       × √(node_bond / total_active_bond)        ← quadratic Sybil resistance (F1)
+```
+
+**不変条件 I-2 (ストレージプール下限)**: block reward 30 % 流入で ∀t, σ_storage ≥ tail mint × 30 %.
+
+### 6.2 Storage Stake (`pallet_storage_stake`) ⭐ **TSTS P4** ([runtime/src/lib.rs L376-L388](../apps/blockchain/runtime/src/lib.rs#L376))
+
+| 名前 | 値 (mainnet 推奨) | governance | 役割 |
+|---|---|---|---|
+| `BondPerGB` | **`10 MORAL`/GB** | ✅ via `set_bond_per_gb` | 1 GB 宣言容量あたりの bond |
+| `MinDeclaredCapacity` | `1 GB` (`1_073_741_824` bytes) | ❌ | 最小宣言容量 |
+| `BondReleaseDelay` | `100_800` blocks (7 d) | ❌ | release 申請から finalize まで |
+| `SlashBurnSharePermill` | `30 %` | ❌ | slash 額のうち burn する割合 (残り 70 % は free balance に戻る) |
+
+**Slash 動作**: `bond × SlashRatePerFailPpm` を `do_slash_node` で削減. 30 % は slash_reserved で burn, 70 % は unreserve で operator に返却.
+
+### 6.3 PoW (ノード登録) ([pallet-storage/src/pow.rs](../apps/blockchain/pallets/storage/src/pow.rs))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
 | `BasePowDifficulty` | `12` bits | ノード登録 PoW 基本難易度 |
-| `PowObservationPeriod` | `10` ブロック | 観測 window |
-| `MAX_DIFFICULTY` (const) | `24` | ハードコード上限 |
-| 加算式 | `additional = registrations / 5` | 動的加算 |
+| `PowObservationPeriod` | `10` blocks | 観測 window |
+| `MAX_DIFFICULTY` | `24` | ハードコード上限 |
 
-### 4.3 容量・形状制約
+### 6.4 容量・形状制約
 
 | 名前 | 値 |
 |---|---|
@@ -146,7 +215,7 @@ mainnet ではほぼ全項目を再検討する前提で読むこと。
 | `MinNodeCapacity` | `1 GB` |
 | `MaxHttpUrlLen` | `256` byte |
 
-### 4.4 Rate-limit
+### 6.5 Rate-limit
 
 | 名前 | 値 |
 |---|---|
@@ -154,84 +223,101 @@ mainnet ではほぼ全項目を再検討する前提で読むこと。
 | `MaxDeclarationsPerBlockPerNode` | `10` |
 | `MaxChallengesPerBlock` | `10` |
 
-### 4.5 Slashing/Repair ([pallets/storage/src/lib.rs L1938-L1975](../apps/blockchain/pallets/storage/src/lib.rs#L1938-L1975))
+---
 
-| 名前 | 値 | 役割 |
-|---|---|---|
-| Slash penalty | **`PendingRewards / 2`** (50 %) | ハードコード |
-| Penalty 行先 | `RepairRewardPools[content_hash]` | repair 完了者へ |
-| `priority_score` 加重 | slashed +1000, score-low +100, last_proved/100 ≤500 | eviction 順位 |
+## 7. Reaction Pallet ⭐ **TSTS P5**
+
+### 7.1 動的 γ + decay + reactor lock ([runtime/src/lib.rs L645-L678](../apps/blockchain/runtime/src/lib.rs#L645))
+
+| 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
+|---|---|---|---|---|
+| `ReactionReward` | `1 MORAL` 固定 | (γ_max=0 時 fallback のみ) | ❌ | 動的 γ が無効なら fallback |
+| `BaseDifficulty` | `16` bits | `16` bits | ❌ | 反応 PoW 基本 |
+| `MinDifficulty` / `MaxDifficulty` | `8` / `32` | `8` / `32` | ❌ | 範囲 |
+| `ChallengeValidity` | `100` blocks | `100` blocks | ❌ | チャレンジ有効期間 |
+| `TargetReactionRate` | `10`/block | `10`/block | ❌ | 目標スループット |
+| `AdjustmentWindow` | `10` blocks | `10` blocks | ❌ | 難易度調整 window |
+| `AdjustmentDivisor` | `4` | `4` | ❌ | 平滑係数 |
+| `GammaMaxPpm` | — | **`10_000` ppm (= 1 %)** | ❌ | γ = pool/total_issuance の上限 |
+| `ReactorDecayK` | — | **`100`** | ❌ | n 番目反応の decay = `1/√(1 + n/K)` |
+| `PerBlockPayoutCapPpm` | — | **`17` ppm (≒ 5 %/day)** | ❌ | per-block の pool 流出上限 |
+| `ReactorLockMin` | — | **`0.1 MORAL`** (`1e11` units) | ✅ via `set_reactor_lock_min` | 報酬を得るための最小 lock |
+| `ReactorLockDuration` | — | **`2_880` blocks (24 h)** | ❌ | lock の解除待ち時間 |
+
+**式 (compute_reward)**:
+```
+γ = min(GammaMaxPpm/1e6, σ_reaction / TotalIssuance)
+decay = √(K / (K + reactor_count))
+reward = ReactionReward × γ × decay
+       (ただし pool × PerBlockPayoutCapPpm/1e6 で per-block 上限)
+```
+
+**Reactor lock**: `lock_for_rewards(amount)` で `ReservableCurrency::reserve` 必須. 報酬を mint する前提条件 (`ReactorLockMin > 0` 時).
+
+**不変条件 I-3 (反応プール正値性)**: per-block cap で σ_reaction → 0 不可.
+**不変条件 I-4 (Sybil 不採算)**: `reactor_lock × Sybil_count` の MORAL 流動性破壊が必要.
 
 ---
 
-## 5. Reaction Pallet (反応マイニング) ⭐ **二段目のインフレ源**
+## 8. DM (Messaging) コスト・分配 ⭐ **TSTS P6**
 
-### 5.1 [runtime](../apps/blockchain/runtime/src/lib.rs#L386-L411) + [pallet](../apps/blockchain/pallets/reaction/src/lib.rs)
+### 8.1 `pallet_messaging` ([runtime/src/lib.rs L711-L750](../apps/blockchain/runtime/src/lib.rs#L711))
 
-| 名前 | 値 | 役割 |
+| 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
+|---|---|---|---|---|
+| `DmBaseCost` | `1 MORAL` | **`0.5 MORAL`** | ❌ | DM 基本 |
+| `DmByteCost` | `0.05 MORAL/byte` | **`0.04 MORAL/byte`** | ❌ | バイト単価 |
+| `MaxDmCiphertextLen` | `262_144` (256 KiB) | `262_144` | ❌ | 1 DM サイズ上限 |
+| `MaxDispatchesPerBlock` | `256` | `256` | ❌ | block あたり |
+
+### 8.2 DM コスト分配
+
+| 旧 (M0) | **現 (TSTS v1)** | governance |
 |---|---|---|
-| `ReactionReward` | **`1 MORAL` 固定** | 1 反応あたり報酬（spec §動的式は未実装） |
-| `BaseDifficulty` | `16` bits | 反応 PoW 基本 |
-| `MinDifficulty` / `MaxDifficulty` | `8` / `32` | 範囲 |
-| `ChallengeValidity` | `100` ブロック | チャレンジ有効期間 |
-| `TargetReactionRate` | `10`/block | 目標スループット |
-| `AdjustmentWindow` | `10` ブロック | 難易度調整 window |
-| `AdjustmentDivisor` | `4` | 平滑係数 |
-| `GenesisConfig.initial_reward_pool` | `10,000,000 MORAL` (testnet) | 初期プール |
-| `GenesisConfig.initial_difficulty` | `16` bits (testnet) | 初期難易度 |
+| 80 % storage / 10 % stealth (`()` で実質 burn) / 10 % burn | **50 % / 20 % / 30 %** | ✅ via `set_dm_storage_share` / `set_dm_stealth_share` |
 
-> ⚠ `Reward = Σ(Reaction × Power_cpu) × γ` という TODO の動的式は **未実装**。
-> 現在は固定報酬。γ（インフレ調整係数）も storage/state には存在しない。
+**Stealth 還流**: `pallet_stealth::StealthRewardPool` に配線済 (P6). `claim_stealth_reward` extrinsic で受信実績比例で payout 可能.
+
+### 8.3 DM 受信報酬 (Stealth Pool) ⭐ **TSTS F2 / F2.5**
+
+| 名前 | 値 | governance | 役割 |
+|---|---|---|---|
+| `ClaimCapPpm` | `100_000` ppm (= 10 %) | ❌ | 1 回 claim あたり pool 流出上限 |
+| Signature 検証 | sp_io::ed25519_verify | ❌ | stealth_pubkey で `(signer, ephemeral_pubkey)` を署名検証 (F2.5) |
+| Correspondence verifier | `()` no-op | ❌ | F10 zk-proof scaffold (将来 Groth16 / Halo2 で差替) |
+
+**Cap で truncate された場合の partial claim**: `advanced_count = max(1, unclaimed × payout / proportional_full)` で **比例分のみ** claimed_count を進める. 残りは次回回収可能.
 
 ---
 
-## 6. Faucet Pallet ([runtime/src/lib.rs L304-L316](../apps/blockchain/runtime/src/lib.rs#L304-L316))
+## 9. Faucet Pallet ⭐ **TSTS P7**
 
-| 名前 | 値 | 役割 |
-|---|---|---|
-| `BaseDifficulty` | `18` bits (~3 sec) | 初期難易度 |
-| `DifficultyScalingFactor` | `1000` (claims) | log2 スケール |
-| `MaxDifficulty` | `28` bits (~3 min) | 上限 |
-| `RewardAmount` | **`100 MORAL`** | 1 claim あたり |
-| `ChallengeValidity` | `100` ブロック | チャレンジ有効期間 |
-| 計算式 | `min(base + ⌊log2(1 + total_claims/scaling)⌋, max)` | 動的難易度 |
+| 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
+|---|---|---|---|---|
+| `BaseDifficulty` | `18` bits (~3 sec) | `18` bits | ❌ | 初期難易度 |
+| `DifficultyScalingFactor` | `1000` | `1000` | ❌ | log2 スケール |
+| `MaxDifficulty` | `28` bits (~3 min) | `28` bits | ❌ | 上限 |
+| `RewardAmount` | `100 MORAL` | `100 MORAL` | ❌ | 1 claim あたり |
+| `ChallengeValidity` | `100` blocks | `100` blocks | ❌ | チャレンジ有効期間 |
+| `TotalCap` | (無し, 永続) | **`100,000 MORAL`** | ❌ | 累積発行上限 — bootstrap 専用 sunset |
 
----
+**式 (難易度)**: `min(base + ⌊log2(1 + total_claims/scaling)⌋, max)`
 
-## 7. DM (Messaging) コスト・分配 ⭐
-
-### 7.1 [runtime](../apps/blockchain/runtime/src/lib.rs#L443-L458) + [messaging/lib.rs](../apps/blockchain/pallets/messaging/src/lib.rs#L285-L316)
-
-| 名前 | 値 | 役割 |
-|---|---|---|
-| `DmBaseCost` | **`1 MORAL`** (`1e12`) | DM 基本 |
-| `DmByteCost` | **`0.05 MORAL/byte`** (`5e10`) | バイト単価 |
-| `MaxDmCiphertextLen` | `262_144` (256 KiB) | 1 DM サイズ上限 |
-| `MaxDispatchesPerBlock` | `256` | block あたり |
-
-### 7.2 DM コスト分配（ハードコード）
-
-| 配分 | 比率 | 行先 |
-|---|---|---|
-| Storage プール | **80 %** | `RewardPoolBalance` |
-| Stealth 報酬プール | **10 %** | `StealthReward = ()` のため **現状は永久 burn** |
-| 永久 burn | **10 %** | 残差として消滅 |
-
-> ⚠ Stealth reward 還流は trait 定義のみで未配線。実質 **20 % が burn**。
+`TotalMinted >= TotalCap` で `Error::FaucetCapReached` 発火 → claim 不可.
 
 ---
 
-## 8. Popularity Pallet（人気度・GC） ([runtime/src/lib.rs L415-L438](../apps/blockchain/runtime/src/lib.rs#L415-L438))
+## 10. Popularity Pallet (人気度・GC) ([runtime/src/lib.rs L682-L702](../apps/blockchain/runtime/src/lib.rs#L682))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
 | `InitialScore` | `100_000` | 投稿開始時スコア |
 | `LikeWeight` | `100` | Like 加点 |
 | `DislikeWeight` | `50` | Dislike 減点 |
-| `DecayRatePermill` | `999_950 / 1_000_000` | per-block 減衰（半減期 ~23h） |
+| `DecayRatePermill` | `999_950 / 1_000_000` | per-block 減衰 (半減期 ~23h) |
 | `LowPopularityThreshold` | `1_000` | GC マーク基準 |
 | `HysteresisMargin` | `500` | 復帰用マージン |
-| `GracePeriod` | `100_800` ブロック (7 日) | GC 猶予 |
+| `GracePeriod` | `100_800` blocks (7 d) | GC 猶予 |
 | `MaxPostsScannedPerBlock` | `8` | 衰退スキャン上限 |
 | `MaxDeletionsPerBlock` | `4` | 削除上限/block |
 | `MaxDeletionScanReads` | `16` | 削除走査読込上限 |
@@ -239,15 +325,16 @@ mainnet ではほぼ全項目を再検討する前提で読むこと。
 
 ---
 
-## 9. その他の周辺定数
+## 11. その他の周辺定数
 
-### 9.1 Stealth ([runtime/src/lib.rs L368-L373](../apps/blockchain/runtime/src/lib.rs#L368-L373))
+### 11.1 Stealth ([runtime/src/lib.rs L598-L606](../apps/blockchain/runtime/src/lib.rs#L598))
 
-| 名前 | 値 |
-|---|---|
-| `MaxEntriesPerBlock` | `100` |
+| 名前 | 値 | 役割 |
+|---|---|---|
+| `MaxEntriesPerBlock` | `100` | 1 block の ephemeral key 登録上限 |
+| `ClaimCapPpm` | `100_000` (10 %) | claim_stealth_reward の per-claim cap |
 
-### 9.2 Nickname
+### 11.2 Nickname
 
 | 名前 | 値 |
 |---|---|
@@ -255,45 +342,72 @@ mainnet ではほぼ全項目を再検討する前提で読むこと。
 
 ---
 
-## 10. Genesis 初期分配 ([node/src/chain_spec.rs L160-L187](../apps/blockchain/node/src/chain_spec.rs#L160-L187))
+## 12. Genesis 初期分配 ([node/src/chain_spec.rs](../apps/blockchain/node/src/chain_spec.rs))
 
 | 名前 | 値 (dev/testnet) | 役割 |
 |---|---|---|
 | `INITIAL_MORAL` | `10,000 MORAL` × endowed accounts | 初期残高 |
-| `INITIAL_REWARD_POOL` (storage) | `1,000,000 MORAL` | Storage 報酬プール |
-| `INITIAL_REACTION_REWARD_POOL` | `10,000,000 MORAL` | Reaction 報酬プール |
+| `INITIAL_REWARD_POOL` (storage) | `100,000 MORAL` (旧 1M から縮小) | Storage 報酬プール seed |
+| `INITIAL_REACTION_REWARD_POOL` | `100,000 MORAL` (旧 10M から縮小) | Reaction 報酬プール seed |
 | `INITIAL_REACTION_DIFFICULTY` | `16` bits | Reaction 初期難易度 |
-| sudo key | Alice | （mainnet では削除する想定） |
+| sudo key | Alice | (mainnet では削除する想定) |
+
+**genesis 縮小の理由**: Block reward 30 % 流入 (TSTS P1) で運用補充されるため大きい seed は不要.
 
 ---
 
-## サマリ：mainnet 設計で詰めるべき軸
+## 13. Governance 経由可変パラメータ一覧 ⭐ **TSTS F5**
 
-| 軸 | 現状の主役パラメータ |
+`pallet-economic-params` の `set_*` extrinsic で `EconomicGovernanceOrigin` (= EnsureRoot OR Council majority) から発議可能:
+
+| Setter | 対象 | バリデーション |
+|---|---|---|
+| `set_post_storage_share(Permill)` | post 配分 storage 割合 | `p ≤ 100%` & `p + post_reaction ≤ 100%` |
+| `set_post_reaction_share(Permill)` | post 配分 reaction 割合 | `p ≤ 100%` & `p + post_storage ≤ 100%` |
+| `set_dm_storage_share(Permill)` | DM 配分 storage 割合 | 同上 |
+| `set_dm_stealth_share(Permill)` | DM 配分 stealth 割合 | 同上 |
+| `set_block_reward_shares(miner, storage, reaction)` | block reward 3-way 比率 | `sum ≤ 100%` |
+| `set_reactor_lock_min(u128)` | reactor lock 最小額 | なし |
+| `set_bond_per_gb(u128)` | storage stake 単価 | なし |
+| `set_slash_rate_per_fail_ppm(u32)` | slashing 比率 | `≤ 1_000_000` (100 %) |
+| `set_base_fee_range(min, max)` | EIP-1559 base fee | `min ≤ max` |
+
+---
+
+## 14. mainnet 投入前のチェックリスト
+
+| 確認項目 | 詳細 |
 |---|---|
-| **総供給 / インフレ上限** | `InitialBlockReward × HalvingPeriod × 2` (≈ 4,200 万 MORAL) |
-| **時間あたりインフレ率** | `InitialBlockReward / 30s` × era 補正、+ Reaction プール枯渇速度 |
-| **デフレ圧** | `PostBase/ByteCost` の 10 % burn + DM 20 % burn |
-| **手数料モデル** | TX 手数料 0（変えるなら `WeightToFee` / `LengthToFee` / `FeeMultiplier`） |
-| **ストレージインセンティブ** | `BaseRewardPerByte × data_size` × proof 頻度、プール 80 % 流入 |
-| **反応マイニング曲線** | TODO 通り `Σ(R × Power_cpu) × γ` を実装するなら新 Storage と新定数が必要 |
-| **Faucet 露出量** | `RewardAmount × 期待 claim 数`、難易度 log カーブで漸増 |
-| **Genesis 分配** | endowed accounts, 報酬プール初期残高、難易度初期値 |
-| **ハードコード比率（要見直し候補）** | post 80/10/10, DM 80/10/10, slashing 50 %, priority_score 加重 |
-| **未配線のリーク** | Stealth reward (10 %) → `()` で burn になっている |
-
-### 要注意の "TODO 連動" 項目
-
-- Reaction の動的式 `Reward = Σ(R × Power_cpu) × γ` および γ = `ReactionRewardPool / TotalSupply` は **未実装**。
-  実装するには `pallet_reaction` に `ReactionRewardPoolStorage` の参照と `pallet_balances::TotalIssuance`
-  経由の動的算出が要る。
-- Stealth reward 還流（10 %）の trait 実装が `()` のままで、実質 burn。
-- 投稿/DM の 80/10/10 はマジックナンバー。Config 化するか `parameter_types!` 化が望ましい。
+| `MinDifficulty` (PoW) | `100` (dev) → `10_000` 推奨に上げる |
+| `INITIAL_REWARD_POOL` / `INITIAL_REACTION_REWARD_POOL` | testnet と同等で OK (block reward が補充) |
+| `FaucetTotalCap` | `100_000 MORAL` で良いか再検討 (claim 1000 件想定) |
+| `BondPerGB` | mainnet 価格で sybil コストが効くか確認 |
+| Council 初期 members | sudo が `Council::set_members` で 5-7 名設定 |
+| sudo 削除 | mainnet 開始から N ブロック後に sudo を空 key に置換 |
+| RandomX seed rotation | epoch ごとの seed 切替 (TODO §4.7 Phase C) |
 
 ---
 
-## 関連ドキュメント
+## 15. シミュレーション参照
 
-- [`docs/TODO.md` §4.4](TODO.md) — Mainnet 設計・経済パラメータの未着手チェックリスト
-- [`docs/blockchain_logic.md`](blockchain_logic.md) — チェーン全体のロジック
-- [`docs/storage_logic.md`](storage_logic.md) — Storage 報酬・PoW・GC の流れ
+5 年シミュレーション結果は [`economic/simulator_output.txt`](economic/simulator_output.txt) を参照. 主要 KPI:
+
+| 観点 | M0 (旧) | M1 (TSTS v1) |
+|---|---|---|
+| Storage 5y 累計支払 (S1 organic) | 815 MORAL | **1,289,233 MORAL** (×1,580) |
+| Reaction pool 残高 (S4 Sybil 1M, 5y) | 0 (枯渇) | **6.1M MORAL** (生存) |
+| Spam 攻撃時の post コスト | 一定 (104) | **0.1 MORAL/byte cap で膨張** |
+| 51% 攻撃コスト (era 64+) | 0 | **TailEmission × hashrate** 永続 |
+
+---
+
+## 16. 改訂履歴
+
+| 日付 | 変更 | 出典 PR |
+|---|---|---|
+| 2026-05-07 | TSTS v1 経済モデル全面適用 (P1〜P7) | #54 |
+| 2026-05-07 | F1 Storage↔Stake wire-up + F2 stealth claim + F4 Grafana | #55 |
+| 2026-05-07 | F2.5 ed25519 + F3 exporter + F5 economic-params + F6 frontend | #55 |
+| 2026-05-07 | F7 effective_*() refactor + F8 Council + F9 node Prometheus + F10 zk scaffold | #55 |
+| 2026-05-07 | Copilot review 11 件全対応 (cap-claimed bug fix, Permill validation, etc.) | #55 |
+| 2026-05-07 | E2E 14/14 pass (実機 WSL2 で確認) | #55 |
