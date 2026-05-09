@@ -96,6 +96,25 @@ mod phase2 {
     use super::*;
     use crate::storage::engine::{KEY_TOTAL_USED_BYTES, SYSTEM};
 
+    /// `total_fragment_count` sums both tables. Regression test for the
+    /// Phase 2 metrics fix — `fragment_count()` alone (hash-only) under-
+    /// reports on a node that has accepted post-based fragments via the
+    /// repair / network paths.
+    #[test]
+    fn test_total_fragment_count_sums_both_tables() {
+        let temp = TempDir::new().unwrap();
+        let store = FragmentStore::new(temp.path().to_str().unwrap(), 1024 * 1024).unwrap();
+
+        // 1 hash-based + 2 post-based
+        store.store([1u8; 32], b"hash-based").unwrap();
+        store.store_post_fragment(42, 0, b"post 0").unwrap();
+        store.store_post_fragment(42, 1, b"post 1").unwrap();
+
+        assert_eq!(store.fragment_count().unwrap(), 1);
+        assert_eq!(store.post_fragment_count().unwrap(), 2);
+        assert_eq!(store.total_fragment_count().unwrap(), 3);
+    }
+
     /// `store_post_fragment` writes a metadata row alongside the bytes,
     /// with size + Blake2 hash matching the data and `ref_count = 1`.
     #[test]

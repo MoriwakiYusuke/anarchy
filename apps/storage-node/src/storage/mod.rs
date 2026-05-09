@@ -313,6 +313,11 @@ impl FragmentStore {
     }
 
     /// Get number of stored hash-based fragments.
+    ///
+    /// Hash-based only — kept this way because `main.rs`'s GC loop expects
+    /// the legacy semantics (it pairs with `list_fragments` and `delete`
+    /// which are also hash-only). Use [`Self::total_fragment_count`] for
+    /// metrics or anything that should include post-based fragments.
     pub fn fragment_count(&self) -> Result<usize> {
         let txn = self.engine.db.begin_read().context("Failed to begin read txn")?;
         match txn.open_table(FRAGMENTS) {
@@ -320,6 +325,22 @@ impl FragmentStore {
             Err(TableError::TableDoesNotExist(_)) => Ok(0),
             Err(e) => Err(anyhow::Error::from(e).context("open fragments")),
         }
+    }
+
+    /// Get number of stored post-based fragments.
+    pub fn post_fragment_count(&self) -> Result<usize> {
+        let txn = self.engine.db.begin_read().context("Failed to begin read txn")?;
+        match txn.open_table(POST_FRAGMENTS) {
+            Ok(t) => Ok(t.len().context("count post fragments")? as usize),
+            Err(TableError::TableDoesNotExist(_)) => Ok(0),
+            Err(e) => Err(anyhow::Error::from(e).context("open post_fragments")),
+        }
+    }
+
+    /// Total number of stored fragments across both tables. Use this for
+    /// observability (e.g. `storage_fragments_total` Prometheus gauge).
+    pub fn total_fragment_count(&self) -> Result<usize> {
+        Ok(self.fragment_count()? + self.post_fragment_count()?)
     }
 
     /// List all hash-based fragment IDs.

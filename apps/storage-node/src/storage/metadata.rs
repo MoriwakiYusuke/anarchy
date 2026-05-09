@@ -29,8 +29,10 @@ pub struct Metadata {
     pub size: u64,
     /// Unix seconds at first store.
     pub created_at: u64,
-    /// Unix seconds at last successful retrieve. Updated lazily — see
-    /// `Repository::touch_post` for the write batching strategy.
+    /// Unix seconds at last successful retrieve. Currently set equal to
+    /// `created_at` and not updated on read — Phase 2 deferred lazy
+    /// touch-on-read updates to a future slice (paired with LRU eviction
+    /// in TODO §4.9).
     pub last_accessed_at: u64,
     /// How many logical references point at this blob. Currently always 1
     /// (we don't dedupe across posts), reserved for future content-addressed

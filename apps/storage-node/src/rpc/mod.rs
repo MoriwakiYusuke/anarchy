@@ -485,7 +485,10 @@ async fn handle_metrics(
     // Pull live storage stats off the FragmentStore. Phase 2 of TODO §4.9 —
     // metrics.fragment_count / capacity_used_bytes were never wired to a
     // writer in any RPC handler, so before this they always read zero.
-    let live_fragment_count = state.store.fragment_count().unwrap_or(0) as u64;
+    // `total_fragment_count` covers both hash-based and post-based tables;
+    // using `fragment_count` alone would under-report by the number of
+    // post-based fragments.
+    let live_fragment_count = state.store.total_fragment_count().unwrap_or(0) as u64;
     let live_used_bytes = state.store.used_bytes();
 
     // NFR-003: Collect required metrics
