@@ -65,6 +65,13 @@ pub struct Config {
     /// REQUIRED: Must be configured explicitly for security reasons.
     /// Generate with: openssl rand -hex 32
     pub signer_seed: String,
+
+    /// When true, every fragment retrieve recomputes Blake2-256 and
+    /// compares it to the stored `Metadata::data_hash`. Catches bit-rot
+    /// on disk at the cost of one hash per read. Off by default — enable
+    /// on operators who care about silent corruption.
+    #[serde(default = "default_verify_on_read")]
+    pub verify_on_read: bool,
 }
 
 fn default_data_dir() -> String {
@@ -110,6 +117,10 @@ fn default_dev_mode() -> bool {
     false
 }
 
+fn default_verify_on_read() -> bool {
+    false
+}
+
 // NOTE: signer_seed has no default - it MUST be configured explicitly.
 // This prevents accidental use of dev seeds in production.
 
@@ -128,6 +139,7 @@ impl Default for Config {
             dev_mode: default_dev_mode(),
             // signer_seed is REQUIRED - must be set via config file
             signer_seed: String::new(),
+            verify_on_read: default_verify_on_read(),
         }
     }
 }

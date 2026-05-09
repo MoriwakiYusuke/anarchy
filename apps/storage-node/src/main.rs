@@ -79,9 +79,14 @@ async fn main() -> anyhow::Result<()> {
     info!(peer_id = %identity.peer_id(), "Node identity loaded");
 
     // Initialize storage
-    let store = Arc::new(storage::FragmentStore::new(&config.data_dir, config.capacity)?);
+    let store = Arc::new(storage::FragmentStore::new_with_verify(
+        &config.data_dir,
+        config.capacity,
+        config.verify_on_read,
+    )?);
     info!(
         capacity_bytes = config.capacity,
+        verify_on_read = config.verify_on_read,
         "Fragment storage initialized"
     );
 

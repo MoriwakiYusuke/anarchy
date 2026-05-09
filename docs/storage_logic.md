@@ -214,13 +214,17 @@ HybridShard (シリアライズ形式)
 │  ├─ storage_getKzgShard     → FragmentStore.get()                          │
 │  └─ storage_health          → ヘルスチェック                                │
 ├────────────────────────────────────────────────────────────────────────────┤
-│  FragmentStore (redb-backed, TODO §4.9 Phase 1)                            │
+│  FragmentStore (redb-backed, TODO §4.9 Phase 1+2)                          │
 │  ├─ 保存先: data/fragments.redb (embedded B-tree, ACID)                    │
 │  ├─ 論理テーブル:                                                           │
-│  │   • fragments        : [u8;32] (FragmentId) → bytes                      │
-│  │   • post_fragments   : (u64 post_id, u32 index) → bytes                 │
+│  │   • fragments            : [u8;32] (FragmentId) → bytes                  │
+│  │   • post_fragments       : (u64 post_id, u32 index) → bytes             │
+│  │   • fragment_meta        : [u8;32] → SCALE(Metadata)        (Phase 2)   │
+│  │   • post_fragment_meta   : (u64,u32) → SCALE(Metadata)      (Phase 2)   │
+│  │   • system               : "total_used_bytes" → u64         (Phase 2)   │
 │  ├─ 最大サイズ: 1GB / fragment (= MAX_FRAGMENT_SIZE)                        │
-│  └─ 容量管理: AtomicU64 (起動時に redb 全 scan で復元)                      │
+│  ├─ 容量管理: AtomicU64 (起動時 system table から O(1) 復元)                │
+│  └─ verify_on_read: 任意 (config flag、Metadata.data_hash と比較)           │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -228,8 +232,10 @@ HybridShard (シリアライズ形式)
 > 旧実装は 1 fragment = 1 file (`fragments/{xx}/{yy}/{hex}.bin`) で、100 万件規模で
 > inode インフレ・walkdir O(N) 起動・atomic rename 不在 (途中 crash で部分書き残留) の
 > 問題があった。Phase 1 で redb (pure Rust, B-tree, ACID) に置換し、書き込みは 1 txn
-> で原子化。Phase 2 で metadata tree / post 逆引き / atomic counter 永続化 / verify-on-read
-> / snapshot backup を追加予定。
+> で原子化。Phase 2 で metadata table (SCALE-encoded `{ size, created_at, last_accessed_at,
+> ref_count, data_hash }`)、`system.total_used_bytes` 永続化、`verify_on_read` config flag
+> (Blake2 で bit-rot 検知) を追加。残: GC スケジューラの redb range scan 化 / LRU eviction /
+> snapshot backup / 1M ベンチ。
 
 ### 3.3 復元フロー
 

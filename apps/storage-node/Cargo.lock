@@ -85,6 +85,7 @@ dependencies = [
  "hex",
  "kzg-constants",
  "libp2p",
+ "parity-scale-codec",
  "parking_lot",
  "rand 0.8.5",
  "redb",
