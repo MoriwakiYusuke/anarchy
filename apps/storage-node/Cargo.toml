@@ -58,6 +58,11 @@ bs58 = "0.5"
 # Pure Rust, ACID, B-tree. Replaces previous walkdir-based filesystem layout.
 redb = "4.1"
 
+# SCALE codec — same encoding the chain side uses, so metadata layout
+# is consistent across components. Already pulled transitively via subxt;
+# adding it as a direct dep makes the dependency explicit.
+parity-scale-codec = { version = "3", features = ["derive"] }
+
 # Async utilities
 futures = "0.3"
 async-trait = "0.1"

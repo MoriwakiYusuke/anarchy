@@ -255,6 +255,7 @@ async fn handle_store_fragment(
     // Store the fragment
     match state.store.store(fragment_id, &data) {
         Ok(()) => {
+            state.metrics.record_put();
             // Calculate fragment hash
             use blake2::{Blake2b, Digest};
             use blake2::digest::consts::U32;
@@ -306,6 +307,7 @@ async fn handle_get_fragment(
     // Retrieve the fragment
     match state.store.retrieve(&fragment_id) {
         Ok(Some(data)) => {
+            state.metrics.record_get();
             // Calculate hash
             use blake2::{Blake2b, Digest};
             use blake2::digest::consts::U32;
@@ -392,6 +394,7 @@ async fn handle_store_kzg_shard(
     // Store the shard
     match state.store.store(shard_id, &shard_data) {
         Ok(()) => {
+            state.metrics.record_put();
             // Calculate shard hash
             use blake2::{Blake2b, Digest};
             use blake2::digest::consts::U32;
@@ -478,7 +481,16 @@ async fn handle_metrics(
     State(state): State<RpcState>,
 ) -> impl IntoResponse {
     let m = &state.metrics;
-    
+
+    // Pull live storage stats off the FragmentStore. Phase 2 of TODO §4.9 —
+    // metrics.fragment_count / capacity_used_bytes were never wired to a
+    // writer in any RPC handler, so before this they always read zero.
+    // `total_fragment_count` covers both hash-based and post-based tables;
+    // using `fragment_count` alone would under-report by the number of
+    // post-based fragments.
+    let live_fragment_count = state.store.total_fragment_count().unwrap_or(0) as u64;
+    let live_used_bytes = state.store.used_bytes();
+
     // NFR-003: Collect required metrics
     let output = format!(
         r#"# HELP fragment_upload_total Total number of fragment uploads
@@ -526,8 +538,8 @@ storage_chain_latency_ms {}
         m.connected_peers(),
         m.chain_failovers(),
         m.gossip_messages_received(),
-        m.fragment_count(),
-        m.capacity_used_bytes(),
+        live_fragment_count,
+        live_used_bytes,
         m.capacity_total_bytes(),
         m.auth_failures(),
         m.chain_latency_ms(),

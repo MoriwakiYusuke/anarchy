@@ -3,6 +3,7 @@
 //! Tests both:
 //! 1. Hash-based storage (legacy API)
 //! 2. Post-based storage (new API for Post Storage Migration - T054)
+//! 3. Phase 2 additions: metadata, persistent counter, verify_on_read
 
 use super::*;
 use tempfile::TempDir;
@@ -87,6 +88,186 @@ fn test_retrieve_nonexistent() {
     let id = [99u8; 32];
     let result = store.retrieve(&id).unwrap();
     assert!(result.is_none());
+}
+
+// === Phase 2 (TODO §4.9): metadata, persistent counter, verify_on_read ===
+
+mod phase2 {
+    use super::*;
+    use crate::storage::engine::{KEY_TOTAL_USED_BYTES, SYSTEM};
+
+    /// `total_fragment_count` sums both tables. Regression test for the
+    /// Phase 2 metrics fix — `fragment_count()` alone (hash-only) under-
+    /// reports on a node that has accepted post-based fragments via the
+    /// repair / network paths.
+    #[test]
+    fn test_total_fragment_count_sums_both_tables() {
+        let temp = TempDir::new().unwrap();
+        let store = FragmentStore::new(temp.path().to_str().unwrap(), 1024 * 1024).unwrap();
+
+        // 1 hash-based + 2 post-based
+        store.store([1u8; 32], b"hash-based").unwrap();
+        store.store_post_fragment(42, 0, b"post 0").unwrap();
+        store.store_post_fragment(42, 1, b"post 1").unwrap();
+
+        assert_eq!(store.fragment_count().unwrap(), 1);
+        assert_eq!(store.post_fragment_count().unwrap(), 2);
+        assert_eq!(store.total_fragment_count().unwrap(), 3);
+    }
+
+    /// `store_post_fragment` writes a metadata row alongside the bytes,
+    /// with size + Blake2 hash matching the data and `ref_count = 1`.
+    #[test]
+    fn test_store_writes_metadata() {
+        let temp = TempDir::new().unwrap();
+        let store = FragmentStore::new(temp.path().to_str().unwrap(), 1024 * 1024).unwrap();
+
+        let post_id: u64 = 17;
+        let data = b"metadata test payload".to_vec();
+        store.store_post_fragment(post_id, 0, &data).unwrap();
+
+        let meta = store
+            .post_fragment_metadata(post_id, 0)
+            .unwrap()
+            .expect("metadata should exist after store");
+        assert_eq!(meta.size, data.len() as u64);
+        assert_eq!(meta.data_hash, FragmentStore::compute_hash(&data));
+        assert_eq!(meta.ref_count, 1);
+        assert_eq!(meta.version, crate::storage::metadata::META_V1);
+        assert!(meta.created_at > 0);
+        assert_eq!(meta.last_accessed_at, meta.created_at); // not updated yet
+    }
+
+    /// `verify_on_read = true` accepts unmodified data.
+    #[test]
+    fn test_verify_on_read_passes_for_clean_data() {
+        let temp = TempDir::new().unwrap();
+        let store =
+            FragmentStore::new_with_verify(temp.path().to_str().unwrap(), 1024 * 1024, true)
+                .unwrap();
+
+        let data: Vec<u8> = (0..256).map(|i| (i % 251) as u8).collect();
+        let id = [9u8; 32];
+        store.store(id, &data).unwrap();
+
+        let got = store.retrieve(&id).unwrap().unwrap();
+        assert_eq!(got, data);
+    }
+
+    /// `verify_on_read = true` rejects data whose stored bytes have been
+    /// corrupted out-of-band (simulating bit-rot on disk).
+    #[test]
+    fn test_verify_on_read_catches_bit_rot() {
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().to_str().unwrap();
+
+        let id = [7u8; 32];
+        let data = b"original payload".to_vec();
+        {
+            let store = FragmentStore::new_with_verify(dir, 1024 * 1024, true).unwrap();
+            store.store(id, &data).unwrap();
+        }
+
+        // Corrupt the bytes in the FRAGMENTS table directly via redb. This
+        // simulates a single-bit flip from media wear.
+        {
+            let path = std::path::Path::new(dir).join("fragments.redb");
+            let db = redb::Database::create(&path).unwrap();
+            let txn = db.begin_write().unwrap();
+            {
+                let mut t = txn
+                    .open_table(crate::storage::engine::FRAGMENTS)
+                    .unwrap();
+                let mut tampered = data.clone();
+                tampered[0] ^= 0x01;
+                t.insert(&id, tampered.as_slice()).unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        // Reopen and try to read with verify on — should error.
+        {
+            let store = FragmentStore::new_with_verify(dir, 1024 * 1024, true).unwrap();
+            let err = store.retrieve(&id).unwrap_err();
+            assert!(
+                err.to_string().contains("hash mismatch"),
+                "expected hash mismatch error, got: {err}"
+            );
+        }
+
+        // Same store with verify off should still return the (corrupted)
+        // bytes — opened in its own scope so the previous Database is fully
+        // closed (redb forbids two open handles on the same file).
+        let store_no_verify = FragmentStore::new(dir, 1024 * 1024).unwrap();
+        let bytes = store_no_verify.retrieve(&id).unwrap().unwrap();
+        assert_eq!(bytes[0], data[0] ^ 0x01); // corruption visible
+    }
+
+    /// On reopen, the used-bytes counter is loaded from the persisted
+    /// `system.total_used_bytes` key — no fallback scan.
+    #[test]
+    fn test_persistent_counter_loaded_on_reopen() {
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().to_str().unwrap();
+
+        let data: Vec<u8> = (0..1024).map(|i| (i % 251) as u8).collect();
+        {
+            let store = FragmentStore::new(dir, 1024 * 1024).unwrap();
+            store.store_post_fragment(1, 0, &data).unwrap();
+            assert_eq!(store.used_bytes(), data.len() as u64);
+        }
+
+        // Inspect the redb file directly: SYSTEM.total_used_bytes should
+        // hold the persisted size.
+        {
+            let path = std::path::Path::new(dir).join("fragments.redb");
+            let db = redb::Database::create(&path).unwrap();
+            let txn = db.begin_read().unwrap();
+            let t = txn.open_table(SYSTEM).unwrap();
+            let v = t.get(KEY_TOTAL_USED_BYTES).unwrap().unwrap().value();
+            assert_eq!(v, data.len() as u64);
+        }
+
+        let store = FragmentStore::new(dir, 1024 * 1024).unwrap();
+        assert_eq!(store.used_bytes(), data.len() as u64);
+    }
+
+    /// If the SYSTEM counter is somehow missing (e.g., wiped, or migrated
+    /// from Phase 1 data), opening the store recovers the value via a full
+    /// scan and writes it back so the next reopen is fast.
+    #[test]
+    fn test_counter_recovers_when_system_key_missing() {
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().to_str().unwrap();
+
+        let data: Vec<u8> = vec![0xAB; 2048];
+        {
+            let store = FragmentStore::new(dir, 1024 * 1024).unwrap();
+            store.store_post_fragment(2, 0, &data).unwrap();
+        }
+
+        // Wipe the persisted counter.
+        {
+            let path = std::path::Path::new(dir).join("fragments.redb");
+            let db = redb::Database::create(&path).unwrap();
+            let txn = db.begin_write().unwrap();
+            {
+                let mut t = txn.open_table(SYSTEM).unwrap();
+                t.remove(KEY_TOTAL_USED_BYTES).unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        // Reopen — should recompute via scan and persist.
+        let store = FragmentStore::new(dir, 1024 * 1024).unwrap();
+        assert_eq!(store.used_bytes(), data.len() as u64);
+
+        // And after one more reopen (post-recovery), the counter is back
+        // in SYSTEM and used_bytes still matches.
+        drop(store);
+        let store = FragmentStore::new(dir, 1024 * 1024).unwrap();
+        assert_eq!(store.used_bytes(), data.len() as u64);
+    }
 }
 
 // === New post-based storage tests (T054) ===
@@ -291,3 +472,4 @@ mod post_fragment_storage {
         assert_eq!(store.list_post_fragments(post_id).unwrap().len(), 0);
     }
 }
+

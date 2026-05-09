@@ -821,7 +821,9 @@
 
 ### + 4.9 Storage Node DB 最適化 (TODO 追加 2026-05-07)
 
-> **進捗 (2026-05-10)**: Phase 1 として redb (4.x, pure Rust, ACID, B-tree) を即採用し、`fragments` / `post_fragments` 2 テーブル構成で backend を入替済 (PR `feature/storage-node-kv-redb`)。公開 API は維持、書き込みは 1 redb txn で原子化、起動時 `walkdir` を redb iter に置換。inode インフレと部分書き残留はこの時点で解消。**残: 正式ベンチ・データモデル拡張 (metadata / post 逆引き) ・GC リファクタ・integrity verify ・snapshot backup は Phase 2 以降**。
+> **進捗 (2026-05-10)**: Phase 1 として redb (4.x, pure Rust, ACID, B-tree) を即採用し、`fragments` / `post_fragments` 2 テーブル構成で backend を入替済 (PR `feature/storage-node-kv-redb`)。公開 API は維持、書き込みは 1 redb txn で原子化、起動時 `walkdir` を redb iter に置換。inode インフレと部分書き残留はこの時点で解消。
+>
+> **進捗 (2026-05-10) Phase 2 着手**: 基盤 + 可観測性 (PR `feature/storage-node-kv-redb-phase2`)。`storage/{engine,metadata}.rs` 分割 + `fragment_meta` / `post_fragment_meta` SCALE-encoded メタデータテーブル + `system.total_used_bytes` 永続化 (起動時 O(N) scan 廃止) + `verify_on_read` config flag (Blake2 hash mismatch を HTTP RPC で error 化、E2E で 1 byte flip を検出済) + Phase 1 で見つかった metrics 未配線バグ修正 (`record_put` / `record_get` を rpc handler に追加 + `/metrics` の `storage_capacity_used_bytes` / `storage_fragments_total` を store からライブで読み出し)。**残: GC スケジューラ書換 / LRU eviction / snapshot backup / 1M ベンチ / crash test / wipe.sh は次以降**。
 
 > **目的**: storage-node の fragment 永続化層を「1 fragment = 1 ファイル」のナイーブ実装から、embedded KV ストア (sled / redb / fjall / RocksDB) ベースに置き換えて、fragment 数 100 万件超でもスケールするようにする。
 >
@@ -842,28 +844,36 @@
 > **互換性方針** (CLAUDE.md §Compatibility Policy より): 旧フォーマットからのマイグレーション不要。新 storage は wipe して再生成可。
 
 - [x] **KV エンジン選定** (PoC + ベンチ) — Phase 1 では redb 即採用。形式ベンチは Phase 2。
+  <!-- 不採用 (1.0 未到達 + 後継 bloodstone へ移行中):
   - [ ] **候補 A: sled** — pure Rust, log-structured, embed しやすいが mature でない (1.0 未到達, 後継 bloodstone へ移行中) → 不採用
+  -->
   - [x] **候補 B: redb** — pure Rust, ACID, B-tree、4.x stable、tuple key + range scan 良好 → **採用**
   - [ ] **候補 C: fjall** — pure Rust, LSM-tree, write-heavy 向け → Phase 2 で write 比重が高ければ再検討
+  <!-- 見送り (C++ FFI による build 時間 / バイナリサイズ増、pure Rust スタックを崩したくない):
   - [ ] **候補 D: rocksdb** — C++ FFI, 実績豊富だが build 時間 + バイナリサイズ増 → 見送り
+  -->
   - [ ] ベンチ条件: 1M fragments × {64 KiB, 256 KiB, 1 MiB} で `put` / `get` / `delete` / `range_scan` の throughput と p99 レイテンシ、起動時間、`du -sh` (on-disk size) — **Phase 2** で `scripts/bench-storage.sh` 追加時に実施
 
 - [ ] **データモデル設計** (`apps/storage-node/src/storage/`)
   - [x] `fragments` table: `key = FragmentId (&[u8;32]) → value = bytes` (Phase 1)
-  - [x] `post_fragments` table: `key = (u64 post_id, u32 index) → value = bytes` (Phase 1, 逆引きと値兼用 — Phase 2 で値を fragment_id へ細分化予定)
-  - [ ] `metadata` table: `key = fragment_id → value = SCALE-encoded { size, created_at, last_accessed_at, ref_count }` — **Phase 2**
-  - [ ] `index_by_post` table を独立化: 値を `fragment_id` に切り替え、bytes 本体は `fragments` 経由 — **Phase 2** (challenge / repair で fragment_id 逆引きが必要になったタイミング)
-  - [ ] `total_used_bytes` を redb の system table に永続化 (Phase 1 は in-memory + 起動時 scan で復元) — **Phase 2**
+  - [x] `post_fragments` table: `key = (u64 post_id, u32 index) → value = bytes` (Phase 1, 逆引きと値兼用 — challenge/repair で fragment_id 逆引きが要求されたら細分化)
+  - [x] `fragment_meta` / `post_fragment_meta` table: `key → SCALE-encoded { version, size, created_at, last_accessed_at, ref_count, data_hash }` (Phase 2、`metadata.rs` に格納)
+  - [ ] `index_by_post` table を独立化: 値を `fragment_id` に切り替え、bytes 本体は `fragments` 経由 — **次フェーズ** (challenge / repair で fragment_id 逆引きが必要になったタイミング)
+  - [x] `total_used_bytes` を redb の system table に永続化 (起動時 scan 廃止、ただし key 欠損時は fallback 1 回だけ scan して書き戻し) (Phase 2)
 
 - [ ] **実装 (`apps/storage-node/src/storage/`)**
-  - [ ] `mod.rs` を `engine.rs` (KV ラッパ) と `repository.rs` (ドメイン層) に分割 — **Phase 2** (Phase 1 はモノリシックに redb 直叩きで先行)
+  - [x] `mod.rs` を `engine.rs` (Database + 全 table 定義) と `metadata.rs` (SCALE struct) と `mod.rs` (FragmentStore = ドメイン層) に分割 (Phase 2)
   - [x] `store(fragment_id, data)` → redb の `insert` を 1 write txn (atomic) (Phase 1)
   - [x] `retrieve(fragment_id)` → redb の `get` (Phase 1)
   - [x] `delete(fragment_id)` → 1 write txn、`used` 減算 (Phase 1)
   - [x] `list_post_fragments(post_id)` → `(post_id, 0)..=(post_id, u32::MAX)` の range scan (Phase 1)
-  - [ ] `last_accessed_at` の非同期 update (Phase 2、metadata table 追加と同時)
-  - [ ] integrity verify: 読み出し時 blake2 hash 比較フラグ (`config.toml` の `verify_on_read = true|false`) — **Phase 2**
-  - [ ] backup API: redb の begin_read による consistent snapshot を使った tar 化 → `apps/storage-node/scripts/backup.sh` — **Phase 2**
+  - [ ] `last_accessed_at` の非同期 update — **次フェーズ** (LRU eviction と同時に実装。Phase 2 では `last_accessed_at = created_at` のまま)
+  - [x] integrity verify: 読み出し時 blake2 hash 比較フラグ (`config.toml` の `verify_on_read = true|false`、`Metadata.data_hash` と比較、E2E で 1 byte flip 検出済) (Phase 2)
+  - [ ] backup API: redb の begin_read による consistent snapshot を使った tar 化 → `apps/storage-node/scripts/backup.sh` — **次フェーズ**
+
+- [x] **可観測性 (rpc/mod.rs metrics 配線)** — Phase 2 E2E で発覚した既存バグの修正
+  - [x] `record_put()` / `record_get()` を `handle_store_fragment` / `handle_get_fragment` / `handle_store_kzg_shard` に追加
+  - [x] `/metrics` の `storage_fragments_total` / `storage_capacity_used_bytes` を `state.store` からライブで読み出すように変更 (`metrics.fragment_count` などの内部 atomic は不使用)
 
 - [ ] **GC / capacity 改修** (`apps/storage-node/src/gc/`)
   - [ ] `walkdir` 全走査を redb の range scan に置換 — **Phase 2** (Phase 1 では `list_fragments()` 内部だけ redb iter に置換済、GC スケジューラ側は据置)
@@ -877,13 +887,17 @@
 - [ ] **テスト**
   - [x] 既存 15 件の `storage::tests` が redb 化後も通過 (Phase 1)
   - [x] `test_persistence_across_reopen` を追加 (drop → 再 open で fragment と used counter が復元) (Phase 1)
-  - [ ] 1M fragment ベンチ ([`scripts/bench-storage.sh`](../scripts/bench-storage.sh)) を追加 — **Phase 2**
-  - [ ] crash test: write 中に SIGKILL → 起動後に inconsistent fragment が無いこと — **Phase 2** (redb の WAL で部分書きは原理上発生しないが要確認)
-  - [ ] integration: `apps/blockchain/tests/integration/` の Multi-node テストに 100K fragments 投入 + GC 確認を追加 — **Phase 2**
+  - [x] `test_store_writes_metadata` / `test_verify_on_read_passes_for_clean_data` / `test_verify_on_read_catches_bit_rot` / `test_persistent_counter_loaded_on_reopen` / `test_counter_recovers_when_system_key_missing` (Phase 2、計 22/22 unit test PASS)
+  - [x] metadata.rs unit: SCALE roundtrip + 未知 version 拒否 (Phase 2)
+  - [ ] 1M fragment ベンチ ([`scripts/bench-storage.sh`](../scripts/bench-storage.sh)) を追加 — **次フェーズ**
+  - [ ] crash test: write 中に SIGKILL → 起動後に inconsistent fragment が無いこと — **次フェーズ** (redb の WAL で部分書きは原理上発生しないが要確認)
+  - [ ] integration: `apps/blockchain/tests/integration/` の Multi-node テストに 100K fragments 投入 + GC 確認を追加 — **次フェーズ**
 
 - [ ] **ドキュメント**
   - [x] [docs/storage_logic.md](storage_logic.md) §Persistence 章を追記 / 更新 (Phase 1)
-  - [ ] config option `storage.engine = "redb" | "fjall" | …` の README 追加 — Phase 2 で複数 backend をサポートしたら対応 (現状 redb 一択なので config 不要)
+  <!-- 現状 redb 一択で書く対象がない。fjall を Phase 2 で評価して採用したら復活:
+  - [ ] config option `storage.engine = "redb" | "fjall" | …` の README 追加
+  -->
 
 ### + 4.10 ノード運用者ダッシュボード (TODO 追加 2026-05-07)
 
