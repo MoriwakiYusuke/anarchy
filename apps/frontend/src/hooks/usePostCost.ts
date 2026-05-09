@@ -11,6 +11,13 @@ const UNIT = BigInt(10 ** DECIMALS)
 // TSTS v1: PostBaseCost=50 MORAL, PostByteCost=0.0008 MORAL/byte に更新済み
 const FALLBACK_BASE_COST = 50      // 50 MORAL (TSTS v1)
 const FALLBACK_BYTE_COST = 0.0008  // 0.0008 MORAL/byte (TSTS v1)
+// raw units (12 decimals) を BigInt 整数リテラルで保持。
+// `BigInt(0.0008 * 1e12)` は IEEE-754 rounding (例: 800000000.0000001) で例外を投げる可能性が
+// あるため、最初から整数 bigint を直書きする (Copilot review #3199031111).
+//   50 MORAL × 10^12 = 50_000_000_000_000
+//   0.0008 MORAL × 10^12 = 800_000_000
+const FALLBACK_BASE_COST_RAW: bigint = 50_000_000_000_000n
+const FALLBACK_BYTE_COST_RAW: bigint = 800_000_000n
 
 export interface PostCostConfig {
   baseCost: number      // 基本コスト (human readable)
@@ -35,8 +42,8 @@ export function usePostCost(unsafeApi: any): PostCostConfig {
   const [config, setConfig] = useState<PostCostConfig>({
     baseCost: FALLBACK_BASE_COST,
     byteCost: FALLBACK_BYTE_COST,
-    baseCostRaw: BigInt(FALLBACK_BASE_COST * Number(UNIT)),
-    byteCostRaw: BigInt(FALLBACK_BYTE_COST * Number(UNIT)),
+    baseCostRaw: FALLBACK_BASE_COST_RAW,
+    byteCostRaw: FALLBACK_BYTE_COST_RAW,
     baseFee: 0,
     baseFeeRaw: 0n,
     isLoading: true,

@@ -277,13 +277,34 @@ export function PostForm({ unsafeApi, signer, storageSigner, onPostSuccess, pare
               {t('post.cost', { cost: estimatedCost.toFixed(1) })}
               {!costConfig.isFromChain && <span title={t('post.defaultCostNote')}> *</span>}
               {costConfig.baseFee > 0 && baseFeeCongestionLevel(costConfig.baseFee) > 0.3 && (
-                <span
-                  className={styles.congestionBadge}
-                  title={`base_fee = ${costConfig.baseFee.toExponential(2)} MORAL/byte (TSTS P2 EIP-1559)`}
-                  data-testid="base-fee-congestion-badge"
-                >
-                  {' '}🔥
-                </span>
+                <>
+                  {' '}
+                  <span
+                    className={styles.congestionBadge}
+                    role="img"
+                    aria-label={t('post.congestionLabel')}
+                    title={t('post.congestionTooltip')}
+                    data-testid="base-fee-congestion-badge"
+                  >
+                    🔥
+                  </span>
+                  {/* visually-hidden text for screen readers (no Tailwind dep) */}
+                  <span
+                    style={{
+                      position: 'absolute',
+                      width: '1px',
+                      height: '1px',
+                      padding: 0,
+                      margin: '-1px',
+                      overflow: 'hidden',
+                      clip: 'rect(0,0,0,0)',
+                      whiteSpace: 'nowrap',
+                      border: 0,
+                    }}
+                  >
+                    {t('post.congestionLabel')} ({costConfig.baseFee.toExponential(2)} MORAL/byte)
+                  </span>
+                </>
               )}
             </>
           )}

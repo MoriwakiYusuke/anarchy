@@ -359,7 +359,7 @@ pub mod pallet {
         /// * `StealthRewardPoolEmpty` - プールが 0
         /// * `ClaimAmountTooSmall` - 按分結果が 0
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::send_to_stealth())]
+        #[pallet::weight(T::WeightInfo::claim_stealth_reward())]
         pub fn claim_stealth_reward(
             origin: OriginFor<T>,
             ephemeral_pubkey: [u8; 32],
@@ -410,7 +410,33 @@ pub mod pallet {
 
             // pool から減算してから mint。逆順だと race で over-mint しうる。
             StealthRewardPool::<T>::put(pool.saturating_sub(payout_u128));
-            ClaimedReceiveCount::<T>::insert(ephemeral_pubkey, received_count);
+
+            // F2 修正 (Copilot #3199031147): cap で truncate された場合、claimed_count を
+            // received_count まで一気に進めると残額が永久ロックされる。
+            // → 「実際に payout した割合」だけ claimed_count を進める。次の claim でで残りを取れる。
+            //
+            // 比例分割計算:
+            //   proportional_full = (unclaimed / total_received) × pool                  (cap 適用前)
+            //   payout_u128       = min(proportional_full, pool × cap_ppm / 1e6)         (cap 適用後)
+            //   advanced_count    = unclaimed × payout_u128 / proportional_full          (= 比例で進める)
+            //
+            // proportional_full == 0 のときはそもそも `payout_u128 > 0` でないので到達しない。
+            let proportional_full =
+                Self::compute_claim_amount(unclaimed, total_received, pool, 0); // cap 無効化
+            let advanced_count: u32 = if proportional_full > 0 && payout_u128 < proportional_full {
+                // partial claim (cap が効いた): unclaimed × ratio で saturating_floor
+                let ratio = (payout_u128 as u128).saturating_mul(unclaimed as u128)
+                    / proportional_full.max(1);
+                // 少なくとも 1 進める (永久 dead-lock 防止)
+                core::cmp::max(1, ratio.min(unclaimed as u128) as u32)
+            } else {
+                // full claim 又は cap 無効: 全部進める
+                unclaimed
+            };
+            ClaimedReceiveCount::<T>::insert(
+                ephemeral_pubkey,
+                claimed_count.saturating_add(advanced_count),
+            );
 
             // Currency::deposit_creating で signer に mint。
             // BalanceOf<T> は `Currency::Balance` で = u128 を runtime で渡す想定。

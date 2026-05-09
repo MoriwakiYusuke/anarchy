@@ -5,7 +5,7 @@
 //! ## 設計方針
 //!
 //! Substrate 標準の `pallet-parameters` は強力だが大規模 refactor を要求するため、
-//! Anarchy ローンチに必要な「市場圧でリアルタイム調整したい paramater 群」に絞った
+//! Anarchy ローンチに必要な「市場圧でリアルタイム調整したい parameter 群」に絞った
 //! 独立 pallet を用意する。残りの ConstU* は governance 不要 (低リスク) として据え置く。
 //!
 //! ## 対象パラメータ
@@ -55,6 +55,9 @@ pub struct EconomicSnapshot {
     pub faucet_minted: u128,
     pub total_issuance: u128,
     pub gas_used_this_block: u32,
+    /// TSTS F9 (Copilot #3199031098): O(1) で取得した active reactor locks 数.
+    /// `getEntries()` を避けるための counter 経由値。
+    pub reactor_locks_count: u32,
 }
 
 sp_api::decl_runtime_apis! {
@@ -188,12 +191,25 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
-        /// Permill > 100% は無効
+        /// Permill > 100% は無効 (deconstruct() > 1_000_000)
         InvalidPermill,
         /// 配分比率の合計が 100% を超える
         SharesSumExceedsHundred,
         /// BaseFeeMin > BaseFeeMax は無効
         InvertedBaseFeeRange,
+        /// slash rate ppm が 1_000_000 (= 100%) を超える
+        SlashRateAbove100Percent,
+    }
+
+    /// `Permill` は SCALE decode 経路で `parts > 1_000_000` を許す可能性があるため、
+    /// `set_*` setter では明示的に上限チェックを行う (Copilot review #3199031160).
+    fn ensure_permill_bounded(p: Permill) -> Result<(), &'static str> {
+        // Permill::from_parts は仕様上 0..=1_000_000 をクランプするが、SCALE decode は
+        // 直接 inner u32 を入れるため越境値が入りうる。安全側で再チェック。
+        if p.deconstruct() > 1_000_000 {
+            return Err("InvalidPermill");
+        }
+        Ok(())
     }
 
     // ─── Calls ────────────────────────────────────────────────────────────
@@ -202,10 +218,20 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// post 分配比率の storage 行きシェアを変更.
+        ///
+        /// バリデーション (Copilot review #3199031160):
+        /// - `new` は 0..=100% (SCALE decode 経路の越境値を弾く)
+        /// - `new + post_reaction_share` ≤ 100% (burn share = 1 − storage − reaction の不変条件)
         #[pallet::call_index(0)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1))]
         pub fn set_post_storage_share(origin: OriginFor<T>, new: Permill) -> DispatchResult {
             T::GovernanceOrigin::ensure_origin(origin)?;
+            ensure_permill_bounded(new).map_err(|_| Error::<T>::InvalidPermill)?;
+            // peer share との sum check
+            let peer = Self::effective_post_reaction_share();
+            let sum = (new.deconstruct() as u64) + (peer.deconstruct() as u64);
+            ensure!(sum <= 1_000_000, Error::<T>::SharesSumExceedsHundred);
+
             let old = PostStorageSharePermill::<T>::get().map(|p| p.deconstruct() as u128);
             PostStorageSharePermill::<T>::put(new);
             Self::deposit_event(Event::ParameterUpdated {
@@ -217,9 +243,14 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1))]
         pub fn set_post_reaction_share(origin: OriginFor<T>, new: Permill) -> DispatchResult {
             T::GovernanceOrigin::ensure_origin(origin)?;
+            ensure_permill_bounded(new).map_err(|_| Error::<T>::InvalidPermill)?;
+            let peer = Self::effective_post_storage_share();
+            let sum = (new.deconstruct() as u64) + (peer.deconstruct() as u64);
+            ensure!(sum <= 1_000_000, Error::<T>::SharesSumExceedsHundred);
+
             let old = PostReactionSharePermill::<T>::get().map(|p| p.deconstruct() as u128);
             PostReactionSharePermill::<T>::put(new);
             Self::deposit_event(Event::ParameterUpdated {
@@ -231,9 +262,14 @@ pub mod pallet {
         }
 
         #[pallet::call_index(2)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1))]
         pub fn set_dm_storage_share(origin: OriginFor<T>, new: Permill) -> DispatchResult {
             T::GovernanceOrigin::ensure_origin(origin)?;
+            ensure_permill_bounded(new).map_err(|_| Error::<T>::InvalidPermill)?;
+            let peer = Self::effective_dm_stealth_share();
+            let sum = (new.deconstruct() as u64) + (peer.deconstruct() as u64);
+            ensure!(sum <= 1_000_000, Error::<T>::SharesSumExceedsHundred);
+
             let old = DmStorageSharePermill::<T>::get().map(|p| p.deconstruct() as u128);
             DmStorageSharePermill::<T>::put(new);
             Self::deposit_event(Event::ParameterUpdated {
@@ -245,9 +281,14 @@ pub mod pallet {
         }
 
         #[pallet::call_index(3)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1))]
         pub fn set_dm_stealth_share(origin: OriginFor<T>, new: Permill) -> DispatchResult {
             T::GovernanceOrigin::ensure_origin(origin)?;
+            ensure_permill_bounded(new).map_err(|_| Error::<T>::InvalidPermill)?;
+            let peer = Self::effective_dm_storage_share();
+            let sum = (new.deconstruct() as u64) + (peer.deconstruct() as u64);
+            ensure!(sum <= 1_000_000, Error::<T>::SharesSumExceedsHundred);
+
             let old = DmStealthSharePermill::<T>::get().map(|p| p.deconstruct() as u128);
             DmStealthSharePermill::<T>::put(new);
             Self::deposit_event(Event::ParameterUpdated {
@@ -314,6 +355,10 @@ pub mod pallet {
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn set_slash_rate_per_fail_ppm(origin: OriginFor<T>, new: u32) -> DispatchResult {
             T::GovernanceOrigin::ensure_origin(origin)?;
+            // Copilot review #3199031171: 1_000_000 ppm = 100% を超えると
+            // 1 回の slash で bond 全額以上の削減になり stake provider 側で
+            // saturating でも動作が直感的でない。明示エラーで弾く。
+            ensure!(new <= 1_000_000, Error::<T>::SlashRateAbove100Percent);
             let old = SlashRatePerFailPpm::<T>::get().map(|v| v as u128);
             SlashRatePerFailPpm::<T>::put(new);
             Self::deposit_event(Event::ParameterUpdated {

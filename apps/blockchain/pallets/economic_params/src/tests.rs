@@ -113,6 +113,46 @@ fn set_post_storage_share_works_for_root() {
 }
 
 #[test]
+fn set_post_share_rejects_sum_above_hundred() {
+    new_ext().execute_with(|| {
+        // default reaction share = 20%. set storage to 90% → sum = 110% → reject
+        assert_noop!(
+            EconomicParams::set_post_storage_share(
+                RuntimeOrigin::root(),
+                Permill::from_percent(90),
+            ),
+            pallet_economic_params::Error::<Test>::SharesSumExceedsHundred
+        );
+    });
+}
+
+#[test]
+fn set_dm_share_rejects_sum_above_hundred() {
+    new_ext().execute_with(|| {
+        // default storage = 50%. set stealth to 60% → sum = 110% → reject
+        assert_noop!(
+            EconomicParams::set_dm_stealth_share(
+                RuntimeOrigin::root(),
+                Permill::from_percent(60),
+            ),
+            pallet_economic_params::Error::<Test>::SharesSumExceedsHundred
+        );
+    });
+}
+
+#[test]
+fn set_slash_rate_above_one_million_rejected() {
+    new_ext().execute_with(|| {
+        assert_noop!(
+            EconomicParams::set_slash_rate_per_fail_ppm(RuntimeOrigin::root(), 1_000_001),
+            pallet_economic_params::Error::<Test>::SlashRateAbove100Percent
+        );
+        // 100% (1_000_000) はギリギリ OK
+        assert_ok!(EconomicParams::set_slash_rate_per_fail_ppm(RuntimeOrigin::root(), 1_000_000));
+    });
+}
+
+#[test]
 fn set_post_storage_share_fails_for_non_root() {
     new_ext().execute_with(|| {
         assert_noop!(

@@ -41,6 +41,7 @@ pub struct EconomicMetrics {
     pub faucet_minted: Gauge<U64>,
     pub total_issuance: Gauge<U64>,
     pub gas_used_this_block: Gauge<U64>,
+    pub reactor_locks_count: Gauge<U64>,
 }
 
 impl EconomicMetrics {
@@ -104,6 +105,13 @@ impl EconomicMetrics {
                 )?,
                 registry,
             )?,
+            reactor_locks_count: register(
+                Gauge::new(
+                    "anarchy_reactor_locks_count",
+                    "pallet_reaction::ReactorLocksCount (active reactor lock entries, O(1) counter)",
+                )?,
+                registry,
+            )?,
         })
     }
 }
@@ -135,6 +143,7 @@ where
                 metrics.faucet_minted.set(saturating_u128_to_u64(snap.faucet_minted));
                 metrics.total_issuance.set(saturating_u128_to_u64(snap.total_issuance));
                 metrics.gas_used_this_block.set(snap.gas_used_this_block as u64);
+                metrics.reactor_locks_count.set(snap.reactor_locks_count as u64);
                 debug!(target: "anarchy_metrics", "snapshot ok at {:?}", best);
             }
             Err(e) => {

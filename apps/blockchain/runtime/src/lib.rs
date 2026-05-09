@@ -1057,6 +1057,7 @@ impl_runtime_apis! {
                 total_issuance: pallet_balances::Pallet::<Runtime>::total_issuance()
                     .saturated_into(),
                 gas_used_this_block: pallet_base_fee::GasUsedThisBlock::<Runtime>::get(),
+                reactor_locks_count: pallet_reaction::ReactorLocksCount::<Runtime>::get(),
             }
         }
     }

@@ -177,9 +177,55 @@ fn claim_stealth_reward_pays_caller_with_valid_signature() {
             Vec::new(),
         ));
         let alice_final = Balances::free_balance(ALICE);
-        assert_eq!(alice_final - alice_initial, 100_000_000_000_000); // 100 MORAL (cap で頭打ち)
+        // cap 10% で 100 MORAL を mint
+        assert_eq!(alice_final - alice_initial, 100_000_000_000_000);
         assert_eq!(StealthPallet::stealth_reward_pool(), 900_000_000_000_000);
-        assert_eq!(StealthPallet::claimed_receive_count(eph), 5);
+        // F2 修正 (Copilot #3199031147): cap で partial claim の場合、
+        // claimed_count は比例分のみ進む (5 × 100/1000 = 0.5 → max(1, floor) = 1).
+        // 残り 4 回分は次の claim で取れる。
+        assert_eq!(StealthPallet::claimed_receive_count(eph), 1);
+    });
+}
+
+#[test]
+fn capped_claim_can_resume_remainder_in_next_call() {
+    new_test_ext().execute_with(|| {
+        // F2 修正検証 (Copilot #3199031147): cap で truncate された場合、
+        // 残り unclaimed が永久ロックされず次回 claim で取れる。
+        let eph = [9u8; 32];
+        let (stealth_pk, sig) = ed25519_sign_for_claim(7, ALICE, eph);
+
+        StealthPallet::deposit_to_reward_pool(1_000_000_000_000_000); // 1000 MORAL
+        for _ in 0..5 {
+            StealthPallet::record_recipient_receive(eph);
+        }
+
+        // 1 回目: cap 10% で 100 MORAL、claimed_count 1 まで進む
+        assert_ok!(StealthPallet::claim_stealth_reward(
+            RuntimeOrigin::signed(ALICE),
+            eph,
+            stealth_pk,
+            sig,
+            Vec::new(),
+        ));
+        assert_eq!(StealthPallet::claimed_receive_count(eph), 1);
+        let after_first = StealthPallet::stealth_reward_pool();
+        // 1000 - 100 = 900
+        assert_eq!(after_first, 900_000_000_000_000);
+
+        // 2 回目: 残 unclaimed = 4, 残 pool = 900
+        //   proportional_full = 4/5 × 900 = 720, cap 10% × 900 = 90 → payout=90
+        //   advanced_count = 4 × 90/720 = 0.5 → max(1, floor) = 1
+        assert_ok!(StealthPallet::claim_stealth_reward(
+            RuntimeOrigin::signed(ALICE),
+            eph,
+            stealth_pk,
+            sig,
+            Vec::new(),
+        ));
+        assert_eq!(StealthPallet::claimed_receive_count(eph), 2);
+        // 2回目 payout = 90, pool = 810
+        assert_eq!(StealthPallet::stealth_reward_pool(), 810_000_000_000_000);
     });
 }
 
@@ -271,13 +317,18 @@ fn claim_stealth_reward_fails_when_pool_empty() {
 
 #[test]
 fn double_claim_returns_no_unclaimed_receives() {
+    // 旧 `double_claim_returns_no_unclaimed_receives` の改訂版.
+    // F2 修正 (Copilot #3199031147) 以降、cap が効くと 1 回目で claimed_count が
+    // 比例分しか進まないため、5 件受信から始めると 2 回目以降も成功してしまう。
+    // 「全消費 → NoUnclaimed」シナリオを示すため、received_count を 1 にし、
+    // partial claim でも advanced_count = max(1, floor) = 1 で全消費される条件にする。
     new_test_ext().execute_with(|| {
         let eph = [9u8; 32];
         let (stealth_pk, sig) = ed25519_sign_for_claim(7, ALICE, eph);
         StealthPallet::deposit_to_reward_pool(1_000_000_000_000_000);
-        for _ in 0..5 {
-            StealthPallet::record_recipient_receive(eph);
-        }
+        StealthPallet::record_recipient_receive(eph); // received=1
+
+        // 1 回目: 成功 (claimed_count = 1)
         assert_ok!(StealthPallet::claim_stealth_reward(
             RuntimeOrigin::signed(ALICE),
             eph,
@@ -285,7 +336,9 @@ fn double_claim_returns_no_unclaimed_receives() {
             sig,
             Vec::new(),
         ));
-        // 2 回目: 新規受信なし → unclaimed=0
+        assert_eq!(StealthPallet::claimed_receive_count(eph), 1);
+
+        // 2 回目: 新規受信なし → unclaimed=0 で NoUnclaimedReceives
         assert_noop!(
             StealthPallet::claim_stealth_reward(
                 RuntimeOrigin::signed(ALICE),

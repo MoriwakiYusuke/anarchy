@@ -164,6 +164,9 @@ function renderAll() {
 
 let api = null
 let unsubFinalized = null
+// Copilot review #3199031079: in-flight guard で setInterval の overlap を防止する.
+// `pollOnce` が前回の RPC を待っている間に次の interval tick が来ても skip する。
+let pollInFlight = false
 
 async function connect() {
   console.log(`[exporter] connecting to ${WS_ENDPOINT} ...`)
@@ -182,6 +185,13 @@ async function connect() {
  * pallet 名と storage 名が一致しない場合は実環境で修正する。
  */
 async function pollOnce() {
+  if (pollInFlight) {
+    // Copilot review #3199031079: 前 poll が未完了なら skip.
+    // RPC レイテンシが POLL_INTERVAL_MS を超える状況で多重実行・metric の出順乱れを防ぐ。
+    console.warn('[exporter] previous poll still in flight, skipping this tick')
+    return
+  }
+  pollInFlight = true
   try {
     // pallet_storage::RewardPoolBalance
     if (api.query.storage?.rewardPoolBalance) {
@@ -229,8 +239,15 @@ async function pollOnce() {
       metrics.faucet_total_minted = BigInt(v ?? 0)
     }
 
-    // ReactorLocks エントリ数 (iter で count)
-    if (api.query.reaction?.reactorLocks?.getEntries) {
+    // ReactorLocks エントリ数 (TSTS F9 修正: O(1) counter を読む).
+    // Copilot review #3199031098: getEntries() は map 全件取得で N に比例して重くなるため、
+    // pallet_reaction::ReactorLocksCount (StorageValue<u32>) 経由で取得する。
+    if (api.query.reaction?.reactorLocksCount) {
+      const v = await api.query.reaction.reactorLocksCount.getValue()
+      metrics.reactor_locks_count = Number(v ?? 0)
+    } else if (api.query.reaction?.reactorLocks?.getEntries) {
+      // フォールバック: 旧 runtime ではエントリ走査 (高コスト, 警告ログ付き)
+      console.warn('[exporter] reactorLocksCount unavailable, falling back to getEntries() (may be slow)')
       const entries = await api.query.reaction.reactorLocks.getEntries()
       metrics.reactor_locks_count = entries.length
     }
@@ -239,6 +256,8 @@ async function pollOnce() {
   } catch (err) {
     console.error('[exporter] poll error:', err?.message ?? err)
     metrics.poll_errors_total = metrics.poll_errors_total + 1n
+  } finally {
+    pollInFlight = false
   }
 }
 
@@ -253,8 +272,22 @@ async function subscribeBlocks(client) {
       try {
         metrics.block_height = BigInt(blockInfo.number ?? 0)
 
-        // ブロックイベントを取得
-        const events = await api.query.system?.events?.getValue?.()
+        // Copilot review #3199031054 対応: events を blockInfo.hash で取得し、
+        // finalized block と一致させる。`getValue()` (= best block) では別 block の
+        // events が混入して double-count / 取りこぼしが起きる。
+        const blockHash = blockInfo.hash
+        let events = null
+        try {
+          // PAPI: getValueAt(hash) で block-pinned read を行う
+          if (typeof api.query.system?.events?.getValueAt === 'function' && blockHash) {
+            events = await api.query.system.events.getValueAt(blockHash)
+          } else if (typeof api.query.system?.events?.getValue === 'function') {
+            // 旧 PAPI フォールバック (block hash 指定不可だが best block にはなる)
+            events = await api.query.system.events.getValue()
+          }
+        } catch (e) {
+          console.warn('[exporter] events fetch at hash failed:', e?.message ?? e)
+        }
         if (!events || !Array.isArray(events)) return
 
         for (const ev of events) {
