@@ -850,7 +850,13 @@
   - [ ] **候補 A: sled** — pure Rust, log-structured, embed しやすいが mature でない (1.0 未到達, 後継 bloodstone へ移行中) → 不採用
   -->
   - [x] **候補 B: redb** — pure Rust, ACID, B-tree、4.x stable、tuple key + range scan 良好 → **採用**
+  <!-- 検討終了 (2026-05-10): Anarchy のワークロードは投稿作成 (write rare)
+       + ページ閲覧 (read frequent) で read-heavy。Phase 2 smoke で 4KB
+       put 27K ops/s に対し get 167K ops/s と read が 6× 速く B-tree が
+       適合中。LSM (fjall) のメリットが薄いと判断し採用見送り。将来
+       workload が write-heavy 化したら再検討。
   - [ ] **候補 C: fjall** — pure Rust, LSM-tree, write-heavy 向け → Phase 2 で write 比重が高ければ再検討
+  -->
   <!-- 見送り (C++ FFI による build 時間 / バイナリサイズ増、pure Rust スタックを崩したくない):
   - [ ] **候補 D: rocksdb** — C++ FFI, 実績豊富だが build 時間 + バイナリサイズ増 → 見送り
   -->
