@@ -1,6 +1,6 @@
 ---
 name: playwright-e2e
-description: Anarchy フロントエンド (Next.js 14 + PAPI/smoldot + anarchy-wasm-engine) で新機能の E2E テストを書くためのスキル。Playwright と Playwright MCP は導入済み。新機能 (新ページ / 新 extrinsic / 新 wasm 暗号 / 新スキャナ / 新 UI フロー) を追加した際に「ブラウザ上で本当に動くか」を検証するためのテスト観点・配置・パターンを提供する。「E2E テスト追加して」「機能が動くか確認して」「Playwright で検証して」依頼に使用。
+description: Anarchy フロントエンド (Next.js 14 + PAPI/smoldot + anarchy-wasm-engine) で新機能の E2E テストを書くためのスキル。Playwright (CLI) は導入済み、headless / WSLg 経由 headed 両方で動く。Playwright MCP は OS 互換性 (Ubuntu 26.04+) で chrome-for-testing が install できないため現状非対応。新機能 (新ページ / 新 extrinsic / 新 wasm 暗号 / 新スキャナ / 新 UI フロー) を追加した際に「ブラウザ上で本当に動くか」を検証するためのテスト観点・配置・パターンを提供する。「E2E テスト追加して」「機能が動くか確認して」「Playwright で検証して」依頼に使用。
 ---
 
 # Playwright E2E — Anarchy Frontend
