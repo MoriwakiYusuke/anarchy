@@ -8,15 +8,16 @@ const UNIT = BigInt(10 ** DECIMALS)
 
 // フォールバック値（runtime設定と同期させる）
 // ブロックチェーンから取得できない場合に使用
-// TSTS v1: PostBaseCost=50 MORAL, PostByteCost=0.0008 MORAL/byte に更新済み
-const FALLBACK_BASE_COST = 50      // 50 MORAL (TSTS v1)
+// TSTS v1 (bootstrap UX 改訂): PostBaseCost=25 MORAL, PostByteCost=0.0008 MORAL/byte
+// → Faucet 100 MORAL で 3〜4 投稿可能 (Sybil 経路は不変、UX のみ改善)
+const FALLBACK_BASE_COST = 25      // 25 MORAL (TSTS v1 改訂)
 const FALLBACK_BYTE_COST = 0.0008  // 0.0008 MORAL/byte (TSTS v1)
 // raw units (12 decimals) を BigInt 整数リテラルで保持。
 // `BigInt(0.0008 * 1e12)` は IEEE-754 rounding (例: 800000000.0000001) で例外を投げる可能性が
 // あるため、最初から整数 bigint を直書きする (Copilot review #3199031111).
-//   50 MORAL × 10^12 = 50_000_000_000_000
+//   25 MORAL × 10^12 = 25_000_000_000_000
 //   0.0008 MORAL × 10^12 = 800_000_000
-const FALLBACK_BASE_COST_RAW: bigint = 50_000_000_000_000n
+const FALLBACK_BASE_COST_RAW: bigint = 25_000_000_000_000n
 const FALLBACK_BYTE_COST_RAW: bigint = 800_000_000n
 
 export interface PostCostConfig {

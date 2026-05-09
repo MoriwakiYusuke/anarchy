@@ -34,10 +34,12 @@ test.describe('TSTS F6 — Post cost display includes base_fee', () => {
       const match = costText!.match(/Cost:\s*(\d+\.\d+|\d+)/);
       expect(match).not.toBeNull();
       const numeric = parseFloat(match![1]);
-      // 旧モデルだと 100.1 程度 (PostBaseCost=100). TSTS v1 だと 50.08〜51 程度 (PostBaseCost=50).
-      // base_fee の状況次第で振れるので幅広に (40〜80 で fail なら誤設定).
-      expect(numeric).toBeGreaterThan(40);
-      expect(numeric).toBeLessThan(80);
+      // 旧モデルだと 100.1 程度 (PostBaseCost=100).
+      // TSTS v1 (中間) だと 50.08〜51 程度 (PostBaseCost=50).
+      // TSTS v1 (bootstrap UX 改訂) だと 25.08〜26 程度 (PostBaseCost=25).
+      // base_fee の状況次第で振れるので幅広に (15〜45 で fail なら誤設定).
+      expect(numeric).toBeGreaterThan(15);
+      expect(numeric).toBeLessThan(45);
     }).toPass({ timeout: 60_000, intervals: [2_000, 3_000, 5_000] });
   });
 

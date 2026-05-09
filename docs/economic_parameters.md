@@ -142,11 +142,16 @@
 
 ### 5.1 `pallet_post` ([runtime/src/lib.rs L495-L510](../apps/blockchain/runtime/src/lib.rs#L495))
 
-| 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
-|---|---|---|---|---|
-| `PostBaseCost` | `100 MORAL` | **`50 MORAL`** | ❌ | 投稿基本コスト (旧から半減) |
-| `PostByteCost` | `0.001 MORAL/byte` | **`0.0008 MORAL/byte`** | ❌ | バイト単価 (旧から微減) |
-| `MaxContentLength` | `1 GB` | `1 GB` | ❌ | 上限 |
+| 名前 | 旧 (M0) | TSTS v1 中間 | **現 (TSTS v1 final)** | governance | 役割 |
+|---|---|---|---|---|---|
+| `PostBaseCost` | `100 MORAL` | `50 MORAL` | **`25 MORAL`** | ❌ | 投稿基本コスト (Faucet 100 で 3〜4 投稿 UX) |
+| `PostByteCost` | `0.001 MORAL/byte` | `0.0008 MORAL/byte` | **`0.0008 MORAL/byte`** | ❌ | バイト単価 |
+| `MaxContentLength` | `1 GB` | `1 GB` | `1 GB` | ❌ | 上限 |
+
+**bootstrap UX 改訂の根拠**: Faucet `RewardAmount = 100 MORAL` 据え置きで、新規ユーザー UX が
+「1 投稿で MORAL 枯渇」では離脱率が高いため `PostBaseCost` を 50 → 25 に減額。Sybil 攻撃経路
+(Faucet pool size + 難易度) は不変なので攻撃経済性に影響なし。Spam 攻撃は EIP-1559 base_fee が
+立ち上がって total コスト保たれる。
 
 ### 5.2 投稿コストの分配 ([pallet-post/src/lib.rs](../apps/blockchain/pallets/post/src/lib.rs))
 
@@ -263,12 +268,12 @@ reward = ReactionReward × γ × decay
 
 ### 8.1 `pallet_messaging` ([runtime/src/lib.rs L711-L750](../apps/blockchain/runtime/src/lib.rs#L711))
 
-| 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
-|---|---|---|---|---|
-| `DmBaseCost` | `1 MORAL` | **`0.5 MORAL`** | ❌ | DM 基本 |
-| `DmByteCost` | `0.05 MORAL/byte` | **`0.04 MORAL/byte`** | ❌ | バイト単価 |
-| `MaxDmCiphertextLen` | `262_144` (256 KiB) | `262_144` | ❌ | 1 DM サイズ上限 |
-| `MaxDispatchesPerBlock` | `256` | `256` | ❌ | block あたり |
+| 名前 | 旧 (M0) | TSTS v1 中間 | **現 (final)** | governance | 役割 |
+|---|---|---|---|---|---|
+| `DmBaseCost` | `1 MORAL` | `0.5 MORAL` | **`0.25 MORAL`** | ❌ | DM 基本 (bootstrap UX 改訂で 50→25) |
+| `DmByteCost` | `0.05 MORAL/byte` | `0.04 MORAL/byte` | **`0.04 MORAL/byte`** | ❌ | バイト単価 |
+| `MaxDmCiphertextLen` | `262_144` (256 KiB) | `262_144` | `262_144` | ❌ | 1 DM サイズ上限 |
+| `MaxDispatchesPerBlock` | `256` | `256` | `256` | ❌ | block あたり |
 
 ### 8.2 DM コスト分配
 

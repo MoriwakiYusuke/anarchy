@@ -495,9 +495,12 @@ impl pallet_post::Config for Runtime {
     type Storage = Storage;  // Storage Pallet for atomic fragment registration (FR-401)
     type Reaction = Reaction;  // Reaction Pallet for reward pool deposits
     type MaxContentLength = ConstU32<1_073_741_824>; // 1GB (画像含むコンテンツ対応)
-    /// 基本コスト: 50 MORAL (旧 100 MORAL から半減).
-    /// base_fee の上乗せ + 累積 burn 30% でデフレ圧は維持しつつ通常利用の価格を引き下げる。
-    type PostBaseCost = ConstU128<50_000_000_000_000>;
+    /// 基本コスト: 25 MORAL (旧 100 → TSTS v1 50 → bootstrap UX 最終化で 25).
+    ///
+    /// Faucet 100 MORAL で 3〜4 投稿可能 (現状 1 投稿は新規ユーザー UX として厳しい).
+    /// Sybil 攻撃経路は Faucet 側を据え置きで不変、平常時の UX のみ改善する判断.
+    /// Spam 攻撃時は EIP-1559 base_fee が立ち上がって total コストは保たれる.
+    type PostBaseCost = ConstU128<25_000_000_000_000>;
     /// バイト単価: 0.0008 MORAL/byte (旧 0.001 から微減).
     /// `PostByteTip` 相当の storage tip 部分。混雑時は base_fee が動的に上乗せされる。
     type PostByteCost = ConstU128<800_000_000>;
@@ -710,8 +713,8 @@ impl pallet_popularity::Config for Runtime {
 // 受信エフェメラル公開鍵ごとの受信回数も記録される。詳細: docs/economic_model_proposal.md §3.2.4
 // TSTS P2 整合: コスト本体を spec §3.2.4 の mainnet 推奨値 (DmBase=0.5, DmByte=0.04) に更新。
 parameter_types! {
-    pub const DmBaseCost: Balance = 500_000_000_000;        // 0.5 MORAL (旧 1 MORAL から半減)
-    pub const DmByteCost: Balance = 40_000_000_000;         // 0.04 MORAL / byte (旧 0.05 から微減)
+    pub const DmBaseCost: Balance = 250_000_000_000;        // 0.25 MORAL (TSTS v1 0.5 → 半減 for UX)
+    pub const DmByteCost: Balance = 40_000_000_000;         // 0.04 MORAL / byte (TSTS v1 維持)
     pub const MaxDmCiphertextLen: u64 = 262_144;
 }
 
