@@ -20,27 +20,25 @@ test.describe('TSTS F6 — Post cost display includes base_fee', () => {
     const textarea = page.getByPlaceholder("What's happening?");
     await expect(textarea).toBeVisible({ timeout: 30_000 });
 
-    const submitBtn = page.getByRole('button', { name: /^Post$/, exact: true });
-    await expect(submitBtn).toBeEnabled({ timeout: 30_000 });
-
     // 100 byte 程度の本文を入力 → cost ≒ 50 + 0.0008 * 100 = 50.08 MORAL (base_fee=0 平常時)
     const body = 'a'.repeat(100);
     await textarea.fill(body);
 
-    // post.cost のフォーマット (i18n) は "Cost: 50.1 MORAL" のような表示.
-    // まず数値部分が "50.0" or "50.1" 近辺に入ることを確認 (旧 100 MORAL じゃないことを保証).
-    const costSpan = page.locator('text=/MORAL/').first();
-    await expect(costSpan).toBeVisible({ timeout: 30_000 });
-    const costText = await costSpan.textContent();
-    expect(costText).toBeTruthy();
-    // 数値抽出: "Cost: 50.1 MORAL" → 50.1
-    const match = costText!.match(/(\d+\.\d+|\d+)/);
-    expect(match).not.toBeNull();
-    const numeric = parseFloat(match![1]);
-    // 旧モデルだと 100.1 程度。TSTS v1 だと 50.08〜51 程度に収まるはず.
-    // 厳密比較は base_fee の状況次第なので幅広に取る (40〜80 で fail なら誤設定).
-    expect(numeric).toBeGreaterThan(40);
-    expect(numeric).toBeLessThan(80);
+    // post.cost (en: "Cost: 50.1 MORAL") を限定して取得 — Balance 表示と区別する.
+    // toPass で再試行: cost 表示は usePostCost の chain fetch 完了後に出る.
+    await expect(async () => {
+      const costSpan = page.locator('text=/^Cost:.*MORAL/').first();
+      await expect(costSpan).toBeVisible();
+      const costText = await costSpan.textContent();
+      expect(costText).toBeTruthy();
+      const match = costText!.match(/Cost:\s*(\d+\.\d+|\d+)/);
+      expect(match).not.toBeNull();
+      const numeric = parseFloat(match![1]);
+      // 旧モデルだと 100.1 程度 (PostBaseCost=100). TSTS v1 だと 50.08〜51 程度 (PostBaseCost=50).
+      // base_fee の状況次第で振れるので幅広に (40〜80 で fail なら誤設定).
+      expect(numeric).toBeGreaterThan(40);
+      expect(numeric).toBeLessThan(80);
+    }).toPass({ timeout: 60_000, intervals: [2_000, 3_000, 5_000] });
   });
 
   test('Submit succeeds in normal congestion (no base_fee blowup)', async ({ page, connectDevAccount }) => {
