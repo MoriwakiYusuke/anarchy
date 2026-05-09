@@ -695,16 +695,16 @@
   - [ ] インフレ率とデフレ圧力のバランス検証
 -->
 
-- [ ] **ストレージ・反応報酬設計**
-  - [ ] ストレージノード報酬設計
-  - [ ] 反応マイニング報酬曲線
-  - [ ] 動的報酬計算: `Reward = Σ(Reaction × Power_cpu) × γ`
-  - [ ] γ（インフレ調整係数）の動的計算（ReactionRewardPool / TotalSupply）
+- [x] **ストレージ・反応報酬設計** — TSTS v1 で全実装済 (PR #54, #55、[economic_parameters.md](economic_parameters.md))
+  - [x] ストレージノード報酬設計 — [`pallets/storage_stake/`](../apps/blockchain/pallets/storage_stake/) + Phase 4 repair reward pool
+  - [x] 反応マイニング報酬曲線 — [`pallets/reaction/`](../apps/blockchain/pallets/reaction/)
+  - [x] 動的報酬計算: `Reward = Σ(Reaction × Power_cpu) × γ` — `pallets/economic_params/` + `pallets/reaction/`
+  - [x] γ（インフレ調整係数）の動的計算（ReactionRewardPool / TotalSupply）— `pallets/economic_params/`、governance 可変
 
-- [ ] **手数料モデル**
-  - [ ] TX手数料: 0維持 or Base Fee導入
-  - [ ] 投稿コスト: burn維持（デフレ圧力）
-  - [ ] Faucet: unsigned tx維持
+- [x] **手数料モデル** — TSTS v1 で確定済
+  - [x] TX手数料: **Base Fee 導入** (EIP-1559) を採用 — [`pallets/base_fee/`](../apps/blockchain/pallets/base_fee/) (PR #54 commit `200ddb4`)
+  - [x] 投稿コスト: burn 維持 — `PostBaseCost = 25 MORAL` + `PostByteCost = 0.0008 MORAL/byte` (`runtime/src/lib.rs`)
+  - [x] Faucet: unsigned tx 維持 — §2.3 で完了済 (`pallets/faucet/`)
 
 ### + 4.5 オンチェーンガバナンス
 
