@@ -87,6 +87,7 @@ dependencies = [
  "libp2p",
  "parking_lot",
  "rand 0.8.5",
+ "redb",
  "reqwest",
  "schnorrkel",
  "serde",
@@ -102,7 +103,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "walkdir",
  "zeroize",
 ]
 
@@ -3815,6 +3815,15 @@ dependencies = [
  "ring 0.16.20",
  "time",
  "yasna",
+]
+
+[[package]]
+name = "redb"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e925444704b5f17d32bf42f5b6e2df050bceebc3dcd6e71cc73dafe8092e839"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

@@ -54,8 +54,9 @@ base64 = "0.22"
 schnorrkel = "0.11"
 bs58 = "0.5"
 
-# File system
-walkdir = "2"
+# Embedded KV store (fragment persistence layer — TODO §4.9)
+# Pure Rust, ACID, B-tree. Replaces previous walkdir-based filesystem layout.
+redb = "4.1"
 
 # Async utilities
 futures = "0.3"

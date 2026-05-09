@@ -109,9 +109,11 @@ mod post_fragment_storage {
         let result = store.store_post_fragment(post_id, index, &data);
         assert!(result.is_ok(), "Should store fragment successfully");
 
-        // Verify file exists at correct path: fragments/{post_id}/{index}.bin
-        let expected_path = temp.path().join("fragments").join("12345").join("0.bin");
-        assert!(expected_path.exists(), "Fragment file should exist at fragments/12345/0.bin");
+        // Verify presence via the public API (storage backend is now redb,
+        // not a per-fragment file on disk).
+        assert!(store.post_fragment_exists(post_id, index));
+        let retrieved = store.retrieve_post_fragment(post_id, index).unwrap();
+        assert_eq!(retrieved.unwrap(), data);
     }
 
     /// Test: Retrieve fragment by post_id and index
@@ -161,13 +163,11 @@ mod post_fragment_storage {
             store.store_post_fragment(post_id, index, &data).unwrap();
         }
 
-        // Verify all fragments stored
+        // Verify all fragments stored via the public API
+        let listed = store.list_post_fragments(post_id).unwrap();
+        assert_eq!(listed.len(), n as usize);
         for index in 0..n {
-            let path = temp.path()
-                .join("fragments")
-                .join("42")
-                .join(format!("{}.bin", index));
-            assert!(path.exists(), "Fragment {} should exist", index);
+            assert!(store.post_fragment_exists(post_id, index));
         }
     }
 
@@ -241,6 +241,30 @@ mod post_fragment_storage {
 
         let result = store.store_post_fragment(1, 0, &data);
         assert!(result.is_err(), "Should fail with quota exceeded");
+    }
+
+    /// Test: Reopening the store recovers persisted fragments and the
+    /// used-bytes counter from the redb file (TODO §4.9).
+    #[test]
+    fn test_persistence_across_reopen() {
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().to_str().unwrap();
+
+        let post_id: u64 = 314;
+        let data: Vec<u8> = (0..512).map(|i| (i % 251) as u8).collect();
+
+        // Drop the first store explicitly — redb writes are committed per
+        // call, but we want to confirm a clean re-open path too.
+        {
+            let store = FragmentStore::new(dir, 1024 * 1024).unwrap();
+            store.store_post_fragment(post_id, 0, &data).unwrap();
+            assert_eq!(store.used_bytes(), data.len() as u64);
+        }
+
+        let store = FragmentStore::new(dir, 1024 * 1024).unwrap();
+        assert_eq!(store.used_bytes(), data.len() as u64, "used counter recovered on reopen");
+        let got = store.retrieve_post_fragment(post_id, 0).unwrap().unwrap();
+        assert_eq!(got, data);
     }
 
     /// Test: Delete post fragments (cleanup)
