@@ -406,7 +406,39 @@ reward = ReactionReward × γ × decay
 
 ---
 
-## 16. 改訂履歴
+## 17. 経済学的レビュー (open issues, v2 への入力)
+
+> 詳細: [`economic_review_v1.md`](economic_review_v1.md)
+
+v1 実装後の経済学・社会学的レビューで **構造的脆弱性 4 件** が判明。mainnet ローンチ前に v2 で対処予定。
+
+| Priority | 項目 | v1 現値 | v2 案 |
+|---|---|---:|---:|
+| **P0** | Faucet `TotalCap` | 100,000 MORAL | 数百万 MORAL(bootstrap 100K DAU 想定) |
+| **P0** | `TailEmission` | 0.5 MORAL | 5 MORAL(51% 攻撃コスト絶対額確保) |
+| **P1** | post / DM burn 比率 | 30 % | 10 %(極端デフレ抑制) |
+| **P1** | post `storage_share` / `reaction_share` | 50 / 20 | 60 / 30(burn 削減分を還流) |
+| **P1** | `ReactorLockMin` | 0.1 MORAL | 10 MORAL(Sybil ROI 4810x → 50x 以下) |
+| **P1** | Reactor reward に √(lock_share) | 無し | 追加(storage と対称化) |
+| **P2** | 目標 DAU レンジ | 100K (S1) base | 5K〜50K (S5) base case |
+
+### v2 成立条件
+
+シミュレータ再実行で:
+1. **Net supply Δ が mint の −2 倍以内**(v1 は −58 倍で破綻)
+2. **Sybil reward / lock ≤ 10x**(v1 は 4810x で破綻)
+3. **Tail emission ≥ $50K equivalent/day** で 51% 攻撃を経済的に困難に
+
+### 実装方針
+
+- v1 PR (#55) は v1 として完結 (本 PR で merge)
+- v2 は別 PR(`feature/economic-model-v2`)で実装
+- パラメータ調整の大半は `pallet-economic-params` の setter で対応可能
+- `TailEmission` のように ConstU* 固定の項目は runtime upgrade が必要
+
+---
+
+## 18. 改訂履歴
 
 | 日付 | 変更 | 出典 PR |
 |---|---|---|
