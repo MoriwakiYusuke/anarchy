@@ -680,46 +680,58 @@ impl FragmentStore {
 
     /// Collect every fragment + post fragment with its size + last_accessed_at,
     /// sorted by last_accessed_at ascending (oldest first).
+    ///
+    /// `TableDoesNotExist` is treated as "no fragments yet" (legitimate on
+    /// first run); all other open errors propagate so the caller knows the
+    /// candidate set is incomplete and can decide what to do.
     fn collect_eviction_candidates(&self) -> Result<Vec<EvictionCandidate>> {
         let txn = self.engine.db.begin_read().context("begin read")?;
         let mut cands = Vec::new();
 
-        if let Ok(t) = txn.open_table(FRAGMENT_META) {
-            for entry in t.iter().context("iter fragment_meta")? {
-                let (k, v) = entry?;
-                let key_bytes = *k.value();
-                let meta = match Metadata::decode_from_slice(v.value()) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        warn!(error = %e, "skip undecodable fragment_meta entry");
-                        continue;
-                    }
-                };
-                cands.push(EvictionCandidate {
-                    last_accessed_at: meta.last_accessed_at,
-                    size: meta.size,
-                    key: EvictionKey::Fragment(key_bytes),
-                });
+        match txn.open_table(FRAGMENT_META) {
+            Ok(t) => {
+                for entry in t.iter().context("iter fragment_meta")? {
+                    let (k, v) = entry?;
+                    let key_bytes = *k.value();
+                    let meta = match Metadata::decode_from_slice(v.value()) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            warn!(error = %e, "skip undecodable fragment_meta entry");
+                            continue;
+                        }
+                    };
+                    cands.push(EvictionCandidate {
+                        last_accessed_at: meta.last_accessed_at,
+                        size: meta.size,
+                        key: EvictionKey::Fragment(key_bytes),
+                    });
+                }
             }
+            Err(TableError::TableDoesNotExist(_)) => {}
+            Err(e) => return Err(anyhow::Error::from(e).context("open fragment_meta")),
         }
 
-        if let Ok(t) = txn.open_table(POST_FRAGMENT_META) {
-            for entry in t.iter().context("iter post_fragment_meta")? {
-                let (k, v) = entry?;
-                let (post_id, index) = k.value();
-                let meta = match Metadata::decode_from_slice(v.value()) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        warn!(error = %e, "skip undecodable post_fragment_meta entry");
-                        continue;
-                    }
-                };
-                cands.push(EvictionCandidate {
-                    last_accessed_at: meta.last_accessed_at,
-                    size: meta.size,
-                    key: EvictionKey::PostFragment(post_id, index),
-                });
+        match txn.open_table(POST_FRAGMENT_META) {
+            Ok(t) => {
+                for entry in t.iter().context("iter post_fragment_meta")? {
+                    let (k, v) = entry?;
+                    let (post_id, index) = k.value();
+                    let meta = match Metadata::decode_from_slice(v.value()) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            warn!(error = %e, "skip undecodable post_fragment_meta entry");
+                            continue;
+                        }
+                    };
+                    cands.push(EvictionCandidate {
+                        last_accessed_at: meta.last_accessed_at,
+                        size: meta.size,
+                        key: EvictionKey::PostFragment(post_id, index),
+                    });
+                }
             }
+            Err(TableError::TableDoesNotExist(_)) => {}
+            Err(e) => return Err(anyhow::Error::from(e).context("open post_fragment_meta")),
         }
 
         cands.sort_by_key(|c| c.last_accessed_at);
@@ -741,30 +753,40 @@ impl FragmentStore {
     /// it has confirmed the fragment exists.
     fn record_touch_fragment(&self, id: FragmentId) {
         let now = now_unix();
-        if let Ok(mut buf) = self.touch_buffer.lock() {
-            buf.fragments.insert(id, now);
-        }
+        let mut buf = self.lock_touch_buffer();
+        buf.fragments.insert(id, now);
     }
 
     /// Record a touch for a post-based fragment.
     fn record_touch_post_fragment(&self, post_id: u64, index: u32) {
         let now = now_unix();
-        if let Ok(mut buf) = self.touch_buffer.lock() {
-            buf.post_fragments.insert((post_id, index), now);
-        }
+        let mut buf = self.lock_touch_buffer();
+        buf.post_fragments.insert((post_id, index), now);
+    }
+
+    /// Acquire the touch_buffer mutex, recovering from poison.
+    ///
+    /// `PoisonError` happens iff a previous touch panicked while holding
+    /// the lock. The buffer is plain hashmaps with no broken invariant,
+    /// so `into_inner` is safe — and definitely better than silently
+    /// dropping every subsequent touch (which would permanently skew
+    /// LRU eviction order).
+    fn lock_touch_buffer(&self) -> std::sync::MutexGuard<'_, TouchBuffer> {
+        self.touch_buffer.lock().unwrap_or_else(|poisoned| {
+            warn!("touch_buffer mutex was poisoned; recovering inner state");
+            poisoned.into_inner()
+        })
     }
 
     /// Drain the touch buffer and persist all updates in one write txn.
     /// Returns how many records were flushed (for logging).
     pub fn flush_touch_buffer(&self) -> Result<usize> {
-        let drained = match self.touch_buffer.lock() {
-            Ok(mut buf) => {
-                let frags: Vec<_> = buf.fragments.drain().collect();
-                let posts: Vec<_> = buf.post_fragments.drain().collect();
-                (frags, posts)
-            }
-            Err(_) => return Ok(0),
-        };
+        let mut guard = self.lock_touch_buffer();
+        let drained: (Vec<_>, Vec<_>) = (
+            guard.fragments.drain().collect(),
+            guard.post_fragments.drain().collect(),
+        );
+        drop(guard);
         let total = drained.0.len() + drained.1.len();
         if total == 0 {
             return Ok(0);

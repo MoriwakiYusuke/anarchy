@@ -203,6 +203,10 @@ async fn main() -> anyhow::Result<()> {
     touch_flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let touch_store = Arc::clone(&store);
     let lru_store = Arc::clone(&store);
+    // Guard against overlapping spawn_blocking jobs. If a flush + eviction
+    // run takes longer than the 60s tick (large touch buffer or large DB),
+    // we skip the next tick rather than piling up redb write-txn waiters.
+    let touch_running = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Setup periodic stale holder GC check interval (T060 - 013-slashing-repair)
     // Check for fragments with excess holders every 5 minutes
@@ -330,37 +334,64 @@ async fn main() -> anyhow::Result<()> {
             // 2) If usage crossed 95% of capacity, evict LRU down to 85%.
             //    The 10-percentage-point gap prevents thrashing where the
             //    next write trips the threshold again immediately.
+            //
+            // The `touch_running` flag prevents overlapping spawn_blocking
+            // jobs when a flush+eviction run takes longer than 60s — they
+            // would otherwise queue up, contending on redb write txns.
             _ = touch_flush_interval.tick() => {
-                let touch_handle = Arc::clone(&touch_store);
-                let lru_handle = Arc::clone(&lru_store);
-                tokio::task::spawn_blocking(move || {
-                    match touch_handle.flush_touch_buffer() {
-                        Ok(0) => {}
-                        Ok(n) => debug!(touched = n, "Flushed touch buffer"),
-                        Err(e) => warn!(error = %e, "Failed to flush touch buffer"),
-                    }
-
-                    let used = lru_handle.used_bytes();
-                    let cap = lru_handle.capacity_bytes();
-                    // Evict when usage > 95%; aim for 85% afterwards.
-                    if cap > 0 && used * 100 > cap * 95 {
-                        let target = cap * 85 / 100;
-                        match lru_handle.evict_lru(target) {
-                            Ok(stats) if stats.bytes_freed > 0 => {
-                                info!(
-                                    fragments = stats.fragments_evicted,
-                                    post_fragments = stats.post_fragments_evicted,
-                                    bytes_freed = stats.bytes_freed,
-                                    used_after = lru_handle.used_bytes(),
-                                    capacity = cap,
-                                    "LRU eviction: capacity > 95%, freed to ~85%"
-                                );
+                use std::sync::atomic::Ordering;
+                if touch_running
+                    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                {
+                    debug!("touch flush + eviction still running from previous tick — skipping");
+                } else {
+                    let touch_handle = Arc::clone(&touch_store);
+                    let lru_handle = Arc::clone(&lru_store);
+                    let running_flag = Arc::clone(&touch_running);
+                    tokio::task::spawn_blocking(move || {
+                        // Always release the flag on scope exit, including
+                        // panic-unwind. Otherwise a single panicking flush
+                        // would prevent every future tick from running.
+                        struct ReleaseOnDrop(Arc<std::sync::atomic::AtomicBool>);
+                        impl Drop for ReleaseOnDrop {
+                            fn drop(&mut self) {
+                                self.0.store(false, Ordering::Release);
                             }
-                            Ok(_) => {}
-                            Err(e) => warn!(error = %e, "LRU eviction failed"),
                         }
-                    }
-                });
+                        let _guard = ReleaseOnDrop(running_flag);
+
+                        match touch_handle.flush_touch_buffer() {
+                            Ok(0) => {}
+                            Ok(n) => debug!(touched = n, "Flushed touch buffer"),
+                            Err(e) => warn!(error = %e, "Failed to flush touch buffer"),
+                        }
+
+                        let used = lru_handle.used_bytes();
+                        let cap = lru_handle.capacity_bytes();
+                        // 95% threshold via division to avoid `cap * 95` overflow on
+                        // very large nodes (u64::MAX / 95 ≈ 194 PB).
+                        let trigger = cap / 100 * 95;
+                        if cap > 0 && used > trigger {
+                            // Aim for ~85% afterwards; same overflow-safe form.
+                            let target = cap / 100 * 85;
+                            match lru_handle.evict_lru(target) {
+                                Ok(stats) if stats.bytes_freed > 0 => {
+                                    info!(
+                                        fragments = stats.fragments_evicted,
+                                        post_fragments = stats.post_fragments_evicted,
+                                        bytes_freed = stats.bytes_freed,
+                                        used_after = lru_handle.used_bytes(),
+                                        capacity = cap,
+                                        "LRU eviction: capacity > 95%, freed to ~85%"
+                                    );
+                                }
+                                Ok(_) => {}
+                                Err(e) => warn!(error = %e, "LRU eviction failed"),
+                            }
+                        }
+                    });
+                }
             }
             // T060: Stale holder GC polling (013-slashing-repair)
             _ = stale_holder_gc_interval.tick() => {

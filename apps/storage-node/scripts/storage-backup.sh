@@ -2,7 +2,10 @@
 # storage-backup.sh — hot backup of a running storage-node's redb DB.
 #
 # How it works:
-#   1. Find the node's PID file (data/{node}/.pid or argv-supplied path)
+#   1. Find the node's PID file at $PROJECT_DIR/data/<node>.pid (the
+#      same path run-storage-nodes.sh writes when it spawns each node).
+#      If the PID file is missing or the process is gone, fall through
+#      to an offline backup of the on-disk state.
 #   2. SIGSTOP the process. redb finishes any in-flight syscall and is
 #      paused. The on-disk file is in a write-consistent state because
 #      redb commits via a single fsync per txn (see redb's MVCC notes).
