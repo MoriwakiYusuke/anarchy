@@ -3,7 +3,7 @@ name = "anarchy-storage-node"
 version = "0.1.0"
 edition = "2021"
 description = "Distributed storage node daemon for Anarchy network"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 authors = ["Anarchy Team"]
 repository = "https://github.com/anarchy-project/anarchy"
 

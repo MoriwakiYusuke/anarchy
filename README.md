@@ -6,7 +6,7 @@
 
 **支配なき秩序** — 中央集権を排除した匿名分散型 SNS プロトコル
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
+[![License](https://img.shields.io/badge/license-Apache--2.0%20%7C%20GPL--3.0%20%7C%20MIT-blue.svg)](#license)
 [![Substrate](https://img.shields.io/badge/built%20on-Substrate-282828)](https://substrate.io)
 [![Rust](https://img.shields.io/badge/Rust-stable-orange?logo=rust)](https://www.rust-lang.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript)](https://www.typescriptlang.org)
@@ -154,4 +154,14 @@ pnpm stack:stop           # 停止
 
 ## License
 
-MIT License
+Anarchy is **multi-licensed** to compose correctly with its upstream dependencies:
+
+| Component | License (SPDX) |
+|---|---|
+| `apps/blockchain/node/` | `GPL-3.0-or-later WITH Classpath-exception-2.0` (matches `sc-*` deps) |
+| `apps/blockchain/runtime/` + `pallets/*` | `Apache-2.0` (matches `frame-*` / `sp-*` deps) |
+| `apps/storage-node/` | `MIT OR Apache-2.0` |
+| `apps/frontend/` | `MIT` |
+| `packages/wasm-engine/` + `kzg-constants/` | `MIT OR Apache-2.0` |
+
+Full texts: [LICENSE](LICENSE) (summary) · [LICENSE-MIT](LICENSE-MIT) · [LICENSE-APACHE-2.0](LICENSE-APACHE-2.0) · [LICENSE-GPL-3.0](LICENSE-GPL-3.0)

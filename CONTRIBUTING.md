@@ -72,4 +72,13 @@ storage format / extrinsic signature / RPC / chain state / DB schema を破壊�
 
 ## License
 
-MIT License — コントリビュート時点で同意したものとみなします。
+Anarchy はコンポーネントごとに異なるライセンスを採用しています (Substrate / Polkadot SDK 上流の制約に従う):
+
+- `apps/blockchain/node/` → `GPL-3.0-or-later WITH Classpath-exception-2.0`
+- `apps/blockchain/runtime/` + `pallets/*` → `Apache-2.0`
+- `apps/storage-node/`, `packages/wasm-engine/`, `packages/kzg-constants/` → `MIT OR Apache-2.0`
+- `apps/frontend/` → `MIT`
+
+詳細は [LICENSE](LICENSE) と各 `Cargo.toml` / `package.json` の `license` フィールドを参照。
+
+コントリビュート時点で、変更したコンポーネントの該当ライセンスに同意したものとみなします。

@@ -144,6 +144,10 @@
   "error.emptyFile": "文件为空",
   
   "stealth.title": "隐身转账",
+  "stealth.page.heading": "隐身地址",
+  "stealth.page.subtitle": "管理用于保护隐私的一次性收发地址。",
+  "stealth.page.or": "或",
+  "stealth.page.importButton": "从备份导入",
   "stealth.receive": "接收设置",
   "stealth.send": "隐身发送",
   "stealth.balance": "余额",

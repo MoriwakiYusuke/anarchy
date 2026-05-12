@@ -1,21 +1,46 @@
-MIT License
+Anarchy is multi-licensed because it composes code derived from multiple
+upstream projects with different (compatible) licenses.
 
-Copyright (c) 2026 Moriwaki Yusuke
+The exact license that applies to each file is recorded in its containing
+crate / package manifest (`Cargo.toml` `license = ...` or `package.json`
+`license`). The map below is informative.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Component                                License (SPDX)
+---------------------------------------- -----------------------------------------------
+apps/blockchain/node/                    GPL-3.0-or-later WITH Classpath-exception-2.0
+  └─ matches its sc-* / substrate-* deps
+apps/blockchain/runtime/                 Apache-2.0
+apps/blockchain/pallets/*/               Apache-2.0
+  └─ matches frame-* / sp-* deps
+apps/blockchain/primitives/              Apache-2.0
+apps/storage-node/                       MIT OR Apache-2.0
+apps/frontend/                           MIT
+packages/wasm-engine/                    MIT OR Apache-2.0
+packages/kzg-constants/                  MIT OR Apache-2.0
+scripts/                                 MIT
+docs/                                    CC-BY-4.0 (prose) / MIT (snippets)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Full license texts:
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+  LICENSE-MIT         — MIT License
+  LICENSE-APACHE-2.0  — Apache License, Version 2.0
+  LICENSE-GPL-3.0     — GNU General Public License v3 + Classpath-exception-2.0
+
+Why this split?
+
+  The Substrate / Polkadot SDK upstream uses two licenses depending on layer:
+    - frame-* / sp-* (runtime / primitives)  → Apache-2.0
+    - sc-*  / node binaries                  → GPL-3.0-or-later
+                                                WITH Classpath-exception-2.0
+
+  Distributing the node binary under MIT would be incompatible because MIT
+  grants rights that GPL does not. To respect both upstreams, the node
+  inherits the more restrictive GPL (with classpath exception), the runtime
+  / pallets stay Apache-2.0, and the rest of the project (storage daemon,
+  frontend, Wasm crypto engine) is permissively licensed.
+
+Copyright (c) 2026 Moriwaki Yusuke and the Anarchy contributors.
+
+Unless explicitly stated otherwise, any contribution intentionally submitted
+for inclusion in Anarchy by you shall be licensed under the terms applicable
+to the component it touches, with no additional terms or conditions.

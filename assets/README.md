@@ -20,7 +20,14 @@ cd apps/frontend
 BASE_URL=http://127.0.0.1:3000 node scripts/capture-screenshots.mjs
 ```
 
-スクリプトは [e2e/fixtures/chain.ts](../apps/frontend/e2e/fixtures/chain.ts) と同じ Dev ドロップダウン経由で `//Alice` に Connect してから撮ります。
+スクリプトは:
+
+1. `localStorage.anarchy-locale = 'en'` を初期スクリプトで設定 (UI を英語に統一)
+2. [e2e/fixtures/chain.ts](../apps/frontend/e2e/fixtures/chain.ts) と同じ Dev ドロップダウン経由で `//Alice` に Connect
+3. リアル感のある英語投稿を 4 件作成 (PoW dev は 30s blocktime のため約 2-3 分かかる)
+4. タイムラインと stealth ページを撮影
+
+投稿をスキップしたいときは `SKIP_POSTS=1` を渡してください。
 
 > Playwright MCP は OS 互換性 (chrome-for-testing) で WSL2 では動きません。CLI Chromium (`@playwright/test` 同梱) を使ってください。詳細は [.claude/skills/playwright-e2e/SKILL.md](../.claude/skills/playwright-e2e/SKILL.md) §「Playwright MCP は現状非対応」参照。
 

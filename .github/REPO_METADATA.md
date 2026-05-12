@@ -111,9 +111,6 @@ JSON
 
 ## License Detection
 
-`LICENSE` ファイルが root に無い場合は MIT を追加すると GitHub が自動検出して About に表示します。
+GitHub の license auto-detection は **単一ライセンス** しか認識しません。本リポジトリは multi-license なので About 欄の "License" 表記は "Other" になります (`LICENSE` がプレーン要約 + `LICENSE-APACHE-2.0` / `LICENSE-GPL-3.0` / `LICENSE-MIT` に full text)。
 
-```bash
-# 例 (MIT)
-curl -fsSL https://raw.githubusercontent.com/licenses/license-templates/master/templates/mit.txt -o LICENSE
-```
+これは正しい挙動です。誤って単一ライセンスファイルに置き換えると上流依存 (sc-* は GPL、frame-* は Apache) との互換性が崩れます。詳細は [LICENSE](../LICENSE) 参照。
