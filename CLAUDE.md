@@ -21,8 +21,9 @@ See [`.claude/skills/dev-command/SKILL.md`](.claude/skills/dev-command/SKILL.md)
 - **apps/frontend/** — Next.js 14 App Router + React 18 + TypeScript. Uses PAPI via WebSocket (`getWsProvider`) to chain-node `:9944`
 - **packages/wasm-engine/** — Wasm crypto engine (KZG-VSS hybrid via `ark-bls12-381`, Merkle via `rs_merkle`, Blake2b). Built with `wasm-pack`, consumed by frontend as file dependency
 - **scripts/** — PAPI CLI scripts (sudo-mint, transfer, seed mint)
-- **docs/specs/** — Numbered feature specifications (001-identity … 019-direct-messages, 過去の設計資料として保持)
-- **docs/** — Architecture docs, Tor deployment guides
+- **docs/** — Vision / architecture / economic / operations / security / development docs. Index: [docs/README.md](docs/README.md)
+- **docs/superpowers/** — Superpowers plugin's fixed location for in-flight plans / specs. Do NOT move.
+- **docs/archive/specs/** — Numbered feature specifications (001-identity … 019-direct-messages, 過去の設計資料として保持)
 
 詳細な pallet 実装パターンは [`.claude/skills/backend-patterns/SKILL.md`](.claude/skills/backend-patterns/SKILL.md)、Wasm エンジン内部は [`.claude/skills/wasm-engine/SKILL.md`](.claude/skills/wasm-engine/SKILL.md)、フロント側は [`.claude/skills/frontend-patterns/SKILL.md`](.claude/skills/frontend-patterns/SKILL.md)、セキュリティチェックは [`.claude/skills/security-review/SKILL.md`](.claude/skills/security-review/SKILL.md) を参照。
 
@@ -70,7 +71,7 @@ The following rules must NEVER be violated. Violations completely destroy trustw
 2. **Client-side key management**: Private keys are held in session memory only. Users authenticate via seed-phrase-derived AccountId (sr25519). Keys are never persisted to browser storage; cross-device access requires a user-exported, password-encrypted backup file.
 3. **Client-side only crypto**: Encryption, SSS fragmentation, metadata stripping must happen client-side before transmission
 4. **Foreground PoW only**: Reaction mining controlled via Page Visibility API
-5. **No direct storage-node access from frontend**: The frontend MUST NOT connect to storage-node HTTP/JSON-RPC (`:3030`) or libp2p endpoints directly. All storage reads and writes go through chain-node RPC extensions (`storage_*` methods on the blockchain node WS endpoint), which fan out to storage-nodes internally. This keeps frontend → storage-node IP correlation out of the attack surface, centralizes session-auth on the chain node, and keeps storage-node addressing/selection a server-side concern. See [docs/storage_logic.md §1](docs/storage_logic.md) for the authoritative diagram.
+5. **No direct storage-node access from frontend**: The frontend MUST NOT connect to storage-node HTTP/JSON-RPC (`:3030`) or libp2p endpoints directly. All storage reads and writes go through chain-node RPC extensions (`storage_*` methods on the blockchain node WS endpoint), which fan out to storage-nodes internally. This keeps frontend → storage-node IP correlation out of the attack surface, centralizes session-auth on the chain node, and keeps storage-node addressing/selection a server-side concern. See [docs/architecture/storage.md §1](docs/architecture/storage.md) for the authoritative diagram.
 
 詳細チェックリストは [`.claude/skills/security-review/SKILL.md`](.claude/skills/security-review/SKILL.md)。
 
@@ -87,4 +88,4 @@ The following rules must NEVER be violated. Violations completely destroy trustw
 - `superpowers:requesting-code-review` / `superpowers:receiving-code-review` — レビュー
 - `superpowers:finishing-a-development-branch` — マージ/PR 判断
 
-`docs/specs/NNN-feature-name/` 配下の既存仕様 (001..019) は過去の設計資料として参照可能だが、今後の新規機能で同様のディレクトリは作成しない。
+`docs/archive/specs/NNN-feature-name/` 配下の既存仕様 (001..019) は過去の設計資料として参照可能だが、今後の新規機能で同様のディレクトリは作成しない。

@@ -235,7 +235,7 @@ v2 は v1 の **構造を保ちつつパラメータを調整**することで�
 
 ## 10. 関連ドキュメント
 
-- [`economic_model_proposal.md`](economic_model_proposal.md) — TSTS 設計提案 (v1 ベース)
-- [`economic_model_implementation_plan.md`](economic_model_implementation_plan.md) — v1 実装計画
-- [`economic_parameters.md`](economic_parameters.md) — v1 final 値の棚卸し
-- [`economic/simulator.py`](economic/simulator.py) — シミュレータ
+- [`economic_model_proposal.md`](proposal.md) — TSTS 設計提案 (v1 ベース)
+- [`economic_model_implementation_plan.md`](implementation-plan.md) — v1 実装計画
+- [`economic_parameters.md`](parameters.md) — v1 final 値の棚卸し
+- [`economic/simulator.py`](simulator.py) — シミュレータ

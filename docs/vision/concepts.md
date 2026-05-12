@@ -1,7 +1,7 @@
 # Anarchy 構想事項（検討中）
 
 > **ステータス**: 構想・検討段階  
-> **関連ドキュメント**: [TODO.md](TODO.md), [architecture.md](architecture.md), [StorageStrategy.md](StorageStrategy.md)
+> **関連ドキュメント**: [TODO.md](../development/todo.md), [architecture.md](../architecture/overview.md), [StorageStrategy.md](../architecture/storage-strategy.md)
 
 以下は将来的に実装を検討している機能。優先度・実現可能性は未確定。
 
@@ -59,9 +59,9 @@ Faucet:         unsigned tx のまま（影響なし）
 > **Status**: ✅ 採用決定・実装完了
 > **採用構成**: RandomX PoW + Permissionless GRANDPA (top-K miner rotation) + LWMA-3
 > **実装**: Phase A PR #52 (merged) + Phase B PR #NN
-> **詳細仕様**: [`docs/superpowers/specs/2026-05-06-pow-migration-design.md`](superpowers/specs/2026-05-06-pow-migration-design.md)
-> **運用**: [`docs/operations/pow-mainnet-runbook.md`](operations/pow-mainnet-runbook.md)
-> **脅威モデル**: [`docs/security/pow-threat-model.md`](security/pow-threat-model.md)
+> **詳細仕様**: [`docs/superpowers/specs/2026-05-06-pow-migration-design.md`](../superpowers/specs/2026-05-06-pow-migration-design.md)
+> **運用**: [`docs/operations/pow-mainnet-runbook.md`](../operations/pow-mainnet-runbook.md)
+> **脅威モデル**: [`docs/security/pow-threat-model.md`](../security/pow-threat-model.md)
 
 **決定された 4 軸**:
 

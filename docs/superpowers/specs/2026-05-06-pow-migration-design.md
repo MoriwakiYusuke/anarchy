@@ -3,7 +3,7 @@
 > **Status**: 設計確定 (実装前)
 > **Date**: 2026-05-06
 > **Branch (予定)**: `feature/pow-migration` (`main` から分岐)
-> **関連**: [TODO.md §4.7](../../TODO.md), [CONCEPTS.md "コンセンサス方式の検討"](../../CONCEPTS.md), [Principle #4 (foreground PoW)](../../../CLAUDE.md#security-principles-non-negotiable)
+> **関連**: [TODO.md §4.7](../../development/todo.md), [CONCEPTS.md "コンセンサス方式の検討"](../../vision/concepts.md), [Principle #4 (foreground PoW)](../../../CLAUDE.md#security-principles-non-negotiable)
 
 ## 0. ゴール
 

@@ -69,7 +69,7 @@ apps/frontend/src/
 
 ### 2.1 ブロックチェーン接続 (useApi)
 
-**ファイル**: [src/hooks/useApi.ts](../apps/frontend/src/hooks/useApi.ts)
+**ファイル**: [src/hooks/useApi.ts](../../apps/frontend/src/hooks/useApi.ts)
 
 PAPI (polkadot-api) を使用してSubstrateノードに接続します。
 
@@ -95,7 +95,7 @@ NEXT_PUBLIC_WS_ENDPOINT=ws://127.0.0.1:9944
 
 ### 2.2 分散ストレージ (useStorage)
 
-**ファイル**: [src/hooks/useStorage.ts](../apps/frontend/src/hooks/useStorage.ts)
+**ファイル**: [src/hooks/useStorage.ts](../../apps/frontend/src/hooks/useStorage.ts)
 
 KZG-VSS Hybrid方式でコンテンツを分割・復元します。
 
@@ -150,7 +150,7 @@ interface SignedAuth {
 
 ### 2.3 投稿フォーム (PostForm)
 
-**ファイル**: [src/components/PostForm.tsx](../apps/frontend/src/components/PostForm.tsx)
+**ファイル**: [src/components/PostForm.tsx](../../apps/frontend/src/components/PostForm.tsx)
 
 投稿作成のUIとトランザクション送信を担当します。
 
@@ -181,7 +181,7 @@ interface SignedAuth {
 
 ### 2.4 タイムライン (Timeline)
 
-**ファイル**: [src/components/Timeline.tsx](../apps/frontend/src/components/Timeline.tsx)
+**ファイル**: [src/components/Timeline.tsx](../../apps/frontend/src/components/Timeline.tsx)
 
 投稿一覧を表示します。
 
@@ -203,7 +203,7 @@ const refEntries = await unsafeApi.query.Post.ContentRefs.getEntries()
 
 ### 2.5 投稿アイテム (PostItem)
 
-**ファイル**: [src/components/PostItem.tsx](../apps/frontend/src/components/PostItem.tsx)
+**ファイル**: [src/components/PostItem.tsx](../../apps/frontend/src/components/PostItem.tsx)
 
 個々の投稿を表示します。
 
@@ -229,8 +229,8 @@ else → "読み込み中..."
 ### 2.6 PoW Faucet (useFaucet + FaucetButton)
 
 **ファイル**: 
-- [src/hooks/useFaucet.ts](../apps/frontend/src/hooks/useFaucet.ts)
-- [src/components/FaucetButton.tsx](../apps/frontend/src/components/FaucetButton.tsx)
+- [src/hooks/useFaucet.ts](../../apps/frontend/src/hooks/useFaucet.ts)
+- [src/components/FaucetButton.tsx](../../apps/frontend/src/components/FaucetButton.tsx)
 
 クライアントサイドPoW計算でトークンを請求します。
 
@@ -256,7 +256,7 @@ else → "読み込み中..."
 
 ### 2.7 残高表示 (useMoralBalance)
 
-**ファイル**: [src/hooks/useMoralBalance.ts](../apps/frontend/src/hooks/useMoralBalance.ts)
+**ファイル**: [src/hooks/useMoralBalance.ts](../../apps/frontend/src/hooks/useMoralBalance.ts)
 
 ```typescript
 // ネイティブトークン残高 (System.Account.data.free)
@@ -273,7 +273,7 @@ const balance = result?.data?.free ?? 0n
 
 ### 2.8 投稿コスト取得 (usePostCost)
 
-**ファイル**: [src/hooks/usePostCost.ts](../apps/frontend/src/hooks/usePostCost.ts)
+**ファイル**: [src/hooks/usePostCost.ts](../../apps/frontend/src/hooks/usePostCost.ts)
 
 ブロックチェーンのランタイム定数から動的に取得します。
 
@@ -291,7 +291,7 @@ const byteCost = await unsafeApi.constants.Post.PostByteCost()
 
 ## 3. ウォレット接続 (WalletConnect)
 
-**ファイル**: [src/components/WalletConnect.tsx](../apps/frontend/src/components/WalletConnect.tsx)
+**ファイル**: [src/components/WalletConnect.tsx](../../apps/frontend/src/components/WalletConnect.tsx)
 
 ### 3.1 認証モード
 
@@ -325,7 +325,7 @@ const pair = keyring.addFromUri(seedPhrase)
 
 ## 4. 暗号処理 (Web Worker + Wasm)
 
-**ファイル**: [src/workers/crypto.ts](../apps/frontend/src/workers/crypto.ts)
+**ファイル**: [src/workers/crypto.ts](../../apps/frontend/src/workers/crypto.ts)
 
 メインスレッドをブロックしないよう、暗号処理はWeb Workerで実行します。
 
@@ -370,7 +370,7 @@ await module.default()  // Wasmバイナリロード
 
 ## 5. 国際化 (i18n)
 
-**ファイル**: [src/i18n/](../apps/frontend/src/i18n/)
+**ファイル**: [src/i18n/](../../apps/frontend/src/i18n/)
 
 ### 5.1 サポート言語
 
@@ -404,7 +404,7 @@ function MyComponent() {
 
 ### 6.1 テーマ (Blood Glitch)
 
-**グローバルスタイル** ([globals.css](../apps/frontend/src/app/globals.css)):
+**グローバルスタイル** ([globals.css](../../apps/frontend/src/app/globals.css)):
 
 ```css
 :root {
@@ -424,11 +424,11 @@ function MyComponent() {
 
 ### 6.2 Matrix背景アニメーション
 
-**ファイル**: [src/components/MatrixBackground.tsx](../apps/frontend/src/components/MatrixBackground.tsx)
+**ファイル**: [src/components/MatrixBackground.tsx](../../apps/frontend/src/components/MatrixBackground.tsx)
 
 cMatrix風の落下文字アニメーション。
 
-**設定** ([lib/matrix/config.ts](../apps/frontend/src/lib/matrix/config.ts)):
+**設定** ([lib/matrix/config.ts](../../apps/frontend/src/lib/matrix/config.ts)):
 ```typescript
 {
   mainColor: '#333333',      // メイン文字
@@ -452,7 +452,7 @@ cMatrix風の落下文字アニメーション。
 
 ## 7. ビルド設定
 
-### 7.1 Next.js設定 ([next.config.js](../apps/frontend/next.config.js))
+### 7.1 Next.js設定 ([next.config.js](../../apps/frontend/next.config.js))
 
 ```javascript
 {
@@ -492,7 +492,7 @@ cd apps/frontend && pnpm install && pnpm build
 
 ## 8. テスト
 
-**ディレクトリ**: [apps/frontend/tests/](../apps/frontend/tests/)
+**ディレクトリ**: [apps/frontend/tests/](../../apps/frontend/tests/)
 
 ```bash
 pnpm test              # 全テスト実行

@@ -4,7 +4,7 @@ TSTS 経済モデルの監視用 Grafana ダッシュボード集。
 
 ## anarchy-economy.json
 
-TSTS 経済モデル v1 の主要 KPI を可視化する。設計提案 [docs/economic_model_proposal.md](../../docs/economic_model_proposal.md) §5 の不変条件 (I-1〜I-5) を実運用で検証するためのもの。
+TSTS 経済モデル v1 の主要 KPI を可視化する。設計提案 [docs/economic/proposal.md](../../docs/economic/proposal.md) §5 の不変条件 (I-1〜I-5) を実運用で検証するためのもの。
 
 ### パネル
 

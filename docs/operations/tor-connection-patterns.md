@@ -1,7 +1,7 @@
 # Tor 接続パターンとハイドラ戦略
 
 > **ステータス**: 設計ドキュメント  
-> **関連ドキュメント**: [Tor.md](Tor.md), [architecture.md](architecture.md)
+> **関連ドキュメント**: [Tor.md](tor-overview.md), [architecture.md](../architecture/overview.md)
 
 ---
 

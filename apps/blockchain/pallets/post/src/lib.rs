@@ -308,7 +308,7 @@ pub mod pallet {
             // TSTS v1 (旧 FR-113 改訂) / F7 governance-tunable:
             // base_cost + size_cost を Permill で配分する (default 50% storage / 20% reaction / 30% burn).
             // base_fee_burn 部分は完全 burn (混雑時の自己消費メカニズム) で配分対象外。
-            // 詳細: docs/economic_model_proposal.md §3.2.3
+            // 詳細: docs/economic/proposal.md §3.2.3
             // F7: ハードコード `* 50 / 100` を `T::StorageSharePermill::get().mul_floor(...)` に置き換え。
             // これにより EconomicParams::set_post_storage_share governance call で動的調整可能。
             let distributable = base_cost.saturating_add(size_cost);

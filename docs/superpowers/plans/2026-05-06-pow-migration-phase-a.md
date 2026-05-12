@@ -1823,7 +1823,7 @@ gh pr create --base main --title "PoW migration Phase A: pallets + node module (
 
 PoW 移行の Phase A — 新 pallet 3 つと node 側 PoW モジュールの足回りを追加します。**`construct_runtime!` には組み込まず、`service.rs` も触らない**ので main の dev chain は引き続き Aura/GRANDPA で動作します。consensus 切替の破壊的変更は Phase B PR (`feature/pow-migration-cutover`) で実施。
 
-詳細仕様: [`docs/superpowers/specs/2026-05-06-pow-migration-design.md`](docs/superpowers/specs/2026-05-06-pow-migration-design.md)
+詳細仕様: [`docs/superpowers/specs/2026-05-06-pow-migration-design.md`](../specs/2026-05-06-pow-migration-design.md)
 
 ## 含まれるもの
 

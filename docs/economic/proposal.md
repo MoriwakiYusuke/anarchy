@@ -1,7 +1,7 @@
 # Anarchy 経済モデル設計提案 — TSTS (Triple-Sink Triple-Source)
 
 > **目的**: docs/TODO.md §4.4 (Mainnet設計・経済パラメータ) を満たす、ゲーム理論的に破綻しない経済モデルの提案。
-> **前提資料**: [`docs/economic_parameters.md`](economic_parameters.md) (現状パラメータ全棚卸し)
+> **前提資料**: [`docs/economic_parameters.md`](parameters.md) (現状パラメータ全棚卸し)
 > **作成日**: 2026-05-07
 > **対象**: mainnet 投入前の経済パラメータ最終決定および pallet 改修の前段階意思決定
 
@@ -515,10 +515,10 @@ ROI < 1 ⟺
 
 ## 8. 関連ドキュメント
 
-- [`docs/economic_parameters.md`](economic_parameters.md) — 現状パラメータ全棚卸し
-- [`docs/economic_model_implementation_plan.md`](economic_model_implementation_plan.md) — 実装計画
-- [`docs/TODO.md` §4.4](TODO.md) — 進捗チェックリスト
-- [`docs/blockchain_logic.md`](blockchain_logic.md) — chain ロジック総論
-- [`docs/storage_logic.md`](storage_logic.md) — storage 報酬・PoW・GC
+- [`docs/economic_parameters.md`](parameters.md) — 現状パラメータ全棚卸し
+- [`docs/economic_model_implementation_plan.md`](implementation-plan.md) — 実装計画
+- [`docs/TODO.md` §4.4](../development/todo.md) — 進捗チェックリスト
+- [`docs/blockchain_logic.md`](../architecture/blockchain.md) — chain ロジック総論
+- [`docs/storage_logic.md`](../architecture/storage.md) — storage 報酬・PoW・GC
 
-シミュレータ: [`docs/economic/simulator.py`](economic/simulator.py) — `python3 docs/economic/simulator.py` で再現可能。出力サンプルは [`docs/economic/simulator_output.txt`](economic/simulator_output.txt)。
+シミュレータ: [`docs/economic/simulator.py`](simulator.py) — `python3 docs/economic/simulator.py` で再現可能。出力サンプルは [`docs/economic/simulator_output.txt`](simulator-output.txt)。
