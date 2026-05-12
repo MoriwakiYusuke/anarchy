@@ -22,10 +22,21 @@ Substrate + libp2p + Tor + Wasm 暗号エンジン + Next.js を結合した個�
 ---
 
 <div align="center">
-  <img src="assets/screenshot-home.png" alt="Anarchy frontend" width="85%"/>
+  <img src="assets/screenshot-home.png" alt="Anarchy timeline (connected as Alice)" width="85%"/>
   <br/>
-  <sub><em>Anarchy frontend — Wallet (session-only seed-phrase auth) + Timeline + cMatrix background</em></sub>
+  <sub><em>Timeline — session-only seed-phrase wallet, dynamic byte-cost post form, reaction mining, cMatrix background</em></sub>
 </div>
+
+<details>
+<summary><b>More screenshots</b></summary>
+
+<div align="center">
+  <img src="assets/screenshot-stealth.png" alt="Stealth address page" width="85%"/>
+  <br/>
+  <sub><em>Stealth address generator (EIP-5564 互換) — privacy-preserving one-time addresses for receiving</em></sub>
+</div>
+
+</details>
 
 ---
 
