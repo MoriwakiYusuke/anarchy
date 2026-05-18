@@ -236,23 +236,29 @@ start_tor() {
         log_error "docker compose not found; cannot start tor sidecar"
         return 1
     fi
-    local port="${TOR_SOCKS_HOST_PORT:-9050}"
-    log_info "starting tor sidecar (docker compose up -d, SOCKS5 host port=$port)"
-    # compose up が失敗した場合、最も多い原因は host の system tor との port 衝突なので
-    # その案内を表示する。
-    if ! ( cd "$TOR_DIR" && TOR_SOCKS_HOST_PORT="$port" $dc up -d --build ); then
-        log_error "tor sidecar の起動に失敗"
-        if [[ "$port" == "9050" ]] && ss -tln 2>/dev/null | grep -qE "127\.0\.0\.1:9050[^0-9]"; then
-            log_error "  127.0.0.1:9050 は既に他プロセスが listen 中 (host の system tor かも)"
-            log_error "  対処1: sudo systemctl stop tor && sudo systemctl disable tor"
-            log_error "  対処2: TOR_SOCKS_HOST_PORT=9150 ./scripts/dev-stack.sh start --with-tor"
+    # 既定は 9050 だが host で system tor (debian-tor) が 9050 を握っている場合は
+    # 自動で 9150 にフォールバックする。明示指定があればそれを優先。
+    local port="${TOR_SOCKS_HOST_PORT:-}"
+    if [[ -z "$port" ]]; then
+        if ss -tln 2>/dev/null | grep -qE "127\.0\.0\.1:9050[^0-9]"; then
+            port=9150
+            log_warn "127.0.0.1:9050 は既に listen 中 (host の system tor かも) → SOCKS5 を 9150 で起動"
+            log_warn "  ※ host バイナリの torsocks を Docker tor 経由で使いたい場合は"
+            log_warn "    \`TorAddress 127.0.0.1\` + \`TorPort 9150\` を ~/.torsocks.conf に設定"
+        else
+            port=9050
         fi
+    fi
+    log_info "starting tor sidecar (docker compose up -d, SOCKS5 host port=$port)"
+    if ! ( cd "$TOR_DIR" && TOR_SOCKS_HOST_PORT="$port" $dc up -d --build ); then
+        log_error "tor sidecar の起動に失敗 (docker compose 出力を確認してください)"
         return 1
     fi
     local deadline=$(( SECONDS + 30 ))
     while (( SECONDS < deadline )); do
         if nc -z 127.0.0.1 "$port" 2>/dev/null; then
             log_ok "tor SOCKS5 ready on 127.0.0.1:$port"
+            export TOR_SOCKS_HOST_PORT="$port"  # 同 session 内の status_tor 用
             return 0
         fi
         sleep 1
@@ -275,13 +281,17 @@ status_tor() {
         echo "  docker compose not available"
         return 0
     fi
-    local port="${TOR_SOCKS_HOST_PORT:-9050}"
     local ps; ps="$( cd "$TOR_DIR" && $dc ps --format '{{.Service}} {{.State}}' 2>/dev/null )"
     if [[ -z "$ps" ]]; then
         echo "  not running"
         return 0
     fi
     echo "  $ps"
+    # コンテナの実際の host ポートを `docker compose port` で取得 (9050 / 9150 自動判別)。
+    local port_map
+    port_map="$( cd "$TOR_DIR" && $dc port tor 9050 2>/dev/null )"  # "127.0.0.1:9150"
+    local port="${port_map##*:}"
+    [[ -z "$port" ]] && port="${TOR_SOCKS_HOST_PORT:-9050}"
     if nc -z 127.0.0.1 "$port" 2>/dev/null; then
         echo "  SOCKS5  127.0.0.1:$port → listening"
     else

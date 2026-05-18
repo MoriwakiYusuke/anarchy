@@ -43,15 +43,15 @@ docker compose logs -f tor   # "Bootstrapped 100% (done)" が出ればOK
 ```
 
 > **host で system tor が走っている場合 (9050 衝突)**:
-> `sudo systemctl stop tor && sudo systemctl disable tor` で system tor を停めるか、
-> 別ポートで上げる:
+> `pnpm stack:start:tor` / `dev-stack.sh start --with-tor` 経由なら **9150 に自動フォールバック**
+> されるため何もしなくて良い (起動時に warn でその旨が表示される)。
+> `docker compose` を直接叩く場合は env var で明示する:
 > ```bash
 > TOR_SOCKS_HOST_PORT=9150 docker compose up -d
-> # dev-stack 経由でも同じ env var を尊重する
-> TOR_SOCKS_HOST_PORT=9150 ./scripts/dev-stack.sh start --with-tor
 > ```
 > その場合 host バイナリ側の torsocks も `~/.torsocks.conf` または `TORSOCKS_CONF_FILE`
 > 経由で 9150 を見るよう設定する必要がある (`TorAddress 127.0.0.1` / `TorPort 9150`)。
+> system tor を完全に置き換えたい場合は `sudo systemctl stop tor && sudo systemctl disable tor`。
 
 ### 2. .onion アドレスの取得
 
