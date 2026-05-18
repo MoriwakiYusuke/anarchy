@@ -53,13 +53,13 @@ export default function Home() {
           <div className={styles.headerTop}>
             <LanguageSwitcher variant="compact" />
           </div>
-          <div className={styles.brand}>
+          <h1 className={styles.title} aria-label="Anarchy">
             <svg
               className={styles.logo}
               xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 240 240"
+              viewBox="20 20 200 200"
               role="img"
-              aria-label="Anarchy logo"
+              aria-label="A"
             >
               <defs>
                 <linearGradient id="anarchyRing" x1="0" y1="0" x2="1" y2="1">
@@ -67,18 +67,15 @@ export default function Home() {
                   <stop offset="100%" stopColor="#660000" />
                 </linearGradient>
               </defs>
-              <rect width="240" height="240" rx="32" fill="#0a0a0a" />
               <circle cx="120" cy="120" r="92" stroke="url(#anarchyRing)" strokeWidth="6" fill="none" />
-              <g stroke="#e6e6e6" strokeWidth="9" strokeLinecap="square" fill="none">
+              <g stroke="#cc0000" strokeWidth="14" strokeLinecap="square" fill="none">
                 <path d="M70 168 L120 60 L170 168" />
-                <path d="M55 168 L185 168" stroke="url(#anarchyRing)" strokeWidth="6" />
                 <path d="M88 130 L152 130" />
               </g>
-              <rect x="178" y="42" width="20" height="3" fill="#cc0000" />
-              <rect x="178" y="48" width="12" height="2" fill="#cc0000" opacity="0.6" />
+              <path d="M55 178 L185 178" stroke="url(#anarchyRing)" strokeWidth="6" />
             </svg>
-            <h1 className={styles.title}>Anarchy</h1>
-          </div>
+            <span className={styles.titleText}>narchy</span>
+          </h1>
           <p className={styles.subtitle}>{t('app.subtitle')}</p>
           <div className={styles.status}>
             {renderConnectionStatus()}

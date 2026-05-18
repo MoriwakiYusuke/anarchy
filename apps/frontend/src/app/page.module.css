@@ -33,26 +33,28 @@
   right: 1rem;
 }
 
-.brand {
-  display: flex;
+.title {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-}
-
-.logo {
-  width: 64px;
-  height: 64px;
-  flex-shrink: 0;
-}
-
-.title {
+  gap: 0;
   font-family: 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 3.25rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   color: #f0f0f0;
   line-height: 1;
+}
+
+.logo {
+  width: 1.05em;
+  height: 1.05em;
+  flex-shrink: 0;
+  margin-right: -0.12em;
+}
+
+.titleText {
+  display: inline-block;
 }
 
 .subtitle {
@@ -147,15 +149,6 @@
     display: flex;
     justify-content: flex-end;
     margin-bottom: 0.5rem;
-  }
-
-  .brand {
-    gap: 0.6rem;
-  }
-
-  .logo {
-    width: 44px;
-    height: 44px;
   }
 
   .title {
