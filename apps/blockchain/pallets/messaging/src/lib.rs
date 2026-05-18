@@ -348,7 +348,7 @@ pub mod pallet {
             // TSTS v1 / F7 governance-tunable:
             // pre_total を Permill で配分 (default 50% storage / 20% stealth / 30% burn).
             // base_fee_burn 部分は完全 burn (混雑自己消費) なので配分対象外。
-            // 詳細: docs/economic_model_proposal.md §3.2.4
+            // 詳細: docs/economic/proposal.md §3.2.4
             // F7: ハードコード比率を T::StorageSharePermill / T::StealthSharePermill 経由に変更。
             let storage_share = T::StorageSharePermill::get().mul_floor(pre_total);
             let stealth_share = T::StealthSharePermill::get().mul_floor(pre_total);

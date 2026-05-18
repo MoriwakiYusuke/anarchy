@@ -217,6 +217,10 @@ export type TranslationKey =
   | 'error.emptyFile'
   // Stealth
   | 'stealth.title'
+  | 'stealth.page.heading'
+  | 'stealth.page.subtitle'
+  | 'stealth.page.or'
+  | 'stealth.page.importButton'
   | 'stealth.receive'
   | 'stealth.send'
   | 'stealth.balance'

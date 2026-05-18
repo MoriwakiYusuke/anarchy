@@ -8,9 +8,9 @@
 > **ブロック時間**: 30 秒 → 1 日 ≈ 2,880 ブロック, 1 年 ≈ 1,051,200 ブロック
 >
 > **関連ドキュメント**:
-> - 設計提案: [`economic_model_proposal.md`](economic_model_proposal.md)
-> - 実装計画: [`economic_model_implementation_plan.md`](economic_model_implementation_plan.md)
-> - シミュレータ: [`economic/simulator.py`](economic/simulator.py)
+> - 設計提案: [`economic_model_proposal.md`](proposal.md)
+> - 実装計画: [`economic_model_implementation_plan.md`](implementation-plan.md)
+> - シミュレータ: [`economic/simulator.py`](simulator.py)
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## 1. ネイティブ通貨・チェーン全体
 
-### 1.1 `pallet_balances` ([runtime/src/lib.rs L296-L304](../apps/blockchain/runtime/src/lib.rs#L296))
+### 1.1 `pallet_balances` ([runtime/src/lib.rs L296-L304](../../apps/blockchain/runtime/src/lib.rs#L296))
 
 | 名前 | 値 | governance | 役割 |
 |---|---|---|---|
@@ -34,7 +34,7 @@
 | `MaxReserves` | `()` | ❌ | 予約スロット制限なし |
 | `MaxFreezes` | `0` | ❌ | フリーズ未使用 |
 
-### 1.2 `pallet_transaction_payment` ([runtime/src/lib.rs L308-L322](../apps/blockchain/runtime/src/lib.rs#L308))
+### 1.2 `pallet_transaction_payment` ([runtime/src/lib.rs L308-L322](../../apps/blockchain/runtime/src/lib.rs#L308))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
@@ -43,7 +43,7 @@
 | `FeeMultiplier` | `Multiplier::one()` | 動的乗数 1.0 固定 |
 | `OperationalFeeMultiplier` | `5` | Operational class 倍率 (手数料 0 で死コード) |
 
-### 1.3 `frame_system` ([runtime/src/lib.rs L84-L154](../apps/blockchain/runtime/src/lib.rs#L84))
+### 1.3 `frame_system` ([runtime/src/lib.rs L84-L154](../../apps/blockchain/runtime/src/lib.rs#L84))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
@@ -59,7 +59,7 @@
 
 ## 2. PoW / コンセンサス
 
-### 2.1 `pallet_difficulty` (LWMA-3) ([runtime/src/lib.rs L183-L192](../apps/blockchain/runtime/src/lib.rs#L183))
+### 2.1 `pallet_difficulty` (LWMA-3) ([runtime/src/lib.rs L183-L192](../../apps/blockchain/runtime/src/lib.rs#L183))
 
 | 名前 | 値 | governance | 役割 |
 |---|---|---|---|
@@ -67,7 +67,7 @@
 | `DifficultyAdjustWindow` | `60` | ❌ | LWMA window |
 | `MinDifficulty` | `100` | ❌ | dev/WSL 用 floor (production は spec §1 で 10,000 推奨) |
 
-### 2.2 `pallet_block_reward` ⭐ **TSTS P1: 3-way fan-out + tail emission** ([runtime/src/lib.rs L221-L271](../apps/blockchain/runtime/src/lib.rs#L221))
+### 2.2 `pallet_block_reward` ⭐ **TSTS P1: 3-way fan-out + tail emission** ([runtime/src/lib.rs L221-L271](../../apps/blockchain/runtime/src/lib.rs#L221))
 
 | 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
 |---|---|---|---|---|
@@ -83,7 +83,7 @@
 
 **不変条件 I-1 (永続セキュリティ)**: ∀t, BlockReward(t) ≥ TailEmission > 0.
 
-### 2.3 `pallet_grandpa_authority_election` ([runtime/src/lib.rs L275-L290](../apps/blockchain/runtime/src/lib.rs#L275))
+### 2.3 `pallet_grandpa_authority_election` ([runtime/src/lib.rs L275-L290](../../apps/blockchain/runtime/src/lib.rs#L275))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
@@ -92,7 +92,7 @@
 | `ElectionRotationPeriod` | `600` blocks (5 h) | ローテ間隔 |
 | `ElectionRotationDelay` | `10` blocks (5 min) | 反映遅延 |
 
-### 2.4 `pallet_grandpa` ([runtime/src/lib.rs L161-L169](../apps/blockchain/runtime/src/lib.rs#L161))
+### 2.4 `pallet_grandpa` ([runtime/src/lib.rs L161-L169](../../apps/blockchain/runtime/src/lib.rs#L161))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
@@ -104,7 +104,7 @@
 
 ## 3. Governance ⭐ **TSTS F8**
 
-### 3.1 `pallet_collective` (Council) ([runtime/src/lib.rs L335-L373](../apps/blockchain/runtime/src/lib.rs#L335))
+### 3.1 `pallet_collective` (Council) ([runtime/src/lib.rs L335-L373](../../apps/blockchain/runtime/src/lib.rs#L335))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
@@ -123,7 +123,7 @@
 
 ## 4. EIP-1559 Base Fee ⭐ **TSTS P2**
 
-### 4.1 `pallet_base_fee` ([runtime/src/lib.rs L391-L403](../apps/blockchain/runtime/src/lib.rs#L391))
+### 4.1 `pallet_base_fee` ([runtime/src/lib.rs L391-L403](../../apps/blockchain/runtime/src/lib.rs#L391))
 
 | 名前 | 値 (mainnet 推奨) | governance | 役割 |
 |---|---|---|---|
@@ -140,7 +140,7 @@
 
 ## 5. 投稿コスト・Storage / Reaction 還流 ⭐ **TSTS P3+P7**
 
-### 5.1 `pallet_post` ([runtime/src/lib.rs L495-L510](../apps/blockchain/runtime/src/lib.rs#L495))
+### 5.1 `pallet_post` ([runtime/src/lib.rs L495-L510](../../apps/blockchain/runtime/src/lib.rs#L495))
 
 | 名前 | 旧 (M0) | TSTS v1 中間 | **現 (TSTS v1 final)** | governance | 役割 |
 |---|---|---|---|---|---|
@@ -153,7 +153,7 @@
 (Faucet pool size + 難易度) は不変なので攻撃経済性に影響なし。Spam 攻撃は EIP-1559 base_fee が
 立ち上がって total コスト保たれる。
 
-### 5.2 投稿コストの分配 ([pallet-post/src/lib.rs](../apps/blockchain/pallets/post/src/lib.rs))
+### 5.2 投稿コストの分配 ([pallet-post/src/lib.rs](../../apps/blockchain/pallets/post/src/lib.rs))
 
 | 旧 (M0) | **現 (TSTS v1)** | governance |
 |---|---|---|
@@ -170,7 +170,7 @@
 
 ## 6. Storage Pallet ⭐ **TSTS P3+F1**
 
-### 6.1 報酬計算 ([pallet-storage/src/rewards.rs](../apps/blockchain/pallets/storage/src/rewards.rs))
+### 6.1 報酬計算 ([pallet-storage/src/rewards.rs](../../apps/blockchain/pallets/storage/src/rewards.rs))
 
 | 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
 |---|---|---|---|---|
@@ -190,7 +190,7 @@ reward = BaseRewardPerByte × data_size
 
 **不変条件 I-2 (ストレージプール下限)**: block reward 30 % 流入で ∀t, σ_storage ≥ tail mint × 30 %.
 
-### 6.2 Storage Stake (`pallet_storage_stake`) ⭐ **TSTS P4** ([runtime/src/lib.rs L376-L388](../apps/blockchain/runtime/src/lib.rs#L376))
+### 6.2 Storage Stake (`pallet_storage_stake`) ⭐ **TSTS P4** ([runtime/src/lib.rs L376-L388](../../apps/blockchain/runtime/src/lib.rs#L376))
 
 | 名前 | 値 (mainnet 推奨) | governance | 役割 |
 |---|---|---|---|
@@ -201,7 +201,7 @@ reward = BaseRewardPerByte × data_size
 
 **Slash 動作**: `bond × SlashRatePerFailPpm` を `do_slash_node` で削減. 30 % は slash_reserved で burn, 70 % は unreserve で operator に返却.
 
-### 6.3 PoW (ノード登録) ([pallet-storage/src/pow.rs](../apps/blockchain/pallets/storage/src/pow.rs))
+### 6.3 PoW (ノード登録) ([pallet-storage/src/pow.rs](../../apps/blockchain/pallets/storage/src/pow.rs))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
@@ -232,7 +232,7 @@ reward = BaseRewardPerByte × data_size
 
 ## 7. Reaction Pallet ⭐ **TSTS P5**
 
-### 7.1 動的 γ + decay + reactor lock ([runtime/src/lib.rs L645-L678](../apps/blockchain/runtime/src/lib.rs#L645))
+### 7.1 動的 γ + decay + reactor lock ([runtime/src/lib.rs L645-L678](../../apps/blockchain/runtime/src/lib.rs#L645))
 
 | 名前 | 旧 (M0) | **現 (TSTS v1)** | governance | 役割 |
 |---|---|---|---|---|
@@ -266,7 +266,7 @@ reward = ReactionReward × γ × decay
 
 ## 8. DM (Messaging) コスト・分配 ⭐ **TSTS P6**
 
-### 8.1 `pallet_messaging` ([runtime/src/lib.rs L711-L750](../apps/blockchain/runtime/src/lib.rs#L711))
+### 8.1 `pallet_messaging` ([runtime/src/lib.rs L711-L750](../../apps/blockchain/runtime/src/lib.rs#L711))
 
 | 名前 | 旧 (M0) | TSTS v1 中間 | **現 (final)** | governance | 役割 |
 |---|---|---|---|---|---|
@@ -312,7 +312,7 @@ reward = ReactionReward × γ × decay
 
 ---
 
-## 10. Popularity Pallet (人気度・GC) ([runtime/src/lib.rs L682-L702](../apps/blockchain/runtime/src/lib.rs#L682))
+## 10. Popularity Pallet (人気度・GC) ([runtime/src/lib.rs L682-L702](../../apps/blockchain/runtime/src/lib.rs#L682))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
@@ -332,7 +332,7 @@ reward = ReactionReward × γ × decay
 
 ## 11. その他の周辺定数
 
-### 11.1 Stealth ([runtime/src/lib.rs L598-L606](../apps/blockchain/runtime/src/lib.rs#L598))
+### 11.1 Stealth ([runtime/src/lib.rs L598-L606](../../apps/blockchain/runtime/src/lib.rs#L598))
 
 | 名前 | 値 | 役割 |
 |---|---|---|
@@ -347,7 +347,7 @@ reward = ReactionReward × γ × decay
 
 ---
 
-## 12. Genesis 初期分配 ([node/src/chain_spec.rs](../apps/blockchain/node/src/chain_spec.rs))
+## 12. Genesis 初期分配 ([node/src/chain_spec.rs](../../apps/blockchain/node/src/chain_spec.rs))
 
 | 名前 | 値 (dev/testnet) | 役割 |
 |---|---|---|
@@ -395,7 +395,7 @@ reward = ReactionReward × γ × decay
 
 ## 15. シミュレーション参照
 
-5 年シミュレーション結果は [`economic/simulator_output.txt`](economic/simulator_output.txt) を参照. 主要 KPI:
+5 年シミュレーション結果は [`economic/simulator_output.txt`](simulator-output.txt) を参照. 主要 KPI:
 
 | 観点 | M0 (旧) | M1 (TSTS v1) |
 |---|---|---|
@@ -408,7 +408,7 @@ reward = ReactionReward × γ × decay
 
 ## 17. 経済学的レビュー (open issues, v2 への入力)
 
-> 詳細: [`economic_review_v1.md`](economic_review_v1.md)
+> 詳細: [`economic_review_v1.md`](review-v1.md)
 
 v1 実装後の経済学・社会学的レビューで **構造的脆弱性 4 件** が判明。mainnet ローンチ前に v2 で対処予定。
 

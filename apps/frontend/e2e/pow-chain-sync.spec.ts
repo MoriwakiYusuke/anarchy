@@ -13,7 +13,7 @@ import { test, expect } from './fixtures/chain';
  *   - storage 系で既に存在する WS 接続経路と統合 (architectural clarity)
  *
  * Anonymity 原則 (CLAUDE.md Principle #1) は chain-node を Tor hidden service として
- * 公開して `wss://<onion>:9944` で接続する運用で担保 (docs/Tor.md)。
+ * 公開して `wss://<onion>:9944` で接続する運用で担保 (docs/operations/tor-overview.md)。
  *
  * 前提: dev node または testnet が起動済み (\`pnpm dev:node\` or \`pnpm testnet:start\`)
  *       環境変数 NEXT_PUBLIC_CHAIN_RPC_URL で endpoint を上書き可、デフォルトは

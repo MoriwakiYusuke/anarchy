@@ -3,7 +3,7 @@ name = "anarchy-storage-node"
 version = "0.1.0"
 edition = "2021"
 description = "Distributed storage node daemon for Anarchy network"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 authors = ["Anarchy Team"]
 repository = "https://github.com/anarchy-project/anarchy"
 
@@ -14,6 +14,12 @@ path = "src/lib.rs"
 [[bin]]
 name = "anarchy-storage-node"
 path = "src/main.rs"
+
+# Storage layer micro-benchmark — TODO §4.9.
+# `cargo build --release --bin bench-storage` then run with --count / --size.
+[[bin]]
+name = "bench-storage"
+path = "src/bin/bench_storage.rs"
 
 [dependencies]
 # libp2p for P2P networking

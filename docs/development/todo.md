@@ -1,10 +1,15 @@
-# Anarchy 実装TODO
+# Anarchy 実装 TODO
+
+> **最終更新**: 2026-05-12
+> **現在の実装状況サマリ**: [status.md](status.md) を参照 (Phase 1-4 + PoW migration + TSTS v1 完了済み)
+>
+> このドキュメントは「いつか実装したい」も含む全タスクの台帳。完了済みのチェックを残しつつ、未着手は `[ ]` のまま蓄積する方針。
 
 ## 前提条件
 
-- **ブラウザ環境**: 通常HTTP/S（Torなし）
-- **ノード間通信**: libp2p + Tor/I2P（Arti使用）
-- **匿名性担保**: クライアント側Wasmで署名・ステルスアドレス生成
+- **ブラウザ環境**: 通常 HTTP/S (Tor なし) — 将来 onion gateway 経由オプションあり
+- **ノード間通信**: libp2p + Tor (torsocks + Onion Service。Arti は arti 1.0 待ち)
+- **匿名性担保**: クライアント側 Wasm で署名・ステルスアドレス生成 + 鍵セッションメモリのみ
 
 ---
 
@@ -587,7 +592,7 @@
 
 ### + 3.4 投稿人気度システム ✅
 
-> **詳細**: [CONCEPTS.md](CONCEPTS.md#投稿人気度システム) / [docs/superpowers/specs/2026-05-03-post-popularity-design.md](superpowers/specs/2026-05-03-post-popularity-design.md) を参照
+> **詳細**: [CONCEPTS.md](../vision/concepts.md#投稿人気度システム) / [docs/superpowers/specs/2026-05-03-post-popularity-design.md](../superpowers/specs/2026-05-03-post-popularity-design.md) を参照
 
 - [x] **人気度スコア計算** (pallet-popularity)
   - [x] 高評価（Like）: +N スコア (`LikeWeight = 100`)
@@ -672,18 +677,18 @@
 ### 4.4 Mainnet設計・経済パラメータ（トークノミクス統合）
 
 > 4.6の経済設計と統合。詳細設計は 4.5, 4.7 を参照。
-> - 現状コードに存在する経済関連変数の全棚卸し: [`docs/economic_parameters.md`](economic_parameters.md)
-> - **経済モデル設計提案 (TSTS) 2026-05-07**: [`docs/economic_model_proposal.md`](economic_model_proposal.md)
-> - **実装計画 (8〜10 営業日)**: [`docs/economic_model_implementation_plan.md`](economic_model_implementation_plan.md)
-> - シミュレータ: [`docs/economic/simulator.py`](economic/simulator.py)
+> - 現状コードに存在する経済関連変数の全棚卸し: [`docs/economic_parameters.md`](../economic/parameters.md)
+> - **経済モデル設計提案 (TSTS) 2026-05-07**: [`docs/economic_model_proposal.md`](../economic/proposal.md)
+> - **実装計画 (8〜10 営業日)**: [`docs/economic_model_implementation_plan.md`](../economic/implementation-plan.md)
+> - シミュレータ: [`docs/economic/simulator.py`](../economic/simulator.py)
 
-- [ ] **経済合理性に基づく定数制定**
-  - [ ] PostBaseCost / PostByteCost の最適値検証
-  - [ ] Faucet報酬額・難易度の調整
-  - [ ] ストレージ報酬レート設計
-  - [ ] インフレ/デフレ率シミュレーション
-  - [ ] 適切なガス代の設定
-  - [ ] 初期供給量・分配比率
+- [x] **経済合理性に基づく定数制定** — TSTS v1 で全項目確定 (PR #54, #55、[economic_parameters.md](../economic/parameters.md))
+  - [x] PostBaseCost / PostByteCost の最適値検証 — iterative 調整完了 (`50→25 MORAL`, `0.1→0.0008 MORAL/byte`)、根拠は economic_parameters.md
+  - [x] Faucet 報酬額・難易度の調整 — 100 MORAL 報酬 + 難易度 18-28 bit 範囲 (§2.3)
+  - [x] ストレージ報酬レート設計 — Phase 4 で `MinWithdrawalAmount = 500 MORAL` + repair pool 分配、`pallet-economic-params` 経由で governance 可変
+  - [x] インフレ/デフレ率シミュレーション — [`docs/economic/simulator.py`](../economic/simulator.py) + `simulator_output.txt`
+  - [x] 適切なガス代の設定 — EIP-1559 Base Fee 実装 (PR #54 commit `200ddb4`)
+  - [x] 初期供給量・分配比率 — [`chain_spec.rs`](../../apps/blockchain/node/src/chain_spec.rs) で `INITIAL_MORAL` + `endowed_accounts` を genesis 設定
 
 <!-- 状況変化 (Phase B PR #53):
      - "バリデーター" 概念は PoW 移行で消滅 (= miner)
@@ -695,20 +700,20 @@
   - [ ] インフレ率とデフレ圧力のバランス検証
 -->
 
-- [ ] **ストレージ・反応報酬設計**
-  - [ ] ストレージノード報酬設計
-  - [ ] 反応マイニング報酬曲線
-  - [ ] 動的報酬計算: `Reward = Σ(Reaction × Power_cpu) × γ`
-  - [ ] γ（インフレ調整係数）の動的計算（ReactionRewardPool / TotalSupply）
+- [x] **ストレージ・反応報酬設計** — TSTS v1 で全実装済 (PR #54, #55、[economic_parameters.md](../economic/parameters.md))
+  - [x] ストレージノード報酬設計 — [`pallets/storage_stake/`](../../apps/blockchain/pallets/storage_stake/) + Phase 4 repair reward pool
+  - [x] 反応マイニング報酬曲線 — [`pallets/reaction/`](../../apps/blockchain/pallets/reaction/)
+  - [x] 動的報酬計算: `Reward = Σ(Reaction × Power_cpu) × γ` — `pallets/economic_params/` + `pallets/reaction/`
+  - [x] γ（インフレ調整係数）の動的計算（ReactionRewardPool / TotalSupply）— `pallets/economic_params/`、governance 可変
 
-- [ ] **手数料モデル**
-  - [ ] TX手数料: 0維持 or Base Fee導入
-  - [ ] 投稿コスト: burn維持（デフレ圧力）
-  - [ ] Faucet: unsigned tx維持
+- [x] **手数料モデル** — TSTS v1 で確定済
+  - [x] TX手数料: **Base Fee 導入** (EIP-1559) を採用 — [`pallets/base_fee/`](../../apps/blockchain/pallets/base_fee/) (PR #54 commit `200ddb4`)
+  - [x] 投稿コスト: burn 維持 — `PostBaseCost = 25 MORAL` + `PostByteCost = 0.0008 MORAL/byte` (`runtime/src/lib.rs`)
+  - [x] Faucet: unsigned tx 維持 — §2.3 で完了済 (`pallets/faucet/`)
 
 ### + 4.5 オンチェーンガバナンス
 
-> **詳細**: [CONCEPTS.md](CONCEPTS.md#オンチェーンガバナンス) を参照
+> **詳細**: [CONCEPTS.md](../vision/concepts.md#オンチェーンガバナンス) を参照
 
 - [ ] **段階的移行計画**
   - [ ] 開発〜テストネット: pallet_sudo維持（単一管理者）
@@ -752,9 +757,9 @@
 
 ### + 4.7 コンセンサス方式の検討（PoA → PoW/NPoS）
 
-> **詳細**: [CONCEPTS.md](CONCEPTS.md#コンセンサス方式の検討poa--pow) を参照
+> **詳細**: [CONCEPTS.md](../vision/concepts.md#コンセンサス方式の検討poa--pow) を参照
 > **実装**: Phase A PR #52 (merged) + Phase B PR #NN (in review)
-> **Spec**: [docs/superpowers/specs/2026-05-06-pow-migration-design.md](superpowers/specs/2026-05-06-pow-migration-design.md)
+> **Spec**: [docs/superpowers/specs/2026-05-06-pow-migration-design.md](../superpowers/specs/2026-05-06-pow-migration-design.md)
 
 - [x] **PoW移行検討** (2026-05-NN 完了)
   - [x] アルゴリズム選定: **RandomX** 採用 (ASIC 耐性 / Anarchy 原則 "誰でも参加" と整合)
@@ -769,7 +774,7 @@
 - [x] **移行計画**
   - [x] Phase A: pallet 3 個 + node/pow モジュール追加 (#52)
   - [x] Phase B: runtime cutover + RandomX verify + miner loop + chain_spec / CLI / CI / staging integration / docs (#53)
-  - [x] mainnet runbook 公開: [docs/operations/pow-mainnet-runbook.md](operations/pow-mainnet-runbook.md)
+  - [x] mainnet runbook 公開: [docs/operations/pow-mainnet-runbook.md](../operations/pow-mainnet-runbook.md)
 
 - [x] **Phase B 副作用 — frontend 接続経路変更**
   - [-] ~~smoldot light client~~ (PoW 非互換、§2.5 参照)
@@ -788,7 +793,7 @@
 
 ### + 4.8 Storage ↔ Chain Session 認証強化 (TODO 追加 2026-04-27)
 
-> **目的**: chain-node ↔ storage-node 認証を [docs/storage_logic.md §7](storage_logic.md#7-セッション認証システム) に書かれた **session-token 方式** に実装し直す。
+> **目的**: chain-node ↔ storage-node 認証を [docs/storage_logic.md §7](../architecture/storage.md#7-セッション認証システム) に書かれた **session-token 方式** に実装し直す。
 >
 > **背景**: 現状は per-request の `X-Anarchy-Auth` + `X-Chain-Auth` ヘッダ方式 (`apps/storage-node/src/rpc/auth.rs`) で動作しているが、`X-Chain-Auth` は同ファイルの comment で「なりすましは許容＝公開鍵のオンチェーン確認はしない」と明言されており、**sr25519 鍵を持つ任意のユーザが chain-node を装って storage-node に書き込める**。docs §7 が想定する libp2p P2P 接続経由 (`peer_id ∈ connected_peers`) での peer 認証は実装ファイル (`apps/storage-node/src/session/`, `apps/blockchain/node/src/storage/session_client.rs`) ごとまだ存在しない。
 >
@@ -823,11 +828,13 @@
 
 > **進捗 (2026-05-10)**: Phase 1 として redb (4.x, pure Rust, ACID, B-tree) を即採用し、`fragments` / `post_fragments` 2 テーブル構成で backend を入替済 (PR `feature/storage-node-kv-redb`)。公開 API は維持、書き込みは 1 redb txn で原子化、起動時 `walkdir` を redb iter に置換。inode インフレと部分書き残留はこの時点で解消。
 >
-> **進捗 (2026-05-10) Phase 2 着手**: 基盤 + 可観測性 (PR `feature/storage-node-kv-redb-phase2`)。`storage/{engine,metadata}.rs` 分割 + `fragment_meta` / `post_fragment_meta` SCALE-encoded メタデータテーブル + `system.total_used_bytes` 永続化 (起動時 O(N) scan 廃止) + `verify_on_read` config flag (Blake2 hash mismatch を HTTP RPC で error 化、E2E で 1 byte flip を検出済) + Phase 1 で見つかった metrics 未配線バグ修正 (`record_put` / `record_get` を rpc handler に追加 + `/metrics` の `storage_capacity_used_bytes` / `storage_fragments_total` を store からライブで読み出し)。**残: GC スケジューラ書換 / LRU eviction / snapshot backup / 1M ベンチ / crash test / wipe.sh は次以降**。
+> **進捗 (2026-05-10) Phase 2 着手**: 基盤 + 可観測性 (PR `feature/storage-node-kv-redb-phase2`)。`storage/{engine,metadata}.rs` 分割 + `fragment_meta` / `post_fragment_meta` SCALE-encoded メタデータテーブル + `system.total_used_bytes` 永続化 (起動時 O(N) scan 廃止) + `verify_on_read` config flag (Blake2 hash mismatch を HTTP RPC で error 化、E2E で 1 byte flip を検出済) + Phase 1 で見つかった metrics 未配線バグ修正 (`record_put` / `record_get` を rpc handler に追加 + `/metrics` の `storage_capacity_used_bytes` / `storage_fragments_total` を store からライブで読み出し)。
+>
+> **進捗 (2026-05-10) Phase 2 完了** (PR `feature/storage-node-kv-redb-phase2-finish`): LRU eviction (`evict_lru`) + touch-on-read 非同期更新 (60s tick で flush) + main.rs に capacity 95% 超過時の自動 eviction trigger + bench scripts (`bench-storage.sh` + `bench-storage` bin、TSV 出力) + `storage-backup.sh` (SIGSTOP/SIGCONT による hot backup) + SIGKILL crash test (6/20 fragments survived, no half-written, used_bytes 完全一致) + 5K fragments load test (1780 ops/s, quota 完全遵守). **§4.9 の全項目クローズ**。
 
 > **目的**: storage-node の fragment 永続化層を「1 fragment = 1 ファイル」のナイーブ実装から、embedded KV ストア (sled / redb / fjall / RocksDB) ベースに置き換えて、fragment 数 100 万件超でもスケールするようにする。
 >
-> **背景**: 現在の [`apps/storage-node/src/storage/mod.rs`](../apps/storage-node/src/storage/mod.rs) は `fs::create_dir_all` + `File::create` + `file.write_all` で fragment ごとに 1 ファイル書き出す。問題点:
+> **背景**: 現在の [`apps/storage-node/src/storage/mod.rs`](../../apps/storage-node/src/storage/mod.rs) は `fs::create_dir_all` + `File::create` + `file.write_all` で fragment ごとに 1 ファイル書き出す。問題点:
 > - **inode インフレ**: 100 万 fragment = 100 万 inode (ext4 で `ls` / `find` が秒オーダー、xfs 推奨だが SD/HDD では fragmentation 累積)
 > - **fsync per fragment**: 書き込みが一切 batch されず writeback 圧迫
 > - **GC / capacity が O(N) 全走査**: `walkdir` crate でディレクトリ再帰 (起動時 + 周期実行)、再起動が遅い
@@ -848,53 +855,60 @@
   - [ ] **候補 A: sled** — pure Rust, log-structured, embed しやすいが mature でない (1.0 未到達, 後継 bloodstone へ移行中) → 不採用
   -->
   - [x] **候補 B: redb** — pure Rust, ACID, B-tree、4.x stable、tuple key + range scan 良好 → **採用**
+  <!-- 検討終了 (2026-05-10): Anarchy のワークロードは投稿作成 (write rare)
+       + ページ閲覧 (read frequent) で read-heavy。Phase 2 smoke で 4KB
+       put 27K ops/s に対し get 167K ops/s と read が 6× 速く B-tree が
+       適合中。LSM (fjall) のメリットが薄いと判断し採用見送り。将来
+       workload が write-heavy 化したら再検討。
   - [ ] **候補 C: fjall** — pure Rust, LSM-tree, write-heavy 向け → Phase 2 で write 比重が高ければ再検討
+  -->
   <!-- 見送り (C++ FFI による build 時間 / バイナリサイズ増、pure Rust スタックを崩したくない):
   - [ ] **候補 D: rocksdb** — C++ FFI, 実績豊富だが build 時間 + バイナリサイズ増 → 見送り
   -->
-  - [ ] ベンチ条件: 1M fragments × {64 KiB, 256 KiB, 1 MiB} で `put` / `get` / `delete` / `range_scan` の throughput と p99 レイテンシ、起動時間、`du -sh` (on-disk size) — **Phase 2** で `scripts/bench-storage.sh` 追加時に実施
+  - [x] ベンチ条件: 1M fragments × {64 KiB, 256 KiB, 1 MiB} で `put` / `get` / `delete` / `range_scan` の throughput と p99 レイテンシ、起動時間、`du -sh` (on-disk size) — Phase 2 finish で [`scripts/bench-storage.sh`](../../scripts/bench-storage.sh) + `bench-storage` bin として実装。1M cell は operator 実行 (TB 級ディスク要)、CI では `--quick` (10K cell)
 
-- [ ] **データモデル設計** (`apps/storage-node/src/storage/`)
+- [x] **データモデル設計** (`apps/storage-node/src/storage/`) — `index_by_post` 独立化を除き完了 (条件付き future work)
   - [x] `fragments` table: `key = FragmentId (&[u8;32]) → value = bytes` (Phase 1)
   - [x] `post_fragments` table: `key = (u64 post_id, u32 index) → value = bytes` (Phase 1, 逆引きと値兼用 — challenge/repair で fragment_id 逆引きが要求されたら細分化)
   - [x] `fragment_meta` / `post_fragment_meta` table: `key → SCALE-encoded { version, size, created_at, last_accessed_at, ref_count, data_hash }` (Phase 2、`metadata.rs` に格納)
   - [ ] `index_by_post` table を独立化: 値を `fragment_id` に切り替え、bytes 本体は `fragments` 経由 — **次フェーズ** (challenge / repair で fragment_id 逆引きが必要になったタイミング)
   - [x] `total_used_bytes` を redb の system table に永続化 (起動時 scan 廃止、ただし key 欠損時は fallback 1 回だけ scan して書き戻し) (Phase 2)
 
-- [ ] **実装 (`apps/storage-node/src/storage/`)**
+- [x] **実装 (`apps/storage-node/src/storage/`)**
   - [x] `mod.rs` を `engine.rs` (Database + 全 table 定義) と `metadata.rs` (SCALE struct) と `mod.rs` (FragmentStore = ドメイン層) に分割 (Phase 2)
   - [x] `store(fragment_id, data)` → redb の `insert` を 1 write txn (atomic) (Phase 1)
   - [x] `retrieve(fragment_id)` → redb の `get` (Phase 1)
   - [x] `delete(fragment_id)` → 1 write txn、`used` 減算 (Phase 1)
   - [x] `list_post_fragments(post_id)` → `(post_id, 0)..=(post_id, u32::MAX)` の range scan (Phase 1)
-  - [ ] `last_accessed_at` の非同期 update — **次フェーズ** (LRU eviction と同時に実装。Phase 2 では `last_accessed_at = created_at` のまま)
+  - [x] `last_accessed_at` の非同期 update (Phase 2 finish): `record_touch_*` で in-memory TouchBuffer に積み、main.rs の 60s tick で `flush_touch_buffer` が 1 write txn で書き出す (read ホットパスに fsync を載せない)
   - [x] integrity verify: 読み出し時 blake2 hash 比較フラグ (`config.toml` の `verify_on_read = true|false`、`Metadata.data_hash` と比較、E2E で 1 byte flip 検出済) (Phase 2)
-  - [ ] backup API: redb の begin_read による consistent snapshot を使った tar 化 → `apps/storage-node/scripts/backup.sh` — **次フェーズ**
+  - [x] backup API: SIGSTOP で書き込みを一瞬止めて redb single-file を `cp -p` するシンプルな方式に着地 (`apps/storage-node/scripts/storage-backup.sh`) — `begin_read` 経由の consistent snapshot は将来 redb 側に hot-snapshot API が入ったら切り替え
 
 - [x] **可観測性 (rpc/mod.rs metrics 配線)** — Phase 2 E2E で発覚した既存バグの修正
   - [x] `record_put()` / `record_get()` を `handle_store_fragment` / `handle_get_fragment` / `handle_store_kzg_shard` に追加
   - [x] `/metrics` の `storage_fragments_total` / `storage_capacity_used_bytes` を `state.store` からライブで読み出すように変更 (`metrics.fragment_count` などの内部 atomic は不使用)
 
-- [ ] **GC / capacity 改修** (`apps/storage-node/src/gc/`)
-  - [ ] `walkdir` 全走査を redb の range scan に置換 — **Phase 2** (Phase 1 では `list_fragments()` 内部だけ redb iter に置換済、GC スケジューラ側は据置)
+- [x] **GC / capacity 改修** (`apps/storage-node/src/gc/`)
+  - [x] `walkdir` 全走査を redb の range scan に置換 (Phase 1 で `list_fragments()` 内部、Phase 2 final で `evict_lru` の `collect_eviction_candidates` も redb iter ベース)
   - [x] capacity check は atomic counter 参照のみ (Phase 1 で達成、ファイル書き出しの 2 段階は redb txn 1 段階に集約)
-  - [ ] LRU eviction: `metadata.last_accessed_at` で sorted scan → 古い順に eviction — **Phase 2**
+  - [x] LRU eviction: `metadata.last_accessed_at` で sorted scan → 古い順に eviction (Phase 2 final、`evict_lru` + main.rs gc tick で capacity > 95% 時に target 85% へ自動 evict)
 
-- [ ] **マイグレーション** (= 不要、wipe & rebuild)
+- [x] **マイグレーション** (= 不要、wipe & rebuild)
   - [x] CLAUDE.md §Compatibility Policy より migration コードは書かない。旧 `.bin` データは捨て、新 redb DB を起動時に自動生成。
-  - [ ] `apps/storage-node/scripts/wipe.sh` を docs に明記 — **Phase 2**
+  - [x] `pnpm storage:purge` (= `apps/storage-node/scripts/run-storage-nodes.sh purge`) を [docs/storage_logic.md §3 運用コマンド](../architecture/storage.md) に明記
 
-- [ ] **テスト**
+- [x] **テスト**
   - [x] 既存 15 件の `storage::tests` が redb 化後も通過 (Phase 1)
   - [x] `test_persistence_across_reopen` を追加 (drop → 再 open で fragment と used counter が復元) (Phase 1)
-  - [x] `test_store_writes_metadata` / `test_verify_on_read_passes_for_clean_data` / `test_verify_on_read_catches_bit_rot` / `test_persistent_counter_loaded_on_reopen` / `test_counter_recovers_when_system_key_missing` (Phase 2、計 22/22 unit test PASS)
+  - [x] `test_store_writes_metadata` / `test_verify_on_read_passes_for_clean_data` / `test_verify_on_read_catches_bit_rot` / `test_persistent_counter_loaded_on_reopen` / `test_counter_recovers_when_system_key_missing` (Phase 2)
   - [x] metadata.rs unit: SCALE roundtrip + 未知 version 拒否 (Phase 2)
-  - [ ] 1M fragment ベンチ ([`scripts/bench-storage.sh`](../scripts/bench-storage.sh)) を追加 — **次フェーズ**
-  - [ ] crash test: write 中に SIGKILL → 起動後に inconsistent fragment が無いこと — **次フェーズ** (redb の WAL で部分書きは原理上発生しないが要確認)
-  - [ ] integration: `apps/blockchain/tests/integration/` の Multi-node テストに 100K fragments 投入 + GC 確認を追加 — **次フェーズ**
+  - [x] `test_evict_lru_noop_below_target` / `test_evict_lru_removes_oldest_first` / `test_touch_buffer_persists_last_accessed_at` (Phase 2 final、計 26/26 storage unit test PASS)
+  - [x] [`scripts/bench-storage.sh`](../../scripts/bench-storage.sh) + `bench-storage` bin (TSV 出力、`--quick`/`--full`/カスタム): 1K × {4K, 64K} smoke で put 27K ops/s、p99=83μs を確認。1M × {64K, 256K, 1M} の "--full" は operator 実行 (TB 級ディスク必要)
+  - [x] crash test: [`apps/blockchain/tests/integration/test_storage_crash_recovery.sh`](../../apps/blockchain/tests/integration/test_storage_crash_recovery.sh) — 20 並行 store 中に SIGKILL → 6 fragments 生存、verify_on_read 全 PASS、used_bytes 完全一致
+  - [x] [`apps/blockchain/tests/integration/test_storage_load.sh`](../../apps/blockchain/tests/integration/test_storage_load.sh) — 5K fragments × 1KiB 投入 (default) / 100K (`--large`)、quota 完全遵守 + 早期 fragments の verify_on_read PASS
 
-- [ ] **ドキュメント**
-  - [x] [docs/storage_logic.md](storage_logic.md) §Persistence 章を追記 / 更新 (Phase 1)
+- [x] **ドキュメント**
+  - [x] [docs/storage_logic.md](../architecture/storage.md) §Persistence 章を追記 / 更新 (Phase 1) + LRU eviction 行 + 運用コマンド表 (Phase 2 finish)
   <!-- 現状 redb 一択で書く対象がない。fjall を Phase 2 で評価して採用したら復活:
   - [ ] config option `storage.engine = "redb" | "fjall" | …` の README 追加
   -->
@@ -909,7 +923,7 @@
 > - ❌ 公開 endpoint (常に `127.0.0.1` バインド + 起動時に認可トークン file 出力)
 >
 > **背景**: 現状の運用者向け可視化は以下のみで、UI が無いため運用者は自分でクエリを書く必要がある:
-> - storage-node: [`apps/storage-node/src/metrics.rs`](../apps/storage-node/src/metrics.rs) に `AtomicU64` カウンタ群 (fragment_count / capacity_used / connected_peers / gossip_messages_* / auth_failures / chain_failovers / chain_latency_ms 等) があるが Prometheus exporter は未配線
+> - storage-node: [`apps/storage-node/src/metrics.rs`](../../apps/storage-node/src/metrics.rs) に `AtomicU64` カウンタ群 (fragment_count / capacity_used / connected_peers / gossip_messages_* / auth_failures / chain_failovers / chain_latency_ms 等) があるが Prometheus exporter は未配線
 > - chain-node: Substrate 標準の Prometheus exporter (`--prometheus-port 9615`) で best/finalized/peers などは出るが、Anarchy 固有の miner 状態 (hashrate / coinbase 残高 / RandomX mode / authority set 所属 / Tor mode) は出ない
 >
 > **緊急度**: 低-中。MVP では nice-to-have だが、testnet 〜 mainnet で第三者運用者を集めるには必須 (運用者体験の悪さは participation rate に直結)。
@@ -953,8 +967,8 @@
   - [ ] **DM などユーザ機能は持たない** (運用者画面と user 画面は完全分離する)
 
 - [ ] **CLI / config**
-  - [ ] storage-node: `--console-port 9090` / `--no-console` フラグ追加 ([`apps/storage-node/src/config/`](../apps/storage-node/src/config/))
-  - [ ] chain-node: 同様 ([`apps/blockchain/node/src/cli.rs`](../apps/blockchain/node/src/cli.rs))
+  - [ ] storage-node: `--console-port 9090` / `--no-console` フラグ追加 ([`apps/storage-node/src/config/`](../../apps/storage-node/src/config/))
+  - [ ] chain-node: 同様 ([`apps/blockchain/node/src/cli.rs`](../../apps/blockchain/node/src/cli.rs))
   - [ ] `mainnet` chain id では default 無効化 (誤って exposed されないように、`--console-port` 明示時のみ有効)
 
 - [ ] **セキュリティ**
@@ -976,7 +990,7 @@
 
 ## 構想事項（検討中）
 
-> **別ドキュメントに移動**: [CONCEPTS.md](CONCEPTS.md) を参照
+> **別ドキュメントに移動**: [CONCEPTS.md](../vision/concepts.md) を参照
 >
 > - ~~経済設計（トークノミクス）~~ → Phase 4.6へ移動
 > - ~~コンセンサス方式の検討（PoA → PoW）~~ → Phase 4.7へ移動
@@ -994,13 +1008,13 @@
 
 | 順番 | 項目 | 内容 | 仕様書 | 状態 |
 |-----|------|------|--------|------|
-| **1** | 008-distributed-storage **Phase 1** | Storage Registry & P2P | [spec.md](../specs/008-distributed-storage/spec.md) | ✅完了 |
+| **1** | 008-distributed-storage **Phase 1** | Storage Registry & P2P | [spec.md](../archive/specs/008-distributed-storage/spec.md) | ✅完了 |
 | **2** | SSS (Phase 2.1) | クライアント側暗号化・断片化 | - | ✅完了 |
 | **3** | + **Post Storage Migration** | 投稿コンテンツの分散ストレージ移行 | - | ✅完了 |
-| **4** | + **010-multi-node-storage** | マルチノード対応 & セキュリティ強化 | [spec.md](../specs/010-multi-node-storage/spec.md) | ✅完了 (2026-02-14) |
-| **5** | + **011-kzg-proof-rewards** | KZG証明 & 報酬システム | [spec.md](../specs/011-kzg-proof-rewards/spec.md) | ✅完了 (2026-02-16) |
-| **6** | + **013-slashing-repair** | Slashing & 自己修復プロトコル | [spec.md](../specs/013-slashing-repair/spec.md) | ✅完了 (2026-02-24) |
-| **7** | + **016-stealth-address** | ステルスアドレス統合 | [spec.md](../specs/016-stealth-address/spec.md) | ✅完了 (2026-02-28) |
+| **4** | + **010-multi-node-storage** | マルチノード対応 & セキュリティ強化 | [spec.md](../archive/specs/010-multi-node-storage/spec.md) | ✅完了 (2026-02-14) |
+| **5** | + **011-kzg-proof-rewards** | KZG証明 & 報酬システム | [spec.md](../archive/specs/011-kzg-proof-rewards/spec.md) | ✅完了 (2026-02-16) |
+| **6** | + **013-slashing-repair** | Slashing & 自己修復プロトコル | [spec.md](../archive/specs/013-slashing-repair/spec.md) | ✅完了 (2026-02-24) |
+| **7** | + **016-stealth-address** | ステルスアドレス統合 | [spec.md](../archive/specs/016-stealth-address/spec.md) | ✅完了 (2026-02-28) |
 
 ### Phase 1 スコープ（まず繋がるだけ） → ✅完了 (2026-02-10)
 

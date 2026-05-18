@@ -18,7 +18,7 @@
 - ❌ ~~スラッシング~~ → Phase 3
 - ❌ ~~自己修復プロトコル~~ → Phase 3
 
-**関連ドキュメント**: [StorageStrategy.md](../../docs/StorageStrategy.md)
+**関連ドキュメント**: [StorageStrategy.md](../../../architecture/storage-strategy.md)
 
 ## フェーズ構成
 

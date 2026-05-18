@@ -11,7 +11,7 @@
  *   - 上記 2 点から smoldot を残す価値が無く、WebSocket 一本に統一
  *
  * Anonymity 原則 (CLAUDE.md Principle #1) は chain-node を Tor hidden service として
- * 公開し \`wss://<onion>:9944\` で接続する運用で担保する (docs/Tor.md 参照)。
+ * 公開し \`wss://<onion>:9944\` で接続する運用で担保する (docs/operations/tor-overview.md 参照)。
  */
 
 import { createClient, PolkadotClient } from 'polkadot-api'

@@ -96,6 +96,71 @@ mod phase2 {
     use super::*;
     use crate::storage::engine::{KEY_TOTAL_USED_BYTES, SYSTEM};
 
+    /// `evict_lru` is a no-op when usage is already at/below target.
+    #[test]
+    fn test_evict_lru_noop_below_target() {
+        let temp = TempDir::new().unwrap();
+        let store = FragmentStore::new(temp.path().to_str().unwrap(), 1024 * 1024).unwrap();
+        store.store([1u8; 32], &vec![0u8; 100]).unwrap();
+        let stats = store.evict_lru(1_000_000).unwrap();
+        assert_eq!(stats.bytes_freed, 0);
+        assert_eq!(stats.fragments_evicted, 0);
+        assert!(store.exists(&[1u8; 32]));
+    }
+
+    /// `evict_lru` removes oldest-touched entries first across both tables
+    /// until the target is met.
+    #[test]
+    fn test_evict_lru_removes_oldest_first() {
+        let temp = TempDir::new().unwrap();
+        let store = FragmentStore::new(temp.path().to_str().unwrap(), 1024 * 1024).unwrap();
+
+        // Three fragments, 100 bytes each → 300 used.
+        let id_a = [1u8; 32];
+        let id_b = [2u8; 32];
+        store.store(id_a, &vec![0xAA; 100]).unwrap();
+        store.store_post_fragment(7, 0, &vec![0xBB; 100]).unwrap();
+        store.store(id_b, &vec![0xCC; 100]).unwrap();
+        assert_eq!(store.used_bytes(), 300);
+
+        // Touch id_a so it's the most-recently-accessed of the three.
+        // (record_touch_* is internal — calling retrieve achieves the same.)
+        std::thread::sleep(std::time::Duration::from_secs(1)); // ensure ts changes
+        let _ = store.retrieve(&id_a).unwrap();
+        store.flush_touch_buffer().unwrap();
+
+        // Evict to 150 bytes. Should remove the two oldest, keeping id_a.
+        let stats = store.evict_lru(150).unwrap();
+        assert!(stats.bytes_freed >= 150, "freed at least 150, got {}", stats.bytes_freed);
+        assert!(store.exists(&id_a), "most-recently-touched survives");
+        assert!(store.used_bytes() <= 150);
+    }
+
+    /// `flush_touch_buffer` updates `last_accessed_at` in metadata.
+    #[test]
+    fn test_touch_buffer_persists_last_accessed_at() {
+        let temp = TempDir::new().unwrap();
+        let store = FragmentStore::new(temp.path().to_str().unwrap(), 1024 * 1024).unwrap();
+
+        store.store_post_fragment(99, 0, b"touchable").unwrap();
+        let initial = store.post_fragment_metadata(99, 0).unwrap().unwrap();
+
+        // Sleep a second so the touch ts differs from created_at.
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let _ = store.retrieve_post_fragment(99, 0).unwrap();
+        let n = store.flush_touch_buffer().unwrap();
+        assert!(n >= 1, "expected at least 1 touch flushed, got {n}");
+
+        let after = store.post_fragment_metadata(99, 0).unwrap().unwrap();
+        assert!(
+            after.last_accessed_at > initial.last_accessed_at,
+            "last_accessed_at should advance after retrieve+flush ({} → {})",
+            initial.last_accessed_at,
+            after.last_accessed_at
+        );
+        assert_eq!(after.created_at, initial.created_at, "created_at unchanged");
+    }
+
     /// `total_fragment_count` sums both tables. Regression test for the
     /// Phase 2 metrics fix — `fragment_count()` alone (hash-only) under-
     /// reports on a node that has accepted post-based fragments via the
