@@ -33,7 +33,7 @@ Substrate + libp2p + Tor + Wasm 暗号エンジン + Next.js を結合した個�
 <div align="center">
   <img src="assets/screenshot-stealth.png" alt="Stealth address page" width="85%"/>
   <br/>
-  <sub><em>Stealth address generator (EIP-5564 互換) — privacy-preserving one-time addresses for receiving</em></sub>
+  <sub><em>Stealth address generator (EIP-5564-compatible) — privacy-preserving one-time addresses for receiving</em></sub>
 </div>
 
 </details>
