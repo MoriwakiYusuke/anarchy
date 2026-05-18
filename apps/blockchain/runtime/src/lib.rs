@@ -223,7 +223,7 @@ impl frame_support::traits::FindAuthor<AccountId> for PowAuthorAdapter {
 // 旧モデル (v0): 100% miner mint, halving 64 回後に 0 → 51% 攻撃コスト 0
 // 新モデル (v1): 50% miner / 30% storage pool / 20% reaction pool, tail = 0.5 MORAL
 //
-// 詳細: docs/economic_model_proposal.md §3.2.1
+// 詳細: docs/economic/proposal.md §3.2.1
 parameter_types! {
     pub const InitialBlockReward: Balance = 5_000_000_000_000;       // 5 MORAL = 5e12
     pub const TailEmission: Balance = 500_000_000_000;                // 0.5 MORAL = 5e11 (永続)
@@ -372,7 +372,7 @@ parameter_types! {
 }
 
 // Storage Stake (TSTS P4): Storage node の skin-in-the-game.
-// 詳細: docs/economic_model_proposal.md §3.2.5
+// 詳細: docs/economic/proposal.md §3.2.5
 parameter_types! {
     pub const BondPerGB: Balance = 10_000_000_000_000;       // 10 MORAL/GB
     pub const MinDeclaredCapacity: u64 = 1_073_741_824;       // 1 GB
@@ -388,7 +388,7 @@ impl pallet_storage_stake::Config for Runtime {
 }
 
 // Base Fee (TSTS P2): EIP-1559 風動的手数料.
-// 詳細: docs/economic_model_proposal.md §3.2.2
+// 詳細: docs/economic/proposal.md §3.2.2
 parameter_types! {
     pub const GasTargetBytesPerBlock: u32 = 50_000;            // 50 KB target
     pub const BaseFeeMin: u128 = 100;                           // 1e-10 MORAL/byte
@@ -623,7 +623,7 @@ impl pallet_reaction::PostAuthorProvider<AccountId> for PostAuthorProviderImpl {
 // 1 MORAL = 1_000_000_000_000 (12 decimals)
 //
 // TSTS P5: Reaction Pallet を動的 γ + reactor decay + reactor lock に拡張。
-// 詳細: docs/economic_model_proposal.md §3.2.6
+// 詳細: docs/economic/proposal.md §3.2.6
 parameter_types! {
     /// 旧固定報酬 (γ_max=0 時の fallback)。動的計算が有効なら未使用。
     pub const ReactionReward: Balance = 1_000_000_000_000;
@@ -710,7 +710,7 @@ impl pallet_popularity::Config for Runtime {
 // Messaging (DM) Pallet設定 — contracts/pallet-messaging-extrinsics.md §Dependencies
 //
 // TSTS P6: StealthReward 還流先を pallet_stealth に配線済み。20% が stealth pool に流入し、
-// 受信エフェメラル公開鍵ごとの受信回数も記録される。詳細: docs/economic_model_proposal.md §3.2.4
+// 受信エフェメラル公開鍵ごとの受信回数も記録される。詳細: docs/economic/proposal.md §3.2.4
 // TSTS P2 整合: コスト本体を spec §3.2.4 の mainnet 推奨値 (DmBase=0.5, DmByte=0.04) に更新。
 parameter_types! {
     pub const DmBaseCost: Balance = 250_000_000_000;        // 0.25 MORAL (TSTS v1 0.5 → 半減 for UX)

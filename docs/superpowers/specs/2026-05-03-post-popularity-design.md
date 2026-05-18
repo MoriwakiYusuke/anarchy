@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-03
 **Scope**: TODO.md §3.4 投稿人気度システム の v1 実装
-**Reference**: [docs/CONCEPTS.md §投稿人気度システム](../../CONCEPTS.md#投稿人気度システム)
+**Reference**: [docs/CONCEPTS.md §投稿人気度システム](../../vision/concepts.md#投稿人気度システム)
 
 ## 1. 目的とスコープ
 

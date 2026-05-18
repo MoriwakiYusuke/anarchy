@@ -188,7 +188,11 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
           if (unsafeApi.query.Reaction?.ReactionStatsStorage?.getValue) {
             const statsPromises = displayRoots.map(async (post) => {
               try {
-                const stats = await unsafeApi.query.Reaction.ReactionStatsStorage.getValue(post.id)
+                // post.id is `number` (we cast via `Number(keyArgs[0])` above),
+                // but ReactionStatsStorage is keyed by `u64` which PAPI expects
+                // as `bigint`. Passing a plain number silently returns null
+                // (no decoder match), so the count never appears in the UI.
+                const stats = await unsafeApi.query.Reaction.ReactionStatsStorage.getValue(BigInt(post.id))
                 if (stats) {
                   post.reactionStats = {
                     likes: Number(stats.likes || 0),

@@ -1,11 +1,40 @@
 ---
 name: playwright-e2e
-description: Anarchy フロントエンド (Next.js 14 + PAPI/smoldot + anarchy-wasm-engine) で新機能の E2E テストを書くためのスキル。Playwright と Playwright MCP は導入済み。新機能 (新ページ / 新 extrinsic / 新 wasm 暗号 / 新スキャナ / 新 UI フロー) を追加した際に「ブラウザ上で本当に動くか」を検証するためのテスト観点・配置・パターンを提供する。「E2E テスト追加して」「機能が動くか確認して」「Playwright で検証して」依頼に使用。
+description: Anarchy フロントエンド (Next.js 14 + PAPI/smoldot + anarchy-wasm-engine) で新機能の E2E テストを書くためのスキル。Playwright (CLI) は導入済み、headless / WSLg 経由 headed 両方で動く。Playwright MCP は OS 互換性 (Ubuntu 26.04+) で chrome-for-testing が install できないため現状非対応。新機能 (新ページ / 新 extrinsic / 新 wasm 暗号 / 新スキャナ / 新 UI フロー) を追加した際に「ブラウザ上で本当に動くか」を検証するためのテスト観点・配置・パターンを提供する。「E2E テスト追加して」「機能が動くか確認して」「Playwright で検証して」依頼に使用。
 ---
 
 # Playwright E2E — Anarchy Frontend
 
-Playwright は `apps/frontend/` に devDependency として導入済み。実行は **Playwright MCP** を介して行うため本 skill には CLI 手順を載せない。本 skill の責務は **「新機能が end-to-end で本当に動くか」を漏れなく確認するための観点とパターンを定義すること**。
+Playwright は `apps/frontend/` に devDependency として導入済み。本 skill の責務は **「新機能が end-to-end で本当に動くか」を漏れなく確認するための観点とパターンを定義すること**。
+
+## 実行方法
+
+### 通常 (headless)
+
+```bash
+# テストネット + storage を先に起動 (fixture が前提とする)
+pnpm testnet:start    # 3-node
+pnpm storage:start    # 5 nodes
+
+# Playwright 実行 (next dev は webServer 設定で自動起動)
+cd apps/frontend
+pnpm test:e2e                          # 全 spec
+pnpm test:e2e e2e/post-create.spec.ts  # 単一 spec
+```
+
+### 実ブラウザを見ながら (headed)
+
+WSL2 + WSLg 環境ではこれで Chromium ウィンドウが開いて操作が見える:
+
+```bash
+pnpm test:e2e e2e/post-create.spec.ts --headed
+```
+
+`DISPLAY=:0` (WSLg) で X11 経由で表示される。
+
+### Playwright MCP は現状非対応
+
+`mcp__playwright__browser_*` ツール経由のインタラクティブ操作も理論上は可能だが、`chrome-for-testing` のインストールが Ubuntu 26.04 / 新しめの WSL ディストロでは失敗する (`ERROR: Playwright does not support chromium on ubuntu26.04-x64`)。**WSL2 では `--headed` モードを使うこと**。動作確認したいだけなら headed で十分実ブラウザの挙動を観察できる。
 
 ## このスキルが扱うレイヤ
 

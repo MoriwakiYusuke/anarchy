@@ -1,7 +1,7 @@
 # ストレージ戦略: 地図と宝の分離
 
 > **ステータス**: Phase 4 Slashing & Self-Repair 完了 (2026-02-24)  
-> **関連ドキュメント**: [architecture.md](architecture.md), [memo.md](memo.md), [TODO.md](TODO.md)
+> **関連ドキュメント**: [architecture.md](overview.md), [memo.md](../vision/critique.md), [TODO.md](../development/todo.md)
 >
 > **実装済み**:
 > - Phase 1 Storage MVP (`pallet-storage` + `storage-node`) - 2026-02-10
@@ -34,10 +34,10 @@
 > - Faucetパレットのオンチェーンストレージ (`FaucetClaims`, `TotalClaims`) - 2026-02-09
 >
 > **詳細仕様**: 
-> - [specs/008-distributed-storage/](../specs/008-distributed-storage/)
-> - [specs/010-multi-node-storage/](../specs/010-multi-node-storage/)
-> - [specs/011-kzg-proof-rewards/](../specs/011-kzg-proof-rewards/)
-> - [specs/013-slashing-repair/](../specs/013-slashing-repair/)
+> - [specs/008-distributed-storage/](../archive/specs/008-distributed-storage)
+> - [specs/010-multi-node-storage/](../archive/specs/010-multi-node-storage)
+> - [specs/011-kzg-proof-rewards/](../archive/specs/011-kzg-proof-rewards)
+> - [specs/013-slashing-repair/](../archive/specs/013-slashing-repair)
 
 ---
 
@@ -383,7 +383,7 @@ pub threshold: u8,
 
 ## 8. 関連する未実装機能
 
-TODO.md から抜粋（ステルスアドレス・DM関連）：
+[development/todo.md](../development/todo.md) から抜粋（ステルスアドレス・DM関連）：
 
 - [ ] X25519 鍵交換
 - [ ] スキャン鍵/閲覧鍵ペア生成
@@ -667,7 +667,7 @@ Phase 4: Self-Healing ✅ 完了 (2026-02-24)
 
 ### 13.3 DM（1対1）：ステルスアドレス + E2EE
 
-特定の 1 人にだけ送る場合は、[memo.md](memo.md) に記載のステルスアドレス・プロトコルを使用。
+特定の 1 人にだけ送る場合は、[memo.md](../vision/critique.md) に記載のステルスアドレス・プロトコルを使用。
 
 ```
 送信者 ──[X25519鍵交換]──> 一時的な共有秘密
@@ -988,7 +988,7 @@ interface EncryptedKeystore {
 
 **リスク:**
 - 悪意あるフロントエンドがパスワード入力時に盗聴可能
-- → ブラウザ拡張ウォレット連携で緩和（TODO.md 参照）
+- → ブラウザ拡張ウォレット連携で緩和（[development/todo.md](../development/todo.md) 参照）
 
 #### オプション B: ブラウザ拡張ウォレット連携
 

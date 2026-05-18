@@ -1,6 +1,6 @@
 # Anarchy 経済モデル (TSTS) 実装計画
 
-> **対応設計**: [`docs/economic_model_proposal.md`](economic_model_proposal.md)
+> **対応設計**: [`docs/economic_model_proposal.md`](proposal.md)
 > **対象**: M0 (現状) → M1 (TSTS) のフル移行
 > **総工数**: 8〜10 営業日 (1.5〜2 週間, single dev)
 > **CLAUDE.md Compatibility Policy 準拠**: 既存 testnet データは破棄して chainspec 再生成

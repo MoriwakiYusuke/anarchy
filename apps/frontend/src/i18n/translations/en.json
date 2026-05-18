@@ -144,6 +144,10 @@
   "error.emptyFile": "File is empty",
   
   "stealth.title": "Stealth Transfer",
+  "stealth.page.heading": "Stealth Address",
+  "stealth.page.subtitle": "Manage one-time addresses for privacy-preserving transactions.",
+  "stealth.page.or": "or",
+  "stealth.page.importButton": "Import from Backup",
   "stealth.receive": "Receive Settings",
   "stealth.send": "Stealth Send",
   "stealth.balance": "Balance",

@@ -34,19 +34,35 @@
 }
 
 .title {
-  font-size: 3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  font-family: 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 3.25rem;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
+  color: #f0f0f0;
+  line-height: 1;
 }
 
-.accent {
-  color: var(--accent);
+.logo {
+  width: 1.05em;
+  height: 1.05em;
+  flex-shrink: 0;
+  margin-right: -0.12em;
+}
+
+.titleText {
+  display: inline-block;
 }
 
 .subtitle {
-  color: var(--text-secondary);
-  font-size: 1rem;
-  margin-top: 0.5rem;
+  color: #888888;
+  font-family: 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.18em;
+  margin-top: 0.75rem;
 }
 
 .status {
@@ -137,10 +153,12 @@
 
   .title {
     font-size: 2rem;
+    letter-spacing: 0.06em;
   }
 
   .subtitle {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
+    letter-spacing: 0.14em;
   }
 
   .container {

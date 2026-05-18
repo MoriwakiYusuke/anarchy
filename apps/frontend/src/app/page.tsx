@@ -53,8 +53,28 @@ export default function Home() {
           <div className={styles.headerTop}>
             <LanguageSwitcher variant="compact" />
           </div>
-          <h1 className={styles.title}>
-            <span className={styles.accent}>A</span>narchy
+          <h1 className={styles.title} aria-label="Anarchy">
+            <svg
+              className={styles.logo}
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="20 20 200 200"
+              role="img"
+              aria-label="A"
+            >
+              <defs>
+                <linearGradient id="anarchyRing" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#cc0000" />
+                  <stop offset="100%" stopColor="#660000" />
+                </linearGradient>
+              </defs>
+              <circle cx="120" cy="120" r="92" stroke="url(#anarchyRing)" strokeWidth="6" fill="none" />
+              <g stroke="#cc0000" strokeWidth="14" strokeLinecap="square" fill="none">
+                <path d="M70 168 L120 60 L170 168" />
+                <path d="M88 130 L152 130" />
+              </g>
+              <path d="M55 178 L185 178" stroke="url(#anarchyRing)" strokeWidth="6" />
+            </svg>
+            <span className={styles.titleText}>narchy</span>
           </h1>
           <p className={styles.subtitle}>{t('app.subtitle')}</p>
           <div className={styles.status}>

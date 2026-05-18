@@ -146,6 +146,10 @@
   "error.emptyFile": "ファイルが空です",
   
   "stealth.title": "ステルス送金",
+  "stealth.page.heading": "ステルスアドレス",
+  "stealth.page.subtitle": "プライバシーを保護した送受金のためのワンタイムアドレスを管理します。",
+  "stealth.page.or": "または",
+  "stealth.page.importButton": "バックアップからインポート",
   "stealth.receive": "受け取り設定",
   "stealth.send": "ステルス送金",
   "stealth.balance": "残高確認",

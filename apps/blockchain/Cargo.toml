@@ -26,7 +26,11 @@ unsafe_code = "forbid"
 [workspace.package]
 authors = ["Anarchy Team"]
 edition = "2021"
-license = "MIT"
+# Runtime + pallets inherit Apache-2.0 from frame-*/sp-* upstream (Polkadot SDK).
+# apps/blockchain/node/Cargo.toml overrides this to GPL-3.0-or-later WITH
+# Classpath-exception-2.0 (matching its sc-* dependencies). See top-level
+# LICENSE for the breakdown.
+license = "Apache-2.0"
 repository = "https://github.com/anarchy-project/anarchy"
 
 [workspace.dependencies]

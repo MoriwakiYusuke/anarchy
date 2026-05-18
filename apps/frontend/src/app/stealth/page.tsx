@@ -322,10 +322,8 @@ export default function StealthPage() {
   return (
     <div className="stealth-page">
       <header className="page-header">
-        <h1>ステルスアドレス</h1>
-        <p>
-          プライバシーを保護した送受金のためのワンタイムアドレスを管理します。
-        </p>
+        <h1>{t('stealth.page.heading')}</h1>
+        <p>{t('stealth.page.subtitle')}</p>
       </header>
 
       {/* Tab navigation */}
@@ -361,16 +359,16 @@ export default function StealthPage() {
                 <StealthAddressGenerator onGenerated={handleGenerated} />
 
                 <div className="divider">
-                  <span>または</span>
+                  <span>{t('stealth.page.or')}</span>
                 </div>
 
                 <div className="import-section">
-                  <button 
+                  <button
                     onClick={() => setImportDialogOpen(true)}
                     type="button"
                     className="import-button"
                   >
-                    バックアップからインポート
+                    {t('stealth.page.importButton')}
                   </button>
                 </div>
               </div>
