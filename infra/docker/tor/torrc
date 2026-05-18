@@ -1,0 +1,37 @@
+# Anarchy dev torrc — Docker sidecar 用。
+#
+# 本番 (バイナリ + systemd) で運用する場合は HiddenServicePort の転送先を
+# `127.0.0.1:<port>` (host で listen している実体) に差し替えるだけで再利用できる。
+
+# ---- runtime ----
+# Dockerfile 側で `USER tor` を指定しているので `User` ディレクティブは不要。
+# 本番 systemd で root から起動する場合のみ `User tor` を有効化する。
+DataDirectory /var/lib/tor
+RunAsDaemon 0
+Log notice stdout
+
+# ---- SOCKS ----
+# コンテナ内部の 0.0.0.0:9050 で listen させ、compose 側で host の 127.0.0.1:9050
+# のみに publish する。
+SocksPort 0.0.0.0:9050 IsolateClientAddr IsolateSOCKSAuth
+
+# ---- Hidden Service: anarchy-node (P2P + RPC/WS) ----
+# libp2p P2P (30333) と Substrate JSON-RPC / WS (9944) を同じ .onion で expose。
+# `host.docker.internal` は extra_hosts で /etc/hosts に注入される host のゲートウェイ。
+HiddenServiceDir /var/lib/tor/anarchy-node
+HiddenServiceVersion 3
+HiddenServicePort 30333 host.docker.internal:30333
+HiddenServicePort 9944  host.docker.internal:9944
+
+# ---- Hidden Service: anarchy-storage (HTTP JSON-RPC) ----
+# storage-node を直接 expose しても、外部からの参照は通常 chain-node RPC 経由で
+# 行うため (CLAUDE.md セキュリティ原則 §5)、この Hidden Service は主に
+# 同一ホスト内の storage-node ↔ chain-node 経路と運用検証用。
+HiddenServiceDir /var/lib/tor/anarchy-storage
+HiddenServiceVersion 3
+HiddenServicePort 3030 host.docker.internal:3030
+
+# ---- 安全側のチューニング ----
+ClientUseIPv6 1
+ClientPreferIPv6ORPort 0
+SafeLogging 1

@@ -2,17 +2,19 @@
 # dev-stack.sh — testnet + storage + frontend を一括管理。
 #
 # 使い方:
-#   ./scripts/dev-stack.sh start [--single-node]   # 全部起動 (default 3-node testnet)
-#   ./scripts/dev-stack.sh stop                    # 全部停止
+#   ./scripts/dev-stack.sh start [--single-node] [--with-tor]
+#                                                  # 全部起動 (default 3-node testnet)
+#   ./scripts/dev-stack.sh stop  [--with-tor]      # 全部停止
 #   ./scripts/dev-stack.sh status                  # 各層の稼働状況
-#   ./scripts/dev-stack.sh purge                   # stop + 全データ消去
-#   ./scripts/dev-stack.sh restart [--single-node] # stop → start
+#   ./scripts/dev-stack.sh purge [--with-tor]      # stop + 全データ消去
+#   ./scripts/dev-stack.sh restart [--single-node] [--with-tor]
 #
 # レイヤ:
 #   1. blockchain — `apps/blockchain/scripts/run-multi-node.sh` (3-node) または
 #                   `cargo run -- --dev` (--single-node 指定時)
 #   2. storage    — `apps/storage-node/scripts/run-storage-nodes.sh` (5-node)
 #   3. frontend   — `pnpm dev:frontend` (Next.js dev server, port 3000)
+#   (optional) tor — `infra/docker/tor` (`--with-tor` 指定時)
 #
 # 依存関係順に start し、逆順で stop する。各レイヤは前段の readiness を確認してから
 # 起動する (storage は chain RPC、frontend は何も待たない)。
@@ -23,6 +25,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BLOCKCHAIN_DIR="$ROOT_DIR/apps/blockchain"
 STORAGE_DIR="$ROOT_DIR/apps/storage-node"
 FRONTEND_DIR="$ROOT_DIR/apps/frontend"
+TOR_DIR="$ROOT_DIR/infra/docker/tor"
 STATE_DIR="$ROOT_DIR/.dev-stack"
 FRONTEND_PID_FILE="$STATE_DIR/frontend.pid"
 FRONTEND_LOG_FILE="$STATE_DIR/frontend.log"
@@ -214,11 +217,110 @@ purge_frontend() {
     rm -f "$FRONTEND_LOG_FILE" "$FRONTEND_PID_FILE"
 }
 
+# ---- TOR (Docker sidecar, optional) ----
+# --with-tor フラグ指定時のみ有効。host バイナリの起動順とは独立で先に立てておく。
+# infra/docker/tor/README.md 参照。
+docker_compose_cmd() {
+    if docker compose version >/dev/null 2>&1; then
+        echo "docker compose"
+    elif command -v docker-compose >/dev/null 2>&1; then
+        echo "docker-compose"
+    else
+        echo ""
+    fi
+}
+
+start_tor() {
+    local dc; dc="$(docker_compose_cmd)"
+    if [[ -z "$dc" ]]; then
+        log_error "docker compose not found; cannot start tor sidecar"
+        return 1
+    fi
+    local port="${TOR_SOCKS_HOST_PORT:-9050}"
+    log_info "starting tor sidecar (docker compose up -d, SOCKS5 host port=$port)"
+    # compose up が失敗した場合、最も多い原因は host の system tor との port 衝突なので
+    # その案内を表示する。
+    if ! ( cd "$TOR_DIR" && TOR_SOCKS_HOST_PORT="$port" $dc up -d --build ); then
+        log_error "tor sidecar の起動に失敗"
+        if [[ "$port" == "9050" ]] && ss -tln 2>/dev/null | grep -qE "127\.0\.0\.1:9050[^0-9]"; then
+            log_error "  127.0.0.1:9050 は既に他プロセスが listen 中 (host の system tor かも)"
+            log_error "  対処1: sudo systemctl stop tor && sudo systemctl disable tor"
+            log_error "  対処2: TOR_SOCKS_HOST_PORT=9150 ./scripts/dev-stack.sh start --with-tor"
+        fi
+        return 1
+    fi
+    local deadline=$(( SECONDS + 30 ))
+    while (( SECONDS < deadline )); do
+        if nc -z 127.0.0.1 "$port" 2>/dev/null; then
+            log_ok "tor SOCKS5 ready on 127.0.0.1:$port"
+            return 0
+        fi
+        sleep 1
+    done
+    log_error "tor SOCKS5 did not come up on 127.0.0.1:$port"
+    return 1
+}
+
+stop_tor() {
+    local dc; dc="$(docker_compose_cmd)"
+    [[ -n "$dc" ]] || { log_warn "docker compose not found; skip tor stop"; return 0; }
+    log_info "stopping tor sidecar"
+    ( cd "$TOR_DIR" && $dc down ) || log_warn "tor stop returned non-zero"
+}
+
+status_tor() {
+    log_info "=== tor ==="
+    local dc; dc="$(docker_compose_cmd)"
+    if [[ -z "$dc" ]]; then
+        echo "  docker compose not available"
+        return 0
+    fi
+    local port="${TOR_SOCKS_HOST_PORT:-9050}"
+    local ps; ps="$( cd "$TOR_DIR" && $dc ps --format '{{.Service}} {{.State}}' 2>/dev/null )"
+    if [[ -z "$ps" ]]; then
+        echo "  not running"
+        return 0
+    fi
+    echo "  $ps"
+    if nc -z 127.0.0.1 "$port" 2>/dev/null; then
+        echo "  SOCKS5  127.0.0.1:$port → listening"
+    else
+        echo "  SOCKS5  127.0.0.1:$port → not responding"
+    fi
+    local onion_node onion_storage
+    onion_node="$( cd "$TOR_DIR" && $dc exec -T tor cat /var/lib/tor/anarchy-node/hostname 2>/dev/null || true )"
+    onion_storage="$( cd "$TOR_DIR" && $dc exec -T tor cat /var/lib/tor/anarchy-storage/hostname 2>/dev/null || true )"
+    [[ -n "$onion_node"    ]] && echo "  .onion  anarchy-node    → $onion_node"
+    [[ -n "$onion_storage" ]] && echo "  .onion  anarchy-storage → $onion_storage"
+}
+
+purge_tor() {
+    local dc; dc="$(docker_compose_cmd)"
+    [[ -n "$dc" ]] || { log_warn "docker compose not found; skip tor purge"; return 0; }
+    log_info "purging tor sidecar (volume も削除 → .onion 再生成)"
+    ( cd "$TOR_DIR" && $dc down -v ) || log_warn "tor purge returned non-zero"
+}
+
 # ---- ENTRYPOINTS ----
-cmd_start()   { start_blockchain && start_storage && start_frontend; }
-cmd_stop()    { stop_frontend; stop_storage; stop_blockchain; }
-cmd_status()  { status_blockchain; status_storage; status_frontend; }
-cmd_purge()   { purge_frontend; purge_storage; purge_blockchain; }
+cmd_start() {
+    if [[ "${WITH_TOR:-0}" == "1" ]]; then start_tor || return 1; fi
+    start_blockchain && start_storage && start_frontend
+}
+cmd_stop() {
+    stop_frontend; stop_storage; stop_blockchain
+    [[ "${WITH_TOR:-0}" == "1" ]] && stop_tor
+    return 0
+}
+cmd_status() {
+    status_blockchain; status_storage; status_frontend
+    # status は --with-tor 指定なしでも、起動していれば表示してくれた方が便利
+    status_tor
+}
+cmd_purge() {
+    purge_frontend; purge_storage; purge_blockchain
+    [[ "${WITH_TOR:-0}" == "1" ]] && purge_tor
+    return 0
+}
 cmd_restart() { cmd_stop; sleep 1; cmd_start; }
 
 usage() {
@@ -228,16 +330,18 @@ usage() {
 
 # ---- ARG PARSE ----
 SINGLE_NODE=0
+WITH_TOR=0
 ACTION=""
 for arg in "$@"; do
     case "$arg" in
         --single-node) SINGLE_NODE=1 ;;
+        --with-tor)    WITH_TOR=1 ;;
         start|stop|status|purge|restart) ACTION="$arg" ;;
         -h|--help) usage ;;
         *) log_error "unknown arg: $arg"; usage ;;
     esac
 done
-export SINGLE_NODE
+export SINGLE_NODE WITH_TOR
 
 case "${ACTION:-}" in
     start)   cmd_start ;;

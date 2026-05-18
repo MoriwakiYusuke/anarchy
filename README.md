@@ -190,9 +190,16 @@ pnpm stack:status         # 稼働確認
 # ブラウザで http://localhost:3000
 
 pnpm stack:stop           # 停止
+
+# Tor sidecar (Docker) も含めて起動する場合
+pnpm stack:start:tor      # 起動 + Tor (SOCKS5 + Onion Service)
+pnpm stack:stop:tor       # 停止
+# host で system tor が 9050 を握っている場合は:
+TOR_SOCKS_HOST_PORT=9150 pnpm stack:start:tor
 ```
 
-詳しい手順 (個別起動, Mint, Tor 強制モード) は [docs/development/getting-started.md](docs/development/getting-started.md) を参照。
+詳しい手順 (個別起動, Mint, Tor 強制モード) は [docs/development/getting-started.md](docs/development/getting-started.md)
+と [infra/docker/tor/README.md](infra/docker/tor/README.md) を参照。
 
 ## ドキュメント
 

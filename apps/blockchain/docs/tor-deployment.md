@@ -2,6 +2,10 @@
 
 Anarchyノードを Tor 経由で匿名運用するためのガイドです。
 
+> **開発時 (ローカル) は [`infra/docker/tor`](../../../infra/docker/tor/README.md) の
+> Docker sidecar を使うと、systemd / `/etc/tor/torrc.d` の編集なしで Tor デーモン +
+> Hidden Service が立ち上がります**。本ガイドは主に本番 (バイナリ + systemd) 向け。
+
 ## 目次
 
 1. [クイックスタート: 完全な Tor セットアップ](#クイックスタート-完全な-tor-セットアップ)
