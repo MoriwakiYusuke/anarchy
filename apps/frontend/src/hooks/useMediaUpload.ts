@@ -27,8 +27,10 @@ import { MAX_FILES_PER_POST, detectMediaType, MAX_VIDEO_SIZE } from '@/types/med
 import { validateFile, validateFiles } from '@/lib/mediaValidator'
 import { processMediaFile } from '@/lib/mediaProcessor'
 import { extractVideoThumbnail } from '@/lib/videoThumbnail'
-// Import wasm-engine at top level - this hook is client-only
-import { hybrid_split, merkle_build } from 'anarchy-wasm-engine'
+// wasm-engine の重い処理 (hybrid_split / merkle_build) はメインスレッドで叩くと
+// ブラウザが「応答なし」になるので、必ず WorkerPool 経由で逃がす。
+// 参照: useUpload.ts の同パターン。
+import { getSharedWorkerPool } from '@/workers/WorkerPool'
 
 // SSS/Reed-Solomon parameters
 const DEFAULT_THRESHOLD = 3  // k: minimum shards to reconstruct
@@ -78,15 +80,6 @@ export interface UseMediaUploadReturn {
 }
 
 /**
- * Convert Uint8Array to hex string
- */
-function toHexString(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-/**
  * useMediaUpload hook for handling media file uploads
  */
 export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUploadReturn {
@@ -104,9 +97,12 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
   const [files, setFiles] = useState<MediaFile[]>([])
   const [state, setState] = useState<UploadState>('idle')
   const [error, setError] = useState<string | null>(null)
-  
+
   // Track if upload is in progress
   const uploadingRef = useRef(false)
+
+  // SSR セーフ。worker は client only。
+  const pool = typeof window !== 'undefined' ? getSharedWorkerPool() : null
 
   /**
    * Update a single file's state
@@ -271,32 +267,46 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
       const buffer = await processedFile.arrayBuffer()
       const data = new Uint8Array(buffer)
 
-      // Split data using hybrid scheme (threshold k, total_shards n)
+      // Split data using hybrid scheme (threshold k, total_shards n) — Worker 経由。
+      // メインスレッドで `hybrid_split` を直叩きすると数 MB のメディアで UI が
+      // 数秒〜十数秒固まり、ブラウザが「応答なし」を出す原因になる。
+      if (!pool) throw new Error('WorkerPool not available')
       updateFile(fileId, { uploadProgress: 10 })
-      const splitResult = hybrid_split(data, DEFAULT_THRESHOLD, DEFAULT_SHARD_COUNT)
-
-      // Collect all shard chunk hashes for merkle tree
-      const shardHashes: Uint8Array[] = []
-      for (let i = 0; i < splitResult.shard_count; i++) {
-        const shard = splitResult.get_shard(i)
-        if (shard) {
-          shardHashes.push(shard.chunk_hash)
-        }
+      interface HybridSplitResult {
+        shards: Uint8Array[]
+        shardHashes: Uint8Array[]
+        originalLen: number
+        ciphertextLen: number
+        shardSize: number
+        compressed: boolean
+        threshold: number
+        totalShards: number
       }
-      
-      // Generate merkle tree from shard hashes
-      const merkleResult = merkle_build(shardHashes)
+      const splitResult = await pool.execute<HybridSplitResult>('hybrid_split', {
+        data,
+        k: DEFAULT_THRESHOLD,
+        n: DEFAULT_SHARD_COUNT,
+      })
+      const { shards, shardHashes, threshold, totalShards } = splitResult
+
+      // Generate merkle tree from shard chunk hashes — Worker 経由。
+      const merkleWorkerIndex = pool.acquireWorker()
+      const merkleResult = await pool.executeOnWorker<{ root: Uint8Array; rootHex: string }>(
+        merkleWorkerIndex,
+        'merkle_build',
+        { fragments: shardHashes },
+      )
       const merkleRoot = merkleResult.root
+      const merkleRootHex = merkleResult.rootHex
 
       // Update status to uploading
       updateFile(fileId, { status: 'uploading', uploadProgress: 20 })
 
       // Upload each shard to storage node
-      const totalShards = splitResult.shard_count
       for (let i = 0; i < totalShards; i++) {
-        const shard = splitResult.get_shard(i)
-        if (!shard) continue
-        
+        const shardBytes = shards[i]
+        if (!shardBytes) continue
+
         const response = await fetch(`${rpcEndpoint}/rpc`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -305,9 +315,9 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
             id: 1,
             method: 'store_fragment',
             params: {
-              merkle_root: toHexString(merkleRoot),
-              index: shard.index,
-              data: Array.from(shard.to_bytes()),
+              merkle_root: merkleRootHex,
+              index: i,
+              data: Array.from(shardBytes),
             },
           }),
         })
@@ -322,12 +332,9 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
         onProgress?.(fileId, progress)
       }
 
-      // Convert merkle root to hex string
-      const merkleRootHex = toHexString(merkleRoot)
-
       // Mark as complete
-      updateFile(fileId, { 
-        status: 'complete', 
+      updateFile(fileId, {
+        status: 'complete',
         uploadProgress: 100,
         merkleRoot: merkleRootHex,
       })
@@ -342,18 +349,18 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
         height,
         duration: file.duration,
         thumbnail: file.thumbnail,
-        threshold: splitResult.threshold,
-        totalShards: splitResult.total_shards,
+        threshold,
+        totalShards,
       }
     } catch (err) {
       console.error('[useMediaUpload] Upload failed:', err)
-      updateFile(fileId, { 
+      updateFile(fileId, {
         status: 'error',
         error: err instanceof Error ? err.message : 'Unknown error',
       })
       return null
     }
-  }, [rpcEndpoint, stripExif, updateFile, onProgress])
+  }, [rpcEndpoint, stripExif, updateFile, onProgress, pool])
 
   /**
    * Upload all pending files

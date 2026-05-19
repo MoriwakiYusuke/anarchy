@@ -23,11 +23,64 @@ Object.defineProperty(global, 'crypto', {
   },
 })
 
-// Mock wasm-engine
+// Mock wasm-engine (per-test で挙動を差し替えるため jest.fn のまま保持)
 jest.mock('anarchy-wasm-engine', () => ({
   hybrid_split: jest.fn(),
   merkle_build: jest.fn(),
 }))
+
+// useMediaUpload は WorkerPool 経由で wasm を呼ぶようになったので、Worker をモックして
+// 既存の `hybrid_split` / `merkle_build` モックを内部で実行し、Worker shape に整形する。
+// これで「main thread を block しない」性質を担保しつつ、テストの mock 制御を維持。
+jest.mock('@/workers/WorkerPool', () => {
+  return {
+    getSharedWorkerPool: () => ({
+      execute: jest.fn(async (type: string, payload: any) => {
+        if (type === 'hybrid_split') {
+          const { hybrid_split } = jest.requireMock('anarchy-wasm-engine') as {
+            hybrid_split: jest.Mock
+          }
+          const r: any = hybrid_split(payload.data, payload.k, payload.n)
+          const shards: Uint8Array[] = []
+          const shardHashes: Uint8Array[] = []
+          for (let i = 0; i < r.shard_count; i++) {
+            const s = r.get_shard(i)
+            if (s) {
+              shards.push(new Uint8Array(s.to_bytes()))
+              shardHashes.push(new Uint8Array(s.chunk_hash))
+            }
+          }
+          return {
+            shards,
+            shardHashes,
+            originalLen: r.original_len,
+            ciphertextLen: r.ciphertext_len,
+            shardSize: r.shard_size,
+            compressed: r.compressed,
+            threshold: r.threshold,
+            totalShards: r.total_shards,
+          }
+        }
+        throw new Error(`Unknown worker type in test mock: ${type}`)
+      }),
+      executeOnWorker: jest.fn(async (_idx: number, type: string, payload: any) => {
+        if (type === 'merkle_build') {
+          const { merkle_build } = jest.requireMock('anarchy-wasm-engine') as {
+            merkle_build: jest.Mock
+          }
+          const r: any = merkle_build(payload.fragments)
+          const root = new Uint8Array(r.root)
+          const rootHex = Array.from(root)
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join('')
+          return { root, rootHex, leafCount: r.leaf_count }
+        }
+        throw new Error(`Unknown worker type in test mock: ${type}`)
+      }),
+      acquireWorker: jest.fn(() => 0),
+    }),
+  }
+})
 
 // Mock mediaProcessor - return file with arrayBuffer method
 jest.mock('@/lib/mediaProcessor', () => ({
