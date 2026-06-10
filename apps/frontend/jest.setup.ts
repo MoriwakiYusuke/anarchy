@@ -33,6 +33,9 @@ Object.defineProperty(window, 'localStorage', {
 
 jest.mock('@/hooks/useNicknameOf', () => ({
   useNicknameOf: () => null,
+  // useNickname の成功パスが呼ぶキャッシュ無効化関数。モックに含めないと
+  // 「invalidateNicknameCache is not a function」で success 遷移が error に化ける。
+  invalidateNicknameCache: jest.fn(),
 }));
 
 // AccountContext は内部で polkadot-api signer (ESM) を import するため Jest が

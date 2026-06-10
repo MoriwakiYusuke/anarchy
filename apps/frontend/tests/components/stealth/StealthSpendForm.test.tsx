@@ -51,7 +51,8 @@ describe('StealthSpendForm', () => {
 
       const result = validateSpendForm(values);
       expect(result.valid).toBe(false);
-      expect(result.errors.selectedBalances).toBe('残高を選択してください');
+      // validateSpendForm は i18n キーを返し、表示側 (StealthSpendForm) が t() で翻訳する
+      expect(result.errors.selectedBalances).toBe('stealth.spend.error.selectBalance');
     });
 
     it('should reject empty recipient address', () => {
@@ -63,7 +64,7 @@ describe('StealthSpendForm', () => {
 
       const result = validateSpendForm(values);
       expect(result.valid).toBe(false);
-      expect(result.errors.recipientAddress).toBe('送金先アドレスを入力してください');
+      expect(result.errors.recipientAddress).toBe('stealth.spend.error.recipientRequired');
     });
 
     it('should reject zero amount', () => {
@@ -75,7 +76,7 @@ describe('StealthSpendForm', () => {
 
       const result = validateSpendForm(values);
       expect(result.valid).toBe(false);
-      expect(result.errors.amount).toBe('金額を入力してください');
+      expect(result.errors.amount).toBe('stealth.spend.error.amountRequired');
     });
 
     it('should reject insufficient funds', () => {
@@ -87,7 +88,7 @@ describe('StealthSpendForm', () => {
 
       const result = validateSpendForm(values);
       expect(result.valid).toBe(false);
-      expect(result.errors.amount).toBe('残高が不足しています');
+      expect(result.errors.amount).toBe('stealth.spend.error.insufficientBalance');
     });
 
     it('should allow exact amount match', () => {
@@ -128,7 +129,7 @@ describe('StealthSpendForm', () => {
 
       const result = validateSpendForm(values);
       expect(result.valid).toBe(false);
-      expect(result.errors.selectedBalances).toBe('使用済みの残高が含まれています');
+      expect(result.errors.selectedBalances).toBe('stealth.spend.error.spentIncluded');
     });
   });
 

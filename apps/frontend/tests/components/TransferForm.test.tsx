@@ -6,7 +6,10 @@
  */
 
 import React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
+// TransferForm 配下の StealthModal は `@/i18n/context` を直接 import するため、
+// 実物の LocaleProvider で包む必要がある (tests/test-utils.tsx 参照)。
+import { renderWithLocale as render } from '../test-utils'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 

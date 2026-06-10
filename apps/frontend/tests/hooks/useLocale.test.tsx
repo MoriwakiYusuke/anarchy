@@ -8,7 +8,10 @@ import { renderHook, act } from '@testing-library/react';
 import React from 'react';
 import type { PropsWithChildren } from 'react';
 
-// These will be implemented
+// jest.setup.ts は `@/i18n` をグローバルモックしている (locale 固定 'ja') が、
+// このスイートは実装そのものを検証するため実物を使う。
+jest.unmock('@/i18n');
+
 import { useLocale, LocaleProvider } from '@/i18n';
 import type { Locale } from '@/i18n/types';
 
