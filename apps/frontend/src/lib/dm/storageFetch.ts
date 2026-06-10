@@ -10,15 +10,7 @@
  * を送る必要はない。
  */
 
-function fromBase64(b64: string): Uint8Array {
-  if (typeof atob === 'function') {
-    const bin = atob(b64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
-    return out;
-  }
-  return new Uint8Array(Buffer.from(b64, 'base64'));
-}
+import { base64ToUint8Array } from '@/lib/chainRpc';
 
 export interface FetchCiphertextOptions {
   /** Optional fetch override (テスト時の差し替え用)。 */
@@ -70,7 +62,7 @@ export async function fetchCiphertextFromStorage(
             error?: unknown;
           };
           if (body.error || !body.result?.data) return null;
-          return fromBase64(body.result.data);
+          return base64ToUint8Array(body.result.data);
         } catch {
           return null;
         }

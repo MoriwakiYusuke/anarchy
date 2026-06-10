@@ -1,12 +1,14 @@
 /**
  * useReactionMining Hook
- * 
+ *
  * Manages the reaction mining workflow including:
- * - PoW mining in WebWorker
+ * - PoW mining in WebWorker (via lib/pow/pausableMiner)
  * - Page Visibility API monitoring (foreground enforcement)
+ *   タブが隠れたら worker を terminate して計算を完全停止し、直近 nonce を保存。
+ *   resume() で同じ nonce から再開する (CLAUDE.md Security Principle #4)。
  * - Mining progress tracking
  * - Transaction submission
- * 
+ *
  * Feature: 017-reaction-mining
  */
 
@@ -20,6 +22,13 @@ import {
   ReactionType,
   ReactionResult,
 } from '@/services/reactionService'
+import {
+  minePow,
+  PowPausedError,
+  PowCancelledError,
+  type MinePowHandle,
+} from '@/lib/pow/pausableMiner'
+import { debugError, debugLog } from '@/lib/debugLog'
 
 /** Mining status states */
 export type MiningStatus = 'idle' | 'mining' | 'paused' | 'submitting' | 'success' | 'error'
@@ -76,6 +85,16 @@ export interface UseReactionMiningResult {
   resume: () => void
 }
 
+interface MiningParams {
+  postId: bigint
+  reactionType: ReactionType
+  challengeBlock: number
+  challenge: Uint8Array
+  difficulty: number
+  /** 中断時に保存した nonce。resume でここから再開する。 */
+  startNonce: bigint
+}
+
 /**
  * Hook for managing PoW-based reaction mining
  */
@@ -91,79 +110,39 @@ export function useReactionMining({
   const [error, setError] = useState<MiningError | null>(null)
   const [progress, setProgress] = useState<MiningProgress | null>(null)
   const [result, setResult] = useState<ReactionResult | null>(null)
-  
-  const workerRef = useRef<Worker | null>(null)
-  const pendingRequestIdRef = useRef<string | null>(null)
-  const miningParamsRef = useRef<{
-    postId: bigint
-    reactionType: ReactionType
-    challengeBlock: number
-    challenge: Uint8Array
-    difficulty: number
-  } | null>(null)
-  
-  // Cleanup worker on unmount
+
+  // onmessage closure から最新 status を参照するための ref
+  // (solution handler を status === 'mining' でゲートする)。
+  const statusRef = useRef<MiningStatus>('idle')
+  const updateStatus = useCallback((next: MiningStatus) => {
+    statusRef.current = next
+    setStatus(next)
+  }, [])
+
+  const handleRef = useRef<MinePowHandle | null>(null)
+  const miningParamsRef = useRef<MiningParams | null>(null)
+
+  // Cleanup miner on unmount
   useEffect(() => {
     return () => {
-      if (workerRef.current) {
-        workerRef.current.terminate()
-        workerRef.current = null
-      }
+      handleRef.current?.cancel()
+      handleRef.current = null
     }
   }, [])
-  
-  // Page Visibility API monitoring for foreground enforcement (FR-202)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden && status === 'mining') {
-        // Pause mining when page is hidden
-        setStatus('paused')
-        setError({
-          code: 'VisibilityPaused',
-          message: 'Mining paused - return to this tab to continue',
-        })
-      }
-    }
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [status])
-  
-  /**
-   * Create a new mining worker (faucet-style, new instance each time)
-   */
-  const createWorker = useCallback((): Worker => {
-    // Terminate existing worker if any
-    if (workerRef.current) {
-      workerRef.current.terminate()
-      workerRef.current = null
-    }
-    // Create new dedicated worker (use @ alias like faucet, no type: 'module')
-    const worker = new Worker(
-      new URL('@/lib/reaction/miningWorker.ts', import.meta.url)
-    )
-    workerRef.current = worker
-    return worker
-  }, [])
-  
+
   /**
    * Cancel ongoing mining
    */
   const cancel = useCallback(() => {
-    pendingRequestIdRef.current = null
     miningParamsRef.current = null
-    // Terminate worker to stop mining immediately
-    if (workerRef.current) {
-      workerRef.current.terminate()
-      workerRef.current = null
-    }
-    setStatus('idle')
+    // minePow handle 経由で worker を terminate (即時停止)
+    handleRef.current?.cancel()
+    handleRef.current = null
+    updateStatus('idle')
     setProgress(null)
     setError(null)
-  }, [])
-  
+  }, [updateStatus])
+
   /**
    * Handle mining success - submit transaction
    */
@@ -176,16 +155,6 @@ export function useReactionMining({
     challengeBlock: number,
     difficulty: number
   ) => {
-    console.log('[handleMiningSuccess] called with:', {
-      nonce: nonce?.toString(),
-      hashRate,
-      elapsed,
-      postId: postId?.toString(),
-      reactionType,
-      challengeBlock,
-      difficulty,
-    })
-    
     // Validate all required params
     if (nonce === undefined || postId === undefined || challengeBlock === undefined) {
       const err: MiningError = {
@@ -193,19 +162,19 @@ export function useReactionMining({
         message: `Invalid params: nonce=${nonce}, postId=${postId}, challengeBlock=${challengeBlock}`,
       }
       setError(err)
-      setStatus('error')
+      updateStatus('error')
       onError?.(err)
       return
     }
-    
-    setStatus('submitting')
+
+    updateStatus('submitting')
     setProgress({
       hashRate,
       elapsedMs: elapsed,
       currentNonce: nonce,
       difficulty,
     })
-    
+
     try {
       const txResult = await submitReaction(unsafeApi, signer!, {
         postId,
@@ -213,10 +182,10 @@ export function useReactionMining({
         nonce,
         challengeBlock,
       })
-      
+
       if (txResult.success) {
         setResult(txResult)
-        setStatus('success')
+        updateStatus('success')
         onSuccess?.(txResult)
       } else {
         const err: MiningError = {
@@ -226,13 +195,13 @@ export function useReactionMining({
           message: txResult.error || 'Transaction failed',
         }
         setError(err)
-        setStatus('error')
+        updateStatus('error')
         onError?.(err)
       }
     } catch (txErr) {
       const errMessage = txErr instanceof Error ? txErr.message : 'Transaction submission failed'
       // faucet-style: detect AlreadyReacted from exception message
-      const isAlreadyReacted = 
+      const isAlreadyReacted =
         errMessage.includes('AlreadyReacted') ||
         errMessage.includes('Invalid Transaction') ||
         errMessage.includes('InvalidTransaction') ||
@@ -243,22 +212,101 @@ export function useReactionMining({
         message: errMessage,
       }
       setError(err)
-      setStatus('error')
+      updateStatus('error')
       onError?.(err)
     }
-    
+
     miningParamsRef.current = null
-    pendingRequestIdRef.current = null
-  }, [unsafeApi, signer, onSuccess, onError])
-  
+  }, [unsafeApi, signer, onSuccess, onError, updateStatus])
+
+  /**
+   * minePow でマイニングを 1 セッション実行する。
+   * - progress ごとに最新 nonce を miningParamsRef に保存 (pause/resume 用)。
+   * - タブが隠れたら PowPausedError → 'paused' に遷移 (worker は terminate 済み)。
+   */
+  const runMining = useCallback((params: MiningParams) => {
+    // 既存セッションがあれば止める (PowCancelledError は下の catch で無視される)
+    handleRef.current?.cancel()
+    miningParamsRef.current = params
+
+    const handle = minePow({
+      // bundler の静的解析のため new Worker(new URL(...)) はここに直書きする
+      createWorker: () =>
+        new Worker(new URL('@/lib/reaction/miningWorker.ts', import.meta.url)),
+      challenge: params.challenge,
+      difficulty: params.difficulty,
+      startNonce: params.startNonce,
+      autoResume: false,
+      onProgress: (p) => {
+        // 最新 nonce を保存 (hide 時の resume 用)
+        if (miningParamsRef.current) {
+          miningParamsRef.current = { ...miningParamsRef.current, startNonce: p.nonce }
+        }
+        setProgress({
+          hashRate: p.hashRate,
+          elapsedMs: p.elapsed,
+          currentNonce: p.nonce,
+          difficulty: params.difficulty,
+        })
+      },
+    })
+    handleRef.current = handle
+
+    handle.promise
+      .then((solution) => {
+        // Foreground PoW gate: mining 中でなければ solution を提出しない
+        if (statusRef.current !== 'mining') {
+          debugLog('[useReactionMining] solution ignored (status != mining)')
+          return
+        }
+        debugLog('[useReactionMining] solution received')
+        return handleMiningSuccess(
+          solution.nonce,
+          solution.hashRate,
+          solution.elapsed,
+          params.postId,
+          params.reactionType,
+          params.challengeBlock,
+          params.difficulty,
+        )
+      })
+      .catch((err) => {
+        if (err instanceof PowCancelledError) {
+          return // cancel() 側で状態は処理済み
+        }
+        if (err instanceof PowPausedError) {
+          // タブ隠蔽による中断: worker は terminate 済み。nonce を保存して paused へ。
+          if (miningParamsRef.current) {
+            miningParamsRef.current = {
+              ...miningParamsRef.current,
+              startNonce: err.lastNonce,
+            }
+          }
+          updateStatus('paused')
+          setError({
+            code: 'VisibilityPaused',
+            message: 'Mining paused - return to this tab to continue',
+          })
+          return
+        }
+        const miningError: MiningError = {
+          code: 'NetworkError',
+          message: err instanceof Error ? err.message : 'Mining failed',
+        }
+        setError(miningError)
+        updateStatus('error')
+        onError?.(miningError)
+      })
+  }, [handleMiningSuccess, onError, updateStatus])
+
   /**
    * Resume paused mining
    */
   const resume = useCallback(async () => {
-    if (status !== 'paused' || !miningParamsRef.current) {
+    if (statusRef.current !== 'paused' || !miningParamsRef.current) {
       return
     }
-    
+
     // Re-get challenge (may have expired)
     const params = miningParamsRef.current
     try {
@@ -268,68 +316,27 @@ export function useReactionMining({
         params.postId,
         account!
       )
-      
-      // Update params with new challenge
-      miningParamsRef.current = {
+
+      // Update params with new challenge (保存済み nonce から再開)
+      const updated: MiningParams = {
         ...params,
         challenge,
         challengeBlock: blockNumber,
         difficulty,
       }
-      
+
       // Restart mining
-      setStatus('mining')
+      updateStatus('mining')
       setError(null)
-      
-      const worker = createWorker()
-      
-      // Set up message handler (faucet-style with ready signal)
-      worker.onmessage = (event: MessageEvent) => {
-        const message = event.data
-        
-        if (message.type === 'ready') {
-          // Worker準備完了、マイニング開始 (send startNonce as string)
-          worker.postMessage({
-            type: 'start',
-            challenge,
-            difficulty,
-            startNonce: '0',
-          })
-          return
-        }
-        
-        if (message.type === 'progress') {
-          setProgress({
-            hashRate: message.hashRate,
-            elapsedMs: message.elapsed,
-            currentNonce: BigInt(message.nonce), // Parse from string
-            difficulty,
-          })
-          return
-        }
-        
-        if (message.type === 'error') {
-          const err: MiningError = { code: 'NetworkError', message: message.message }
-          setError(err)
-          setStatus('error')
-          onError?.(err)
-          return
-        }
-        
-        if (message.type === 'solution') {
-          // Mining succeeded - submit transaction
-          const nonce = BigInt(message.nonce) // Parse from string
-          handleMiningSuccess(nonce, message.hashRate, message.elapsed, params.postId, params.reactionType, blockNumber, difficulty)
-        }
-      }
+      runMining(updated)
     } catch (err) {
       setError({
         code: 'NetworkError',
         message: err instanceof Error ? err.message : 'Failed to resume mining',
       })
     }
-  }, [status, client, unsafeApi, account, createWorker, handleMiningSuccess, onError])
-  
+  }, [client, unsafeApi, account, runMining, updateStatus])
+
   /**
    * Start mining for a reaction
    */
@@ -340,20 +347,20 @@ export function useReactionMining({
     if (!client || !unsafeApi || !account || !signer) {
       const err: MiningError = { code: 'NetworkError', message: 'API or account not available' }
       setError(err)
-      setStatus('error')
+      updateStatus('error')
       onError?.(err)
       return
     }
-    
-    if (status === 'mining' || status === 'submitting') {
+
+    if (statusRef.current === 'mining' || statusRef.current === 'submitting') {
       return // Already in progress
     }
-    
-    setStatus('mining')
+
+    updateStatus('mining')
     setError(null)
     setProgress(null)
     setResult(null)
-    
+
     try {
       // Get challenge from chain
       const { challenge, blockNumber, difficulty } = await getReactionChallenge(
@@ -362,16 +369,7 @@ export function useReactionMining({
         postId,
         account
       )
-      
-      // Store params for potential resume
-      miningParamsRef.current = {
-        postId,
-        reactionType,
-        challengeBlock: blockNumber,
-        challenge,
-        difficulty,
-      }
-      
+
       // Initialize progress
       setProgress({
         hashRate: 0,
@@ -379,79 +377,27 @@ export function useReactionMining({
         currentNonce: BigInt(0),
         difficulty,
       })
-      
-      // Create new worker (faucet-style)
-      const worker = createWorker()
-      
-      // Set up message handler (faucet-style with ready signal)
-      worker.onmessage = (event: MessageEvent) => {
-        const message = event.data
-        
-        if (message.type === 'ready') {
-          // Worker準備完了、マイニング開始 (send startNonce as string)
-          worker.postMessage({
-            type: 'start',
-            challenge,
-            difficulty,
-            startNonce: '0',
-          })
-          return
-        }
-        
-        if (message.type === 'progress') {
-          setProgress({
-            hashRate: message.hashRate,
-            elapsedMs: message.elapsed,
-            currentNonce: BigInt(message.nonce), // Parse from string
-            difficulty,
-          })
-          return
-        }
-        
-        if (message.type === 'error') {
-          const err: MiningError = { code: 'NetworkError', message: message.message }
-          setError(err)
-          setStatus('error')
-          onError?.(err)
-          return
-        }
-        
-        if (message.type === 'solution') {
-          // Mining succeeded - submit transaction
-          console.log('[useReactionMining] solution received:', {
-            messageNonce: message.nonce,
-            messageHashRate: message.hashRate,
-            messageElapsed: message.elapsed,
-            closurePostId: postId?.toString(),
-            closureReactionType: reactionType,
-            closureBlockNumber: blockNumber,
-            closureDifficulty: difficulty,
-          })
-          const nonce = BigInt(message.nonce) // Parse from string
-          handleMiningSuccess(
-            nonce,
-            message.hashRate,
-            message.elapsed,
-            postId,
-            reactionType,
-            blockNumber,
-            difficulty
-          )
-        }
-      }
-      
+
+      runMining({
+        postId,
+        reactionType,
+        challengeBlock: blockNumber,
+        challenge,
+        difficulty,
+        startNonce: 0n,
+      })
     } catch (err) {
-      console.error('[useReactionMining] startMining error:', err)
+      debugError('[useReactionMining] startMining error:', err)
       const miningError: MiningError = {
         code: 'NetworkError',
         message: err instanceof Error ? err.message : 'Failed to start mining',
       }
       setError(miningError)
-      setStatus('error')
+      updateStatus('error')
       onError?.(miningError)
     }
-  }, [client, unsafeApi, account, signer, status, createWorker, handleMiningSuccess, onError])
-  
+  }, [client, unsafeApi, account, signer, runMining, onError, updateStatus])
+
   return {
     status,
     error,
