@@ -119,6 +119,12 @@ pub struct ChainClient {
     subxt_client: Mutex<Option<OnlineClient<SubstrateConfig>>>,
     /// Track holdings: hash → (post_id, index)
     holding_map: Mutex<HashMap<FragmentId, (u64, u32)>>,
+    /// 接続済みチェーンの genesis hash。最初に subxt 接続が成功した時点で
+    /// 確定し、以後の再接続・failover standby 候補の検証に使う。
+    /// gossip 由来のエンドポイントは chain_id を自己申告するだけ
+    /// (dev は周知の [0u8; 32]) なので、昇格前に実際に接続して
+    /// genesis を照合しないと偽チェーンへ failover してしまう。
+    expected_genesis: std::sync::Mutex<Option<subxt::utils::H256>>,
     /// Retry configuration for reconnection (Issue 10 fix)
     retry_config: RetryConfig,
     /// チェーンノード向け HTTP JSON-RPC 用の共有 reqwest クライアント。
@@ -179,6 +185,9 @@ impl ChainClient {
             }
         };
 
+        // 接続できていれば genesis hash を記録（failover 候補の検証用）
+        let expected_genesis = subxt_client.as_ref().map(|c| c.genesis_hash());
+
         // 共有 HTTP クライアント（タイムアウト付き）
         let http_client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(5))
@@ -195,6 +204,7 @@ impl ChainClient {
             subxt_keypair,
             subxt_client: Mutex::new(subxt_client),
             holding_map: Mutex::new(HashMap::new()),
+            expected_genesis: std::sync::Mutex::new(expected_genesis),
             retry_config: RetryConfig::default(),
             http_client,
         })
@@ -217,7 +227,27 @@ impl ChainClient {
         let client = OnlineClient::<SubstrateConfig>::from_url(&endpoint)
             .await
             .context("Failed to connect via subxt")?;
-        
+
+        // 再接続先（failover 後の新 primary を含む）が同一チェーンであることを
+        // genesis hash で確認する。初回接続なら記録する。
+        let genesis = client.genesis_hash();
+        {
+            let mut expected = self.expected_genesis.lock()
+                .expect("expected_genesis mutex poisoned");
+            match *expected {
+                Some(e) if e != genesis => {
+                    bail!(
+                        "Genesis hash mismatch at {}: expected {}, got {} — refusing connection",
+                        endpoint,
+                        hex::encode(e.0),
+                        hex::encode(genesis.0)
+                    );
+                }
+                Some(_) => {}
+                None => *expected = Some(genesis),
+            }
+        }
+
         *client_guard = Some(client.clone());
         Ok(client)
     }
@@ -368,15 +398,61 @@ impl ChainClient {
     }
 
     /// Refresh standby connections from endpoint cache
+    ///
+    /// gossip 由来の candidate は chain_id を自己申告するだけなので、
+    /// standby に昇格させる前に実際に接続して genesis hash を照合する。
+    /// 偽チェーンを standby に入れると、failover 後に `fragment_exists`
+    /// が攻撃者の自由になり Put 認証が無効化されるため。
+    /// 一致したものだけ追加し、不一致はキャッシュからも落とす。
     async fn refresh_standbys_from_cache(&self) {
+        let expected_genesis = *self.expected_genesis.lock()
+            .expect("expected_genesis mutex poisoned");
+        let Some(expected_genesis) = expected_genesis else {
+            // 一度も正規チェーンに接続できていない場合は検証基準がないため
+            // fail-closed: gossip 由来の candidate は採用しない。
+            warn!("Skipping standby refresh: chain genesis unknown (never connected); cannot verify gossiped endpoints");
+            return;
+        };
+
         let endpoints = self.endpoint_cache.get_all_by_latency().await;
         let current_primary = self.failover_manager.get_primary_url().await;
-        
+
         for endpoint in endpoints.into_iter().take(5) {
             // Don't add current primary as standby
-            if Some(&endpoint.url) != current_primary.as_ref() {
-                self.failover_manager.add_standby(endpoint).await;
+            if Some(&endpoint.url) == current_primary.as_ref() {
+                continue;
             }
+
+            // 昇格前に genesis hash を実照合する
+            let genesis = match tokio::time::timeout(
+                Duration::from_secs(10),
+                OnlineClient::<SubstrateConfig>::from_url(&endpoint.url),
+            )
+            .await
+            {
+                Ok(Ok(client)) => client.genesis_hash(),
+                Ok(Err(e)) => {
+                    warn!(url = %endpoint.url, error = %e, "Skipping standby candidate: connection failed");
+                    continue;
+                }
+                Err(_) => {
+                    warn!(url = %endpoint.url, "Skipping standby candidate: connection timed out");
+                    continue;
+                }
+            };
+
+            if genesis != expected_genesis {
+                warn!(
+                    url = %endpoint.url,
+                    expected = %hex::encode(expected_genesis.0),
+                    got = %hex::encode(genesis.0),
+                    "Dropping standby candidate: genesis hash mismatch (possible failover poisoning)"
+                );
+                self.endpoint_cache.remove(&endpoint.url).await;
+                continue;
+            }
+
+            self.failover_manager.add_standby(endpoint).await;
         }
     }
 
@@ -409,27 +485,93 @@ impl ChainClient {
         Ok(result.is_some())
     }
 
-    /// Declare holding of a fragment (submits extrinsic)
+    /// `pallet_storage` の extrinsic を署名提出し、ブロック取り込みと
+    /// dispatch 成功まで待つ共通処理。
+    ///
+    /// `EXTRINSIC_TIMEOUT_SECS` でタイムアウトする（チェーン停止時に
+    /// 呼び出し元が固まらないようにするため）。成功時は取り込まれた
+    /// ブロックハッシュを返す。
+    async fn submit_storage_extrinsic(
+        &self,
+        call_name: &'static str,
+        fields: Vec<Value>,
+    ) -> Result<subxt::utils::H256> {
+        let client = self.ensure_subxt_client().await?;
+        let tx = subxt::dynamic::tx("Storage", call_name, fields);
+
+        let submit_and_wait = async {
+            let mut progress = client
+                .tx()
+                .sign_and_submit_then_watch_default(&tx, &self.subxt_keypair)
+                .await
+                .with_context(|| format!("Failed to submit {} extrinsic", call_name))?;
+
+            use subxt::tx::TxStatus;
+            loop {
+                match progress.next().await {
+                    Some(Ok(TxStatus::InBestBlock(details)))
+                    | Some(Ok(TxStatus::InFinalizedBlock(details))) => {
+                        // dispatch エラー (NodeNotRegistered 等) を検出する
+                        details
+                            .wait_for_success()
+                            .await
+                            .with_context(|| format!("{} dispatch failed", call_name))?;
+                        return Ok(details.block_hash());
+                    }
+                    Some(Ok(_)) => continue,
+                    Some(Err(e)) => return Err(anyhow::anyhow!("Transaction error: {}", e)),
+                    None => return Err(anyhow::anyhow!("Transaction stream ended unexpectedly")),
+                }
+            }
+        };
+
+        let block_hash = match tokio::time::timeout(
+            Duration::from_secs(EXTRINSIC_TIMEOUT_SECS),
+            submit_and_wait,
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_) => {
+                warn!(
+                    call = call_name,
+                    timeout_secs = EXTRINSIC_TIMEOUT_SECS,
+                    "Extrinsic submission timed out waiting for inclusion"
+                );
+                bail!("{} timed out after {}s", call_name, EXTRINSIC_TIMEOUT_SECS);
+            }
+        };
+
+        self.report_success().await;
+        Ok(block_hash)
+    }
+
+    /// Declare holding of a fragment (submits `Storage::declare_holding` extrinsic)
     pub async fn declare_holding(&self, fragment_id: FragmentId) -> Result<()> {
         // Check rate limit (FR-108)
         if !self.rate_limiter.try_acquire().await {
             bail!("Rate limit exceeded for declare_holding");
         }
-        
+
         debug!(fragment_id = %hex::encode(fragment_id), "Declaring holding");
-        
-        // Note: Full implementation would submit extrinsic:
-        // let tx = anarchy::tx().storage().declare_holding(fragment_id);
-        // let progress = self.api.tx().sign_and_submit_then_watch_default(&tx, &self.signer).await?;
-        // progress.wait_for_finalized_success().await?;
-        
-        // Stub: Log and return success
-        info!(fragment_id = %hex::encode(fragment_id), "Would declare holding (stub)");
+
+        let block_hash = self
+            .submit_storage_extrinsic(
+                "declare_holding",
+                vec![Value::from_bytes(fragment_id)],
+            )
+            .await?;
+
+        info!(
+            fragment_id = %hex::encode(fragment_id),
+            block_hash = %hex::encode(block_hash.0),
+            "declare_holding extrinsic included in block"
+        );
         Ok(())
     }
 
     /// Declare holding for a post fragment (T060)
-    /// 
+    ///
     /// This tracks the post_id + index for the given fragment hash,
     /// then submits the declare_holding extrinsic.
     pub async fn declare_holding_for_post(
@@ -442,31 +584,33 @@ impl ChainClient {
         if !self.rate_limiter.try_acquire().await {
             bail!("Rate limit exceeded for declare_holding");
         }
-        
+
         // Track the mapping: hash → (post_id, index)
         {
             let mut map = self.holding_map.lock().await;
             map.insert(fragment_hash, (post_id, index));
         }
-        
+
         debug!(
             post_id = post_id,
             index = index,
             hash = %hex::encode(fragment_hash),
             "Declaring holding for post fragment"
         );
-        
-        // Note: Full implementation would submit extrinsic:
-        // let tx = anarchy::tx().storage().declare_holding(fragment_hash);
-        // let progress = self.api.tx().sign_and_submit_then_watch_default(&tx, &self.signer).await?;
-        // progress.wait_for_finalized_success().await?;
-        
-        // Stub: Log and return success
+
+        let block_hash = self
+            .submit_storage_extrinsic(
+                "declare_holding",
+                vec![Value::from_bytes(fragment_hash)],
+            )
+            .await?;
+
         info!(
             post_id = post_id,
             index = index,
             hash = %hex::encode(fragment_hash),
-            "Would declare holding for post fragment (stub)"
+            block_hash = %hex::encode(block_hash.0),
+            "declare_holding (post fragment) extrinsic included in block"
         );
         Ok(())
     }
@@ -478,26 +622,37 @@ impl ChainClient {
         map.get(fragment_hash).copied()
     }
 
-    /// Revoke holding of a fragment
+    /// Revoke holding of a fragment (submits `Storage::revoke_holding` extrinsic)
     pub async fn revoke_holding(&self, fragment_id: FragmentId) -> Result<()> {
         // Check rate limit
         if !self.rate_limiter.try_acquire().await {
             bail!("Rate limit exceeded for revoke_holding");
         }
-        
+
         debug!(fragment_id = %hex::encode(fragment_id), "Revoking holding");
-        
-        // Stub: Log and return success
-        info!(fragment_id = %hex::encode(fragment_id), "Would revoke holding (stub)");
+
+        let block_hash = self
+            .submit_storage_extrinsic(
+                "revoke_holding",
+                vec![Value::from_bytes(fragment_id)],
+            )
+            .await?;
+
+        info!(
+            fragment_id = %hex::encode(fragment_id),
+            block_hash = %hex::encode(block_hash.0),
+            "revoke_holding extrinsic included in block"
+        );
         Ok(())
     }
 
     /// Get fragment metadata from chain
+    ///
+    /// 未実装: 以前は `Ok(None)` を返して「メタデータなし」を装っていた。
+    /// 呼び出し元が「存在しない」と「未実装」を区別できるよう明示的にエラーを返す。
     pub async fn get_fragment_metadata(&self, fragment_id: &FragmentId) -> Result<Option<FragmentMetadata>> {
         debug!(fragment_id = %hex::encode(fragment_id), "Fetching fragment metadata");
-        
-        // Stub: Return None
-        Ok(None)
+        bail!("get_fragment_metadata is not implemented: on-chain metadata query is missing")
     }
 
     /// Submit KZG holding proof to chain (T083)
@@ -517,80 +672,30 @@ impl ChainClient {
             account = %self.signer_ss58(),
             "Submitting KZG holding proof to chain via subxt"
         );
-        
-        // Get connected subxt client
-        let client = self.ensure_subxt_client().await?;
-        
-        // Build the extrinsic using subxt dynamic API
+
         // pallet_storage::Call::prove_holding_kzg { content_hash, share_index, share_value, proof }
         // share_value and proof are BoundedVec<u8, ConstU32<N>>
-        let tx = subxt::dynamic::tx(
-            "Storage",
-            "prove_holding_kzg",
-            vec![
-                // content_hash: [u8; 32]
-                Value::from_bytes(content_hash),
-                // share_index: u8
-                Value::u128(share_index as u128),
-                // share_value: BoundedVec<u8, ConstU32<32>>
-                Value::from_bytes(share_value),
-                // proof: BoundedVec<u8, ConstU32<48>>
-                Value::from_bytes(proof),
-            ],
+        let block_hash = self
+            .submit_storage_extrinsic(
+                "prove_holding_kzg",
+                vec![
+                    // content_hash: [u8; 32]
+                    Value::from_bytes(content_hash),
+                    // share_index: u8
+                    Value::u128(share_index as u128),
+                    // share_value: BoundedVec<u8, ConstU32<32>>
+                    Value::from_bytes(share_value),
+                    // proof: BoundedVec<u8, ConstU32<48>>
+                    Value::from_bytes(proof),
+                ],
+            )
+            .await?;
+
+        info!(
+            content_hash = %hex::encode(content_hash),
+            block_hash = %hex::encode(block_hash.0),
+            "Successfully submitted KZG holding proof - reward pending"
         );
-        
-        // 提出〜finalize 待ち全体にタイムアウトを掛ける。
-        // チェーンが finalize しない状態だとここで永久に待ち続け、
-        // 呼び出し元（main イベントループ）が固まるため。
-        let submit_and_wait = async {
-            // Submit and watch for finalization
-            let mut progress = client
-                .tx()
-                .sign_and_submit_then_watch_default(&tx, &self.subxt_keypair)
-                .await
-                .context("Failed to submit prove_holding_kzg extrinsic")?;
-
-            // Wait for finalization using next() to get status updates
-            use subxt::tx::TxStatus;
-            loop {
-                match progress.next().await {
-                    Some(Ok(TxStatus::InBestBlock(details))) | Some(Ok(TxStatus::InFinalizedBlock(details))) => {
-                        // Check for dispatch error
-                        details.wait_for_success().await.context("Extrinsic dispatch failed")?;
-                        info!(
-                            content_hash = %hex::encode(content_hash),
-                            block_hash = %hex::encode(details.block_hash().0),
-                            "Successfully submitted KZG holding proof - reward pending"
-                        );
-                        return Ok(());
-                    }
-                    Some(Ok(_)) => {
-                        // Other status, continue waiting
-                        continue;
-                    }
-                    Some(Err(e)) => {
-                        return Err(anyhow::anyhow!("Transaction error: {}", e));
-                    }
-                    None => {
-                        return Err(anyhow::anyhow!("Transaction stream ended unexpectedly"));
-                    }
-                }
-            }
-        };
-
-        match tokio::time::timeout(Duration::from_secs(EXTRINSIC_TIMEOUT_SECS), submit_and_wait).await {
-            Ok(result) => result?,
-            Err(_) => {
-                warn!(
-                    content_hash = %hex::encode(content_hash),
-                    timeout_secs = EXTRINSIC_TIMEOUT_SECS,
-                    "prove_holding_kzg submission timed out waiting for finalization"
-                );
-                bail!("prove_holding_kzg timed out after {}s", EXTRINSIC_TIMEOUT_SECS);
-            }
-        }
-
-        self.report_success().await;
         Ok(())
     }
 
@@ -603,73 +708,27 @@ impl ChainClient {
             account = %self.signer_ss58(),
             "Claiming accumulated rewards from chain"
         );
-        
-        // Get connected subxt client
-        let client = self.ensure_subxt_client().await?;
-        
-        // Build the extrinsic using subxt dynamic API
+
         // pallet_storage::Call::claim_reward (no parameters)
-        let tx = subxt::dynamic::tx("Storage", "claim_reward", Vec::<Value>::new());
-        
-        // 提出〜finalize 待ち全体にタイムアウトを掛ける（submit_holding_proof と同様）
-        let submit_and_wait = async {
-            // Submit and watch for finalization
-            let mut progress = client
-                .tx()
-                .sign_and_submit_then_watch_default(&tx, &self.subxt_keypair)
-                .await
-                .context("Failed to submit claim_reward extrinsic")?;
+        let block_hash = self
+            .submit_storage_extrinsic("claim_reward", Vec::<Value>::new())
+            .await?;
 
-            // Wait for finalization
-            use subxt::tx::TxStatus;
-            loop {
-                match progress.next().await {
-                    Some(Ok(TxStatus::InBestBlock(details))) | Some(Ok(TxStatus::InFinalizedBlock(details))) => {
-                        // Check for dispatch success
-                        details.wait_for_success().await.context("claim_reward failed")?;
-
-                        info!(
-                            account = %self.signer_ss58(),
-                            block_hash = %hex::encode(details.block_hash().0),
-                            "Successfully claimed reward"
-                        );
-                        return Ok(());
-                    }
-                    Some(Ok(_)) => {
-                        continue;
-                    }
-                    Some(Err(e)) => {
-                        return Err(anyhow::anyhow!("Transaction error: {}", e));
-                    }
-                    None => {
-                        return Err(anyhow::anyhow!("Transaction stream ended unexpectedly"));
-                    }
-                }
-            }
-        };
-
-        match tokio::time::timeout(Duration::from_secs(EXTRINSIC_TIMEOUT_SECS), submit_and_wait).await {
-            Ok(result) => result?,
-            Err(_) => {
-                warn!(
-                    account = %self.signer_ss58(),
-                    timeout_secs = EXTRINSIC_TIMEOUT_SECS,
-                    "claim_reward submission timed out waiting for finalization"
-                );
-                bail!("claim_reward timed out after {}s", EXTRINSIC_TIMEOUT_SECS);
-            }
-        }
-
-        self.report_success().await;
+        info!(
+            account = %self.signer_ss58(),
+            block_hash = %hex::encode(block_hash.0),
+            "Successfully claimed reward"
+        );
         Ok(())
     }
 
     /// Get list of fragment holders from chain
+    ///
+    /// 未実装: 以前は `Ok(vec![])` を返して「ホルダーなし」を装っていた。
+    /// 呼び出し元が「ホルダーゼロ」と「未実装」を区別できるよう明示的にエラーを返す。
     pub async fn get_fragment_holders(&self, fragment_id: &FragmentId) -> Result<Vec<Vec<u8>>> {
         debug!(fragment_id = %hex::encode(fragment_id), "Fetching fragment holders");
-        
-        // Stub: Return empty list
-        Ok(vec![])
+        bail!("get_fragment_holders is not implemented: FragmentHolders storage query is missing")
     }
 
     /// Check connection status — reflects the actual subxt client state.
@@ -947,19 +1006,13 @@ impl ChainClient {
     }
 
     /// Poll for new challenges targeting our account (T047, Issue 11 fix)
-    /// 
-    /// Queries the blockchain for any outstanding ChallengeIssued events
-    /// that target our account and haven't been answered yet.
+    ///
+    /// 未実装: pallet_storage::Challenges の照会・自アカウント宛フィルタは
+    /// まだ実装されていない。以前は `Ok(vec![])` を返して「チャレンジなし」を
+    /// 装っていたため、運用者は自動証明提出が動いていると誤認していた。
+    /// 呼び出し元が未実装を検知して警告できるよう明示的にエラーを返す。
     pub async fn poll_challenges(&self) -> Result<Vec<crate::challenge::Challenge>> {
-        // Note: Full implementation would:
-        // 1. Query pallet_storage::Challenges storage
-        // 2. Filter for challenges targeting our account
-        // 3. Return only unanswered challenges
-
-        // For now, return empty - challenges will come via subxt subscription
-        // when full event subscription is implemented
-        debug!("Polling for challenges (stub: returning empty)");
-        Ok(vec![])
+        bail!("poll_challenges is not implemented: on-chain challenge polling is missing")
     }
 }
 

@@ -12,13 +12,18 @@ use anarchy_storage_node::chain::failover::FailoverManager;
 use anarchy_storage_node::network::endpoint_cache::EndpointCache;
 
 /// Helper to create ChainClient for integration tests
+///
+/// NOTE: 接続先は意図的に「確実に閉じているポート」(port 1) を使う。
+/// declare_holding 系が実 extrinsic を提出するようになったため、
+/// 開発マシンで dev チェーンが動いていると実トランザクションを
+/// 送ってしまいテストが非決定的になる。
 async fn create_test_chain_client(rate_limit: u32) -> anarchy_storage_node::chain::ChainClient {
     let failover_manager = Arc::new(FailoverManager::new());
     let endpoint_cache = Arc::new(EndpointCache::new([0u8; 32]));
     // Use Alice's dev seed for testing
     let alice_seed = "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
     anarchy_storage_node::chain::ChainClient::new(
-        "ws://127.0.0.1:9944",
+        "ws://127.0.0.1:1",
         rate_limit,
         alice_seed,
         failover_manager,
@@ -57,10 +62,13 @@ async fn test_full_flow_receive_store_declare() -> Result<()> {
     // Step 2: Compute hash for declare_holding
     let fragment_hash = anarchy_storage_node::storage::FragmentStore::compute_hash(&fragment_data);
     
-    // Step 3: Declare holding (will be stub call if chain not running)
-    // Using the new post-based API
-    chain_client.declare_holding_for_post(post_id, index, fragment_hash).await?;
-    
+    // Step 3: Declare holding — 実 extrinsic 提出になったため、チェーン不在の
+    // テスト環境では提出は失敗する（成功を装ってはならない）。
+    // ローカルの holding 追跡は提出前に行われるので、それを検証する。
+    let declare_result = chain_client.declare_holding_for_post(post_id, index, fragment_hash).await;
+    assert!(declare_result.is_err(), "declare must not fake success without a chain");
+
+
     // Verify holding was tracked
     let holding_info = chain_client.get_holding_info(&fragment_hash).await;
     assert!(holding_info.is_some(), "Holding should be tracked");
@@ -93,9 +101,10 @@ async fn test_auto_declare_on_storage() -> Result<()> {
         // Store
         store.store_post_fragment(post_id, index, fragment_data)?;
         
-        // Auto-declare
+        // Auto-declare（チェーン不在のため提出は失敗するが、ローカル追跡は行われる）
         let hash = anarchy_storage_node::storage::FragmentStore::compute_hash(fragment_data);
-        chain_client.declare_holding_for_post(post_id, index, hash).await?;
+        let _ = chain_client.declare_holding_for_post(post_id, index, hash).await;
+        assert!(chain_client.get_holding_info(&hash).await.is_some(), "holding should be tracked locally");
     }
     
     // Verify all stored and declared
@@ -118,14 +127,19 @@ async fn test_full_flow_rate_limiting() -> Result<()> {
     
     let post_id: u64 = 99;
     
-    // First 3 should succeed
+    // 最初の3回はレート枠内（チェーン不在のため接続エラーで失敗するが、
+    // レート制限エラーではないことを確認する）
     for index in 0..3u32 {
         let data = format!("Fragment {}", index).into_bytes();
         store.store_post_fragment(post_id, index, &data)?;
-        
+
         let hash = anarchy_storage_node::storage::FragmentStore::compute_hash(&data);
-        let result = chain_client.declare_holding_for_post(post_id, index, hash).await;
-        assert!(result.is_ok(), "Fragment {} should declare successfully", index);
+        let err = chain_client.declare_holding_for_post(post_id, index, hash).await.unwrap_err();
+        assert!(
+            !err.to_string().contains("Rate limit"),
+            "Fragment {} should not be rate limited yet, got: {}",
+            index, err
+        );
     }
     
     // 4th should be rate limited
@@ -155,8 +169,10 @@ async fn test_full_flow_disk_full_error() -> Result<()> {
     let small_data = b"Small".to_vec();
     store.store_post_fragment(1, 0, &small_data)?;
     let hash = anarchy_storage_node::storage::FragmentStore::compute_hash(&small_data);
-    chain_client.declare_holding_for_post(1, 0, hash).await?;
-    
+    // チェーン不在のため提出は失敗するが、本テストの対象はストレージ側の挙動
+    let _ = chain_client.declare_holding_for_post(1, 0, hash).await;
+
+
     // Large fragment should fail with quota error (before declare_holding is called)
     let large_data = vec![0u8; 200]; // 200 bytes > 100 byte quota
     let result = store.store_post_fragment(2, 0, &large_data);
@@ -182,11 +198,12 @@ async fn test_full_flow_with_retrieval() -> Result<()> {
     let index: u32 = 2;
     let original_data = b"Original fragment content for retrieval test".to_vec();
     
-    // Full flow: receive → store → declare
+    // Full flow: receive → store → declare（declare はチェーン不在で失敗してよい）
     store.store_post_fragment(post_id, index, &original_data)?;
     let hash = anarchy_storage_node::storage::FragmentStore::compute_hash(&original_data);
-    chain_client.declare_holding_for_post(post_id, index, hash).await?;
-    
+    let _ = chain_client.declare_holding_for_post(post_id, index, hash).await;
+
+
     // Now retrieve
     let retrieved = store.retrieve_post_fragment(post_id, index)?;
     assert!(retrieved.is_some(), "Fragment should be retrievable");

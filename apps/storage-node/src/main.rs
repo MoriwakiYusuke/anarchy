@@ -420,6 +420,12 @@ async fn main() -> anyhow::Result<()> {
                             debug!("Stale holder GC: no excess holders to evict");
                         }
                         Err(e) => {
+                            // run_cycle は現状未実装エラーを返す。5分ごとに同じ警告を
+                            // 出し続けないよう、プロセスにつき1回だけ warn する。
+                            static STALE_HOLDER_GC_WARNED: std::sync::Once = std::sync::Once::new();
+                            STALE_HOLDER_GC_WARNED.call_once(|| {
+                                warn!(error = %e, "Stale holder GC is unavailable (not implemented); excess holders will not be evicted");
+                            });
                             debug!(error = %e, "Stale holder GC: failed to run cycle");
                         }
                     }
@@ -438,7 +444,13 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
                     Err(e) => {
-                        debug!(error = %e, "Failed to poll challenges (chain may be unavailable)");
+                        // poll_challenges は現状未実装エラーを返す。3秒ごとに同じ警告を
+                        // 出し続けないよう、プロセスにつき1回だけ warn する。
+                        static POLL_CHALLENGES_WARNED: std::sync::Once = std::sync::Once::new();
+                        POLL_CHALLENGES_WARNED.call_once(|| {
+                            warn!(error = %e, "Challenge polling is unavailable (not implemented); automatic proof submission will not run");
+                        });
+                        debug!(error = %e, "Failed to poll challenges");
                     }
                 }
                 
@@ -485,10 +497,19 @@ async fn main() -> anyhow::Result<()> {
                     }
                     Ok(Some(network::NetworkEvent::FragmentStored { fragment_id })) => {
                         // Auto-declare holding on successful PUT (T056)
-                        info!(fragment_id = %hex::encode(fragment_id), "Fragment stored, triggering auto-declare");
-                        if let Err(e) = chain_client.declare_holding(fragment_id).await {
-                            error!(error = %e, "Failed to declare holding (rate limited?)");
-                        }
+                        // declare_holding はブロック取り込みまで待つ (最大120s) ため、
+                        // メインイベントループ (libp2p) を塞がないよう spawn する。
+                        info!(fragment_id = %hex::encode(fragment_id), "Fragment stored, submitting declare_holding");
+                        let declare_client = Arc::clone(&chain_client);
+                        tokio::spawn(async move {
+                            if let Err(e) = declare_client.declare_holding(fragment_id).await {
+                                error!(
+                                    error = %e,
+                                    fragment_id = %hex::encode(fragment_id),
+                                    "Failed to declare holding"
+                                );
+                            }
+                        });
                     }
                     Ok(Some(network::NetworkEvent::EndpointUpdate { from, endpoints })) => {
                         info!(
