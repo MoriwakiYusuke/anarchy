@@ -76,10 +76,11 @@ export async function sendDmText(page: Page, body: string): Promise<void> {
   const composer = page.getByRole('dialog').getByRole('region', { name: 'DM compose form' });
   await composer.getByRole('textbox', { name: 'dm message body' }).fill(body);
   await composer.getByRole('button', { name: /^Send$/ }).click();
-  // PoW 後の DM 送信は 2 extrinsic finalize: stealth pre-funding (transfer) + DM dispatch
-  // 30s/block × 2 + ブレで 3 分くらい余裕で要する。Aura 6s 時代は 90s で足りていたが、
-  // PoW 移行後は 240s 以上見込むのが現実的。
-  await expect(composer.getByRole('status')).toHaveText(/Sent/i, { timeout: 240_000 });
+  // PoW 後の DM 送信は 2 extrinsic finalize: stealth pre-funding (transfer) + DM dispatch。
+  // 実測 (refactor/full-code-review): 32s/block + finalize lag ~2 block で
+  // 1 extrinsic ≈ 60-120s。2 連鎖 + encrypt/upload オーバーヘッドで 240s では
+  // ワーストケースに不足 (pre-funding だけで ~170s を観測)。360s に設定。
+  await expect(composer.getByRole('status')).toHaveText(/Sent/i, { timeout: 360_000 });
 }
 
 /** 開いているスレッドの outgoing バブルに本文が見えることを assert。 */
