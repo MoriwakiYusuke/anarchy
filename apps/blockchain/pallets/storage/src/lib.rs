@@ -1698,6 +1698,10 @@ pub mod pallet {
             // Remove ProofRecord for evicted holder
             ProofRecords::<T>::remove(content_hash, &evicted_holder);
 
+            // ホルダー数が変化したので FragmentStates (Active/AtRisk/Lost 判定) を再計算。
+            // これを怠ると eviction 後も古い状態が残り、AtRisk/Lost 検出が陳腐化する。
+            Self::update_fragment_state(content_hash);
+
             // Emit event
             Self::deposit_event(Event::HolderEvicted {
                 content_hash,

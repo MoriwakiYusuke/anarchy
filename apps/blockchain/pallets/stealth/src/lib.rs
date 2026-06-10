@@ -349,8 +349,10 @@ pub mod pallet {
         /// * `ephemeral_pubkey` - DM 受信時に記録された ephemeral pubkey
         /// * `stealth_pubkey` - one-time ed25519 公開鍵 (受信者がローカルで導出)
         /// * `signature` - 上記秘密鍵による (signer, ephemeral_pubkey) の ed25519 署名 (64 bytes)
-        /// * `correspondence_proof` - TSTS F10 zk-proof (`Vec<u8>`, opaque). no-op verifier
-        ///   なら空 Vec で OK。strict verifier は形式を独自に定義する。
+        /// * `correspondence_proof` - TSTS F10 zk-proof (opaque, 最大 256 bytes)。no-op verifier
+        ///   なら空で OK。strict verifier は形式を独自に定義する (Groth16 なら 192 bytes 程度
+        ///   なので 256 で足りる)。fee-less チェーンで unbounded `Vec<u8>` を受けると
+        ///   巨大 payload DoS の口になるため `BoundedVec` で上限を切る。
         ///
         /// # Errors
         /// * `InvalidStealthSignature` - 署名検証失敗
@@ -365,7 +367,7 @@ pub mod pallet {
             ephemeral_pubkey: [u8; 32],
             stealth_pubkey: [u8; 32],
             signature: [u8; 64],
-            correspondence_proof: sp_std::vec::Vec<u8>,
+            correspondence_proof: BoundedVec<u8, ConstU32<256>>,
         ) -> DispatchResult {
             let recipient = ensure_signed(origin)?;
 
@@ -389,7 +391,7 @@ pub mod pallet {
                 <T::CorrespondenceVerifier as crate::StealthCorrespondenceVerifier>::verify(
                     &ephemeral_pubkey,
                     &stealth_pubkey,
-                    &correspondence_proof,
+                    correspondence_proof.as_slice(),
                 ),
                 Error::<T>::InvalidCorrespondenceProof
             );
