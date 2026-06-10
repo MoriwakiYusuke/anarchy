@@ -88,8 +88,26 @@ impl EndpointCache {
     
     /// Add or update an endpoint in the cache
     ///
-    /// Returns false if chain_id doesn't match (FR-507)
+    /// Returns false if the URL fails validation or chain_id doesn't match (FR-507)
     pub async fn insert(&self, endpoint: BlockchainEndpoint) -> bool {
+        // (#31-H-5 と同等) gossip 経由の URL を検証する。failover 時に
+        // ここの URL へサーバ側から接続する (subxt / HTTP JSON-RPC) ため、
+        // private IP / localhost 等を許すと SSRF になる。また dev の
+        // chain_id は周知の [0u8; 32] なので chain_id チェックだけでは
+        // 偽エンドポイントの混入 (failover リスト汚染) を防げない。
+        // genesis hash の実照合は ChainClient::refresh_standbys_from_cache
+        // が昇格前に行う。
+        if let Err(reason) = crate::network::storage_node_cache::validate_gossip_url(
+            &endpoint.url,
+            &["ws", "wss"],
+        ) {
+            warn!(
+                "Rejecting blockchain endpoint URL {}: {}",
+                endpoint.url, reason
+            );
+            return false;
+        }
+
         // Verify chain ID matches
         if endpoint.chain_id != self.expected_chain_id {
             warn!(
@@ -98,7 +116,7 @@ impl EndpointCache {
             );
             return false;
         }
-        
+
         let entry = CacheEntry {
             endpoint: endpoint.clone(),
             added_at: Instant::now(),
@@ -198,23 +216,57 @@ mod tests {
     #[tokio::test]
     async fn test_insert_and_get() {
         let cache = EndpointCache::new([0u8; 32]);
-        let endpoint = make_endpoint("ws://localhost:9944");
-        
+        let endpoint = make_endpoint("ws://node1.example.com:9944");
+
         assert!(cache.insert(endpoint.clone()).await);
-        
-        let retrieved = cache.get("ws://localhost:9944").await;
+
+        let retrieved = cache.get("ws://node1.example.com:9944").await;
         assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().url, "ws://localhost:9944");
+        assert_eq!(retrieved.unwrap().url, "ws://node1.example.com:9944");
     }
 
     #[tokio::test]
     async fn test_reject_mismatched_chain_id() {
         let cache = EndpointCache::new([1u8; 32]);
-        let endpoint = make_endpoint("ws://localhost:9944");
-        
+        // URL は valid だが chain_id が不一致のケース
+        let endpoint = make_endpoint("ws://node1.example.com:9944");
+
         // Endpoint has chain_id [0; 32], cache expects [1; 32]
         assert!(!cache.insert(endpoint).await);
         assert!(cache.is_empty().await);
+    }
+
+    /// (#31-H-5 と同等) gossip 経由 URL のバリデーション: SSRF 対象に
+    /// なり得る URL や不正スキームは chain_id が一致していても拒否する。
+    #[tokio::test]
+    async fn test_reject_invalid_endpoint_urls() {
+        let cache = EndpointCache::new([0u8; 32]);
+        let bad_urls = [
+            "ws://localhost:9944",          // localhost
+            "ws://127.0.0.1:9944",          // loopback IP
+            "ws://192.168.1.10:9944",       // private IPv4
+            "ws://10.0.0.1:9944",           // private IPv4
+            "ws://169.254.0.1:9944",        // link-local IPv4
+            "ws://[::1]:9944",              // IPv6 loopback
+            "ws://mynode.local:9944",       // mDNS
+            "http://node.example.com:9944", // ws/wss 以外のスキーム
+            "file:///etc/passwd",           // 論外スキーム
+            "not a url",                    // パース不能
+        ];
+        for url in bad_urls {
+            let endpoint = make_endpoint(url);
+            assert!(
+                !cache.insert(endpoint).await,
+                "should reject endpoint URL: {}",
+                url
+            );
+        }
+        assert!(cache.is_empty().await);
+
+        // 正常系: 公開ホスト名 + ws/wss は受理される
+        assert!(cache.insert(make_endpoint("ws://node.example.com:9944")).await);
+        assert!(cache.insert(make_endpoint("wss://node2.example.com:9944")).await);
+        assert_eq!(cache.len().await, 2);
     }
 
     #[tokio::test]

@@ -27,7 +27,7 @@ use libp2p::{
     tcp, Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 use futures::prelude::*;
-use serde::{Deserialize, Serialize};
+use parity_scale_codec::{Decode, Encode};
 use tracing::{info, warn, debug};
 use anyhow::{Context, Result};
 
@@ -43,8 +43,20 @@ use gossip::{
 /// Protocol name for fragment exchange
 pub const FRAGMENT_PROTOCOL: &str = "/anarchy/fragment/1.0.0";
 
+/// チェーンノードが受理する断片の最大サイズ。
+/// `apps/blockchain/node/src/rpc/storage.rs` の `MAX_FRAGMENT_SIZE` (128MB)
+/// と揃えること。これより小さいとノード間複製 (Put/Get) だけが失敗し、
+/// メディア断片の冗長性が静かに失われる。
+pub const MAX_FRAGMENT_SIZE: usize = 128 * 1024 * 1024;
+
+/// SCALE エンベロープ分の余裕 (enum tag 1B + fragment_id 32B + compact length 数B)。
+const ENVELOPE_OVERHEAD: usize = 1024;
+
+/// 1 メッセージ (length-prefix フレーム) の最大サイズ。
+pub const MAX_MESSAGE_SIZE: usize = MAX_FRAGMENT_SIZE + ENVELOPE_OVERHEAD;
+
 /// Request types for fragment protocol
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub enum FragmentRequest {
     /// Get fragment by ID
     Get { fragment_id: FragmentId },
@@ -53,7 +65,7 @@ pub enum FragmentRequest {
 }
 
 /// Response types for fragment protocol
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub enum FragmentResponse {
     /// Fragment data (None if not found)
     Data(Option<Vec<u8>>),
@@ -62,8 +74,63 @@ pub enum FragmentResponse {
 }
 
 /// Codec for fragment protocol messages
+///
+/// ワイヤ形式: `u32 (BE) length prefix + SCALE エンコード本体`。
+/// 以前は serde_json (Vec<u8> が数値配列になり ~4x 膨張) + 10MB 上限で、
+/// チェーンノード側の 128MB 上限の断片を複製できなかった。
+/// 読み込みは length prefix を検査してから確保する (確保前に上限超過を拒否)。
 #[derive(Debug, Clone, Default)]
 pub struct FragmentCodec;
+
+/// length-prefix 付きフレームを読み、SCALE デコードする。
+/// 上限超過のフレームはバッファ確保「前」に InvalidData で拒否する。
+async fn read_framed<T, M>(io: &mut T) -> std::io::Result<M>
+where
+    T: futures::AsyncRead + Unpin + Send,
+    M: Decode,
+{
+    let mut length_buf = [0u8; 4];
+    io.read_exact(&mut length_buf).await?;
+    let length = u32::from_be_bytes(length_buf) as usize;
+
+    if length > MAX_MESSAGE_SIZE {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Message too large: {} > {} bytes", length, MAX_MESSAGE_SIZE),
+        ));
+    }
+
+    let mut buf = vec![0u8; length];
+    io.read_exact(&mut buf).await?;
+
+    M::decode(&mut &buf[..]).map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+    })
+}
+
+/// SCALE エンコードして length-prefix 付きで書き込む。
+async fn write_framed<T, M>(io: &mut T, msg: &M) -> std::io::Result<()>
+where
+    T: futures::AsyncWrite + Unpin + Send,
+    M: Encode,
+{
+    let data = msg.encode();
+    if data.len() > MAX_MESSAGE_SIZE {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "Refusing to send oversized message: {} > {} bytes",
+                data.len(),
+                MAX_MESSAGE_SIZE
+            ),
+        ));
+    }
+    let length = (data.len() as u32).to_be_bytes();
+    io.write_all(&length).await?;
+    io.write_all(&data).await?;
+    io.flush().await?;
+    Ok(())
+}
 
 #[async_trait::async_trait]
 impl Codec for FragmentCodec {
@@ -79,24 +146,7 @@ impl Codec for FragmentCodec {
     where
         T: futures::AsyncRead + Unpin + Send,
     {
-        let mut buf = Vec::new();
-        let mut length_buf = [0u8; 4];
-        io.read_exact(&mut length_buf).await?;
-        let length = u32::from_be_bytes(length_buf) as usize;
-        
-        if length > 10 * 1024 * 1024 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Message too large",
-            ));
-        }
-        
-        buf.resize(length, 0);
-        io.read_exact(&mut buf).await?;
-        
-        serde_json::from_slice(&buf).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })
+        read_framed(io).await
     }
 
     async fn read_response<T>(
@@ -107,23 +157,7 @@ impl Codec for FragmentCodec {
     where
         T: futures::AsyncRead + Unpin + Send,
     {
-        let mut length_buf = [0u8; 4];
-        io.read_exact(&mut length_buf).await?;
-        let length = u32::from_be_bytes(length_buf) as usize;
-        
-        if length > 10 * 1024 * 1024 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Message too large",
-            ));
-        }
-        
-        let mut buf = vec![0u8; length];
-        io.read_exact(&mut buf).await?;
-        
-        serde_json::from_slice(&buf).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })
+        read_framed(io).await
     }
 
     async fn write_request<T>(
@@ -135,14 +169,7 @@ impl Codec for FragmentCodec {
     where
         T: futures::AsyncWrite + Unpin + Send,
     {
-        let data = serde_json::to_vec(&req).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })?;
-        let length = (data.len() as u32).to_be_bytes();
-        io.write_all(&length).await?;
-        io.write_all(&data).await?;
-        io.flush().await?;
-        Ok(())
+        write_framed(io, &req).await
     }
 
     async fn write_response<T>(
@@ -154,14 +181,7 @@ impl Codec for FragmentCodec {
     where
         T: futures::AsyncWrite + Unpin + Send,
     {
-        let data = serde_json::to_vec(&res).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })?;
-        let length = (data.len() as u32).to_be_bytes();
-        io.write_all(&length).await?;
-        io.write_all(&data).await?;
-        io.flush().await?;
-        Ok(())
+        write_framed(io, &res).await
     }
 }
 
@@ -229,10 +249,13 @@ impl Network {
             )
             .context("Failed to configure TCP transport")?
             .with_behaviour(|key| {
+                // timeout 180s: MAX_FRAGMENT_SIZE (128MB) の断片転送を低速回線
+                // (Tor 経由含む) でも完了させるため。チェーンノード側
+                // (apps/blockchain/node/src/rpc/storage.rs) と同じ値。
                 let fragment_protocol = request_response::Behaviour::new(
                     vec![(FRAGMENT_PROTOCOL, ProtocolSupport::Full)],
                     request_response::Config::default()
-                        .with_request_timeout(Duration::from_secs(30)),
+                        .with_request_timeout(Duration::from_secs(180)),
                 );
 
                 let identify = libp2p::identify::Behaviour::new(
@@ -581,14 +604,26 @@ pub enum NetworkEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::io::Cursor;
 
-    #[test]
-    fn test_codec_roundtrip_request() {
+    #[tokio::test]
+    async fn test_codec_roundtrip_request() {
+        let mut codec = FragmentCodec;
         let request = FragmentRequest::Get {
             fragment_id: [42u8; 32],
         };
-        let serialized = serde_json::to_vec(&request).unwrap();
-        let deserialized: FragmentRequest = serde_json::from_slice(&serialized).unwrap();
+
+        let mut buf = Cursor::new(Vec::new());
+        codec
+            .write_request(&FRAGMENT_PROTOCOL, &mut buf, request)
+            .await
+            .unwrap();
+
+        let mut reader = Cursor::new(buf.into_inner());
+        let deserialized = codec
+            .read_request(&FRAGMENT_PROTOCOL, &mut reader)
+            .await
+            .unwrap();
         match deserialized {
             FragmentRequest::Get { fragment_id } => {
                 assert_eq!(fragment_id, [42u8; 32]);
@@ -597,11 +632,22 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_codec_roundtrip_response() {
+    #[tokio::test]
+    async fn test_codec_roundtrip_response() {
+        let mut codec = FragmentCodec;
         let response = FragmentResponse::Data(Some(vec![1, 2, 3]));
-        let serialized = serde_json::to_vec(&response).unwrap();
-        let deserialized: FragmentResponse = serde_json::from_slice(&serialized).unwrap();
+
+        let mut buf = Cursor::new(Vec::new());
+        codec
+            .write_response(&FRAGMENT_PROTOCOL, &mut buf, response)
+            .await
+            .unwrap();
+
+        let mut reader = Cursor::new(buf.into_inner());
+        let deserialized = codec
+            .read_response(&FRAGMENT_PROTOCOL, &mut reader)
+            .await
+            .unwrap();
         match deserialized {
             FragmentResponse::Data(Some(data)) => {
                 assert_eq!(data, vec![1, 2, 3]);
@@ -610,8 +656,99 @@ mod tests {
         }
     }
 
+    /// 旧 JSON コーデックの 10MB 上限では失敗していたサイズ (>10MB) の
+    /// Put が往復できることを確認する (メディア断片の複製パス)。
+    #[tokio::test]
+    async fn test_codec_roundtrip_put_over_10mb() {
+        let mut codec = FragmentCodec;
+        let payload = vec![0xABu8; 12 * 1024 * 1024]; // 12MB
+        let request = FragmentRequest::Put {
+            fragment_id: [7u8; 32],
+            data: payload.clone(),
+        };
+
+        let mut buf = Cursor::new(Vec::new());
+        codec
+            .write_request(&FRAGMENT_PROTOCOL, &mut buf, request)
+            .await
+            .unwrap();
+
+        let encoded = buf.into_inner();
+        // SCALE はほぼ生バイト: JSON の数値配列 (~4x) と違い
+        // エンベロープ分の小さなオーバーヘッドのみ
+        assert!(
+            encoded.len() < payload.len() + ENVELOPE_OVERHEAD,
+            "encoded size {} should be close to payload size {}",
+            encoded.len(),
+            payload.len()
+        );
+
+        let mut reader = Cursor::new(encoded);
+        let deserialized = codec
+            .read_request(&FRAGMENT_PROTOCOL, &mut reader)
+            .await
+            .unwrap();
+        match deserialized {
+            FragmentRequest::Put { fragment_id, data } => {
+                assert_eq!(fragment_id, [7u8; 32]);
+                assert_eq!(data, payload);
+            }
+            _ => panic!("Wrong request type"),
+        }
+    }
+
+    /// 上限超過の length prefix は本体バッファを確保する前に
+    /// InvalidData で拒否されること。本体を読みに行っていたら
+    /// (= 確保後に read していたら) UnexpectedEof になるはずなので、
+    /// InvalidData であることが「確保前拒否」の証拠になる。
+    #[tokio::test]
+    async fn test_codec_rejects_oversized_before_allocation() {
+        let mut codec = FragmentCodec;
+
+        // length prefix だけで本体なし: u32::MAX (~4GiB) を主張
+        let frame = u32::MAX.to_be_bytes().to_vec();
+        let mut reader = Cursor::new(frame);
+        let err = codec
+            .read_request(&FRAGMENT_PROTOCOL, &mut reader)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        // 境界値: MAX_MESSAGE_SIZE + 1 も拒否 (response 側)
+        let frame = ((MAX_MESSAGE_SIZE + 1) as u32).to_be_bytes().to_vec();
+        let mut reader = Cursor::new(frame);
+        let err = codec
+            .read_response(&FRAGMENT_PROTOCOL, &mut reader)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    /// 上限超過メッセージは送信側でも拒否されること。
+    #[tokio::test]
+    async fn test_codec_refuses_to_write_oversized() {
+        let mut codec = FragmentCodec;
+        let request = FragmentRequest::Put {
+            fragment_id: [0u8; 32],
+            data: vec![0u8; MAX_MESSAGE_SIZE + 1],
+        };
+        let mut buf = Cursor::new(Vec::new());
+        let err = codec
+            .write_request(&FRAGMENT_PROTOCOL, &mut buf, request)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
     #[test]
     fn test_protocol_name() {
         assert_eq!(FRAGMENT_PROTOCOL, "/anarchy/fragment/1.0.0");
+    }
+
+    #[test]
+    fn test_message_size_covers_chain_fragment_limit() {
+        // チェーンノードの MAX_FRAGMENT_SIZE (128MB) + エンベロープが収まること
+        assert!(MAX_MESSAGE_SIZE > MAX_FRAGMENT_SIZE);
+        assert_eq!(MAX_FRAGMENT_SIZE, 128 * 1024 * 1024);
     }
 }

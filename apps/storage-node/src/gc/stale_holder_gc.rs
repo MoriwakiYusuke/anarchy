@@ -63,51 +63,24 @@ impl StaleHolderGc {
 
     /// Run a single GC cycle
     ///
-    /// 1. Query chain for fragments with excess holders
-    /// 2. For each fragment, get eviction candidates
-    /// 3. Submit evict_stale_holder extrinsic for lowest priority holder
+    /// 本来の処理:
+    /// 1. get_fragments_with_excess_holders Runtime API で過剰ホルダー断片を照会
+    /// 2. 各断片について get_eviction_candidates で対象を決定
+    /// 3. evict_stale_holder extrinsic を提出 (最大 max_evictions_per_cycle 件)
+    ///
+    /// 未実装: 以前は `Ok(0)` を返して「過剰ホルダーなし」を装っていたため、
+    /// 運用者は GC が動いていると誤認していた。呼び出し元が未実装を検知して
+    /// 警告できるよう明示的にエラーを返す。
     pub async fn run_cycle(&self) -> Result<u32> {
         if !self.config.enabled {
             debug!("Stale holder GC is disabled");
             return Ok(0);
         }
 
-        info!("Running stale holder GC cycle");
-
-        // In a full implementation, this would:
-        // 1. Call get_fragments_with_excess_holders Runtime API
-        // 2. For each fragment with excess holders:
-        //    a. Call get_eviction_candidates to see who to evict
-        //    b. Submit evict_stale_holder extrinsic
-        // 3. Track successful evictions
-        //
-        // Example (pseudo-code):
-        // ```
-        // let api = self.chain_client.get_api().await?;
-        // let excess_fragments = api.runtime_api().at_latest().await?
-        //     .call(StorageApi::get_fragments_with_excess_holders())?;
-        //
-        // let mut evicted = 0;
-        // for content_hash in excess_fragments {
-        //     if evicted >= self.config.max_evictions_per_cycle {
-        //         break;
-        //     }
-        //     let tx = api.tx().storage().evict_stale_holder(content_hash);
-        //     tx.sign_and_submit().await?;
-        //     evicted += 1;
-        // }
-        // ```
-
-        // Placeholder: Return 0 evictions
-        let evicted = 0u32;
-        
-        if evicted > 0 {
-            info!("Stale holder GC cycle complete: evicted {} holders", evicted);
-        } else {
-            debug!("Stale holder GC cycle complete: no excess holders found");
-        }
-
-        Ok(evicted)
+        anyhow::bail!(
+            "stale holder GC is not implemented: \
+             get_fragments_with_excess_holders query / evict_stale_holder submission are missing"
+        )
     }
 
     /// Run the GC loop continuously
