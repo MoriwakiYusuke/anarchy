@@ -8,7 +8,7 @@
  */
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useLocale } from '../../i18n/context';
 import type { TranslationKey } from '../../i18n/types';
 import { DetectedStealthBalance } from '@/lib/stealth/types';
@@ -157,7 +157,16 @@ export function StealthSpendForm({
   const { t } = useLocale();
   const [selectedAddresses, setSelectedAddresses] = useState<Set<string>>(new Set());
   const [recipientAddress, setRecipientAddress] = useState(defaultRecipientAddress);
+  // ユーザーが宛先欄を編集したかどうか。未編集の間だけ defaultRecipientAddress の
+  // 後着 (マウント後に accountAddress が解決するケース) を反映する。
+  const [recipientTouched, setRecipientTouched] = useState(false);
   const [amountInput, setAmountInput] = useState('');
+
+  useEffect(() => {
+    if (!recipientTouched) {
+      setRecipientAddress(defaultRecipientAddress);
+    }
+  }, [defaultRecipientAddress, recipientTouched]);
   const [showLinkabilityWarning, setShowLinkabilityWarning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -354,7 +363,10 @@ export function StealthSpendForm({
         <input
           type="text"
           value={recipientAddress}
-          onChange={e => setRecipientAddress(e.target.value)}
+          onChange={e => {
+            setRecipientTouched(true);
+            setRecipientAddress(e.target.value);
+          }}
           placeholder="5Grwva..."
           className={`${styles.input} ${styles.inputFull}`}
           disabled={isProcessing}

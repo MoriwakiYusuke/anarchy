@@ -46,9 +46,12 @@ export async function publishOrRepublishDmKey(page: Page): Promise<void> {
   const publish = page.getByRole('dialog').getByRole('button', { name: /^(Publish|Republish)$/ });
   if (await publish.isEnabled().catch(() => false)) {
     await publish.click();
+    // publish_dm_key は signAndSubmit = finalize 待ち。PoW 30s/block では
+    // 1 extrinsic ≈ 120s かかり得る (sendDmText の註釈と同じ算定)。
+    // Aura 時代の 60s のままだと chronically flaky だったので 240s に揃える。
     await expect(
       page.getByRole('dialog').getByText(/^Status:\s*Published$/),
-    ).toBeVisible({ timeout: 60_000 });
+    ).toBeVisible({ timeout: 240_000 });
   } else {
     // Already published with current key → no action.
     await expect(

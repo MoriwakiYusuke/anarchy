@@ -220,3 +220,32 @@
   margin-top: 16px;
   font-size: 14px;
 }
+
+/* バックアップエクスポート用フォーム (パスワード + 確認) */
+.exportForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.exportInput {
+  padding: 0.5rem;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: #111;
+  color: #eee;
+  font-size: 0.875rem;
+}
+
+.exportError {
+  color: #f4212e;
+  font-size: 0.8125rem;
+  margin: 0.25rem 0;
+}
+
+.exportSuccess {
+  color: #00ba7c;
+  font-size: 0.8125rem;
+  margin: 0.25rem 0;
+}
