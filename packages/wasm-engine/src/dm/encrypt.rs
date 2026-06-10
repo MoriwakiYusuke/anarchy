@@ -15,7 +15,7 @@ use schnorrkel::{ExpansionMode, MiniSecretKey};
 use sha2::Sha256;
 use wasm_bindgen::prelude::*;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::envelope::{DmEnvelope, DM_PROTOCOL_VERSION};
 use super::padding::{pad_iso7816_4, select_padding_bucket, AES_GCM_TAG_LEN};
@@ -105,6 +105,9 @@ pub fn dm_derive_recipient_stealth(
     let mut eph_priv_bytes = [0u8; 32];
     eph_priv_bytes.copy_from_slice(ephemeral_priv);
     let eph_secret = StaticSecret::from(eph_priv_bytes);
+    // StaticSecret 内のコピーは drop 時に zeroize される (x25519-dalek)。
+    // ローカルコピーはここで明示的にゼロクリアする。
+    eph_priv_bytes.zeroize();
     let eph_pub = X25519PublicKey::from(&eph_secret);
 
     let mut scan_pub_bytes = [0u8; 32];
@@ -231,10 +234,8 @@ pub fn dm_encrypt_and_pad(
     let stealth_vec = derived.stealth_pubkey;
     let shared_secret = Zeroizing::new(derived.shared_secret);
 
-    // ephemeral_priv のローカルコピー (drop 時にゼロクリア)。本関数の制御下を
-    // 出ない。呼出側のスライスは Rust では mutate できないので JS 側に責務がある。
-    let mut eph_priv_copy = Zeroizing::new([0u8; 32]);
-    eph_priv_copy.copy_from_slice(ephemeral_priv);
+    // NOTE: 呼出側の `ephemeral_priv` スライスは Rust では mutate できないので、
+    // 使用後のゼロクリアは JS 側の責務 (FR-021)。
 
     // 送信者 envelope を構築 (W6 の sig hash 対象に対応)。
     let mut sender_acct = [0u8; 32];
@@ -402,6 +403,11 @@ impl DmFragmentedOutput {
 /// k はバリデータ側で stealth k-of-n の閾値検証に使うパラメータで、ここではメタ
 /// 情報として呼出側に返す責務はない (引数で受け取り content_ref に伝搬される)。
 ///
+/// **必ず n 個のフラグメントを生成する。** 受信側 (`lib/dm/storageFetch.ts`) は
+/// index 0..n-1 の n 個を取得して連結 → `ciphertext_len` に切り詰めて復元するため、
+/// 末尾フラグメントはゼロパディングで chunk 長に揃える (n 個未満になると受信側で
+/// 取得失敗扱いになり、メッセージ全体がサイレントに壊れる)。
+///
 /// 真の SSS/Reed-Solomon 分散は post パイプラインで `kzg::hybrid::hybrid_split`
 /// が担う; DM では「同じ ciphertext を n 個に区切って merkle 化する」ラッパに
 /// 留め、storage-node 側の格納モデルと整合させる。
@@ -425,14 +431,15 @@ pub fn dm_fragment_ciphertext(
     let chunk = ciphertext.len().div_ceil(n_us);
     let mut fragments: Vec<Vec<u8>> = Vec::with_capacity(n_us);
     for i in 0..n_us {
-        let start = i * chunk;
+        let start = (i * chunk).min(ciphertext.len());
         let end = ((i + 1) * chunk).min(ciphertext.len());
-        if start >= ciphertext.len() {
-            // n がデータ長より大きい場合は空フラグメントになるのを避ける。
-            break;
-        }
-        fragments.push(ciphertext[start..end].to_vec());
+        let mut frag = ciphertext[start..end].to_vec();
+        // 全フラグメントを chunk バイトに揃え、ちょうど n 個を保証する。
+        // 受信側は連結後 ciphertext_len で切り詰めるのでパディングは無害。
+        frag.resize(chunk, 0);
+        fragments.push(frag);
     }
+    debug_assert_eq!(fragments.len(), n_us, "must produce exactly n fragments");
 
     let frag_refs: Vec<&[u8]> = fragments.iter().map(|f| f.as_slice()).collect();
     let merkle = merkle::merkle_build_internal(&frag_refs)
@@ -516,6 +523,43 @@ mod tests {
         let h_g = ED25519_BASEPOINT_TABLE * &h_scalar;
         let expected_stealth = (spend_point + h_g).compress().to_bytes();
         assert_eq!(derived.stealth_pubkey, expected_stealth);
+    }
+
+    #[test]
+    fn fragment_ciphertext_always_produces_n_fragments() {
+        // len=10, n=7 → chunk=ceil(10/7)=2。旧実装では 5 個しか生成されず、
+        // 受信側 (n 個取得前提) がサイレントに壊れていた回帰テスト。
+        let ciphertext = [0xA5u8; 10];
+        let out = dm_fragment_ciphertext(&ciphertext, 3, 7).expect("fragment ok");
+
+        assert_eq!(out.fragment_count(), 7, "must produce exactly n fragments");
+        for i in 0..7 {
+            let frag = out.fragment(i).expect("fragment present");
+            assert_eq!(frag.len(), 2, "all fragments are chunk-sized");
+        }
+
+        // 受信側の復元規則 (連結 → ciphertext_len に切り詰め) で元に戻ること。
+        let mut joined = Vec::new();
+        for i in 0..7 {
+            joined.extend_from_slice(&out.fragment(i).unwrap());
+        }
+        joined.truncate(ciphertext.len());
+        assert_eq!(joined, ciphertext.to_vec());
+    }
+
+    #[test]
+    fn fragment_ciphertext_normal_case_unchanged() {
+        // 1024B bucket / n=5 の通常ケース: chunk=205、5 個、連結→切り詰めで復元。
+        let ciphertext: Vec<u8> = (0..1024u32).map(|i| (i % 251) as u8).collect();
+        let out = dm_fragment_ciphertext(&ciphertext, 3, 5).expect("fragment ok");
+
+        assert_eq!(out.fragment_count(), 5);
+        let mut joined = Vec::new();
+        for i in 0..5 {
+            joined.extend_from_slice(&out.fragment(i).unwrap());
+        }
+        joined.truncate(ciphertext.len());
+        assert_eq!(joined, ciphertext);
     }
 
     // 長さ不正 / 無効 Edwards 点のエラー分岐は JsError 構築を伴うため、ホスト上の
