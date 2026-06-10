@@ -70,6 +70,13 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
   const [selectedType, setSelectedType] = useState<ReactionType | null>(null)
   const [loading, setLoading] = useState<ReactionType | null>(null)
   const [localCounts, setLocalCounts] = useState({ likes, bads })
+
+  // Timeline が stats を再取得して props が更新されたら、その値を正として表示に反映する
+  // (useState の初期値はマウント時のスナップショットなので、これがないと新しい props が UI に届かない)。
+  // optimistic +1 はチェーン反映前の再取得で一時的に巻き戻る可能性があるが、次の更新で収束する。
+  useEffect(() => {
+    setLocalCounts({ likes, bads })
+  }, [likes, bads])
   // 投稿ごとに1回のみリアクション可能（Like/Bad のいずれか）
   const [hasReacted, setHasReacted] = useState(false)
   const [reactedType, setReactedType] = useState<ReactionType | null>(null)
@@ -94,6 +101,7 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
     status,
     progress,
     startMining,
+    resume,
   } = useReactionMining({
     client,
     unsafeApi,
@@ -210,12 +218,37 @@ export const ReactionButton: React.FC<ReactionButtonProps> = ({
         <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>{t('reaction.pleaseConnect')}</span>
       )}
       {status === 'mining' && progress && (
-        <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>
+        <span data-testid="reaction-mining-progress" style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>
           {(progress.hashRate / 1000).toFixed(1)} kH/s · {(progress.elapsedMs / 1000).toFixed(1)}s
         </span>
       )}
+      {/* Foreground PoW (CLAUDE.md Security Principle #4): タブが隠れて worker が
+          terminate された場合は paused を明示し、ユーザー操作 (Resume) で
+          保存済み nonce から再開する。 */}
+      {status === 'paused' && (
+        <span data-testid="reaction-mining-paused" style={{ color: '#d29922', fontSize: '0.625rem', marginTop: '0.25rem' }}>
+          {t('reaction.paused')}
+          {' '}
+          <button
+            type="button"
+            data-testid="reaction-mining-resume"
+            onClick={resume}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#1d9bf0',
+              fontSize: '0.625rem',
+              cursor: 'pointer',
+              padding: 0,
+              textDecoration: 'underline',
+            }}
+          >
+            {t('reaction.resume')}
+          </button>
+        </span>
+      )}
       {status === 'submitting' && (
-        <span style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>{t('reaction.submitting')}</span>
+        <span data-testid="reaction-submitting" style={{ color: '#888', fontSize: '0.625rem', marginTop: '0.25rem' }}>{t('reaction.submitting')}</span>
       )}
       {alreadyReactedError && (
         <span style={{ color: '#f4212e', fontSize: '0.625rem', marginTop: '0.25rem' }}>{t('reaction.alreadyReacted')}</span>

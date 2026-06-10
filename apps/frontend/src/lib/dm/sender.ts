@@ -28,6 +28,17 @@ import type { AccountId, DmMediaRef, DmMetaAddress, SendDmParams, SendDmResult }
 import { DmError } from './types';
 import { encodeDmContent } from './contentCodec';
 import { debugError, debugWarn } from '@/lib/debugLog';
+import {
+  authenticatedRpcCall,
+  resolveChainRpcEndpoint,
+  uint8ArrayToBase64,
+  type StorageSigner,
+} from '@/lib/chainRpc';
+
+// 互換 re-export: 旧来 sender.ts が定義していたものを chainRpc.ts に集約した。
+// scanner.ts / media.ts / account/context.tsx 等の既存 import を壊さない。
+export { resolveChainRpcEndpoint } from '@/lib/chainRpc';
+export type { StorageSigner } from '@/lib/chainRpc';
 
 type WasmModule = typeof import('anarchy-wasm-engine');
 let wasmModule: WasmModule | null = null;
@@ -73,16 +84,6 @@ export interface SendDmContext {
   chainRpcEndpoint?: string;
   /** UI 進捗報告コールバック (FR-025)。 */
   onProgress?: (step: SendDmProgress) => void;
-}
-
-/**
- * `inner_signed_hash` 署名用の raw sr25519 signer。`@polkadot/keyring` の
- * `pair.sign(msg)` が substrate signing context を適用するため、それをそのまま
- * `sign` として渡す想定。
- */
-export interface StorageSigner {
-  publicKey: Uint8Array;
-  sign: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
 }
 
 export type SendDmProgress =
@@ -263,104 +264,6 @@ export function formatMoral(plancks: bigint): string {
 }
 
 /**
- * Uint8Array → base64 (storage-node `b64_decode` と互換)。
- */
-function toBase64(bytes: Uint8Array): string {
-  if (typeof btoa === 'function') {
-    let bin = '';
-    for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
-    return btoa(bin);
-  }
-  // Node.js 環境 (Jest) フォールバック
-  return Buffer.from(bytes).toString('base64');
-}
-
-function toHex(bytes: Uint8Array): string {
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 1) s += bytes[i].toString(16).padStart(2, '0');
-  return s;
-}
-
-interface SignedAuth {
-  account_id: string;
-  timestamp: number;
-  nonce: string;
-  payload_hash: string;
-  signature: string;
-}
-
-/**
- * Storage-node middleware が `storage_storeFragment` のような書き込み API で
- * 要求する `X-Anarchy-Auth` を作る。chain-node 経由で forward される時、
- * chain-node は `params.auth` を取り出して `X-Anarchy-Auth` ヘッダに移し替える
- * (apps/blockchain/node/src/rpc/storage.rs の StorageNodeClient.upload_fragment)。
- *
- * Principle #5 (no direct storage access) は **IP correlation** を防ぐ規約であり、
- * **user 署名による rate limiting / abuse 抑止**は依然必要。post 側の useUpload.ts
- * の `generateAuth` と同等。
- *
- * 署名対象: account_id(32) || timestamp_le_u64(8) || nonce(16) || payloadHash(32)
- * payloadHash = blake2b256(JSON.stringify(sortedParamsWithoutAuth))
- */
-async function generateUploadAuth(
-  signer: StorageSigner,
-  params: Record<string, unknown>,
-): Promise<SignedAuth> {
-  const { blake2b } = await import('blakejs');
-
-  const timestamp = Math.floor(Date.now() / 1000);
-  const nonceBytes = new Uint8Array(16);
-  crypto.getRandomValues(nonceBytes);
-
-  // storage-node の `extract_and_hash_params` は serde_json default
-  // (キー alphabetical 順) → Blake2b-256。フロントも明示的に sort 必須。
-  const sortedParams = Object.keys(params)
-    .sort()
-    .reduce<Record<string, unknown>>((acc, key) => {
-      acc[key] = params[key];
-      return acc;
-    }, {});
-  const payloadHash = blake2b(
-    new TextEncoder().encode(JSON.stringify(sortedParams)),
-    undefined,
-    32,
-  );
-
-  const message = new Uint8Array(32 + 8 + 16 + 32);
-  message.set(signer.publicKey, 0);
-  new DataView(message.buffer).setBigUint64(32, BigInt(timestamp), true);
-  message.set(nonceBytes, 40);
-  message.set(payloadHash, 56);
-
-  const signature = await signer.sign(message);
-  return {
-    account_id: toHex(signer.publicKey),
-    timestamp,
-    nonce: toHex(nonceBytes),
-    payload_hash: toHex(payloadHash),
-    signature: toHex(signature),
-  };
-}
-
-/**
- * Chain-node JSON-RPC HTTP エンドポイントを解決する。
- *
- * - `override` (SendDmContext.chainRpcEndpoint) が最優先。
- * - 無ければ `NEXT_PUBLIC_WS_ENDPOINT` を `ws://`→`http://` に書き換えて使用。
- * - それも無ければ dev fallback の `http://127.0.0.1:9944`。
- *
- * post / reaction の useUpload.ts / useFragments.ts と同じ規則で揃えている。
- */
-export function resolveChainRpcEndpoint(override?: string): string {
-  if (override) return override;
-  const fromEnv = process.env.NEXT_PUBLIC_WS_ENDPOINT;
-  if (fromEnv) {
-    return fromEnv.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://');
-  }
-  return 'http://127.0.0.1:9944';
-}
-
-/**
  * tx1 (`send_to_stealth`) は常に main account で署名する。レシート自動送信などで
  * 並行して走った場合、PAPI が同じ nonce で 2 つ署名し → 後続が `InvalidTransaction::Stale`
  * で reject される。グローバル mutex で順序化する (DM 送信は非ホットパスなので OK)。
@@ -404,7 +307,6 @@ export async function uploadFragments(
 ): Promise<number> {
   const start = Date.now();
   const window = options.retryWindowMs ?? 30_000;
-  const fetchFn = options.fetchImpl ?? fetch;
   const signer = options.signer;
   const ok = new Set<number>();
   let attempt = 0;
@@ -416,31 +318,24 @@ export async function uploadFragments(
       pending.map(async (f) => {
         // chain-node `UploadFragmentRequest`: merkle_root [u8; 32], index u32,
         // data b64, proof b64, total_leaves u32, auth optional。
-        // signer があれば auth を付ける (chain-node が X-Anarchy-Auth ヘッダに展開)。
-        const params: Record<string, unknown> = {
-          merkle_root: Array.from(merkleRoot),
-          index: f.index,
-          data: toBase64(f.data),
-          proof: toBase64(f.proof),
-          total_leaves: totalLeaves,
-        };
-        if (signer) {
-          params.auth = await generateUploadAuth(signer, params);
-        }
-
-        const res = await fetchFn(chainRpcEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: f.index,
-            method: 'storage_uploadFragment',
-            params: [params],
-          }),
-        });
-        if (!res.ok) throw new Error(`http ${res.status}`);
-        const body = (await res.json()) as { error?: unknown; result?: unknown };
-        if (body.error) throw new Error(`rpc error: ${JSON.stringify(body.error)}`);
+        // signer があれば chainRpc.authenticatedRpcCall が auth を付ける
+        // (chain-node が X-Anarchy-Auth ヘッダに展開)。JSON-RPC error (HTTP 200)
+        // も同ヘルパが検査して throw する。
+        await authenticatedRpcCall(
+          'storage_uploadFragment',
+          {
+            merkle_root: Array.from(merkleRoot),
+            index: f.index,
+            data: uint8ArrayToBase64(f.data),
+            proof: uint8ArrayToBase64(f.proof),
+            total_leaves: totalLeaves,
+          },
+          {
+            signer,
+            endpoints: [chainRpcEndpoint],
+            fetchImpl: options.fetchImpl,
+          },
+        );
         return f.index;
       }),
     );

@@ -16,6 +16,7 @@ pub mod reputation;
 pub mod storage_node_cache;
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Duration;
 use libp2p::{
     gossipsub::{self, IdentTopic, MessageAuthenticity},
@@ -354,7 +355,7 @@ impl Network {
     /// against on-chain fragment registration (#30-C-2).
     pub async fn handle_event(
         &mut self,
-        store: &FragmentStore,
+        store: &Arc<FragmentStore>,
         chain_client: &crate::chain::ChainClient,
     ) -> Result<Option<NetworkEvent>> {
         match self.swarm.select_next_some().await {
@@ -486,13 +487,18 @@ impl Network {
     /// than dropping them.
     async fn handle_request(
         &self,
-        store: &FragmentStore,
+        store: &Arc<FragmentStore>,
         chain_client: &crate::chain::ChainClient,
         request: FragmentRequest,
     ) -> Result<(FragmentResponse, Option<FragmentId>)> {
         match request {
             FragmentRequest::Get { fragment_id } => {
-                let data = store.retrieve(&fragment_id)?;
+                // redb の同期 I/O で libp2p イベントループを塞がないよう
+                // spawn_blocking に逃がす
+                let store = Arc::clone(store);
+                let data = tokio::task::spawn_blocking(move || store.retrieve(&fragment_id))
+                    .await
+                    .context("retrieve task panicked")??;
                 Ok((FragmentResponse::Data(data), None))
             }
             FragmentRequest::Put { fragment_id, data } => {
@@ -526,7 +532,12 @@ impl Network {
                         ));
                     }
                 }
-                match store.store(fragment_id, &data) {
+                // redb の書き込み commit (fsync) を libp2p イベントループから逃がす
+                let store = Arc::clone(store);
+                let store_result = tokio::task::spawn_blocking(move || store.store(fragment_id, &data))
+                    .await
+                    .context("store task panicked")?;
+                match store_result {
                     Ok(()) => {
                         // Return fragment_id for auto-declare (T056)
                         Ok((FragmentResponse::Ack { success: true, error: None }, Some(fragment_id)))

@@ -238,7 +238,7 @@ pub fn hybrid_recover(
         }
     }
 
-    // Step 2: 鍵を復元
+    // Step 2: 鍵を復元 (Zeroizing: スコープ離脱時にゼロクリア)
     let key_shares: Vec<KeyShare> = shards.iter().map(|s| s.key_share.clone()).collect();
     let key = key_recover(&key_shares, k)?;
 
@@ -253,7 +253,7 @@ pub fn hybrid_recover(
     let ciphertext = rs_decode_from_shards(&rs_shards, k as usize, n as usize, ciphertext_len, shard_size)?;
 
     // Step 4: 復号
-    let decrypted = decrypt(&ciphertext, &key)?;
+    let decrypted = decrypt(&ciphertext, &*key)?;
 
     // Step 5: 解凍（必要な場合）
     let result = if compressed {

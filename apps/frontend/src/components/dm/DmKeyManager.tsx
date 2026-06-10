@@ -88,7 +88,9 @@ export function DmKeyManager({ api, signer, accountId }: DmKeyManagerProps): JSX
   // **重要**: chain に残った old meta と現在のセッション meta が食い違うケース
   // (例: 鍵を再生成したが publish していない) を必ず検出するために、bool ではなく
   // meta 自体を保持して比較する。
-  const refreshChainMeta = useCallback(async () => {
+  // `isCancelled` は effect の cleanup 後に stale な結果で setState しないためのガード。
+  // (操作後リフレッシュなど unmount と競合しない呼び出しでは省略可)
+  const refreshChainMeta = useCallback(async (isCancelled?: () => boolean) => {
     if (!api || !accountId) return;
     const typed = api as {
       query?: { Messaging?: { DmReceptionKeys?: { getValue: (a: string) => Promise<unknown> } } };
@@ -97,6 +99,7 @@ export function DmKeyManager({ api, signer, accountId }: DmKeyManagerProps): JSX
     if (!query) return;
     try {
       const res = await query.getValue(accountId);
+      if (isCancelled?.()) return;
       setChainMeta(normalizeChainMeta(res));
     } catch {
       // 取得失敗時は前回値を維持 (誤って revoke を出さないための fail-safe)
@@ -105,7 +108,7 @@ export function DmKeyManager({ api, signer, accountId }: DmKeyManagerProps): JSX
 
   useEffect(() => {
     let cancelled = false;
-    void refreshChainMeta().then(() => { if (cancelled) setChainMeta(null); });
+    void refreshChainMeta(() => cancelled);
     return () => { cancelled = true; };
   }, [refreshChainMeta]);
 

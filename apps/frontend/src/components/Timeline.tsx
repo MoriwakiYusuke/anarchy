@@ -54,11 +54,20 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
   const [posts, setPosts] = useState<Post[]>([])
   const [repliesMap, setRepliesMap] = useState<Map<number, NestedReplyData[]>>(new Map())
   const [isLoading, setIsLoading] = useState(true)
+  const [hasError, setHasError] = useState(false)
+  // 再試行ボタン用カウンタ (インクリメントすると effect が再実行され再フェッチする)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     if (!unsafeApi) return
 
+    // stale-response ガード: 古い遅延フェッチが新しいリフレッシュ結果を
+    // 上書きしないように、effect の cleanup でフラグを立てて setState を抑止する。
+    let cancelled = false
+
     const fetchPosts = async () => {
+      setIsLoading(true)
+      setHasError(false)
       try {
         // Check if Post pallet exists
         if (!unsafeApi.query.Post) {
@@ -122,30 +131,32 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
                 authors.add(author)
               }
             }
-            // 各著者のニックネームを取得
-            for (const author of authors) {
-              try {
-                const result = await unsafeApi.query.Nickname.Nicknames.getValue(author)
-                if (result) {
-                  let bytes: Uint8Array
-                  if (typeof result?.asBytes === 'function') {
-                    bytes = result.asBytes()
-                  } else if (result instanceof Uint8Array) {
-                    bytes = result
-                  } else if (Array.isArray(result)) {
-                    bytes = new Uint8Array(result)
-                  } else {
-                    bytes = new Uint8Array(result)
+            // 各著者のニックネームを並列取得 (逐次 await の N+1 を回避 — 下の reaction stats と同じパターン)
+            await Promise.all(
+              Array.from(authors).map(async (author) => {
+                try {
+                  const result = await unsafeApi.query.Nickname.Nicknames.getValue(author)
+                  if (result) {
+                    let bytes: Uint8Array
+                    if (typeof result?.asBytes === 'function') {
+                      bytes = result.asBytes()
+                    } else if (result instanceof Uint8Array) {
+                      bytes = result
+                    } else if (Array.isArray(result)) {
+                      bytes = new Uint8Array(result)
+                    } else {
+                      bytes = new Uint8Array(result)
+                    }
+                    const decoded = new TextDecoder().decode(bytes)
+                    if (decoded) {
+                      nicknameMap.set(author, decoded)
+                    }
                   }
-                  const decoded = new TextDecoder().decode(bytes)
-                  if (decoded) {
-                    nicknameMap.set(author, decoded)
-                  }
+                } catch {
+                  // Individual nickname fetch failed
                 }
-              } catch {
-                // Individual nickname fetch failed
-              }
-            }
+              })
+            )
           }
         } catch {
           // Nickname pallet not available
@@ -231,12 +242,14 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
           )
         }
 
+        if (cancelled) return
         setPosts(displayRoots)
         setRepliesMap(repliesData)
       } catch (err) {
         debugError('[Timeline] Failed to fetch posts:', err)
+        if (!cancelled) setHasError(true)
       } finally {
-        setIsLoading(false)
+        if (!cancelled) setIsLoading(false)
       }
     }
 
@@ -244,12 +257,30 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
 
     // Note: PAPI event subscription is different, skipping for now
     // TODO: Add event subscription for new posts
-  }, [unsafeApi, refreshTrigger])
+    return () => {
+      cancelled = true
+    }
+  }, [unsafeApi, refreshTrigger, retryCount])
 
   if (isLoading) {
     return (
       <div className={styles.loading}>
         {t('timeline.loading')}
+      </div>
+    )
+  }
+
+  if (hasError) {
+    return (
+      <div className={styles.error}>
+        <p>{t('timeline.error')}</p>
+        <button
+          type="button"
+          className={styles.retryButton}
+          onClick={() => setRetryCount((c) => c + 1)}
+        >
+          {t('common.retry')}
+        </button>
       </div>
     )
   }

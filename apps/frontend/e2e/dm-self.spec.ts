@@ -32,6 +32,10 @@ test.describe('DM single-user flow', () => {
     page,
     connectDevAccount,
   }) => {
+    // publish (~120s) + send 2-extrinsic finalize (~360s) + scanner pickup (~180s)
+    // の合計がデフォルト 360s を超えるため個別に拡張 (PoW 32s/block 実測ベース)。
+    test.setTimeout(900_000);
+
     await connectDevAccount('Alice');
 
     await openDmModal(page);

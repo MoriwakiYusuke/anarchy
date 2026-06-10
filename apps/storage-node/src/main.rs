@@ -161,10 +161,11 @@ async fn main() -> anyhow::Result<()> {
     info!(addr = %rpc_addr, auth = config.auth_enabled, "HTTP RPC server started (NFR-002: /metrics endpoint enabled)");
     
     // Spawn HTTP server
-    let http_server = tokio::spawn(async move {
-        axum::serve(rpc_listener, rpc_router)
-            .await
-            .expect("HTTP server error");
+    // JoinHandle を保持して main の select! で死活監視する。
+    // detached のまま expect() で panic させると HTTP サーバだけ静かに死に、
+    // RPC 不能のままデーモンが動き続けてしまう。
+    let mut http_server = tokio::spawn(async move {
+        axum::serve(rpc_listener, rpc_router).await
     });
 
     // Register with blockchain node (auto-connection)
@@ -229,6 +230,11 @@ async fn main() -> anyhow::Result<()> {
     challenge_poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let challenge_chain_client = Arc::clone(&chain_client);
 
+    // Challenge cleanup: poll 20 回 (≒60秒) ごとに pending map から
+    // 提出済み・期限切れの challenge を削除する。呼ばないと map が単調増加する。
+    let mut challenge_cleanup_counter: u32 = 0;
+    const CHALLENGE_CLEANUP_EVERY_N_POLLS: u32 = 20;
+
     // Setup shutdown signal
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     
@@ -249,6 +255,16 @@ async fn main() -> anyhow::Result<()> {
                 info!("Shutting down...");
                 http_server.abort();
                 break;
+            }
+            // HTTP RPC サーバの死活監視: 落ちたらデーモンごと異常終了する。
+            // RPC が死んだまま動き続けても断片の受け渡しができず無意味なため。
+            result = &mut http_server => {
+                match result {
+                    Ok(Ok(())) => error!("HTTP RPC server exited unexpectedly"),
+                    Ok(Err(e)) => error!(error = %e, "HTTP RPC server failed"),
+                    Err(e) => error!(error = %e, "HTTP RPC server task panicked or was aborted"),
+                }
+                anyhow::bail!("HTTP RPC server terminated; shutting down storage node");
             }
             _ = heartbeat_interval.tick() => {
                 // Periodic re-registration to handle blockchain node restarts
@@ -430,8 +446,29 @@ async fn main() -> anyhow::Result<()> {
                 if let Err(e) = challenge_monitor.process_pending().await {
                     debug!(error = %e, "Failed to process pending challenges");
                 }
+
+                // 定期 cleanup: 提出済み・期限切れ challenge を pending map から削除
+                challenge_cleanup_counter += 1;
+                if challenge_cleanup_counter >= CHALLENGE_CLEANUP_EVERY_N_POLLS {
+                    challenge_cleanup_counter = 0;
+                    // ブロック番号取得が固まってもループを巻き込まないようタイムアウト付き
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        challenge_chain_client.latest_block_number(),
+                    ).await {
+                        Ok(Ok(current_block)) => {
+                            challenge_monitor.cleanup_old_challenges(current_block).await;
+                        }
+                        Ok(Err(e)) => {
+                            debug!(error = %e, "Skipping challenge cleanup (chain unavailable)");
+                        }
+                        Err(_) => {
+                            debug!("Skipping challenge cleanup (latest block fetch timed out)");
+                        }
+                    }
+                }
             }
-            event = network.handle_event(store.as_ref(), chain_client.as_ref()) => {
+            event = network.handle_event(&store, chain_client.as_ref()) => {
                 match event {
                     Ok(Some(network::NetworkEvent::Listening(addr))) => {
                         info!(addr = %addr, "Now listening on");

@@ -4,25 +4,14 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { PolkadotSigner } from 'polkadot-api/signer'
 import { computeChallenge, hexToBytes } from '@/lib/faucet/challenge'
 import { debugLog, debugWarn, debugError } from '@/lib/debugLog'
-import type { WorkerMessage, MineRequest } from '@/lib/faucet/worker'
+import { withTimeout } from '@/lib/withTimeout'
+import { minePow, PowCancelledError, type MinePowHandle } from '@/lib/pow/pausableMiner'
 
 /** Timeout for RPC calls in milliseconds.
  *  PoW 移行で block time が 30s に伸びたため、signAndSubmit (finalize 待ち) は
  *  最低 1 ブロック + GRANDPA finalize で 60s 超える。余裕を見て 240s に設定。
  */
 const RPC_TIMEOUT_MS = 240_000
-
-/**
- * Wrap a promise with timeout
- */
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => 
-      setTimeout(() => reject(new Error(`Timeout: ${message}`)), ms)
-    )
-  ])
-}
 
 export type FaucetStatus = 'idle' | 'mining' | 'submitting' | 'success' | 'error'
 
@@ -61,16 +50,16 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
   const [error, setError] = useState<FaucetError | null>(null)
   const [progress, setProgress] = useState<FaucetProgress | null>(null)
   
-  const workerRef = useRef<Worker | null>(null)
+  // minePow ハンドル (Foreground PoW: タブ隠蔽で worker を terminate し、
+  // 復帰時に保存済み nonce から自動再開する。lib/pow/pausableMiner 参照)。
+  const minerRef = useRef<MinePowHandle | null>(null)
   const blockNumberRef = useRef<number | null>(null)
-  
-  // Workerクリーンアップ
+
+  // マイナークリーンアップ
   useEffect(() => {
     return () => {
-      if (workerRef.current) {
-        workerRef.current.terminate()
-        workerRef.current = null
-      }
+      minerRef.current?.cancel()
+      minerRef.current = null
     }
   }, [])
 
@@ -87,10 +76,8 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
   }
 
   const cancel = useCallback(() => {
-    if (workerRef.current) {
-      workerRef.current.terminate()
-      workerRef.current = null
-    }
+    minerRef.current?.cancel()
+    minerRef.current = null
     setStatus('idle')
     setProgress(null)
   }, [])
@@ -159,57 +146,27 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
       
       const challenge = computeChallenge(blockHashBytes, accountIdBytes)
 
-      // 4. Web Workerでマイニング開始
-      const worker = new Worker(new URL('@/lib/faucet/worker.ts', import.meta.url))
-      workerRef.current = worker
-
-      const noncePromise = new Promise<bigint>((resolve, reject) => {
-        worker.onmessage = (event: MessageEvent<WorkerMessage | { type: 'ready' }>) => {
-          const message = event.data
-          
-          if (message.type === 'ready') {
-            // Worker準備完了、マイニング開始
-            const request: MineRequest = {
-              type: 'start',
-              challenge,
-              difficulty: currentDifficulty,
-              startNonce: BigInt(0),
-            }
-            worker.postMessage(request)
-            return
-          }
-          
-          if (message.type === 'progress') {
-            setProgress({
-              hashRate: message.hashRate,
-              elapsed: message.elapsed,
-              currentNonce: message.nonce,
-            })
-            return
-          }
-          
-          if (message.type === 'solution') {
-            resolve(message.nonce)
-            return
-          }
-          
-          if (message.type === 'error') {
-            reject(new Error(message.message))
-            return
-          }
-        }
-
-        worker.onerror = (err) => {
-          reject(new Error(`Worker error: ${err.message}`))
-        }
+      // 4. Web Worker でマイニング開始 (Foreground PoW only)。
+      // minePow がタブ隠蔽時の terminate / 復帰時の startNonce 再開を扱う。
+      const miner = minePow({
+        // bundler の静的解析のため new Worker(new URL(...)) はここに直書きする
+        createWorker: () => new Worker(new URL('@/lib/faucet/worker.ts', import.meta.url)),
+        challenge,
+        difficulty: currentDifficulty,
+        autoResume: true,
+        onProgress: (p) => {
+          setProgress({
+            hashRate: p.hashRate,
+            elapsed: p.elapsed,
+            currentNonce: p.nonce,
+          })
+        },
       })
+      minerRef.current = miner
 
-      // Workerから解が返ってくるまで待機
-      const nonce = await noncePromise
-      
-      // Workerを終了
-      worker.terminate()
-      workerRef.current = null
+      // 解が返ってくるまで待機 (worker は minePow 側で terminate 済み)
+      const { nonce } = await miner.promise
+      minerRef.current = null
 
       // 5. トランザクション送信 (unsigned transaction)
       setStatus('submitting')
@@ -253,9 +210,9 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
       // This provides immediate feedback for second claim attempts
       try {
         const alreadyClaimed = await withTimeout(
-          unsafeApi.query.Faucet.Claims.getValue(account),
+          unsafeApi.query.Faucet.FaucetClaims.getValue(account),
           RPC_TIMEOUT_MS,
-          'Faucet.Claims pre-check'
+          'Faucet.FaucetClaims pre-check'
         )
         if (alreadyClaimed) {
           debugLog('[useFaucet] Account already claimed (pre-check)')
@@ -275,7 +232,7 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
       try {
         const finalizedResult = await withTimeout(
           client.submit(hexExtrinsic) as Promise<any>,
-          60_000, // 60秒タイムアウト（Finalizedまで待つため長め）
+          RPC_TIMEOUT_MS, // PoW 30s blocktime + finalization lag があるため長め (60s では不足しタイムアウトすることがあった)
           'client.submit'
         )
         debugLog('[useFaucet] Transaction finalized:', finalizedResult)
@@ -311,13 +268,16 @@ export function useFaucet({ client, unsafeApi, account, signer, onSuccess }: Use
       }, 3000)
 
     } catch (err) {
-      debugError('[useFaucet] Faucet error:', err)
-      
-      // Workerクリーンアップ
-      if (workerRef.current) {
-        workerRef.current.terminate()
-        workerRef.current = null
+      // cancel() による中断は正常系 (cancel 側で idle に戻している)
+      if (err instanceof PowCancelledError) {
+        return
       }
+
+      debugError('[useFaucet] Faucet error:', err)
+
+      // マイナークリーンアップ
+      minerRef.current?.cancel()
+      minerRef.current = null
 
       // エラーメッセージからパレットエラーを抽出
       let errorCode: FaucetError['code'] = 'NetworkError'

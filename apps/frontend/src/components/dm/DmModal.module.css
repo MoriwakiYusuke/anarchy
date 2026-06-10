@@ -399,3 +399,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 新規 DM 宛先のバリデーションエラー */
+.recipientError {
+  color: #f4212e;
+  font-size: 0.8125rem;
+  margin: 0.25rem 0.75rem;
+}

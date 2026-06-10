@@ -1,11 +1,16 @@
 /**
  * WorkerPool - 共有Web Workerプール
- * 
+ *
  * Issue 12修正: PostItemごとに独立Worker生成→共有プール化
- * 
+ *
  * - CPUコア数に基づくプールサイズ
  * - Round-robinタスク配分
  * - 最大8ワーカー制限
+ * - worker crash (onerror) 時: 当該 worker の pending タスクを reject し、
+ *   worker を作り直す (旧実装はログのみで pending が永久に解決されなかった)
+ * - terminate() 時: 全 pending タスクを reject (旧実装は clear のみで
+ *   await 側が永久に固まっていた)
+ * - タスクごとのタイムアウト (デフォルト 120s) で reject + クリーンアップ
  */
 
 export interface WorkerPoolConfig {
@@ -13,6 +18,8 @@ export interface WorkerPoolConfig {
   size?: number;
   /** 最大ワーカー数（デフォルト: 8） */
   maxSize?: number;
+  /** タスクごとのタイムアウト ms（デフォルト: 120_000） */
+  taskTimeoutMs?: number;
 }
 
 export interface WorkerTask {
@@ -31,7 +38,14 @@ export interface WorkerResult {
 interface PendingTask {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
+  /** どの worker に post したか (crash 時に当該 worker のタスクだけ reject する) */
+  workerIndex: number;
+  /** タスクタイムアウト用タイマー */
+  timer: ReturnType<typeof setTimeout> | null;
 }
+
+/** デフォルトのタスクタイムアウト (ms)。 */
+export const DEFAULT_TASK_TIMEOUT_MS = 120_000;
 
 /**
  * 共有Web Workerプール
@@ -43,8 +57,12 @@ export class WorkerPool {
   private idCounter = 0;
   private readyWorkers: Set<number> = new Set();
   private workerReadyPromises: Promise<void>[] = [];
+  private taskTimeoutMs: number;
+  private terminated = false;
 
   constructor(config: WorkerPoolConfig = {}) {
+    this.taskTimeoutMs = config.taskTimeoutMs ?? DEFAULT_TASK_TIMEOUT_MS;
+
     // SSR/SSG環境では初期化しない
     if (typeof window === 'undefined') {
       return;
@@ -56,51 +74,92 @@ export class WorkerPool {
 
     // ワーカーを作成
     for (let i = 0; i < size; i++) {
-      const worker = new Worker(
-        new URL('./crypto.ts', import.meta.url),
-        { type: 'module' }
-      );
-
-      // ready イベント用のPromise
-      const readyPromise = new Promise<void>((resolve) => {
-        const readyHandler = (event: MessageEvent) => {
-          if (event.data.type === 'ready') {
-            this.readyWorkers.add(i);
-            worker.removeEventListener('message', readyHandler);
-            resolve();
-          }
-        };
-        worker.addEventListener('message', readyHandler);
-      });
-      this.workerReadyPromises.push(readyPromise);
-
-      // 通常のメッセージハンドラ
-      worker.onmessage = (event) => {
-        const data = event.data as WorkerResult | { type: string };
-        
-        // ready イベントは上のハンドラで処理済み
-        if ('type' in data && data.type === 'ready') {
-          return;
-        }
-
-        const result = data as WorkerResult;
-        const pending = this.pendingTasks.get(result.id);
-        if (pending) {
-          this.pendingTasks.delete(result.id);
-          if (result.success) {
-            pending.resolve(result.result);
-          } else {
-            pending.reject(new Error(result.error || 'Unknown worker error'));
-          }
-        }
-      };
-
-      worker.onerror = (error) => {
-        console.error(`[WorkerPool] Worker ${i} error:`, error);
-      };
-
-      this.workers.push(worker);
+      this.spawnWorker(i);
     }
+  }
+
+  /**
+   * index 位置に worker を生成しハンドラを張る。
+   * crash 後の作り直し (respawn) にも使う。
+   */
+  private spawnWorker(index: number): void {
+    const worker = new Worker(
+      new URL('./crypto.ts', import.meta.url),
+      { type: 'module' }
+    );
+
+    // ready イベント用のPromise
+    this.readyWorkers.delete(index);
+    const readyPromise = new Promise<void>((resolve) => {
+      const readyHandler = (event: MessageEvent) => {
+        if (event.data.type === 'ready') {
+          this.readyWorkers.add(index);
+          worker.removeEventListener('message', readyHandler);
+          resolve();
+        }
+      };
+      worker.addEventListener('message', readyHandler);
+    });
+    this.workerReadyPromises[index] = readyPromise;
+
+    // 通常のメッセージハンドラ
+    worker.onmessage = (event) => {
+      const data = event.data as WorkerResult | { type: string };
+
+      // ready イベントは上のハンドラで処理済み
+      if ('type' in data && data.type === 'ready') {
+        return;
+      }
+
+      const result = data as WorkerResult;
+      const pending = this.pendingTasks.get(result.id);
+      if (pending) {
+        this.clearPending(result.id, pending);
+        if (result.success) {
+          pending.resolve(result.result);
+        } else {
+          pending.reject(new Error(result.error || 'Unknown worker error'));
+        }
+      }
+    };
+
+    worker.onerror = (error) => {
+      console.error(`[WorkerPool] Worker ${index} error:`, error);
+      // crash した worker に post 済みの pending タスクは永久に応答しないので
+      // ここで reject する。
+      const message = (error as ErrorEvent)?.message || 'Worker crashed';
+      this.rejectTasksForWorker(index, new Error(`[WorkerPool] Worker ${index} crashed: ${message}`));
+      // worker を作り直して pool を回復させる (古いインスタンスは terminate)。
+      if (!this.terminated && this.workers[index] === worker) {
+        try {
+          worker.terminate();
+        } catch {
+          // already dead
+        }
+        this.spawnWorker(index);
+      }
+    };
+
+    this.workers[index] = worker;
+  }
+
+  /** 指定 worker 宛ての pending タスクをすべて reject する。 */
+  private rejectTasksForWorker(workerIndex: number, reason: Error): void {
+    for (const [id, pending] of Array.from(this.pendingTasks.entries())) {
+      if (pending.workerIndex === workerIndex) {
+        this.clearPending(id, pending);
+        pending.reject(reason);
+      }
+    }
+  }
+
+  /** pending エントリとタイムアウトタイマーを破棄する。 */
+  private clearPending(id: string, pending: PendingTask): void {
+    if (pending.timer !== null) {
+      clearTimeout(pending.timer);
+      pending.timer = null;
+    }
+    this.pendingTasks.delete(id);
   }
 
   /**
@@ -135,18 +194,13 @@ export class WorkerPool {
    * Round-robinでワーカーを選択してタスクを実行
    */
   async execute<T = unknown>(type: string, payload: unknown): Promise<T> {
-    if (this.workers.length === 0) {
-      throw new Error('WorkerPool not initialized (no workers available)');
-    }
+    // acquireWorker が空プール時に明示エラーを投げる
+    const workerIndex = this.acquireWorker();
 
     // 全ワーカーが準備完了するまで待機
     await this.waitUntilReady();
 
-    const id = `pool-${++this.idCounter}`;
-    const workerIndex = this.currentWorkerIndex;
-    this.currentWorkerIndex = (this.currentWorkerIndex + 1) % this.workers.length;
-
-    return this.executeOnWorker<T>(workerIndex, type, payload, id);
+    return this.executeOnWorker<T>(workerIndex, type, payload);
   }
 
   /**
@@ -155,8 +209,8 @@ export class WorkerPool {
    * ワーカーローカルキャッシュに依存する操作で使用
    */
   async executeOnWorker<T = unknown>(
-    workerIndex: number, 
-    type: string, 
+    workerIndex: number,
+    type: string,
     payload: unknown,
     id?: string
   ): Promise<T> {
@@ -173,9 +227,24 @@ export class WorkerPool {
     const taskId = id ?? `pool-${++this.idCounter}`;
 
     return new Promise<T>((resolve, reject) => {
+      // タスクタイムアウト: worker が応答しないまま放置されるのを防ぐ
+      const timer = this.taskTimeoutMs > 0
+        ? setTimeout(() => {
+            const pending = this.pendingTasks.get(taskId);
+            if (pending) {
+              this.clearPending(taskId, pending);
+              pending.reject(new Error(
+                `[WorkerPool] Task ${taskId} (${type}) timed out after ${this.taskTimeoutMs}ms`,
+              ));
+            }
+          }, this.taskTimeoutMs)
+        : null;
+
       this.pendingTasks.set(taskId, {
         resolve: resolve as (value: unknown) => void,
         reject,
+        workerIndex,
+        timer,
       });
 
       this.workers[workerIndex].postMessage({
@@ -191,21 +260,32 @@ export class WorkerPool {
    * 後続の操作で同じワーカーを使用するため
    */
   acquireWorker(): number {
+    if (this.workers.length === 0) {
+      // 旧実装は length 0 のとき NaN index (0 % 0) を返していた
+      throw new Error('WorkerPool not initialized (no workers available)');
+    }
     const index = this.currentWorkerIndex;
     this.currentWorkerIndex = (this.currentWorkerIndex + 1) % this.workers.length;
     return index;
   }
 
   /**
-   * 全ワーカーを終了
+   * 全ワーカーを終了。pending タスクはすべて reject される。
    */
   terminate(): void {
+    this.terminated = true;
     for (const worker of this.workers) {
       worker.terminate();
     }
     this.workers = [];
+    // 旧実装は clear のみで await 側が永久に解決されなかった
+    for (const [id, pending] of Array.from(this.pendingTasks.entries())) {
+      this.clearPending(id, pending);
+      pending.reject(new Error('[WorkerPool] terminated'));
+    }
     this.pendingTasks.clear();
     this.readyWorkers.clear();
+    this.workerReadyPromises = [];
     this.currentWorkerIndex = 0;
   }
 }

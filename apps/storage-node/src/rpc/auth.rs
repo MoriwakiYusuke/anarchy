@@ -25,8 +25,9 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use schnorrkel::{PublicKey, Signature, signing_context};
 
-/// Maximum request body size for auth hashing (2GB to accommodate base64-encoded 1GB fragments)
-const MAX_AUTH_BODY_SIZE: usize = 2 * 1024 * 1024 * 1024;
+/// auth ハッシュ計算でバッファするボディの上限。
+/// ルータの DefaultBodyLimit (rpc::MAX_BODY_SIZE) と一致させる。
+const MAX_AUTH_BODY_SIZE: usize = crate::rpc::MAX_BODY_SIZE;
 
 /// Signature validity period (5 minutes)
 pub const SIGNATURE_VALIDITY_SECS: u64 = 300;

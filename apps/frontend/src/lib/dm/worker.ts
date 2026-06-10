@@ -127,7 +127,16 @@ export function startDmScanLoop(options: DmScanLoopOptions): DmScanLoopHandle {
 
   const schedule = (): void => {
     if (stopped) return;
+    // 既存の pending タイマーを必ず破棄してから張り直す。
+    // これが無いと、visibilitychange ハンドラが「scheduled な runOnce が実行中」
+    // のタイミングで発火した場合に、元のチェーンの `.then(schedule)` とハンドラ側の
+    // schedule の **2 本の setTimeout チェーンが永久に併走** し、RPC 負荷が倍増する。
+    if (pending) {
+      timer.clearTimeout(pending);
+      pending = null;
+    }
     pending = timer.setTimeout(async () => {
+      pending = null;
       await runOnce();
       schedule();
     }, currentIntervalMs());

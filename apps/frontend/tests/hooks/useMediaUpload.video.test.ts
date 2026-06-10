@@ -100,6 +100,17 @@ jest.mock('@/workers/WorkerPool', () => {
             .join('')
           return { root, rootHex, leafCount: r.leaf_count }
         }
+        if (type === 'merkle_generate_proof') {
+          // 実装は merkle_build と同一 worker のキャッシュから proof を生成する。
+          // mock では直前の merkle_build 戻り値の generate_proof を呼ぶ。
+          const { merkle_build } = jest.requireMock('anarchy-wasm-engine') as {
+            merkle_build: jest.Mock
+          }
+          const results = merkle_build.mock.results
+          const last: any = results[results.length - 1]?.value
+          if (!last) throw new Error('merkle_build must be called before merkle_generate_proof')
+          return new Uint8Array(last.generate_proof(payload.index))
+        }
         throw new Error(`Unknown worker type in test mock: ${type}`)
       }),
       acquireWorker: jest.fn(() => 0),

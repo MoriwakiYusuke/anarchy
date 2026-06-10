@@ -96,6 +96,15 @@ impl pallet_reaction::pallet::TotalIssuanceProvider for MockTotalIssuance {
     }
 }
 
+frame_support::parameter_types! {
+    /// Tests: デフォルト 0 → reactor lock 不要 (旧挙動)。
+    /// lock 系テストでは `TestReactorLockMin::set(..)` で上書きする。
+    pub static TestReactorLockMin: u128 = 0;
+    /// Tests: デフォルト 0 → 即時 unlock 可能。
+    /// lock 系テストでは `TestReactorLockDuration::set(..)` で上書きする。
+    pub static TestReactorLockDuration: u64 = 0;
+}
+
 impl pallet_reaction::Config for Test {
     type NativeToken = Balances;
     type ReservableCurrency = Balances;
@@ -114,9 +123,8 @@ impl pallet_reaction::Config for Test {
     type GammaMaxPpm = ConstU32<0>;
     type ReactorDecayK = ConstU32<0>;
     type PerBlockPayoutCapPpm = ConstU32<0>;
-    /// Tests: lock 0 → reactor lock 不要 (旧挙動)
-    type ReactorLockMin = ConstU128<0>;
-    type ReactorLockDuration = ConstU64<0>;
+    type ReactorLockMin = TestReactorLockMin;
+    type ReactorLockDuration = TestReactorLockDuration;
 }
 
 fn new_test_ext() -> sp_io::TestExternalities {
@@ -230,13 +238,13 @@ fn test_react_rejects_duplicate() {
         frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xAB));
         
         let reactor = 1u64;
-        let post_id = 100u64;
+        let post_id = 1u64; // MockPostAuthorProvider に存在する post
         let block_number = 1u64;
         let block_hash = frame_system::BlockHash::<Test>::get(block_number);
         let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
-        
+
         let nonce = find_valid_nonce(reactor, block_hash, difficulty);
-        
+
         // First reaction should succeed
         assert_ok!(Reaction::react(
             RuntimeOrigin::signed(reactor),
@@ -277,9 +285,9 @@ fn test_react_rejects_invalid_pow() {
         frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xAB));
         
         let reactor = 1u64;
-        let post_id = 100u64;
+        let post_id = 1u64; // MockPostAuthorProvider に存在する post
         let block_number = 1u64;
-        
+
         // Use difficulty 64 bits (impossible to pass with any nonce)
         // This ensures the test is deterministic
         pallet_reaction::CurrentDifficulty::<Test>::put(64u8);
@@ -310,11 +318,11 @@ fn test_react_updates_stats() {
         System::set_block_number(1);
         frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xAB));
         
-        let post_id = 100u64;
+        let post_id = 1u64; // MockPostAuthorProvider に存在する post
         let block_number = 1u64;
         let block_hash = frame_system::BlockHash::<Test>::get(block_number);
         let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
-        
+
         // React with Like (reactor 1)
         let nonce1 = find_valid_nonce(1u64, block_hash, difficulty);
         assert_ok!(Reaction::react(
@@ -391,36 +399,44 @@ fn test_react_pays_reward() {
 }
 
 // =============================================================================
-// T023: react() skips reward for Bad reactions and non-existent posts
+// T023 (改): react() rejects non-existent posts with PostNotFound
 // =============================================================================
 #[test]
-fn test_react_skips_reward_when_pool_empty() {
+fn test_react_rejects_nonexistent_post() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
         frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xAB));
-        
-        // Post ID 100 does not exist in MockPostAuthorProvider
+
+        // Post ID 100 は MockPostAuthorProvider に存在しない
         let reactor = 1u64;
-        let post_id = 100u64;  // No author for this post
+        let post_id = 100u64;
         let block_number = 1u64;
         let block_hash = frame_system::BlockHash::<Test>::get(block_number);
         let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
-        
+
         let nonce = find_valid_nonce(reactor, block_hash, difficulty);
-        
-        // Reaction should still succeed even without author
-        assert_ok!(Reaction::react(
-            RuntimeOrigin::signed(reactor),
-            post_id,
-            pallet_reaction::ReactionType::Like,
-            block_number,
-            nonce,
-            1000,
-            None,
-        ));
-        
-        // Reaction should be recorded
-        assert!(pallet_reaction::Reactions::<Test>::contains_key(post_id, reactor));
+
+        // 存在しない post への反応は PostNotFound で拒否される (state も書かれない)
+        assert_noop!(
+            Reaction::react(
+                RuntimeOrigin::signed(reactor),
+                post_id,
+                pallet_reaction::ReactionType::Like,
+                block_number,
+                nonce,
+                1000,
+                None,
+            ),
+            pallet_reaction::Error::<Test>::PostNotFound
+        );
+
+        // Reaction / stats / history どこにも書き込まれていないこと
+        assert!(!pallet_reaction::Reactions::<Test>::contains_key(post_id, reactor));
+        let stats = pallet_reaction::ReactionStatsStorage::<Test>::get(post_id);
+        assert_eq!(stats.likes, 0);
+        assert_eq!(stats.bads, 0);
+        assert_eq!(pallet_reaction::ReactionHistory::<Test>::get(1u64), 0);
+        assert_eq!(pallet_reaction::TotalReactions::<Test>::get(), 0);
     });
 }
 
@@ -531,7 +547,7 @@ fn test_react_rejects_expired_challenge() {
         frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xAB));
         
         let reactor = 1u64;
-        let post_id = 100u64;
+        let post_id = 1u64; // MockPostAuthorProvider に存在する post
         let old_block_number = 1u64;
         let block_hash = frame_system::BlockHash::<Test>::get(old_block_number);
         let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
@@ -568,7 +584,7 @@ fn test_react_with_stealth_recipient() {
         
         let reactor = 1u64;
         let stealth_recipient = 99u64; // Different account
-        let post_id = 100u64;
+        let post_id = 1u64; // MockPostAuthorProvider に存在する post
         let block_number = 1u64;
         let block_hash = frame_system::BlockHash::<Test>::get(block_number);
         let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
@@ -611,7 +627,7 @@ fn test_react_without_stealth_recipient() {
         frame_system::BlockHash::<Test>::insert(1, H256::repeat_byte(0xCD));
         
         let reactor = 2u64;
-        let post_id = 200u64;
+        let post_id = 2u64; // MockPostAuthorProvider に存在する post (author 200)
         let block_number = 1u64;
         let block_hash = frame_system::BlockHash::<Test>::get(block_number);
         let difficulty = pallet_reaction::CurrentDifficulty::<Test>::get();
@@ -675,6 +691,154 @@ fn compute_reward_returns_zero_when_pool_empty_in_fallback() {
     new_test_ext().execute_with(|| {
         let r = Reaction::compute_reward(0, 0, 0);
         assert_eq!(r, 0);
+    });
+}
+
+// ─── TSTS P5: lock_for_rewards / unlock_reactor tests ───────────────────────────
+
+use frame_support::traits::Currency as _;
+
+/// Helper: account に free balance を付与する
+fn fund(who: u64, amount: u128) {
+    let _ = Balances::deposit_creating(&who, amount);
+}
+
+#[test]
+fn lock_for_rewards_reserves_balance() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        TestReactorLockMin::set(1_000_000_000_000); // 1 MORAL
+        TestReactorLockDuration::set(10);
+
+        let who = 1u64;
+        fund(who, 5_000_000_000_000);
+
+        assert_ok!(Reaction::lock_for_rewards(
+            RuntimeOrigin::signed(who),
+            2_000_000_000_000,
+        ));
+
+        // reserve が実際に行われている
+        assert_eq!(Balances::reserved_balance(who), 2_000_000_000_000);
+        // ReactorLocks に記録され、unlock_at = 1 + 10
+        let lock = pallet_reaction::ReactorLocks::<Test>::get(who).expect("lock should exist");
+        assert_eq!(lock.amount, 2_000_000_000_000);
+        assert_eq!(lock.unlock_at, 11);
+        assert_eq!(pallet_reaction::ReactorLocksCount::<Test>::get(), 1);
+    });
+}
+
+#[test]
+fn lock_for_rewards_rejects_below_minimum() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        TestReactorLockMin::set(1_000_000_000_000); // 1 MORAL
+
+        let who = 1u64;
+        fund(who, 5_000_000_000_000);
+
+        assert_noop!(
+            Reaction::lock_for_rewards(RuntimeOrigin::signed(who), 999_999_999_999),
+            pallet_reaction::Error::<Test>::InsufficientReactorLock
+        );
+    });
+}
+
+#[test]
+fn lock_for_rewards_rejects_double_lock() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        TestReactorLockMin::set(1_000_000_000_000);
+        TestReactorLockDuration::set(10);
+
+        let who = 1u64;
+        fund(who, 10_000_000_000_000);
+
+        assert_ok!(Reaction::lock_for_rewards(
+            RuntimeOrigin::signed(who),
+            1_000_000_000_000,
+        ));
+        // 既存 lock がある間は再 lock 不可 (重ねがけ禁止)
+        assert_noop!(
+            Reaction::lock_for_rewards(RuntimeOrigin::signed(who), 1_000_000_000_000),
+            pallet_reaction::Error::<Test>::ReactorLockAlreadyHeld
+        );
+    });
+}
+
+#[test]
+fn lock_for_rewards_rejects_insufficient_balance() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        TestReactorLockMin::set(1_000_000_000_000);
+
+        let who = 1u64;
+        fund(who, 500_000_000_000); // lock 額より少ない
+
+        assert_noop!(
+            Reaction::lock_for_rewards(RuntimeOrigin::signed(who), 1_000_000_000_000),
+            pallet_reaction::Error::<Test>::InsufficientBalance
+        );
+    });
+}
+
+#[test]
+fn unlock_reactor_rejects_before_unlock_at() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        TestReactorLockMin::set(1_000_000_000_000);
+        TestReactorLockDuration::set(10);
+
+        let who = 1u64;
+        fund(who, 5_000_000_000_000);
+
+        assert_ok!(Reaction::lock_for_rewards(
+            RuntimeOrigin::signed(who),
+            1_000_000_000_000,
+        ));
+
+        // unlock_at = 11 だが block 5 では未到達 → ReactorLockStillActive
+        System::set_block_number(5);
+        assert_noop!(
+            Reaction::unlock_reactor(RuntimeOrigin::signed(who)),
+            pallet_reaction::Error::<Test>::ReactorLockStillActive
+        );
+    });
+}
+
+#[test]
+fn unlock_reactor_succeeds_after_duration_and_unreserves() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        TestReactorLockMin::set(1_000_000_000_000);
+        TestReactorLockDuration::set(10);
+
+        let who = 1u64;
+        fund(who, 5_000_000_000_000);
+
+        assert_ok!(Reaction::lock_for_rewards(
+            RuntimeOrigin::signed(who),
+            2_000_000_000_000,
+        ));
+        assert_eq!(Balances::reserved_balance(who), 2_000_000_000_000);
+
+        // unlock_at (= 11) 到達後は unlock 成功し、reserve が解放される
+        System::set_block_number(11);
+        assert_ok!(Reaction::unlock_reactor(RuntimeOrigin::signed(who)));
+        assert_eq!(Balances::reserved_balance(who), 0);
+        assert!(pallet_reaction::ReactorLocks::<Test>::get(who).is_none());
+        assert_eq!(pallet_reaction::ReactorLocksCount::<Test>::get(), 0);
+    });
+}
+
+#[test]
+fn unlock_reactor_rejects_without_lock() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        assert_noop!(
+            Reaction::unlock_reactor(RuntimeOrigin::signed(1)),
+            pallet_reaction::Error::<Test>::ReactorLockNotFound
+        );
     });
 }
 

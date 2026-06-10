@@ -363,3 +363,24 @@
   background: #c62828;
   transform: scale(1.05);
 }
+/* フェッチ失敗時のエラー表示 + 再試行ボタン */
+.error {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #f4212e;
+}
+
+.retryButton {
+  margin-top: 0.75rem;
+  padding: 0.5rem 1.25rem;
+  border: 1px solid #f4212e;
+  border-radius: 9999px;
+  background: transparent;
+  color: #f4212e;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.retryButton:hover {
+  background: rgba(244, 33, 46, 0.1);
+}

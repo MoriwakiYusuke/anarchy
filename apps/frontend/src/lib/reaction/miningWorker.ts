@@ -14,7 +14,8 @@ export interface MineRequest {
   type: 'start'
   challenge: Uint8Array
   difficulty: number
-  startNonce?: string // BigInt as string
+  // string (旧プロトコル) と bigint (structured clone) の両方を受理する。
+  startNonce?: string | bigint
 }
 
 export interface MineProgress {

@@ -93,7 +93,7 @@ clap = { version = "4.4", features = ["derive"] }
 
 # HTTP JSON-RPC server
 axum = "0.8"
-tower = "0.5"
+tower = { version = "0.5", features = ["limit"] }
 tower-http = { version = "0.6", features = ["cors"] }
 
 # HTTP client for blockchain node registration

@@ -12,24 +12,13 @@ import type { PolkadotSigner } from 'polkadot-api'
 import type { TransferState, TransferStatus, ValidationResult } from '@/types/transfer'
 import { parseMoralAmount, ONE_MORAL } from '@/types/transfer'
 import { validateSS58Address, isSelfTransfer } from '@/lib/addressValidation'
+import { withTimeout, TimeoutError } from '@/lib/withTimeout'
 
 /** Timeout for RPC calls in milliseconds.
  *  PoW 移行で block time が 30s に伸びたため、signAndSubmit (finalize 待ち) は
  *  最低 1 ブロック + GRANDPA finalize で 60s 超える。余裕を見て 240s に設定。
  */
 const RPC_TIMEOUT_MS = 240_000
-
-/**
- * Wrap a promise with timeout
- */
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout: ${message}`)), ms)
-    )
-  ])
-}
 
 export interface UseTransferOptions {
   /** PAPI client instance */
@@ -295,7 +284,9 @@ export function useTransfer({
         errorKey = 'error.amountExceedsBalance'
       } else if (errorMessage.includes('ExistentialDeposit')) {
         errorKey = 'error.existentialDeposit'
-      } else if (errorMessage.includes('Timeout')) {
+      } else if (err instanceof TimeoutError || errorMessage.includes('Timeout')) {
+        // タイムアウト = 失敗確定ではなく「結果不明」。tx はチェーン上で
+        // 成立している可能性がある (TimeoutError のメッセージにも明記)。
         errorKey = 'error.networkTimeout'
       }
 
