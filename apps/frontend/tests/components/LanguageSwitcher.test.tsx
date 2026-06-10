@@ -7,7 +7,10 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-// These will be implemented
+// jest.setup.ts は `@/i18n` をグローバルモックしている (availableLocales: [] の
+// スタブ) が、このスイートは実際の locale 切替動作を検証するため実物を使う。
+jest.unmock('@/i18n');
+
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { LocaleProvider } from '@/i18n';
 import type { Locale } from '@/i18n/types';

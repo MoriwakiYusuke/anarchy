@@ -6,6 +6,7 @@
  */
 
 import { create } from 'zustand';
+import { blake2bHex } from 'blakejs';
 import type { AccountId, ConversationState, DmMessageRecord } from './types';
 
 interface DmStoreState {
@@ -17,7 +18,7 @@ interface DmStoreState {
   /** FR-016c: 受信者が read receipt 送信を抑止する設定 (ローカルのみ)。 */
   receiptOptOut: boolean;
 
-  /** 送信済み receipt を identify するキー集合 ("counterparty|messageId|kind")。
+  /** 送信済み receipt を identify するキー集合 (receiptKey() が返す blake2b ハッシュ)。
    *  T078: 同じ受信メッセージに対して receipt を重複送信しないための idempotent guard。 */
   sentReceipts: Set<string>;
 
@@ -133,20 +134,26 @@ const advanceDeliveryState = (
 // DM the user has *ever* received. Real users would be billed dozens of
 // MORAL on each refresh.
 //
-// Why localStorage and not IndexedDB: the value is "counterparty|messageId|kind"
-// which contains no plaintext / no key material — only public bookkeeping.
-// localStorage is synchronous and survives reloads which is what we need.
+// Why localStorage and not IndexedDB: the value is receiptKey() の blake2b
+// ハッシュのみ (counterparty 等の平文メタデータは含まない) — only opaque
+// bookkeeping. localStorage is synchronous and survives reloads which is what
+// we need.
 // Per CLAUDE.md compatibility policy, no migration: bumping STORAGE_VERSION
 // silently drops the old set on read.
 // =============================================================================
 
-const SENT_RECEIPTS_KEY = 'anarchy:dm:sentReceipts:v1';
+// v2: 値を平文 "counterparty|messageId|kind" から blake2b ハッシュに変更。
+// v1 の平文エントリは DM 相手の social graph をディスクに残すため、読み込み時に削除する。
+const SENT_RECEIPTS_KEY = 'anarchy:dm:sentReceipts:v2';
+const LEGACY_SENT_RECEIPTS_KEY = 'anarchy:dm:sentReceipts:v1';
 
 function loadSentReceipts(): Set<string> {
   if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) {
     return new Set<string>();
   }
   try {
+    // 平文の v1 データはプライバシーリークなので無条件に破棄する (migration はしない)。
+    globalThis.localStorage.removeItem(LEGACY_SENT_RECEIPTS_KEY);
     const raw = globalThis.localStorage.getItem(SENT_RECEIPTS_KEY);
     if (!raw) return new Set<string>();
     const parsed = JSON.parse(raw);
@@ -279,15 +286,27 @@ export const useDmStore = create<DmStoreState>((set) => ({
   },
 }));
 
+/** receiptKey のドメイン分離プレフィクス (他用途の blake2b ハッシュと衝突させない)。 */
+const RECEIPT_KEY_DOMAIN = 'anarchy:dm:receipt:';
+
 /**
  * T078: incoming message に対して送った receipt を identify するキー。
- *  "counterparty|messageId|kind" 形式。store.sentReceipts に蓄積して idempotent
- *  にする (ConversationView の再マウント / worker の scan リトライで再送しない)。
+ *  store.sentReceipts に蓄積して idempotent にする (ConversationView の再マウント /
+ *  worker の scan リトライで再送しない)。
+ *
+ *  プライバシー: sentReceipts は localStorage に永続化されるため、平文の
+ *  "counterparty|messageId|kind" をそのまま使うとディスクアクセスだけで DM の
+ *  social graph が読める。照合は等値判定だけで足りるので、ドメインプレフィクス
+ *  付きで blake2b ハッシュ化した不透明な値を返す (16 byte = 32 hex chars)。
  */
 export function receiptKey(
   counterparty: AccountId,
   messageId: bigint,
   kind: 'delivered' | 'read',
 ): string {
-  return `${counterparty}|${messageId.toString()}|${kind}`;
+  return blake2bHex(
+    `${RECEIPT_KEY_DOMAIN}${counterparty}|${messageId.toString()}|${kind}`,
+    undefined,
+    16,
+  );
 }

@@ -45,14 +45,15 @@ describe('StealthSendForm validation', () => {
     it('should reject empty string', () => {
       const result = validateMetaAddress('');
       expect(result.valid).toBe(false);
-      expect(result.error).toBe('メタアドレスを入力してください');
+      // validateMetaAddress は i18n キーを返し、表示側 (StealthSendForm) が t() で翻訳する
+      expect(result.error).toBe('stealth.sendForm.error.metaAddressRequired');
     });
 
     it('should reject invalid prefix', () => {
       const invalidAddr = 'invalid:' + '0'.repeat(64) + ':' + '1'.repeat(64);
       const result = validateMetaAddress(invalidAddr);
       expect(result.valid).toBe(false);
-      expect(result.error).toContain('st:anarchy:');
+      expect(result.error).toBe('stealth.sendForm.error.metaAddressPrefix');
     });
 
     it('should reject malformed addresses', () => {

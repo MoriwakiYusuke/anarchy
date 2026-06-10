@@ -88,7 +88,8 @@ describe('useFaucet Hook', () => {
     query: {
       Faucet: {
         TotalClaims: { getValue: jest.fn().mockResolvedValue(BigInt(0)) },
-        Claims: { getValue: jest.fn().mockResolvedValue(null) }, // Not claimed by default
+        // pallet-faucet の storage item 名は FaucetClaims (apps/blockchain/pallets/faucet)
+        FaucetClaims: { getValue: jest.fn().mockResolvedValue(null) }, // Not claimed by default
       },
       System: {
         Number: { getValue: jest.fn().mockResolvedValue(100) },
@@ -231,7 +232,7 @@ describe('useFaucet Hook', () => {
           ...mockUnsafeApi.query,
           Faucet: {
             ...mockUnsafeApi.query.Faucet,
-            Claims: { 
+            FaucetClaims: {
               getValue: jest.fn().mockImplementation(() => {
                 // First call (pre-check): not claimed
                 // Second call (verification): claimed
@@ -361,7 +362,7 @@ describe('useFaucet Hook', () => {
           ...mockUnsafeApi.query,
           Faucet: {
             ...mockUnsafeApi.query.Faucet,
-            Claims: { getValue: jest.fn().mockResolvedValue(100) }, // Already claimed
+            FaucetClaims: { getValue: jest.fn().mockResolvedValue(100) }, // Already claimed
           },
         },
       }
