@@ -810,6 +810,14 @@ pub type SignedExtra = (
     // スパム対策は $moral の投稿コストで実施
 );
 
+/// Runtime API のストレージマップ走査キャップ (DoS 対策)
+///
+/// `get_at_risk_fragments` / `get_fragments_with_excess_holders` 等は
+/// 未認証の公開 RPC (`storage_*`) から到達可能なため、状態量に比例する
+/// 全走査 (O(state) remote DoS) を防ぐ。`check_forgetting_candidates` の
+/// 1000 件キャップと同じ境界値を採用。
+const MAX_RPC_SCAN_ENTRIES: usize = 1000;
+
 // Runtime APIs実装
 impl_runtime_apis! {
     impl sp_api::Core<Block> for Runtime {
@@ -1127,7 +1135,12 @@ impl_runtime_apis! {
         // ============ Self-Repair APIs (013-slashing-repair T027-T028) ============
         
         fn get_at_risk_fragments() -> Vec<pallet_storage::ContentHash> {
+            // DoS 対策: 未認証の公開 RPC から到達可能なため、ストレージマップ全走査を
+            // 禁止する (check_forgetting_candidates の 1000 件キャップと同パターン)。
+            // 走査自体を MAX_RPC_SCAN_ENTRIES で打ち切る (出力だけの take では
+            // ヒットが少ない場合に全走査になり O(state) のまま)。
             pallet_storage::FragmentStates::<Runtime>::iter()
+                .take(MAX_RPC_SCAN_ENTRIES)
                 .filter(|(_, state)| state.kind == pallet_storage::pallet::FragmentStateKind::AtRisk)
                 .map(|(content_hash, _)| content_hash)
                 .collect()
@@ -1156,6 +1169,10 @@ impl_runtime_apis! {
         }
         
         // T057: Get eviction candidates for a fragment
+        //
+        // DoS 境界: compute_eviction_candidates は単一 KzgFragment の holders
+        // (BoundedVec<_, ConstU32<16>>) のみ走査するため、最大 16 エントリで
+        // 自然に有界。全マップ走査は発生しない (追加キャップ不要)。
         fn get_eviction_candidates(content_hash: pallet_storage::ContentHash) -> Vec<pallet_storage::EvictionCandidateRpc> {
             use sp_runtime::SaturatedConversion;
             
@@ -1176,7 +1193,9 @@ impl_runtime_apis! {
         
         // T058: Get fragments with excess holders
         fn get_fragments_with_excess_holders() -> Vec<pallet_storage::ContentHash> {
+            // DoS 対策: get_at_risk_fragments と同様に走査数をキャップする
             pallet_storage::KzgFragments::<Runtime>::iter()
+                .take(MAX_RPC_SCAN_ENTRIES)
                 .filter(|(_, fragment)| {
                     fragment.holders.len() as u8 > fragment.fragment_count
                 })

@@ -274,6 +274,31 @@ pub fn new_full(
     let enable_grandpa = !config.disable_grandpa;
     let prometheus_registry = config.prometheus_registry().cloned();
 
+    // エンドポイント URL 検証ポリシー (SSRF 対策, finding #1)
+    //
+    // dev-mode 判定: チェーンスペックの ChainType が Development (`--dev`) または
+    // Local (`--chain local`) のときのみ loopback / RFC1918 を許可する。
+    // dev 環境では storage-node が 127.0.0.1:3030-3034 で動くため必須。
+    // 自ノードの RPC listen ポート宛 URL は常に拒否 (RPC ループバック SSRF 防止)。
+    let endpoint_policy = {
+        use sc_service::ChainType;
+        let allow_private = matches!(
+            config.chain_spec.chain_type(),
+            ChainType::Development | ChainType::Local
+        );
+        let own_rpc_ports: Vec<u16> = config
+            .rpc
+            .addr
+            .as_ref()
+            .map(|endpoints| endpoints.iter().map(|e| e.listen_addr.port()).collect())
+            .unwrap_or_else(|| vec![config.rpc.port]);
+        info!(
+            "Storage endpoint policy: allow_private={}, own_rpc_ports={:?}",
+            allow_private, own_rpc_ports
+        );
+        crate::rpc::EndpointPolicy { allow_private, own_rpc_ports }
+    };
+
     let rpc_extensions_builder = {
         let client = client.clone();
         let pool = transaction_pool.clone();
@@ -285,6 +310,7 @@ pub fn new_full(
         let (gossip_service, gossip_handle) = crate::gossip::StorageNodeGossip::new_with_handle(
             storage_nodes.clone(),
             storage_notification_service,
+            endpoint_policy.clone(),
         );
         task_manager.spawn_handle().spawn(
             "storage-nodes-gossip",
@@ -337,6 +363,7 @@ pub fn new_full(
                 storage_nodes: storage_nodes.clone(),
                 gossip_handle: gossip_handle.clone(),
                 chain_keypair: Some(chain_keypair.clone()),
+                endpoint_policy: endpoint_policy.clone(),
             };
             crate::rpc::create_full(deps).map_err(Into::into)
         })

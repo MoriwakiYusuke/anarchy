@@ -12,8 +12,10 @@ use sc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::{Error as BlockchainError, HeaderBackend, HeaderMetadata};
 
+pub mod endpoint_policy;
 pub mod storage;
 
+pub use endpoint_policy::EndpointPolicy;
 pub use storage::{StorageApiServer, Storage, RegisteredStorageNode};
 
 /// Storage Nodeの共有状態（マルチノード対応）
@@ -44,6 +46,12 @@ pub const DEFAULT_MAX_REGISTRY_SIZE: usize = 10_000;
 /// honest restarts always succeed but a single key can't churn the registry.
 pub const MIN_REREGISTER_INTERVAL_SECS: u64 = 30;
 
+/// (finding #3) `last_register_per_operator` のハードキャップ。
+/// オペレーター鍵は自由に生成できるため、無制限に成長すると
+/// メモリ枯渇 DoS になる。窓 (MIN_REREGISTER_INTERVAL_SECS) より古い
+/// エントリの prune に加え、この上限を超えたら最古エントリを退去する。
+pub const MAX_RATE_LIMIT_ENTRIES: usize = 10_000;
+
 impl StorageNodeRegistry {
     /// 新しいレジストリを作成
     pub fn new() -> Self {
@@ -67,17 +75,40 @@ impl StorageNodeRegistry {
     /// (#28-CRIT-3) Returns Err if the operator registered within the last
     /// `MIN_REREGISTER_INTERVAL_SECS` seconds. On success, records `now` as the
     /// new last-register time for the operator.
+    ///
+    /// (finding #3) 挿入のたびに rate-limit 窓より古いエントリを prune し、
+    /// さらに `MAX_RATE_LIMIT_ENTRIES` を超える場合は最古エントリを退去する。
+    /// これにより、使い捨てオペレーター鍵による無制限なメモリ増加を防ぐ。
     pub fn check_and_record_operator_rate(
         &mut self,
         operator: [u8; 32],
         now: u64,
     ) -> Result<(), u64> {
+        // 窓より古いエントリは rate limit に影響しないため捨てる
+        self.last_register_per_operator
+            .retain(|_, &mut last| now.saturating_sub(last) < MIN_REREGISTER_INTERVAL_SECS);
+
         if let Some(&last) = self.last_register_per_operator.get(&operator) {
             let elapsed = now.saturating_sub(last);
             if elapsed < MIN_REREGISTER_INTERVAL_SECS {
                 return Err(MIN_REREGISTER_INTERVAL_SECS - elapsed);
             }
         }
+
+        // prune 後もキャップ超過なら最古エントリを退去 (nodes Vec の LRU と同パターン)
+        while self.last_register_per_operator.len() >= MAX_RATE_LIMIT_ENTRIES {
+            if let Some(oldest_key) = self
+                .last_register_per_operator
+                .iter()
+                .min_by_key(|(_, &ts)| ts)
+                .map(|(k, _)| *k)
+            {
+                self.last_register_per_operator.remove(&oldest_key);
+            } else {
+                break;
+            }
+        }
+
         self.last_register_per_operator.insert(operator, now);
         Ok(())
     }
@@ -174,6 +205,8 @@ pub struct FullDeps<C, P> {
     pub gossip_handle: crate::gossip::StorageNodeGossipHandle,
     /// チェーンノードSr25519キーペア (X-Chain-Auth署名用, Optionで互換性維持)
     pub chain_keypair: Option<storage::SharedChainKeyPair>,
+    /// エンドポイント URL 検証ポリシー (SSRF 対策, finding #1)
+    pub endpoint_policy: EndpointPolicy,
 }
 
 /// フルRPC拡張をインスタンス化
@@ -195,7 +228,7 @@ where
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
     let mut module = RpcModule::new(());
-    let FullDeps { client, pool, storage_nodes, gossip_handle, chain_keypair } = deps;
+    let FullDeps { client, pool, storage_nodes, gossip_handle, chain_keypair, endpoint_policy } = deps;
 
     module.merge(System::new(client.clone(), pool).into_rpc())?;
     module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
@@ -204,8 +237,8 @@ where
     // Storage Nodeは起動時に自動登録される (storage_registerEndpoint RPC)
     // マルチノード対応：複数ノードを登録し、断片を分散配置
     let storage_rpc = match chain_keypair {
-        Some(kp) => Storage::new_with_chain_auth(client, storage_nodes, gossip_handle, kp),
-        None => Storage::new(client, storage_nodes, gossip_handle),
+        Some(kp) => Storage::new_with_chain_auth(client, storage_nodes, gossip_handle, kp, endpoint_policy),
+        None => Storage::new(client, storage_nodes, gossip_handle, endpoint_policy),
     };
     module.merge(storage_rpc.into_rpc())?;
 
@@ -232,6 +265,7 @@ mod tests {
                 is_online: true,
                 last_health_check: 1000 + i as u64,
                 latency_ms: None,
+                registration_proof: None,
             };
             assert!(registry.register(node), "Node {} should register", i);
         }
@@ -245,6 +279,7 @@ mod tests {
             is_online: true,
             last_health_check: 2000,
             latency_ms: None,
+            registration_proof: None,
         };
         assert!(registry.register(new_node));
 
@@ -282,6 +317,7 @@ mod tests {
             is_online: true,
             last_health_check: 1000,
             latency_ms: None,
+            registration_proof: None,
         };
 
         // First registration should succeed
@@ -292,6 +328,42 @@ mod tests {
         
         // Still only one node
         assert_eq!(registry.nodes.len(), 1);
+    }
+
+    /// (finding #3) rate-limit map が無制限に成長しないことを検証
+    #[test]
+    fn test_rate_limit_map_bounded() {
+        let mut registry = StorageNodeRegistry::new();
+        let now = 1_000_000u64;
+
+        // 窓内に大量の異なるオペレーターを登録してもハードキャップを超えない
+        for i in 0..(MAX_RATE_LIMIT_ENTRIES + 500) {
+            let mut op = [0u8; 32];
+            op[..8].copy_from_slice(&(i as u64).to_le_bytes());
+            // 全て同一時刻 (= 窓内) で登録
+            let _ = registry.check_and_record_operator_rate(op, now);
+        }
+        assert!(
+            registry.last_register_per_operator.len() <= MAX_RATE_LIMIT_ENTRIES,
+            "rate-limit map must be capped: {} > {}",
+            registry.last_register_per_operator.len(),
+            MAX_RATE_LIMIT_ENTRIES
+        );
+
+        // 窓より古いエントリは次の挿入時に prune される
+        let later = now + MIN_REREGISTER_INTERVAL_SECS + 1;
+        let _ = registry.check_and_record_operator_rate([0xAA; 32], later);
+        assert_eq!(
+            registry.last_register_per_operator.len(),
+            1,
+            "stale entries should be pruned on insert"
+        );
+
+        // rate limit 自体は引き続き機能する
+        assert!(registry.check_and_record_operator_rate([0xAA; 32], later + 1).is_err());
+        assert!(registry
+            .check_and_record_operator_rate([0xAA; 32], later + MIN_REREGISTER_INTERVAL_SECS)
+            .is_ok());
     }
 
     /// Test default max size
