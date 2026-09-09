@@ -15,6 +15,7 @@ pub struct ConfigOverrides {
     pub listen_addr: Option<String>,
     pub rpc_port: Option<u16>,
     pub auth_enabled: Option<bool>,
+    pub public_url: Option<String>,
 }
 
 /// Storage node configuration
@@ -72,6 +73,16 @@ pub struct Config {
     /// on operators who care about silent corruption.
     #[serde(default = "default_verify_on_read")]
     pub verify_on_read: bool,
+
+    /// 他ホストのチェーンノードに広告する外部到達可能な URL。
+    /// 未設定なら `http://127.0.0.1:{rpc_port}` にフォールバックする。
+    ///
+    /// チェーンノードは登録された URL に対して直接 fan-out するため、
+    /// 別ホストのチェーンから使われる構成では loopback ではなく
+    /// 到達可能なアドレスを広告する必要がある。
+    /// 例: `http://<onion>:3030` / `https://s1.example.com:3030`
+    #[serde(default)]
+    pub public_url: Option<String>,
 }
 
 fn default_data_dir() -> String {
@@ -140,6 +151,7 @@ impl Default for Config {
             // signer_seed is REQUIRED - must be set via config file
             signer_seed: String::new(),
             verify_on_read: default_verify_on_read(),
+            public_url: None,
         }
     }
 }
@@ -169,24 +181,42 @@ impl Config {
             anyhow::bail!("signer_seed must be exactly 64 hex characters (32 bytes)");
         }
 
-        // Apply CLI overrides
-        if let Some(data_dir) = overrides.data_dir {
-            config.data_dir = data_dir;
-        }
-        if let Some(chain_url) = overrides.chain_url {
-            config.chain_url = chain_url;
-        }
-        if let Some(listen_addr) = overrides.listen_addr {
-            config.listen_addr = listen_addr;
-        }
-        if let Some(rpc_port) = overrides.rpc_port {
-            config.rpc_port = rpc_port;
-        }
-        if let Some(auth_enabled) = overrides.auth_enabled {
-            config.auth_enabled = auth_enabled;
-        }
+        config.apply_overrides(overrides);
 
         Ok(config)
+    }
+
+    /// CLI 由来の override を適用する。設定ファイルより CLI が優先される。
+    pub fn apply_overrides(&mut self, overrides: ConfigOverrides) {
+        if let Some(data_dir) = overrides.data_dir {
+            self.data_dir = data_dir;
+        }
+        if let Some(chain_url) = overrides.chain_url {
+            self.chain_url = chain_url;
+        }
+        if let Some(listen_addr) = overrides.listen_addr {
+            self.listen_addr = listen_addr;
+        }
+        if let Some(rpc_port) = overrides.rpc_port {
+            self.rpc_port = rpc_port;
+        }
+        if let Some(auth_enabled) = overrides.auth_enabled {
+            self.auth_enabled = auth_enabled;
+        }
+        if let Some(public_url) = overrides.public_url {
+            self.public_url = Some(public_url);
+        }
+    }
+
+    /// チェーンノードへの登録時に広告する URL を解決する。
+    ///
+    /// `public_url` が未設定の場合のみ loopback にフォールバックする。
+    /// 単一ホスト構成ではこれで足りるが、別ホストのチェーンノードから
+    /// fan-out される構成では `--public-url` の指定が必須になる。
+    pub fn advertised_url(&self) -> String {
+        self.public_url
+            .clone()
+            .unwrap_or_else(|| format!("http://127.0.0.1:{}", self.rpc_port))
     }
 }
 
@@ -225,5 +255,32 @@ mod tests {
         assert_eq!(config.rpc_port, 4040);
         assert!(!config.auth_enabled);
         assert_eq!(config.signer_seed.len(), 64);
+    }
+
+    #[test]
+    fn advertised_url_defaults_to_loopback() {
+        let mut config = Config::default();
+        config.rpc_port = 3030;
+        config.public_url = None;
+        assert_eq!(config.advertised_url(), "http://127.0.0.1:3030");
+    }
+
+    #[test]
+    fn advertised_url_uses_public_url_when_set() {
+        let mut config = Config::default();
+        config.rpc_port = 3030;
+        config.public_url = Some("http://abc123.onion:3030".to_string());
+        assert_eq!(config.advertised_url(), "http://abc123.onion:3030");
+    }
+
+    #[test]
+    fn public_url_override_wins_over_config_file() {
+        let mut config = Config::default();
+        config.public_url = Some("http://from-file.onion:3030".to_string());
+        config.apply_overrides(ConfigOverrides {
+            public_url: Some("http://from-cli.onion:3030".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(config.advertised_url(), "http://from-cli.onion:3030");
     }
 }

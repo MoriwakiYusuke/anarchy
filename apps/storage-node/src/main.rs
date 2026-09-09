@@ -34,6 +34,12 @@ pub struct Args {
     /// HTTP RPC port (overrides config)
     #[arg(long)]
     pub rpc_port: Option<u16>,
+
+    /// 外部に広告する URL (overrides config)。
+    /// 別ホストのチェーンノードから到達できるアドレスを指定する。
+    /// 例: --public-url http://<onion>:3030
+    #[arg(long)]
+    pub public_url: Option<String>,
 }
 
 #[tokio::main]
@@ -68,6 +74,7 @@ async fn main() -> anyhow::Result<()> {
         data_dir: args.data_dir.clone(),
         chain_url: args.chain_url.clone(),
         listen_addr: args.listen.clone(),
+        public_url: args.public_url.clone(),
         rpc_port: args.rpc_port,
         auth_enabled: None,
     };
@@ -169,7 +176,10 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Register with blockchain node (auto-connection)
-    let our_rpc_url = format!("http://127.0.0.1:{}", config.rpc_port);
+    // 他ホストのチェーンノードも同じ URL で直接 fan-out するため、
+    // loopback ではなく外部到達可能なアドレスを広告する必要がある。
+    let our_rpc_url = config.advertised_url();
+    info!(url = %our_rpc_url, "Registering with blockchain node");
     match chain_client.register_with_blockchain(&our_rpc_url).await {
         Ok(()) => info!("Registered with blockchain node"),
         Err(e) => {
