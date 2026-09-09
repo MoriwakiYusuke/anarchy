@@ -171,6 +171,7 @@ dependencies = [
  "substrate-frame-rpc-system",
  "substrate-prometheus-endpoint",
  "tokio",
+ "url",
 ]
 
 [[package]]

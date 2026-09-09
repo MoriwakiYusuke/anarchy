@@ -120,6 +120,12 @@ export function MessageComposer({
       s.addOutgoing,
   );
 
+  // phase-1 で upload 済みのファイルの DmMediaRef キャッシュ (PendingFile.id → ref)。
+  // sendDm (extrinsic) が失敗して retry した際に、成功済みの添付を再 fragment /
+  // 再 upload (= 再課金) しないため。ファイルを削除したら invalidate し、
+  // 送信成功時に全クリアする (id は添付ごとに一意なので追加分は自然に miss する)。
+  const uploadedMediaRef = useRef<Map<string, DmMediaRef>>(new Map());
+
   // unmount 時の blob URL revoke。`useEffect([])` 直接 closure だと
   // 初期 files (空配列) を捕捉してしまい、後から追加した preview がリークする。
   // ref を経由して常に最新の files を見るようにする。
@@ -153,6 +159,9 @@ export function MessageComposer({
   }, []);
 
   const removeFile = useCallback((id: string) => {
+    // 添付リストが変わったらキャッシュも invalidate (再 retry 時に外したファイル
+    // の upload 結果を envelope に混入させない)。
+    uploadedMediaRef.current.delete(id);
     setFiles((prev) => {
       const target = prev.find((f) => f.id === id);
       if (target?.preview) URL.revokeObjectURL(target.preview);
@@ -171,6 +180,13 @@ export function MessageComposer({
         try {
           for (let i = 0; i < files.length; i += 1) {
             const f = files[i];
+            // 前回の試行 (sendDm 失敗 → retry) で upload 済みならスキップして
+            // 再アップロード課金を避ける。
+            const cached = uploadedMediaRef.current.get(f.id);
+            if (cached) {
+              media.push(cached);
+              continue;
+            }
             setState({
               kind: 'attaching',
               fileIndex: i + 1,
@@ -205,6 +221,7 @@ export function MessageComposer({
                 },
               },
             );
+            uploadedMediaRef.current.set(f.id, ref);
             media.push(ref);
           }
         } catch (err) {
@@ -246,6 +263,7 @@ export function MessageComposer({
           if (f.preview) URL.revokeObjectURL(f.preview);
         }
         setFiles([]);
+        uploadedMediaRef.current.clear();
         onSent?.();
       } catch (err) {
         setState({ kind: 'error', banner: classifyError(err) });

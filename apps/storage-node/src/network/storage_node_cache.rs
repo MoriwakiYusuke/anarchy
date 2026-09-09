@@ -9,7 +9,6 @@
 //! removal during garbage collection.
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -21,55 +20,67 @@ const MAX_URL_LEN: usize = 256;
 /// (#31-H-5) Validate an incoming gossip URL before it is cached / health-checked.
 ///
 /// Rejects:
-/// - Non-http(s) schemes
+/// - Schemes not in `allowed_schemes`
 /// - URLs longer than [`MAX_URL_LEN`]
 /// - Malformed URLs (`url::Url::parse` failure)
 /// - URLs whose host is missing, an IP literal in a private / loopback /
 ///   link-local range, the literal `localhost`, or an mDNS `*.local` name
 ///
-/// This is a server-side fetch target (see `health_check`), so the
-/// rejection list mirrors classic SSRF defences. Public hostnames /
-/// public IPv4 / global IPv6 are allowed.
-fn validate_endpoint_url(url: &str) -> Result<(), &'static str> {
+/// This is a server-side fetch target (see `health_check`, and the
+/// blockchain endpoint failover path), so the rejection list mirrors
+/// classic SSRF defences. Public hostnames / public IPv4 / global IPv6
+/// are allowed.
+///
+/// `EndpointCache` (blockchain endpoints, ws/wss) からも再利用するため
+/// スキーム集合をパラメータ化している。
+pub(crate) fn validate_gossip_url(url: &str, allowed_schemes: &[&str]) -> Result<(), &'static str> {
     if url.len() > MAX_URL_LEN {
         return Err("URL too long");
     }
     let parsed = url::Url::parse(url).map_err(|_| "URL parse failed")?;
-    match parsed.scheme() {
-        "http" | "https" => {}
-        _ => return Err("scheme must be http or https"),
+    if !allowed_schemes.contains(&parsed.scheme()) {
+        return Err("URL scheme not allowed");
     }
-    let host = parsed.host_str().ok_or("URL has no host")?;
-    if host.eq_ignore_ascii_case("localhost") || host.to_ascii_lowercase().ends_with(".local") {
-        return Err("host is localhost or .local");
-    }
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        match ip {
-            IpAddr::V4(v4) => {
-                if v4.is_loopback() || v4.is_private() || v4.is_link_local()
-                    || v4.is_broadcast() || v4.is_unspecified() || v4.is_multicast()
-                {
-                    return Err("IPv4 address is private/loopback/link-local");
-                }
+    // NOTE: `host_str()` は IPv6 リテラルをブラケット付き ("[::1]") で返すため
+    // `parse::<IpAddr>()` が失敗して IP チェックをすり抜けていた。
+    // `host()` の Host enum で分岐して確実に IP 判定する。
+    match parsed.host().ok_or("URL has no host")? {
+        url::Host::Domain(domain) => {
+            if domain.eq_ignore_ascii_case("localhost")
+                || domain.to_ascii_lowercase().ends_with(".local")
+            {
+                return Err("host is localhost or .local");
             }
-            IpAddr::V6(v6) => {
-                if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
-                    return Err("IPv6 address is loopback/unspecified/multicast");
-                }
-                // Reject ULA (fc00::/7). Stable IpAddr doesn't expose
-                // is_unique_local on stable, so detect manually.
-                let segs = v6.segments();
-                if (segs[0] & 0xfe00) == 0xfc00 {
-                    return Err("IPv6 ULA (fc00::/7) rejected");
-                }
-                // Reject link-local fe80::/10
-                if (segs[0] & 0xffc0) == 0xfe80 {
-                    return Err("IPv6 link-local rejected");
-                }
+        }
+        url::Host::Ipv4(v4) => {
+            if v4.is_loopback() || v4.is_private() || v4.is_link_local()
+                || v4.is_broadcast() || v4.is_unspecified() || v4.is_multicast()
+            {
+                return Err("IPv4 address is private/loopback/link-local");
+            }
+        }
+        url::Host::Ipv6(v6) => {
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
+                return Err("IPv6 address is loopback/unspecified/multicast");
+            }
+            // Reject ULA (fc00::/7). Stable IpAddr doesn't expose
+            // is_unique_local on stable, so detect manually.
+            let segs = v6.segments();
+            if (segs[0] & 0xfe00) == 0xfc00 {
+                return Err("IPv6 ULA (fc00::/7) rejected");
+            }
+            // Reject link-local fe80::/10
+            if (segs[0] & 0xffc0) == 0xfe80 {
+                return Err("IPv6 link-local rejected");
             }
         }
     }
     Ok(())
+}
+
+/// (#31-H-5) Storage node HTTP endpoint 用のバリデーション (http/https のみ)。
+fn validate_endpoint_url(url: &str) -> Result<(), &'static str> {
+    validate_gossip_url(url, &["http", "https"])
 }
 
 /// Default TTL for cached storage node endpoints (5 minutes)
@@ -412,9 +423,30 @@ mod tests {
             latency_ms: 0,
             ttl_secs: 300,
         };
-        
+
         assert!(!cache.insert(invalid).await);
         assert_eq!(cache.len().await, 0);
+    }
+
+    /// IPv6 リテラルはブラケット付き host 表記でも確実に拒否されること
+    /// （host_str() 経由の旧実装はブラケットで IP 判定をすり抜けていた）。
+    #[tokio::test]
+    async fn test_cache_rejects_ipv6_loopback_and_private() {
+        let cache = StorageNodeCache::new();
+        for url in [
+            "http://[::1]:3030",          // IPv6 loopback
+            "http://[fe80::1]:3030",      // IPv6 link-local
+            "http://[fc00::1]:3030",      // IPv6 ULA
+            "http://127.0.0.1:3030",      // IPv4 loopback
+            "http://192.168.0.5:3030",    // IPv4 private
+        ] {
+            assert!(
+                !cache.insert(make_test_endpoint(url)).await,
+                "should reject {}",
+                url
+            );
+        }
+        assert!(cache.is_empty().await);
     }
     
     #[tokio::test]

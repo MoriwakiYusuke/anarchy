@@ -11,13 +11,17 @@ use std::sync::Arc;
 use crate::network::endpoint_cache::EndpointCache;
 
 /// Helper to create ChainClient with default failover/cache for testing
+///
+/// NOTE: 接続先は意図的に「確実に閉じているポート」(port 1) を使う。
+/// 以前は ws://127.0.0.1:9944 だったが、開発マシンで dev チェーンが
+/// 動いていると実 extrinsic を提出してしまいテストが非決定的になる。
 async fn create_test_client(rate_limit: u32) -> ChainClient {
     let failover_manager = Arc::new(FailoverManager::new());
     let endpoint_cache = Arc::new(EndpointCache::new([0u8; 32]));
     // Use Alice's dev seed for testing
     let alice_seed = "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
     ChainClient::new(
-        "ws://127.0.0.1:9944",
+        "ws://127.0.0.1:1",
         rate_limit,
         alice_seed,
         failover_manager,
@@ -54,57 +58,73 @@ async fn test_rate_limiter_remaining() {
 #[tokio::test]
 async fn test_chain_client_creation() {
     let client = create_test_client(10).await;
-    assert_eq!(client.endpoint, "ws://127.0.0.1:9944");
+    assert_eq!(client.endpoint, "ws://127.0.0.1:1");
 }
 
 #[tokio::test]
 async fn test_declare_holding_rate_limited() {
     let client = create_test_client(2).await;
     let fragment_id = [1u8; 32];
-    
-    // First two should succeed
-    client.declare_holding(fragment_id).await.unwrap();
-    client.declare_holding(fragment_id).await.unwrap();
-    
-    // Third should fail
-    let result = client.declare_holding(fragment_id).await;
-    assert!(result.is_err());
+
+    // チェーンには接続できないので最初の2回は接続エラーで失敗するが、
+    // レート枠は消費される（rate limit チェックは提出前）
+    let e1 = client.declare_holding(fragment_id).await.unwrap_err();
+    assert!(!e1.to_string().contains("Rate limit"), "1st call should fail with connection error, got: {}", e1);
+    let e2 = client.declare_holding(fragment_id).await.unwrap_err();
+    assert!(!e2.to_string().contains("Rate limit"), "2nd call should fail with connection error, got: {}", e2);
+
+    // 3回目はレート制限で弾かれる
+    let e3 = client.declare_holding(fragment_id).await.unwrap_err();
+    assert!(e3.to_string().contains("Rate limit"), "3rd call should be rate limited, got: {}", e3);
 }
 
 // === T055: Unit test for declare_holding subxt call ===
-// These tests verify the subxt integration works correctly.
-// Note: Tests marked as "stub_" will pass with current stub implementation,
-// but will need to be extended when real subxt integration is added.
+// declare_holding / declare_holding_for_post / revoke_holding は実際に
+// `Storage::declare_holding` / `Storage::revoke_holding` extrinsic を
+// subxt 経由で提出する。テスト環境にチェーンはいないため、提出は
+// 接続エラーで失敗する（以前のスタブのように成功を装わない）。
 
 mod declare_holding_subxt {
     use super::*;
 
+    /// Test: declare_holding はチェーン未接続時に明示的に失敗する
+    /// （旧スタブは Ok を返して成功を装っていた）
+    #[tokio::test]
+    async fn test_declare_holding_fails_without_chain() {
+        let client = create_test_client(10).await;
+        let fragment_hash = [42u8; 32];
+
+        let result = client.declare_holding(fragment_hash).await;
+        assert!(result.is_err(), "declare_holding must not fake success without a chain");
+        assert!(!result.unwrap_err().to_string().contains("Rate limit"));
+    }
+
+    /// Test: revoke_holding も同様に失敗を伝播する
+    #[tokio::test]
+    async fn test_revoke_holding_fails_without_chain() {
+        let client = create_test_client(10).await;
+        let result = client.revoke_holding([42u8; 32]).await;
+        assert!(result.is_err(), "revoke_holding must not fake success without a chain");
+    }
+
     /// Test: declare_holding_post_fragment - declare holding by post_id and index
-    /// This is the new API for Post Storage Migration.
+    /// チェーン未接続時は提出エラーになるが、hash の整合性検証として残す。
     #[tokio::test]
     async fn test_declare_holding_post_fragment() {
         let client = create_test_client(10).await;
-        
+
         let post_id: u64 = 12345;
         let index: u32 = 0;
         let fragment_data = b"Test fragment data".to_vec();
-        
+
         // Compute the Blake2b hash of the fragment data
         let hash = compute_blake2b_hash(&fragment_data);
-        
-        // Declare holding using the hash
-        let result = client.declare_holding_for_post(post_id, index, hash).await;
-        assert!(result.is_ok(), "declare_holding_for_post should succeed");
-    }
 
-    /// Test: declare_holding returns success (stub behavior)
-    #[tokio::test]
-    async fn test_stub_declare_holding_success() {
-        let client = create_test_client(10).await;
-        let fragment_hash = [42u8; 32];
-        
-        let result = client.declare_holding(fragment_hash).await;
-        assert!(result.is_ok(), "Stub should return success");
+        // チェーンがいないので提出は失敗する（成功を装ってはならない）
+        let result = client.declare_holding_for_post(post_id, index, hash).await;
+        assert!(result.is_err(), "must not fake success without a chain");
+        // それでもローカルの追跡 map には記録される
+        assert_eq!(client.get_holding_info(&hash).await, Some((post_id, index)));
     }
 
     /// Test: Rate limiting for declare_holding_for_post
@@ -112,11 +132,13 @@ mod declare_holding_subxt {
     async fn test_declare_holding_post_rate_limited() {
         let client = create_test_client(2).await;
         let hash = [1u8; 32];
-        
-        // First two should succeed
-        assert!(client.declare_holding_for_post(1, 0, hash).await.is_ok());
-        assert!(client.declare_holding_for_post(1, 1, hash).await.is_ok());
-        
+
+        // 最初の2回は接続エラー（レート枠は消費される）
+        let e1 = client.declare_holding_for_post(1, 0, hash).await.unwrap_err();
+        assert!(!e1.to_string().contains("Rate limit"));
+        let e2 = client.declare_holding_for_post(1, 1, hash).await.unwrap_err();
+        assert!(!e2.to_string().contains("Rate limit"));
+
         // Third should fail due to rate limit
         let result = client.declare_holding_for_post(1, 2, hash).await;
         assert!(result.is_err(), "Should fail due to rate limit");
@@ -124,22 +146,23 @@ mod declare_holding_subxt {
     }
 
     /// Test: declare_holding with transaction tracking
-    /// Verifies that the method tracks post_id and index for later retrieval.
+    /// Verifies that the method tracks post_id and index for later retrieval,
+    /// even when the extrinsic submission itself fails (no chain).
     #[tokio::test]
     async fn test_declare_holding_tracks_post_info() {
         let client = create_test_client(10).await;
-        
+
         let post_id: u64 = 999;
         let index: u32 = 3;
         let hash = [0xAA; 32];
-        
-        // Declare holding
-        client.declare_holding_for_post(post_id, index, hash).await.unwrap();
-        
+
+        // 提出はチェーン不在で失敗するが、追跡は提出前に行われる
+        let _ = client.declare_holding_for_post(post_id, index, hash).await;
+
         // Should be able to look up the mapping
         let stored_info = client.get_holding_info(&hash).await;
         assert!(stored_info.is_some(), "Should store post info for hash");
-        
+
         let (stored_post_id, stored_index) = stored_info.unwrap();
         assert_eq!(stored_post_id, post_id);
         assert_eq!(stored_index, index);
@@ -150,13 +173,13 @@ mod declare_holding_subxt {
     async fn test_declare_holdings_same_post_multiple_fragments() {
         let client = create_test_client(10).await;
         let post_id: u64 = 42;
-        
-        // Declare holdings for 5 fragments (n=5)
+
+        // Declare holdings for 5 fragments (n=5) — 提出は失敗するが追跡される
         for index in 0..5u32 {
             let hash = [index as u8; 32]; // Different hash for each
-            client.declare_holding_for_post(post_id, index, hash).await.unwrap();
+            let _ = client.declare_holding_for_post(post_id, index, hash).await;
         }
-        
+
         // All should be tracked
         for index in 0..5u32 {
             let hash = [index as u8; 32];

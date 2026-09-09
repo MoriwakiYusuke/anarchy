@@ -5,8 +5,12 @@
  */
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
+// StealthBalanceList は `@/i18n/context` を直接 import するため、実物の
+// LocaleProvider で包む必要がある (tests/test-utils.tsx 参照)。日本語文言を
+// assert しているので locale は既定の 'ja'。
+import { renderWithLocale as render } from '../../test-utils';
 import StealthBalanceList from '@/components/stealth/StealthBalanceList';
 import type { DetectedStealthBalance, ScanProgress } from '@/lib/stealth/types';
 

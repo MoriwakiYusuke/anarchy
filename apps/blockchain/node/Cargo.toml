@@ -63,7 +63,9 @@ pallet-transaction-payment-rpc = { workspace = true }
 
 # HTTP client for Storage Node communication
 reqwest = { version = "0.11", features = ["json"] }
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net"] }
+# Endpoint URL validation (SSRF 対策, reqwest 経由で既に依存ツリーに存在)
+url = "2"
 
 # Concurrency primitives
 parking_lot = "0.12"

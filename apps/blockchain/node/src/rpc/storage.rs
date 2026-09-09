@@ -257,6 +257,22 @@ pub struct NodeInfo {
     pub registered_at: u64,
 }
 
+/// オペレーター署名による登録証明 (finding #2)
+///
+/// RPC 経路 (`registerEndpoint`) で検証した署名一式を保持し、
+/// gossip (NodeRegistered / SyncResponse) で他チェーンノードに中継する。
+/// 受信側は RPC 経路と同一の検証
+/// (`register_endpoint:{url}:{timestamp}` への sr25519 署名) を行う。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RegistrationProof {
+    /// オペレーター sr25519 公開鍵 (32バイト)
+    pub operator: [u8; 32],
+    /// 署名時の Unix タイムスタンプ（秒）
+    pub timestamp: u64,
+    /// sr25519 署名 (64バイト)。署名対象: "register_endpoint:{url}:{timestamp}"
+    pub signature: Vec<u8>,
+}
+
 /// 登録されたStorage Node情報
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegisteredStorageNode {
@@ -272,6 +288,8 @@ pub struct RegisteredStorageNode {
     pub last_health_check: u64,
     /// レイテンシ（ミリ秒）- 最寄りノード選択用 (FR-104)
     pub latency_ms: Option<u64>,
+    /// オペレーター署名による登録証明 (gossip 中継時の再検証に使用, finding #2)
+    pub registration_proof: Option<RegistrationProof>,
 }
 
 impl RegisteredStorageNode {
@@ -288,8 +306,29 @@ impl RegisteredStorageNode {
             is_online: true,
             last_health_check: now,
             latency_ms: None,
+            registration_proof: None,
         }
     }
+}
+
+/// エンドポイント登録署名を検証 (RPC / gossip 共通, finding #2)
+///
+/// 署名対象メッセージ: `"register_endpoint:{url}:{timestamp}"`
+pub fn verify_registration_signature(
+    url: &str,
+    operator: &[u8; 32],
+    timestamp: u64,
+    signature: &[u8],
+) -> bool {
+    use sp_core::Pair;
+    let signature_bytes: [u8; 64] = match signature.try_into() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let message = format!("register_endpoint:{}:{}", url, timestamp);
+    let public_key = sr25519::Public::from_raw(*operator);
+    let signature = sr25519::Signature::from_raw(signature_bytes);
+    sr25519::Pair::verify(&signature, message.as_bytes(), &public_key)
 }
 
 // ============ Self-Repair Protocol Response Types (013-slashing-repair T063) ============
@@ -713,6 +752,8 @@ pub struct Storage<C> {
     gossip_handle: crate::gossip::StorageNodeGossipHandle,
     /// チェーンノードSr25519キーペア（X-Chain-Auth用）
     chain_keypair: Option<SharedChainKeyPair>,
+    /// エンドポイント URL 検証ポリシー (SSRF 対策, finding #1)
+    endpoint_policy: crate::rpc::EndpointPolicy,
 }
 
 impl<C> Storage<C>
@@ -723,12 +764,18 @@ where
     /// 新しいStorage RPCハンドラを作成
     /// Storage Nodeは起動時にstorage_registerEndpoint RPCで自動登録される
     /// 複数ノードが登録可能で、断片は分散配置される
-    pub fn new(client: Arc<C>, storage_nodes: SharedStorageNodes, gossip_handle: crate::gossip::StorageNodeGossipHandle) -> Self {
-        Self { 
-            client, 
+    pub fn new(
+        client: Arc<C>,
+        storage_nodes: SharedStorageNodes,
+        gossip_handle: crate::gossip::StorageNodeGossipHandle,
+        endpoint_policy: crate::rpc::EndpointPolicy,
+    ) -> Self {
+        Self {
+            client,
             storage_nodes,
             gossip_handle,
             chain_keypair: None,
+            endpoint_policy,
         }
     }
 
@@ -738,24 +785,41 @@ where
         storage_nodes: SharedStorageNodes,
         gossip_handle: crate::gossip::StorageNodeGossipHandle,
         chain_keypair: SharedChainKeyPair,
+        endpoint_policy: crate::rpc::EndpointPolicy,
     ) -> Self {
-        Self { 
-            client, 
+        Self {
+            client,
             storage_nodes,
             gossip_handle,
             chain_keypair: Some(chain_keypair),
+            endpoint_policy,
         }
     }
-    
+
     /// オンチェーン登録されたストレージノードのHTTP URLリストを取得
+    ///
+    /// (finding #1) オンチェーン URL も fan-out レジストリに入るため、
+    /// 登録経路と同じ URL ポリシー (同期版) でフィルタする。
+    /// extrinsic は誰でも投げられるので、オンチェーン由来であっても
+    /// メタデータ IP / 自 RPC ポート等への SSRF を許してはならない。
     fn get_on_chain_storage_nodes(&self) -> Vec<String> {
         let best_hash = self.client.info().best_hash;
         let api = self.client.runtime_api();
-        
+
         match api.get_all_storage_nodes(best_hash) {
             Ok(nodes) => nodes
                 .into_iter()
                 .filter_map(|n| String::from_utf8(n.http_url).ok())
+                .filter(|url| match self.endpoint_policy.validate_url_sync(url) {
+                    Ok(_) => true,
+                    Err(e) => {
+                        log::warn!(
+                            "Skipping on-chain storage node URL '{}' (policy violation): {}",
+                            url, e
+                        );
+                        false
+                    }
+                })
                 .collect(),
             Err(e) => {
                 log::warn!("Failed to fetch on-chain storage nodes: {:?}", e);
@@ -828,7 +892,62 @@ where
     }
 }
 
-/// MerkleProofを検証（Blake2b-256ベース）
+/// Merkle ツリーのドメイン分離プレフィックス（リーフ）
+///
+/// wasm-engine (`packages/wasm-engine/src/merkle.rs`) と完全に同一のスキーム:
+/// - リーフ:     `blake2b256(0x00 || leaf_data)`
+/// - 内部ノード: `blake2b256(0x01 || left || right)`
+///
+/// 内部ノードの `left || right` (64バイト) を偽リーフとして提示する
+/// second-preimage 攻撃 (proof forgery) を防ぐ。
+const MERKLE_LEAF_PREFIX: u8 = 0x00;
+/// Merkle ツリーのドメイン分離プレフィックス（内部ノード）
+const MERKLE_NODE_PREFIX: u8 = 0x01;
+
+/// Blake2b-256 Hasher for rs_merkle（ドメイン分離付き）
+#[derive(Clone)]
+struct MerkleBlake2bHasher;
+
+impl MerkleBlake2bHasher {
+    /// リーフハッシュ: `blake2b256(0x00 || data)`
+    fn hash_leaf(data: &[u8]) -> [u8; 32] {
+        use blake2::{Blake2b, Digest};
+        let mut hasher = Blake2b::<blake2::digest::consts::U32>::new();
+        hasher.update([MERKLE_LEAF_PREFIX]);
+        hasher.update(data);
+        hasher.finalize().into()
+    }
+}
+
+impl rs_merkle::Hasher for MerkleBlake2bHasher {
+    type Hash = [u8; 32];
+
+    /// 生の Blake2b-256。ツリー計算では使用されない
+    /// （`concat_and_hash` を override しているため）。
+    fn hash(data: &[u8]) -> Self::Hash {
+        blake2b_hash(data)
+    }
+
+    /// 内部ノード: `blake2b256(0x01 || left || right)`
+    ///
+    /// 右ノードが無い場合は left をそのまま伝播する
+    /// （rs_merkle デフォルトと同じ propagation 規則）。
+    fn concat_and_hash(left: &Self::Hash, right: Option<&Self::Hash>) -> Self::Hash {
+        use blake2::{Blake2b, Digest};
+        match right {
+            Some(right_node) => {
+                let mut hasher = Blake2b::<blake2::digest::consts::U32>::new();
+                hasher.update([MERKLE_NODE_PREFIX]);
+                hasher.update(left);
+                hasher.update(right_node);
+                hasher.finalize().into()
+            }
+            None => *left,
+        }
+    }
+}
+
+/// MerkleProofを検証（Blake2b-256ベース、ドメイン分離付き）
 fn verify_merkle_proof(
     root: &[u8; 32],
     proof_bytes: &[u8],
@@ -836,27 +955,13 @@ fn verify_merkle_proof(
     leaf_index: usize,
     total_leaves: usize,
 ) -> Result<bool, String> {
-    use blake2::{Blake2b, Digest};
-    use rs_merkle::{Hasher, MerkleProof};
+    use rs_merkle::MerkleProof;
 
-    /// Blake2b-256 Hasher
-    #[derive(Clone)]
-    struct Blake2bHasher;
-
-    impl Hasher for Blake2bHasher {
-        type Hash = [u8; 32];
-
-        fn hash(data: &[u8]) -> Self::Hash {
-            let mut hasher = Blake2b::<blake2::digest::consts::U32>::new();
-            hasher.update(data);
-            hasher.finalize().into()
-        }
-    }
-
-    let proof = MerkleProof::<Blake2bHasher>::from_bytes(proof_bytes)
+    let proof = MerkleProof::<MerkleBlake2bHasher>::from_bytes(proof_bytes)
         .map_err(|e| format!("Invalid proof format: {:?}", e))?;
 
-    let leaf_hash = Blake2bHasher::hash(leaf_data);
+    // リーフはドメイン分離付きハッシュ (0x00 prefix) を使う
+    let leaf_hash = MerkleBlake2bHasher::hash_leaf(leaf_data);
 
     Ok(proof.verify(*root, &[leaf_index], &[leaf_hash], total_leaves))
 }
@@ -952,15 +1057,14 @@ where
     C::Api: PostRuntimeApi<Block> + StorageRuntimeApi<Block>,
 {
     async fn register_endpoint(&self, request: SignedEndpointRegistration) -> RpcResult<bool> {
-        use sp_core::{sr25519, Pair};
-        
         let url = &request.url;
-        
-        // 1. URL基本検証
-        if !url.starts_with("http://") && !url.starts_with("https://") {
+
+        // 1. URL検証 (同期部: スキーム / リテラルIP / 自RPCポート — SSRF 対策, finding #1)
+        // DNS 解決を伴う検証は署名検証の後に行う (未署名リクエストによる DNS 負荷防止)
+        if let Err(e) = self.endpoint_policy.validate_url_sync(url) {
             return Err(ErrorObject::owned(
                 ErrorCode::InvalidParams.code(),
-                "Invalid URL: must start with http:// or https://",
+                format!("Invalid URL: {}", e),
                 None::<()>,
             ));
         }
@@ -1014,21 +1118,26 @@ where
                 None::<()>,
             ))?;
 
-        let message = format!("register_endpoint:{}:{}", url, request.timestamp);
-        let public_key = sr25519::Public::from_raw(operator_bytes);
-        let signature = sr25519::Signature::from_raw(signature_bytes);
-        
-        if !sr25519::Pair::verify(&signature, message.as_bytes(), &public_key) {
+        if !verify_registration_signature(url, &operator_bytes, request.timestamp, &signature_bytes) {
             return Err(ErrorObject::owned(
                 ErrorCode::InvalidParams.code(),
                 "Invalid signature: verification failed",
                 None::<()>,
             ));
         }
-        
+
         log::debug!("Signature verified for operator: 0x{}", request.operator);
 
-        // 5. ノードをレジストリに追加
+        // 5. URL検証 (非同期部: ドメイン名の DNS 解決先 IP 検査 — SSRF 対策, finding #1)
+        if let Err(e) = self.endpoint_policy.validate_url(url).await {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                format!("Invalid URL: {}", e),
+                None::<()>,
+            ));
+        }
+
+        // 6. ノードをレジストリに追加
         // 注: オンチェーン登録確認は削除。署名検証で十分（正当なsigner_seedを持つものしか登録できない）
         let mut registry = self.storage_nodes.write().await;
 
@@ -1044,16 +1153,24 @@ where
             ));
         }
 
-        let node = RegisteredStorageNode::new(url.clone());
+        // (finding #2) gossip 中継先でも同一検証ができるよう、検証済み署名一式を保持する
+        let proof = RegistrationProof {
+            operator: operator_bytes,
+            timestamp: request.timestamp,
+            signature: signature_bytes.to_vec(),
+        };
+
+        let mut node = RegisteredStorageNode::new(url.clone());
+        node.registration_proof = Some(proof.clone());
         let registered_at = node.registered_at;
         let latency_ms = node.latency_ms;
-        
+
         if registry.register(node) {
             log::info!("Storage Node registered: {} (total: {} nodes)", url, registry.nodes.len());
-            
-            // Gossipで他チェーンノードにブロードキャスト
-            self.gossip_handle.broadcast_registration(url.clone(), registered_at, latency_ms);
-            
+
+            // Gossipで他チェーンノードにブロードキャスト (署名付き, finding #2)
+            self.gossip_handle.broadcast_registration(url.clone(), registered_at, latency_ms, proof);
+
             Ok(true)
         } else {
             log::info!("Storage Node already registered: {}", url);
@@ -1687,21 +1804,7 @@ mod tests {
     // T023: storage_uploadFragment RPCテスト
     #[test]
     fn test_merkle_proof_verification() {
-        use blake2::{Blake2b, Digest};
-        use rs_merkle::{Hasher, MerkleTree};
-
-        #[derive(Clone)]
-        struct Blake2bHasher;
-
-        impl Hasher for Blake2bHasher {
-            type Hash = [u8; 32];
-
-            fn hash(data: &[u8]) -> Self::Hash {
-                let mut hasher = Blake2b::<blake2::digest::consts::U32>::new();
-                hasher.update(data);
-                hasher.finalize().into()
-            }
-        }
+        use rs_merkle::MerkleTree;
 
         // テストデータ
         let fragments: Vec<&[u8]> = vec![
@@ -1712,9 +1815,12 @@ mod tests {
             b"fragment4",
         ];
 
-        // MerkleTree構築
-        let leaves: Vec<[u8; 32]> = fragments.iter().map(|f| Blake2bHasher::hash(f)).collect();
-        let tree = MerkleTree::<Blake2bHasher>::from_leaves(&leaves);
+        // MerkleTree構築（リーフはドメイン分離付きハッシュ）
+        let leaves: Vec<[u8; 32]> = fragments
+            .iter()
+            .map(|f| MerkleBlake2bHasher::hash_leaf(f))
+            .collect();
+        let tree = MerkleTree::<MerkleBlake2bHasher>::from_leaves(&leaves);
         let root = tree.root().unwrap();
 
         // インデックス2のProof生成
@@ -1735,6 +1841,73 @@ mod tests {
         let result_wrong_index = verify_merkle_proof(&root, &proof_bytes, b"fragment2", 0, 5);
         assert!(result_wrong_index.is_ok());
         assert!(!result_wrong_index.unwrap(), "Wrong index should not verify");
+    }
+
+    /// 回帰テスト: 内部ノードの `left || right` を偽リーフとして提示する
+    /// second-preimage 攻撃 (proof forgery) が失敗することを確認する。
+    /// (wasm-engine 側 `test_forged_internal_node_leaf_rejected` と対)
+    #[test]
+    fn test_forged_internal_node_leaf_rejected() {
+        use rs_merkle::{Hasher, MerkleTree};
+
+        let fragments: Vec<&[u8]> = vec![
+            b"fragment0",
+            b"fragment1",
+            b"fragment2",
+            b"fragment3",
+        ];
+
+        let leaves: Vec<[u8; 32]> = fragments
+            .iter()
+            .map(|f| MerkleBlake2bHasher::hash_leaf(f))
+            .collect();
+        let tree = MerkleTree::<MerkleBlake2bHasher>::from_leaves(&leaves);
+        let root = tree.root().unwrap();
+
+        // 偽リーフ: 内部ノード n01 の子の連結 (64バイト)
+        let mut fake_leaf = Vec::with_capacity(64);
+        fake_leaf.extend_from_slice(&leaves[0]);
+        fake_leaf.extend_from_slice(&leaves[1]);
+
+        // 偽Proof: 「リーフ2枚のツリーで index 0、兄弟は n23」と主張
+        let n23 = MerkleBlake2bHasher::concat_and_hash(&leaves[2], Some(&leaves[3]));
+        let fake_proof_bytes: Vec<u8> = n23.to_vec();
+
+        let result = verify_merkle_proof(&root, &fake_proof_bytes, &fake_leaf, 0, 2);
+        assert!(result.is_ok());
+        assert!(
+            !result.unwrap(),
+            "Forged internal-node leaf must NOT verify (domain separation)"
+        );
+    }
+
+    /// Known-answer test: wasm-engine 側
+    /// (`packages/wasm-engine/src/merkle.rs` の `test_domain_separated_root_known_answer`)
+    /// と同じ期待値を共有し、両実装のスキーム一致を担保する。
+    /// この値を変更する場合は必ず両方を同時に更新すること。
+    #[test]
+    fn test_domain_separated_root_known_answer() {
+        use rs_merkle::MerkleTree;
+
+        let fragments: Vec<&[u8]> = vec![
+            b"fragment0",
+            b"fragment1",
+            b"fragment2",
+            b"fragment3",
+            b"fragment4",
+        ];
+
+        let leaves: Vec<[u8; 32]> = fragments
+            .iter()
+            .map(|f| MerkleBlake2bHasher::hash_leaf(f))
+            .collect();
+        let tree = MerkleTree::<MerkleBlake2bHasher>::from_leaves(&leaves);
+        let root = tree.root().unwrap();
+
+        assert_eq!(
+            hex::encode(root),
+            "4d1b2e22c3ad48ee534eff8319420a8be41e389e7c430d6d3149b4338eb9419b"
+        );
     }
 
     #[test]
