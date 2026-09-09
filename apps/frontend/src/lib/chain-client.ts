@@ -39,7 +39,15 @@ export async function initChainClient(): Promise<PolkadotClient> {
 
   initPromise = (async () => {
     try {
-      const provider = getWsProvider(CHAIN_RPC_URL)
+      // heartbeatTimeout: ws-provider のデフォルト 40s は PoW chain には短すぎる。
+      // block 間隔 (目標 30s) は指数分布で 40s 超のギャップが日常的に発生し、
+      // その間 WS メッセージが流れないと "Terminate: heartbeat timeout" で切断され、
+      // in-flight の client.submit (finalize 待ち) が巻き添えで失敗する (faucet E2E で実測)。
+      // 5 分あれば P(gap > 300s) ≈ e^-10 で実質発生しない。
+      const provider = getWsProvider({
+        endpoints: [CHAIN_RPC_URL],
+        heartbeatTimeout: 300_000,
+      })
       papiClient = createClient(provider)
       return papiClient
     } catch (error) {

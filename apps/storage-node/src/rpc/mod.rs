@@ -25,6 +25,21 @@ pub use auth::{AuthState, auth_middleware, method_requires_auth, require_auth};
 /// Maximum fragment size: 1GB
 const MAX_FRAGMENT_SIZE: usize = 1024 * 1024 * 1024;
 
+/// HTTP リクエストボディ上限: 192MB
+///
+/// 実運用上の最大シャードから導出:
+/// フロントエンドの最大ファイルサイズ 256MB (apps/frontend/src/types/media.ts)
+/// を hybrid_split (k=3, n=5) で分割した最大シャード ≈ 86MB、
+/// base64 で約 4/3 倍に膨らんで ≈ 115MB。JSON ラッパ分の余裕を含めて 192MB。
+/// 旧値の 2GB はボディを全てメモリ展開する都合上、少数の並行リクエストで
+/// OOM するため引き下げた。
+pub(crate) const MAX_BODY_SIZE: usize = 192 * 1024 * 1024;
+
+/// JSON-RPC ルートの同時処理リクエスト数上限。
+/// ボディ全体をメモリにバッファするため、無制限だと
+/// (同時接続数 × 最大ボディ) でメモリが枯渇する。
+const MAX_CONCURRENT_RPC_REQUESTS: usize = 8;
+
 /// JSON-RPC Request wrapper
 #[derive(Debug, Deserialize)]
 pub struct RpcRequest {
@@ -154,7 +169,10 @@ pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics:
     // Apply auth middleware only to JSON-RPC route, not to /metrics or /health
     let jsonrpc_route = Router::new()
         .route("/", post(handle_rpc))
-        .layer(middleware::from_fn_with_state(auth_state, auth_middleware));
+        .layer(middleware::from_fn_with_state(auth_state, auth_middleware))
+        // 同時処理数を制限してメモリ使用量を (上限 × MAX_BODY_SIZE) に抑える。
+        // Semaphore は clone 間で共有されるためルータ全体で 1 つの上限になる。
+        .layer(tower::limit::ConcurrencyLimitLayer::new(MAX_CONCURRENT_RPC_REQUESTS));
 
     Router::new()
         .merge(jsonrpc_route)
@@ -162,8 +180,8 @@ pub fn create_rpc_router(store: Arc<FragmentStore>, auth_enabled: bool, metrics:
         .route("/health", get(handle_health)) // Health check endpoint (no auth required)
         .with_state(state)
         .layer(cors)
-        // 2GB limit to accommodate base64-encoded 1GB fragments (33% overhead + margin)
-        .layer(DefaultBodyLimit::max(2 * 1024 * 1024 * 1024))
+        // ボディ上限は実シャードサイズから導出 (MAX_BODY_SIZE のコメント参照)
+        .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
 }
 
 /// Handle health check (GET /health)
@@ -252,17 +270,27 @@ async fn handle_store_fragment(
         "Storing fragment"
     );
 
+    // Calculate fragment hash (spawn_blocking に data を move する前に計算)
+    use blake2::{Blake2b, Digest};
+    use blake2::digest::consts::U32;
+    let mut hasher = Blake2b::<U32>::new();
+    hasher.update(&data);
+    let hash: [u8; 32] = hasher.finalize().into();
+
     // Store the fragment
-    match state.store.store(fragment_id, &data) {
+    // redb の書き込み commit は fsync を伴う同期 I/O のため、
+    // tokio worker を塞がないよう spawn_blocking に逃がす
+    let store = Arc::clone(&state.store);
+    let store_result = tokio::task::spawn_blocking(move || store.store(fragment_id, &data))
+        .await
+        .map_err(|e| RpcError {
+            code: -32603,
+            message: format!("Storage task failed: {}", e),
+        })?;
+
+    match store_result {
         Ok(()) => {
             state.metrics.record_put();
-            // Calculate fragment hash
-            use blake2::{Blake2b, Digest};
-            use blake2::digest::consts::U32;
-            let mut hasher = Blake2b::<U32>::new();
-            hasher.update(&data);
-            let hash: [u8; 32] = hasher.finalize().into();
-
             let result = StoreFragmentResult {
                 success: true,
                 fragment_hash: hash,
@@ -305,7 +333,16 @@ async fn handle_get_fragment(
     );
 
     // Retrieve the fragment
-    match state.store.retrieve(&fragment_id) {
+    // redb の同期 I/O を tokio worker 上で直接呼ばないよう spawn_blocking に逃がす
+    let store = Arc::clone(&state.store);
+    let retrieve_result = tokio::task::spawn_blocking(move || store.retrieve(&fragment_id))
+        .await
+        .map_err(|e| RpcError {
+            code: -32603,
+            message: format!("Storage task failed: {}", e),
+        })?;
+
+    match retrieve_result {
         Ok(Some(data)) => {
             state.metrics.record_get();
             // Calculate hash
@@ -391,17 +428,26 @@ async fn handle_store_kzg_shard(
         "Storing KZG shard"
     );
 
+    // Calculate shard hash (spawn_blocking に shard_data を move する前に計算)
+    use blake2::{Blake2b, Digest};
+    use blake2::digest::consts::U32;
+    let mut hasher = Blake2b::<U32>::new();
+    hasher.update(&shard_data);
+    let hash: [u8; 32] = hasher.finalize().into();
+
     // Store the shard
-    match state.store.store(shard_id, &shard_data) {
+    // redb の書き込み commit (fsync) を tokio worker から逃がす
+    let store = Arc::clone(&state.store);
+    let store_result = tokio::task::spawn_blocking(move || store.store(shard_id, &shard_data))
+        .await
+        .map_err(|e| RpcError {
+            code: -32603,
+            message: format!("Storage task failed: {}", e),
+        })?;
+
+    match store_result {
         Ok(()) => {
             state.metrics.record_put();
-            // Calculate shard hash
-            use blake2::{Blake2b, Digest};
-            use blake2::digest::consts::U32;
-            let mut hasher = Blake2b::<U32>::new();
-            hasher.update(&shard_data);
-            let hash: [u8; 32] = hasher.finalize().into();
-
             let result = StoreKzgShardResult {
                 success: true,
                 shard_hash: hash,
@@ -454,13 +500,15 @@ fn create_kzg_shard_id(content_hash: &[u8; 32], shard_index: u8) -> [u8; 32] {
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 
-/// Decode base64 or hex (0x-prefixed) string to bytes
+/// Decode base64 string to bytes
+///
+/// 唯一の正規クライアントであるチェーンノード
+/// (apps/blockchain/node/src/rpc/storage.rs) は data / shard_data を常に
+/// base64 で送る。以前は "0x" プレフィックスを hex として sniff していたが、
+/// 偶然 "0x" で始まる正当な base64 文字列を誤って hex 解釈してしまうため
+/// base64 のみを受け付ける。
 fn b64_decode(input: &str) -> Result<Vec<u8>, String> {
-    if let Some(hex_str) = input.strip_prefix("0x") {
-        hex::decode(hex_str).map_err(|e| e.to_string())
-    } else {
-        BASE64_STANDARD.decode(input).map_err(|e| e.to_string())
-    }
+    BASE64_STANDARD.decode(input).map_err(|e| e.to_string())
 }
 
 /// Encode bytes to base64 string
@@ -581,10 +629,13 @@ mod tests {
     }
 
     #[test]
-    fn test_base64_hex_fallback() {
-        let original = vec![0xde, 0xad, 0xbe, 0xef];
-        let hex_encoded = "0xdeadbeef";
-        let decoded = b64_decode(hex_encoded).unwrap();
+    fn test_base64_starting_with_0x_decodes_as_base64() {
+        // base64 表現がたまたま "0x" で始まるデータが hex として
+        // 誤解釈されないことを確認する（旧 sniffing 実装のリグレッション）
+        let original = vec![0xd3, 0x10, 0x00];
+        let encoded = b64_encode(&original);
+        assert!(encoded.starts_with("0x"), "test data must encode to 0x-prefixed base64: {}", encoded);
+        let decoded = b64_decode(&encoded).unwrap();
         assert_eq!(original, decoded);
     }
 

@@ -10,7 +10,7 @@ use parity_scale_codec::Decode;
 use schnorrkel::{signing_context, PublicKey, Signature};
 use wasm_bindgen::prelude::*;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::encrypt::{hkdf_okm, HKDF_SALT};
 use super::envelope::{compute_inner_signed_hash, DmEnvelope, DM_PROTOCOL_VERSION};
@@ -91,6 +91,8 @@ pub fn dm_decrypt_scan(
     let mut scan_priv_bytes = [0u8; 32];
     scan_priv_bytes.copy_from_slice(own_scan_priv);
     let scan_secret = Zeroizing::new(StaticSecret::from(scan_priv_bytes));
+    // StaticSecret 内のコピーは Zeroizing で消える。ローカルコピーも明示ゼロクリア。
+    scan_priv_bytes.zeroize();
 
     let mut eph_pub_bytes = [0u8; 32];
     eph_pub_bytes.copy_from_slice(ephemeral_pubkey);

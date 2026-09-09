@@ -398,6 +398,14 @@ pub mod pallet {
         ) -> DispatchResult {
             let reactor = ensure_signed(origin)?;
 
+            // Post 存在チェック: 存在しない post_id への反応を弾く。
+            // これがないと Reaction / ReactionStatsStorage / ReactionHistory / Popularity に
+            // 幽霊エントリが書き込まれ、fee-less チェーンでは storage 汚染 DoS になる。
+            ensure!(
+                T::PostAuthorProvider::get_post_author(post_id).is_some(),
+                Error::<T>::PostNotFound
+            );
+
             // Check for duplicate reaction
             ensure!(
                 !Reactions::<T>::contains_key(post_id, &reactor),

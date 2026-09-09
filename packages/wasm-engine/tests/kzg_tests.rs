@@ -84,7 +84,14 @@ fn t012_vss_split_invalid_threshold_fails() {
         matches!(result, Err(KzgError::InvalidThreshold)),
         "k = 0 should fail with InvalidThreshold"
     );
-    
+
+    // k = 1 should fail (no secret-sharing semantics; aligned with hybrid_split/key_split)
+    let result = vss_split(data, 1, 5);
+    assert!(
+        matches!(result, Err(KzgError::InvalidThreshold)),
+        "k = 1 should fail with InvalidThreshold"
+    );
+
     // n = 1 should fail (need at least 2 shares)
     let result = vss_split(data, 1, 1);
     assert!(
@@ -278,60 +285,65 @@ fn t015_small_data_not_compressed() {
 }
 
 // ============================================================================
-// T016: 32KB超データの分割処理
+// T016: threshold 容量超過データの拒否
 // ============================================================================
-// NOTE: Current implementation has a limitation:
-// - Polynomial degree = number of data scalars - 1
-// - Recovery requires exactly degree+1 shares
-// - For data larger than (k-1)*31 bytes, multi-segment implementation needed
-// These tests are marked as ignored pending proper multi-segment implementation
+// 多項式の次数 = データスカラー数 - 1 であり、vss_recover は threshold 個の
+// シェアしか補間に使わないため、データが threshold スカラー (threshold × 31
+// バイト) を超えると復元不能なシェアが生成されてしまう。multi-segment は
+// 未実装なので、vss_split はこのケースを DataTooLarge で拒否しなければならない
+// (サイレントなデータ消失の防止)。
 
-#[test]
-#[ignore = "Requires multi-segment implementation (T022)"]
-fn t016_large_data_multi_segment() {
-    setup_test_srs();
-    
-    // Create 50KB of data (exceeds 32KB segment limit)
-    let large_data: Vec<u8> = (0..50_000).map(|i| (i % 256) as u8).collect();
-    
-    let split_result = vss_split(&large_data, 3, 5).expect("Split should succeed");
-    
-    // Should be multi-segment
-    assert!(
-        split_result.multi_segment,
-        "50KB data should be multi-segment"
-    );
-    assert!(
-        split_result.segment_count > 1,
-        "Should have multiple segments"
-    );
-    
-    // Recovery should still work
-    let recovered = vss_recover(
-        &split_result.shares[..3],
-        3,
-        split_result.compressed,
-        split_result.original_len,
-        split_result.processed_len,
-    )
-    .expect("Recovery should succeed");
-    
-    assert_eq!(recovered, large_data, "Large data roundtrip should work");
+/// 決定的な擬似乱数列 (xorshift32)。gzip 圧縮が効かないデータを作るために使用。
+fn incompressible_bytes(len: usize) -> Vec<u8> {
+    let mut state: u32 = 0x12345678;
+    let mut out = Vec::with_capacity(len);
+    while out.len() < len {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        out.extend_from_slice(&state.to_le_bytes());
+    }
+    out.truncate(len);
+    out
 }
 
 #[test]
-#[ignore = "Requires multi-segment implementation (T022)"]
-fn t016_data_exactly_32kb() {
+fn t016_large_data_rejected() {
     setup_test_srs();
-    
-    // Create exactly 32KB of data
-    let data: Vec<u8> = (0..32_768).map(|i| (i % 256) as u8).collect();
-    
+
+    // 50KB の非圧縮性データ (圧縮後も threshold=3 の容量 93 バイトを大幅超過)
+    let large_data = incompressible_bytes(50_000);
+
+    let result = vss_split(&large_data, 3, 5);
+    assert!(
+        matches!(result, Err(KzgError::DataTooLarge)),
+        "data exceeding threshold capacity must be rejected, got: {:?}",
+        result.map(|_| ())
+    );
+}
+
+#[test]
+fn t016_data_just_over_threshold_capacity_rejected() {
+    setup_test_srs();
+
+    // threshold=3 → 容量 3 × 31 = 93 バイト。94 バイトは 4 スカラーになり拒否。
+    let data = incompressible_bytes(3 * BYTES_PER_SCALAR + 1);
+
+    let result = vss_split(&data, 3, 5);
+    assert!(
+        matches!(result, Err(KzgError::DataTooLarge)),
+        "94 bytes with threshold=3 must be rejected"
+    );
+}
+
+#[test]
+fn t016_data_at_threshold_capacity_roundtrips() {
+    setup_test_srs();
+
+    // ちょうど threshold × 31 = 93 バイトは 3 スカラーに収まり、復元可能。
+    let data = incompressible_bytes(3 * BYTES_PER_SCALAR);
+
     let split_result = vss_split(&data, 3, 5).expect("Split should succeed");
-    
-    // May or may not be multi-segment (boundary case)
-    // The important thing is that it works
-    
     let recovered = vss_recover(
         &split_result.shares[..3],
         3,
@@ -340,8 +352,8 @@ fn t016_data_exactly_32kb() {
         split_result.processed_len,
     )
     .expect("Recovery should succeed");
-    
-    assert_eq!(recovered, data, "32KB data roundtrip should work");
+
+    assert_eq!(recovered, data, "boundary-size data roundtrip should work");
 }
 
 // ============================================================================

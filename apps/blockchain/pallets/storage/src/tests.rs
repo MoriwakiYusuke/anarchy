@@ -2924,6 +2924,49 @@ fn test_evict_stale_holder_removes_lowest_priority() {
     });
 }
 
+/// Code review: evict_stale_holder は FragmentStates を再計算すること
+/// (eviction でホルダー数が変化したのに AtRisk/Lost 判定が陳腐化しないこと)
+#[test]
+fn test_evict_stale_holder_updates_fragment_state() {
+    new_test_ext().execute_with(|| {
+        use crate::{FragmentStateKind, FragmentStates};
+
+        let owner = 1u64;
+        let content_hash = test_content_hash(252);
+        let commitment = test_commitment();
+
+        // n=2 のフラグメント (max_holders = fragment_count = 2)
+        assert_ok!(register_kzg_fragment_internal(
+            owner,
+            content_hash,
+            commitment,
+            5000,
+            2,
+            2,
+        ));
+
+        // 3 ホルダー (excess by 1) → holder_count=3 は AtRisk 帯域
+        for holder in 60u64..63u64 {
+            add_kzg_holder(content_hash, holder);
+        }
+        Storage::update_fragment_state(content_hash);
+        assert_eq!(
+            FragmentStates::<Test>::get(content_hash).kind,
+            FragmentStateKind::AtRisk
+        );
+
+        // eviction → holder_count=2 → Lost 帯域。
+        // evict_stale_holder 自身が update_fragment_state を呼ぶので、
+        // 手動再計算なしで FragmentStates が遷移していること。
+        assert_ok!(Storage::evict_stale_holder(RuntimeOrigin::signed(1), content_hash));
+        assert_eq!(
+            FragmentStates::<Test>::get(content_hash).kind,
+            FragmentStateKind::Lost,
+            "evict_stale_holder should recompute fragment state"
+        );
+    });
+}
+
 /// T054 [US5]: Test evict_stale_holder fails when no excess holders
 /// Verifies that eviction fails when holder count <= n
 #[test]

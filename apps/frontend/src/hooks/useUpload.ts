@@ -1,36 +1,22 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { blake2b } from 'blakejs'
 import { getSharedWorkerPool } from '@/workers/WorkerPool'
-import { uint8ArrayToBase64 } from '@/lib/postCodec'
+import {
+  authenticatedRpcCall,
+  uint8ArrayToBase64,
+  type StorageSigner,
+} from '@/lib/chainRpc'
 
 // (CLAUDE.md §5) Frontend → chain node RPC のみ。
 // Chain node が `storage_uploadFragment` を受け、内部で storage-node の
 // `storage_storeFragment` (port 3030) へ転送する。Frontend が直接
 // storage-node を叩くことは絶対にしない (port 3030 直叩きは禁止)。
-//
-// フェイルオーバー用の複数 chain node エンドポイント（追加時はここに追記）。
-const CHAIN_NODE_RPC_ENDPOINTS: string[] = [
-  process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944',
-  // TODO: Add more full nodes for redundancy
-  // 'http://node2.anarchy.network:9944',
-  // 'http://node3.anarchy.network:9944',
-]
+// endpoint 解決 / フェイルオーバー / auth 署名は lib/chainRpc.ts に集約。
 const SSS_K = 3, SSS_N = 5, MAX_RETRIES = 3, RETRY_DELAY_MS = 1000
 
-export interface SignedAuth {
-  account_id: string
-  timestamp: number
-  nonce: string
-  payload_hash: string
-  signature: string
-}
-
-export interface StorageSigner {
-  publicKey: Uint8Array
-  sign: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>
-}
+// 互換 re-export: 旧来この hook が定義していた型を chainRpc.ts に集約した。
+export type { SignedAuth, StorageSigner } from '@/lib/chainRpc'
 
 export async function createStorageSigner(derivePath: string): Promise<StorageSigner> {
   const { Keyring } = await import('@polkadot/keyring')
@@ -76,37 +62,6 @@ export interface UseUploadResult {
   isReady: boolean
 }
 
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
-async function generateAuth(signer: StorageSigner, params: Record<string, unknown>): Promise<SignedAuth> {
-  const timestamp = Math.floor(Date.now() / 1000)
-  const nonceBytes = new Uint8Array(16)
-  crypto.getRandomValues(nonceBytes)
-  
-  const sortedParams = Object.keys(params).sort().reduce((acc, key) => {
-    acc[key] = params[key]
-    return acc
-  }, {} as Record<string, unknown>)
-  const payload = JSON.stringify(sortedParams)
-  const payloadHash = blake2b(new TextEncoder().encode(payload), undefined, 32)
-  
-  const message = new Uint8Array(32 + 8 + 16 + 32)
-  message.set(signer.publicKey, 0)
-  new DataView(message.buffer).setBigUint64(32, BigInt(timestamp), true)
-  message.set(nonceBytes, 40)
-  message.set(payloadHash, 56)
-  
-  return {
-    account_id: toHex(signer.publicKey),
-    timestamp,
-    nonce: toHex(nonceBytes),
-    payload_hash: toHex(payloadHash),
-    signature: toHex(await signer.sign(message)),
-  }
-}
-
 export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
   const { signer } = options
   const [progress, setProgress] = useState(0)
@@ -132,31 +87,6 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
     if (!pool) return Promise.reject(new Error('WorkerPool not available'))
     return pool.executeOnWorker<T>(workerIndex, type, payload)
   }, [pool])
-
-  // RPC call with automatic failover to next endpoint
-  // フェイルオーバー付きRPC呼び出し（1つ目が失敗したら次のノードを試行）
-  const rpcCall = useCallback(async <T,>(method: string, params: unknown[]): Promise<T> => {
-    let lastError: Error | null = null
-    
-    for (const endpoint of CHAIN_NODE_RPC_ENDPOINTS) {
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-        })
-        const json = await response.json()
-        if (json.error) throw new Error(json.error.message || 'RPC error')
-        return json.result
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err))
-        // Try next endpoint
-        continue
-      }
-    }
-    
-    throw lastError || new Error('All RPC endpoints unreachable')
-  }, [])
 
   const uploadContent = useCallback(async (content: Uint8Array): Promise<UploadResult> => {
     setIsProcessing(true)
@@ -202,9 +132,10 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
           try {
-            const requestParams: Record<string, unknown> = { ...baseParams }
-            if (signer) requestParams.auth = await generateAuth(signer, baseParams)
-            const result = await rpcCall<{ success: boolean; fragment_hash: number[] }>('storage_uploadFragment', [requestParams])
+            // auth 署名 / フェイルオーバー / json.error 検査は chainRpc.ts に集約
+            const result = await authenticatedRpcCall<{ success: boolean; fragment_hash: number[] }>(
+              'storage_uploadFragment', baseParams, { signer }
+            )
             setProgress(prev => Math.min(prev + progressPerFragment, 90))
             return new Uint8Array(result.fragment_hash)
           } catch (err) {
@@ -226,7 +157,7 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadResult {
     } finally {
       setIsProcessing(false)
     }
-  }, [sendToWorker, rpcCall, signer])
+  }, [sendToWorker, sendToSpecificWorker, pool, signer])
 
   return { uploadContent, progress, error, isProcessing, isReady }
 }

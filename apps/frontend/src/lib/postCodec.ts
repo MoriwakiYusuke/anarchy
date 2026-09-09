@@ -17,6 +17,8 @@
  *   [data bytes]
  */
 
+import { uint8ArrayToBase64 } from '@/lib/chainRpc';
+
 export const CODEC_VERSION = 1;
 
 // Any MIME type is supported
@@ -171,36 +173,9 @@ export function decodePostContent(data: Uint8Array): PostContent {
   return { text, media };
 }
 
-/**
- * Convert Uint8Array to base64 string (handles large files without stack overflow)
- * Uses chunked approach with incremental btoa calls
- */
-export function uint8ArrayToBase64(data: Uint8Array): string {
-  // For small data, use simple conversion
-  if (data.length < 0x8000) {
-    let binary = '';
-    for (let i = 0; i < data.length; i++) {
-      binary += String.fromCharCode(data[i]);
-    }
-    return btoa(binary);
-  }
-  
-  // For large data, process in chunks that are multiples of 3
-  // (base64 encodes 3 bytes into 4 characters)
-  const CHUNK_SIZE = 0x6000; // 24KB (divisible by 3)
-  const base64Chunks: string[] = [];
-  
-  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-    const end = Math.min(i + CHUNK_SIZE, data.length);
-    let binary = '';
-    for (let j = i; j < end; j++) {
-      binary += String.fromCharCode(data[j]);
-    }
-    base64Chunks.push(btoa(binary));
-  }
-  
-  return base64Chunks.join('');
-}
+// base64 codec は lib/chainRpc.ts に集約した (チャンク処理版)。
+// 既存 import 互換のためここから re-export する。
+export { uint8ArrayToBase64 };
 
 /**
  * Convert MediaItem to data URL for display (async for large files)

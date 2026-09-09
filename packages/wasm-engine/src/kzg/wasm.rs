@@ -209,8 +209,8 @@ pub fn kzg_is_srs_initialized() -> bool {
 /// Split data into k-of-n VSS shares with KZG commitments
 ///
 /// # Arguments
-/// * `data` - Data to split (max 32MB, recommended <32KB for single segment)
-/// * `threshold` - Minimum shares needed for recovery (k)
+/// * `data` - Data to split (圧縮後 threshold × 31 バイト以下。超過は DataTooLarge)
+/// * `threshold` - Minimum shares needed for recovery (k, must be >= 2)
 /// * `share_count` - Total shares to generate (n)
 ///
 /// # Returns

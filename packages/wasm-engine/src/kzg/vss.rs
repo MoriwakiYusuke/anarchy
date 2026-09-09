@@ -69,8 +69,8 @@ pub const MAX_SEGMENT_SIZE: usize = 32 * 1024;
 /// Split data into k-of-n VSS shares with KZG commitments.
 ///
 /// # Arguments
-/// * `data` - Data to split (max 32MB)
-/// * `threshold` - Minimum shares needed for recovery (k)
+/// * `data` - Data to split (圧縮後 threshold × 31 バイト以下であること)
+/// * `threshold` - Minimum shares needed for recovery (k >= 2)
 /// * `share_count` - Total shares to generate (n)
 ///
 /// # Returns
@@ -80,7 +80,9 @@ pub fn vss_split(data: &[u8], threshold: u8, share_count: u8) -> Result<VssSplit
     if data.is_empty() || data.len() > MAX_DATA_SIZE {
         return Err(KzgError::DataTooLarge);
     }
-    if threshold < 1 || threshold > share_count || share_count < 2 {
+    // k=1 は秘密分散として意味を持たない (シェア 1 個 = 平文同然) ため、
+    // hybrid_split / key_split と同じく k >= 2 を要求する。
+    if threshold < 2 || threshold > share_count || share_count < 2 {
         return Err(KzgError::InvalidThreshold);
     }
 
@@ -92,6 +94,15 @@ pub fn vss_split(data: &[u8], threshold: u8, share_count: u8) -> Result<VssSplit
 
     // Step 2: Encode to scalars
     let scalars = encode_to_scalars(&processed_data)?;
+
+    // データのスカラー数が threshold を超えると多項式の次数が k-1 を超え、
+    // vss_recover (threshold 個のシェアで Lagrange 補間) では永久に復元不能な
+    // シェアが生成されてしまう (サイレントなデータ消失)。multi-segment は
+    // 未実装のため、ここで明示的に拒否する。
+    // 上限: threshold × BYTES_PER_SCALAR (31) バイト (圧縮後サイズ)。
+    if scalars.len() > threshold as usize {
+        return Err(KzgError::DataTooLarge);
+    }
 
     // Step 3: Construct polynomial with random coefficients for threshold
     // f(x) = a_0 + a_1*x + ... + a_{k-1}*x^{k-1}

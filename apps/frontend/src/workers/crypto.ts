@@ -3,8 +3,6 @@
  *
  * Wasm暗号エンジン(anarchy-wasm-engine)をWeb Worker内で実行し、
  * メインスレッドをブロックせずにKZG-VSS Hybrid分割/復元、MerkleTree構築/検証を行う。
- * 
- * Also handles PoW mining for reaction mining (017-reaction-mining).
  */
 
 // Worker内でのWasmモジュール
@@ -12,36 +10,57 @@ let wasmModule: typeof import("anarchy-wasm-engine") | null = null;
 
 // MerkleResultキャッシュ（Proof生成用）
 // key: merkle_root (hex), value: MerkleResult
+//
+// MerkleResult は wasm メモリ上に全フラグメントデータを保持するため、無制限に
+// 溜めるとアップロードごとに wasm メモリがリークする。LRU で上限を設ける。
+// proof 生成 (merkle_generate_proof) は merkle_build 直後に同一 worker 上で
+// 完結するフロー (useUpload / useMediaUpload) なので、同時並走するアップロード
+// 数ぶんだけ残っていれば十分 — 4 エントリで余裕を持たせる。
+// Map は挿入順を保持するので、get 時に再挿入することで LRU として使える。
+const MERKLE_CACHE_MAX = 4;
 const merkleCache = new Map<string, import("anarchy-wasm-engine").MerkleResult>();
+
+/** wasm-bindgen オブジェクトの Rust 側メモリを解放する (free が無い build では no-op)。 */
+function freeMerkleResult(value: unknown): void {
+  try {
+    (value as { free?: () => void })?.free?.();
+  } catch {
+    // 二重 free 等は無視
+  }
+}
+
+/** LRU タッチ付き取得。 */
+function merkleCacheGet(rootHex: string): import("anarchy-wasm-engine").MerkleResult | undefined {
+  const value = merkleCache.get(rootHex);
+  if (value !== undefined) {
+    // 再挿入して recency を更新
+    merkleCache.delete(rootHex);
+    merkleCache.set(rootHex, value);
+  }
+  return value;
+}
+
+/** LRU 挿入。上限超過時は最古エントリを evict し wasm メモリを解放する。 */
+function merkleCacheSet(rootHex: string, value: import("anarchy-wasm-engine").MerkleResult): void {
+  const existing = merkleCache.get(rootHex);
+  if (existing !== undefined) {
+    merkleCache.delete(rootHex);
+    if (existing !== value) freeMerkleResult(existing);
+  }
+  merkleCache.set(rootHex, value);
+  while (merkleCache.size > MERKLE_CACHE_MAX) {
+    const oldestKey = merkleCache.keys().next().value as string;
+    const oldest = merkleCache.get(oldestKey);
+    merkleCache.delete(oldestKey);
+    freeMerkleResult(oldest);
+  }
+}
 
 /**
  * Uint8Arrayをhex文字列に変換
  */
 function toHex(arr: Uint8Array): string {
   return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-/**
- * Count leading zero bits in a byte array (for PoW verification)
- * @param hash - The hash to check
- * @returns Number of leading zero bits
- */
-function countLeadingZeroBits(hash: Uint8Array): number {
-  let zeroBits = 0;
-  for (const byte of hash) {
-    if (byte === 0) {
-      zeroBits += 8;
-    } else {
-      // Count leading zeros in this byte
-      let b = byte;
-      while ((b & 0x80) === 0) {
-        zeroBits++;
-        b <<= 1;
-      }
-      break;
-    }
-  }
-  return zeroBits;
 }
 
 /**
@@ -79,7 +98,7 @@ async function initWasm(): Promise<void> {
  */
 interface WorkerRequest {
   id: string;
-  type: "hybrid_split" | "hybrid_recover" | "merkle_build" | "merkle_generate_proof" | "merkle_verify" | "blake2b_hash" | "mine_reaction";
+  type: "hybrid_split" | "hybrid_recover" | "merkle_build" | "merkle_generate_proof" | "merkle_verify" | "blake2b_hash";
   payload: unknown;
 }
 
@@ -146,33 +165,6 @@ interface Blake2bHashPayload {
 }
 
 /**
- * Reaction Mining リクエスト (017-reaction-mining)
- * Client-side PoW mining for reaction submission
- */
-interface MineReactionPayload {
-  /** Challenge = blake2b(post_id ++ user_address ++ block_number) from chain */
-  challenge: Uint8Array;
-  /** Required leading zero bits (difficulty) */
-  difficulty: number;
-  /** Maximum iterations before giving up (0 = unlimited) */
-  maxIterations?: number;
-}
-
-/**
- * Reaction Mining 結果
- */
-interface MineReactionResult {
-  /** Found nonce that satisfies difficulty */
-  nonce: bigint;
-  /** Iterations tried */
-  iterations: number;
-  /** Hash rate (hashes/second) */
-  hashRate: number;
-  /** Elapsed time in milliseconds */
-  elapsedMs: number;
-}
-
-/**
  * メッセージハンドラ
  */
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
@@ -226,8 +218,8 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         const merkleResult = wasmModule.merkle_build(fragments);
         const root = new Uint8Array(merkleResult.root);
         const rootHex = toHex(root);
-        // キャッシュに保存（後でProof生成に使用）
-        merkleCache.set(rootHex, merkleResult);
+        // キャッシュに保存（後でProof生成に使用）。LRU 上限あり。
+        merkleCacheSet(rootHex, merkleResult);
         result = {
           root,
           rootHex,
@@ -238,7 +230,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 
       case "merkle_generate_proof": {
         const { merkleRootHex, index } = payload as MerkleGenerateProofPayload;
-        const cachedResult = merkleCache.get(merkleRootHex);
+        const cachedResult = merkleCacheGet(merkleRootHex);
         if (!cachedResult) {
           throw new Error(`MerkleResult not found for root: ${merkleRootHex}`);
         }
@@ -255,54 +247,6 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       case "blake2b_hash": {
         const { data } = payload as Blake2bHashPayload;
         result = new Uint8Array(wasmModule.blake2b_hash(data));
-        break;
-      }
-
-      case "mine_reaction": {
-        const { challenge, difficulty, maxIterations = 0 } = payload as MineReactionPayload;
-        const startTime = performance.now();
-        let nonce = BigInt(0);
-        let iterations = 0;
-        
-        // Pre-allocate buffer for challenge + nonce (challenge + 8 bytes for u64 nonce)
-        const inputBuffer = new Uint8Array(challenge.length + 8);
-        inputBuffer.set(challenge, 0);
-        
-        while (true) {
-          // Encode nonce as little-endian u64
-          const nonceBytes = new Uint8Array(8);
-          let n = nonce;
-          for (let i = 0; i < 8; i++) {
-            nonceBytes[i] = Number(n & BigInt(0xff));
-            n >>= BigInt(8);
-          }
-          inputBuffer.set(nonceBytes, challenge.length);
-          
-          // Compute Blake2b hash
-          const hash = wasmModule.blake2b_hash(inputBuffer);
-          iterations++;
-          
-          // Check leading zero bits
-          if (countLeadingZeroBits(new Uint8Array(hash)) >= difficulty) {
-            // Found valid nonce!
-            const elapsedMs = performance.now() - startTime;
-            const hashRate = elapsedMs > 0 ? (iterations / elapsedMs) * 1000 : 0;
-            result = {
-              nonce,
-              iterations,
-              hashRate: Math.round(hashRate),
-              elapsedMs: Math.round(elapsedMs),
-            } as MineReactionResult;
-            break;
-          }
-          
-          // Check iteration limit
-          if (maxIterations > 0 && iterations >= maxIterations) {
-            throw new Error(`Mining failed: reached max iterations (${maxIterations})`);
-          }
-          
-          nonce++;
-        }
         break;
       }
 

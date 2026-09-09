@@ -41,9 +41,9 @@ pub use srs::init_test_srs;
 /// KZG-VSS関連のエラー型
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KzgError {
-    /// データが大きすぎる (>32MB)
+    /// データが大きすぎる (>32MB、または vss_split で threshold × 31 バイト超)
     DataTooLarge,
-    /// 無効な閾値 (k > n or k < 1)
+    /// 無効な閾値 (k > n or k < 2)
     InvalidThreshold,
     /// SRSが未初期化
     SrsNotLoaded,
@@ -66,8 +66,11 @@ pub enum KzgError {
 impl core::fmt::Display for KzgError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            KzgError::DataTooLarge => write!(f, "Data exceeds 32MB limit"),
-            KzgError::InvalidThreshold => write!(f, "Invalid threshold: k must be <= n and >= 1"),
+            KzgError::DataTooLarge => write!(
+                f,
+                "Data too large: exceeds 32MB limit or threshold capacity (threshold x 31 bytes)"
+            ),
+            KzgError::InvalidThreshold => write!(f, "Invalid threshold: k must be <= n and >= 2"),
             KzgError::SrsNotLoaded => write!(f, "SRS not initialized"),
             KzgError::InsufficientShares => write!(f, "Insufficient shares for recovery"),
             KzgError::InvalidShareIndex => write!(f, "Invalid or duplicate share index"),

@@ -174,7 +174,7 @@ fn claim_stealth_reward_pays_caller_with_valid_signature() {
             eph,
             stealth_pk,
             sig,
-            Vec::new(),
+            Default::default(),
         ));
         let alice_final = Balances::free_balance(ALICE);
         // cap 10% で 100 MORAL を mint
@@ -206,7 +206,7 @@ fn capped_claim_can_resume_remainder_in_next_call() {
             eph,
             stealth_pk,
             sig,
-            Vec::new(),
+            Default::default(),
         ));
         assert_eq!(StealthPallet::claimed_receive_count(eph), 1);
         let after_first = StealthPallet::stealth_reward_pool();
@@ -221,7 +221,7 @@ fn capped_claim_can_resume_remainder_in_next_call() {
             eph,
             stealth_pk,
             sig,
-            Vec::new(),
+            Default::default(),
         ));
         assert_eq!(StealthPallet::claimed_receive_count(eph), 2);
         // 2回目 payout = 90, pool = 810
@@ -246,7 +246,7 @@ fn claim_stealth_reward_rejects_invalid_signature() {
                 eph,
                 stealth_pk,
                 bad_sig,
-                Vec::new(),
+                Default::default(),
             ),
             Error::<Test>::InvalidStealthSignature
         );
@@ -269,7 +269,7 @@ fn claim_stealth_reward_rejects_signature_for_different_signer() {
                 eph,
                 stealth_pk,
                 sig_for_bob,
-                Vec::new(),
+                Default::default(),
             ),
             Error::<Test>::InvalidStealthSignature
         );
@@ -289,7 +289,7 @@ fn claim_stealth_reward_fails_without_unclaimed() {
                 eph,
                 stealth_pk,
                 sig,
-                Vec::new(),
+                Default::default(),
             ),
             Error::<Test>::NoUnclaimedReceives
         );
@@ -308,7 +308,7 @@ fn claim_stealth_reward_fails_when_pool_empty() {
                 eph,
                 stealth_pk,
                 sig,
-                Vec::new(),
+                Default::default(),
             ),
             Error::<Test>::StealthRewardPoolEmpty
         );
@@ -334,7 +334,7 @@ fn double_claim_returns_no_unclaimed_receives() {
             eph,
             stealth_pk,
             sig,
-            Vec::new(),
+            Default::default(),
         ));
         assert_eq!(StealthPallet::claimed_receive_count(eph), 1);
 
@@ -345,7 +345,7 @@ fn double_claim_returns_no_unclaimed_receives() {
                 eph,
                 stealth_pk,
                 sig,
-                Vec::new(),
+                Default::default(),
             ),
             Error::<Test>::NoUnclaimedReceives
         );

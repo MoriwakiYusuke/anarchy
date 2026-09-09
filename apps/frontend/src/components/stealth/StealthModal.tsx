@@ -22,6 +22,7 @@ import { StealthScanner } from '../../lib/stealth/scanner';
 import { createBalanceStore, type BalanceStore } from '../../lib/stealth/balanceStore';
 import { deriveKeyFromBalance, createStealthSigner } from '../../lib/stealth/signer';
 import type { StealthKeyPair, ScanProgress, DetectedStealthBalance } from '../../lib/stealth/types';
+import { debugLog, debugError } from '../../lib/debugLog';
 import * as wasm from 'anarchy-wasm-engine';
 import styles from './StealthModal.module.css';
 
@@ -70,6 +71,11 @@ export function StealthModal({
   
   // Export state
   const [isExporting, setIsExporting] = useState(false);
+  const [showExportForm, setShowExportForm] = useState(false);
+  const [exportPassword, setExportPassword] = useState('');
+  const [exportConfirmPassword, setExportConfirmPassword] = useState('');
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -102,18 +108,24 @@ export function StealthModal({
     setImportDialogOpen(false);
   }, []);
 
+  // バックアップエクスポート (StealthAddressGenerator と同じ パスワード + 確認 + 8文字以上 のフロー)
   const handleExportKeys = useCallback(async () => {
-    const password = prompt('バックアップのパスワードを入力してください（8文字以上推奨）:');
-    if (!password) return;
-    
-    if (password.length < 8) {
-      alert('セキュリティのため、8文字以上のパスワードを使用することをお勧めします。');
+    // 8文字未満は中断する (推奨ではなく必須)
+    if (exportPassword.length < 8) {
+      setExportError(t('stealth.backup.passwordTooShort'));
+      return;
     }
-    
+    if (exportPassword !== exportConfirmPassword) {
+      setExportError(t('stealth.backup.passwordMismatch'));
+      return;
+    }
+
+    setExportError(null);
+    setExportSuccess(false);
     setIsExporting(true);
     try {
-      const encrypted = await stealthKeyManager.exportBackup(password);
-      
+      const encrypted = await stealthKeyManager.exportBackup(exportPassword);
+
       // Uint8ArrayをArrayBufferに変換してBlobを作成
       const buffer = encrypted.buffer.slice(
         encrypted.byteOffset,
@@ -128,15 +140,18 @@ export function StealthModal({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
-      alert('バックアップが保存されました。このファイルを安全な場所に保管してください。');
+
+      setExportSuccess(true);
+      setShowExportForm(false);
+      setExportPassword('');
+      setExportConfirmPassword('');
     } catch (error) {
-      console.error('Export error:', error);
-      alert('エクスポートに失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      debugError('[StealthModal] Export error:', error);
+      setExportError(error instanceof Error ? error.message : t('stealth.backup.createError'));
     } finally {
       setIsExporting(false);
     }
-  }, []);
+  }, [exportPassword, exportConfirmPassword, t]);
 
   const handleClearKeys = useCallback(() => {
     if (confirm('本当に鍵を破棄しますか？バックアップがない場合、資金を失う可能性があります。')) {
@@ -149,44 +164,30 @@ export function StealthModal({
   const handleStartScan = useCallback(async () => {
     const keyPair = stealthKeyManager.getKeyPair();
     if (!keyPair || !unsafeApi) {
-      console.error('[StealthModal] Cannot start scan: keyPair or unsafeApi missing');
+      debugError('[StealthModal] Cannot start scan: keyPair or unsafeApi missing');
       return;
     }
 
-    // Debug: Log the keys being used for scanning and the metaAddress
-    console.log('[StealthModal] Starting scan with keys:', {
-      metaAddress: keyPair.metaAddress,
-      viewKeyFirst8: Array.from(keyPair.viewKey.slice(0, 8)),
-      spendPubkeyFirst8: Array.from(keyPair.spendPubkey.slice(0, 8)),
-      viewPubkeyFirst8: Array.from(keyPair.viewPubkey.slice(0, 8)),
-    });
-
-    // Key consistency verification: parse metaAddress and compare with keyPair pubkeys
+    // 鍵の整合性検証: metaAddress をパースし keyPair の公開鍵と一致するか確認する。
+    // セキュリティ: 鍵素材 (viewKey 等) や metaAddress はログに出さない (匿名性原則)。
     try {
       const parsed = wasm.parse_meta_address(keyPair.metaAddress);
       const parsedSpendPubkey = new Uint8Array(parsed.spend_pubkey);
       const parsedViewPubkey = new Uint8Array(parsed.view_pubkey);
-      
+
       const spendMatch = parsedSpendPubkey.every((v, i) => v === keyPair.spendPubkey[i]);
       const viewMatch = parsedViewPubkey.every((v, i) => v === keyPair.viewPubkey[i]);
-      
-      console.log('[StealthModal] Key consistency check:', {
-        parsedSpendPubkeyFirst8: Array.from(parsedSpendPubkey.slice(0, 8)),
-        keyPairSpendPubkeyFirst8: Array.from(keyPair.spendPubkey.slice(0, 8)),
-        spendMatch,
-        parsedViewPubkeyFirst8: Array.from(parsedViewPubkey.slice(0, 8)),
-        keyPairViewPubkeyFirst8: Array.from(keyPair.viewPubkey.slice(0, 8)),
-        viewMatch,
-      });
-      
+
+      debugLog('[StealthModal] Key consistency check:', { spendMatch, viewMatch });
+
       if (!spendMatch || !viewMatch) {
-        console.error('[StealthModal] CRITICAL: Key mismatch detected! metaAddress does not match keyPair pubkeys.');
+        debugError('[StealthModal] CRITICAL: Key mismatch detected! metaAddress does not match keyPair pubkeys.');
         alert('鍵の整合性エラー: metaAddressとキーペアが一致しません。鍵が破損している可能性があります。');
         setIsScanning(false);
         return;
       }
     } catch (parseError) {
-      console.error('[StealthModal] Failed to parse metaAddress for consistency check:', parseError);
+      debugError('[StealthModal] Failed to parse metaAddress for consistency check:', parseError);
     }
 
     setIsScanning(true);
@@ -208,7 +209,7 @@ export function StealthModal({
       const startBlock = 0;
       const endBlock = blockNumber ?? 100;
 
-      console.log(`[StealthModal] Scanning blocks ${startBlock} to ${endBlock}`);
+      debugLog(`[StealthModal] Scanning blocks ${startBlock} to ${endBlock}`);
 
       const results = await newScanner.scanBlockRange(
         startBlock,
@@ -217,33 +218,22 @@ export function StealthModal({
         { batchSize: 1000, delayBetweenBatches: 100 }
       );
 
-      console.log(`[StealthModal] Scan completed. Total results: ${results.length}`);
-      console.log(`[StealthModal] Results:`, results);
+      // セキュリティ: 検出された stealth address / 残高はユーザーの相関情報なので
+      // ログには件数のみ出す (イベントレベル)。
+      debugLog(`[StealthModal] Scan completed. Total results: ${results.length}`);
 
       if (balanceStore && results.length > 0) {
-        console.log(`[StealthModal] Found ${results.length} stealth addresses, fetching balances...`);
-        
         for (const result of results) {
-          console.log(`[StealthModal] Processing result:`, {
-            stealthAddress: result.stealthAddress,
-            isOwned: result.isOwned,
-            blockNumber: result.blockNumber,
-          });
-          
           if (result.isOwned) {
             // Fetch actual balance from chain
             let balance = BigInt(0);
             try {
-              console.log(`[StealthModal] Fetching balance for: ${result.stealthAddress}`);
               const accountInfo = await unsafeApi.query.System.Account.getValue(result.stealthAddress);
-              console.log(`[StealthModal] Raw accountInfo:`, accountInfo);
-              console.log(`[StealthModal] accountInfo.data:`, accountInfo?.data);
               balance = accountInfo?.data?.free ?? BigInt(0);
-              console.log(`[StealthModal] Balance for ${result.stealthAddress}: ${balance.toString()}`);
             } catch (balanceError) {
-              console.error(`[StealthModal] Failed to fetch balance for ${result.stealthAddress}:`, balanceError);
+              debugError('[StealthModal] Failed to fetch balance for a detected stealth address:', balanceError);
             }
-            
+
             balanceStore.add({
               stealthAddress: result.stealthAddress,
               balance,
@@ -253,14 +243,10 @@ export function StealthModal({
             });
           }
         }
-        const allBalances = balanceStore.getAllAsStealthBalance();
-        console.log(`[StealthModal] Final balances to display:`, allBalances);
-        setBalances(allBalances);
-      } else {
-        console.log(`[StealthModal] No results to process. balanceStore exists: ${!!balanceStore}, results.length: ${results.length}`);
+        setBalances(balanceStore.getAllAsStealthBalance());
       }
     } catch (error) {
-      console.error('Scan error:', error);
+      debugError('[StealthModal] Scan error:', error);
     } finally {
       setIsScanning(false);
       setScanner(null);
@@ -300,85 +286,82 @@ export function StealthModal({
       setSpendErrorMessage('鍵が設定されていません');
       throw new Error('鍵が設定されていません');
     }
-    
-    console.log('[StealthModal] Spending from stealth:', values);
-    
+
+    // セキュリティ: 送金先 / 金額 / stealth address の相関情報はログに出さない
+    debugLog('[StealthModal] Spend requested:', { utxoCount: values.selectedBalances.length });
+
     setIsSpending(true);
     setSpendErrorMessage(null);
     setSpendSuccessMessage(null);
-    
+
     try {
+      // multi-UTXO 送金: 要求合計額 (values.amount) を選択残高に分割する。
+      // 各 UTXO からは min(残り必要額, その残高) のみ送り、残りが 0 になったら終了。
+      let remaining = values.amount;
       let totalSpent = BigInt(0);
-      
-      // 各選択残高に対してステルス秘密鍵を導出してトランザクションを作成
+
       for (const balance of values.selectedBalances) {
+        if (remaining <= BigInt(0)) break;
+
+        // この UTXO から送る額 (残高を超えない / 必要額を超えない)
+        const sendValue = remaining < balance.balance ? remaining : balance.balance;
+        if (sendValue <= BigInt(0)) continue;
+
         const privateKey = await deriveKeyFromBalance(
           balance,
           keyPair.spendKey,
           keyPair.viewKey
         );
         const stealthSigner = await createStealthSigner(privateKey);
-        
+
         try {
-          // デバッグ: 署名者のアドレスを確認
-          const signerAddress = await stealthSigner.getAddress();
-          console.log('[StealthModal] Signer address:', signerAddress);
-          console.log('[StealthModal] Expected stealth address:', balance.stealthAddress);
-          console.log('[StealthModal] Addresses match:', signerAddress === balance.stealthAddress);
-          
           // Polkadot互換のSignerを取得
           const polkadotSigner = await stealthSigner.getPolkadotSigner();
-          
-          console.log('[StealthModal] Spending from:', balance.stealthAddress);
-          console.log('[StealthModal] To:', values.recipientAddress);
-          console.log('[StealthModal] Amount:', values.amount.toString());
-          
+
           // Balances.transfer_allow_death トランザクションを作成・送信
           const tx = unsafeApi.tx.Balances.transfer_allow_death({
             dest: { type: 'Id', value: values.recipientAddress },
-            value: values.amount,
+            value: sendValue,
           });
-          
-          const result = await tx.signAndSubmit(polkadotSigner);
-          console.log('[StealthModal] Transaction result:', result);
-          
-          totalSpent += values.amount;
-          
+
+          await tx.signAndSubmit(polkadotSigner);
+
+          remaining -= sendValue;
+          totalSpent += sendValue;
+
           // 残高を更新（部分送金対応）
           if (balanceStore) {
-            const currentBalance = balance.balance;
-            const newBalance = currentBalance - values.amount;
-            balanceStore.updateBalance(balance.stealthAddress, newBalance);
+            balanceStore.updateBalance(balance.stealthAddress, balance.balance - sendValue);
           }
         } finally {
           stealthSigner.destroy();
         }
       }
-      
+
       // 残高リストを更新
       if (balanceStore) {
         setBalances(balanceStore.getAllAsStealthBalance());
       }
-      
-      // 成功メッセージを設定 (12桁精度でMORAL表示)
-      const moralAmount = Number(values.amount) / 1_000_000_000_000;
+
+      // 成功メッセージを設定 (12桁精度でMORAL表示) — 実際に送れた合計を表示
+      const moralAmount = Number(totalSpent) / 1_000_000_000_000;
       setSpendSuccessMessage(t('stealth.spend.success', { amount: moralAmount.toFixed(4) }));
-      
+
       // フォームリセット後に少し待ってからフォームを閉じる
       setTimeout(() => {
         setShowSpendForm(false);
         setSpendSuccessMessage(null);
       }, 3000);
-      
+
     } catch (error) {
-      console.error('[StealthModal] Spend error:', error);
+      debugError('[StealthModal] Spend error:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       setSpendErrorMessage(t('stealth.spend.failed', { error: errorMsg }));
       throw error;
     } finally {
       setIsSpending(false);
     }
-  }, [unsafeApi, balanceStore]);
+  }, [unsafeApi, balanceStore, t]);
 
   const isSendDisabled = !isConnected || !signer;
 
@@ -444,14 +427,67 @@ export function StealthModal({
                   </div>
                   <div className={styles.actionsSection}>
                     <h3>{t('stealth.manage.title')}</h3>
-                    <button
-                      type="button"
-                      className={styles.secondaryButton}
-                      onClick={handleExportKeys}
-                      disabled={isExporting}
-                    >
-                      {isExporting ? t('stealth.manage.exporting') : t('stealth.manage.export')}
-                    </button>
+                    {!showExportForm ? (
+                      <button
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={() => {
+                          setShowExportForm(true);
+                          setExportError(null);
+                          setExportSuccess(false);
+                        }}
+                      >
+                        {t('stealth.manage.export')}
+                      </button>
+                    ) : (
+                      <div className={styles.exportForm}>
+                        {/* バックアップ暗号化パスワード (8文字以上 + 確認入力) */}
+                        <input
+                          type="password"
+                          className={styles.exportInput}
+                          placeholder={t('stealth.backup.passwordPlaceholder')}
+                          value={exportPassword}
+                          onChange={(e) => setExportPassword(e.target.value)}
+                          minLength={8}
+                          disabled={isExporting}
+                        />
+                        <input
+                          type="password"
+                          className={styles.exportInput}
+                          placeholder={t('stealth.backup.confirmPlaceholder')}
+                          value={exportConfirmPassword}
+                          onChange={(e) => setExportConfirmPassword(e.target.value)}
+                          disabled={isExporting}
+                        />
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={handleExportKeys}
+                          disabled={isExporting || exportPassword.length < 8}
+                        >
+                          {isExporting ? t('stealth.manage.exporting') : t('stealth.backup.download')}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={() => {
+                            setShowExportForm(false);
+                            setExportPassword('');
+                            setExportConfirmPassword('');
+                            setExportError(null);
+                          }}
+                          disabled={isExporting}
+                        >
+                          {t('stealth.import.cancel')}
+                        </button>
+                      </div>
+                    )}
+                    {exportError && (
+                      <p className={styles.exportError}>{exportError}</p>
+                    )}
+                    {exportSuccess && (
+                      <p className={styles.exportSuccess}>{t('stealth.backup.complete')}</p>
+                    )}
                     <button
                       type="button"
                       className={styles.dangerButton}

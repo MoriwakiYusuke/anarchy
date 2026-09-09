@@ -111,6 +111,13 @@ export function useChain(): UseChainResult {
           }
         }, SYNC_TIMEOUT_MS)
 
+        const clearSyncTimeout = () => {
+          if (syncTimeoutRef.current) {
+            clearTimeout(syncTimeoutRef.current)
+            syncTimeoutRef.current = null
+          }
+        }
+
         const pollForSync = async () => {
           const pollInterval = 1500
           let retries = 0
@@ -119,12 +126,9 @@ export function useChain(): UseChainResult {
           while (mountedRef.current && retries < maxRetries) {
             try {
               const currentBlock = await api.query.System.Number.getValue()
+              // クエリ成功 → 30s タイムアウトを即座に解除 (mounted 判定より先)
+              clearSyncTimeout()
               if (!mountedRef.current) return
-
-              if (syncTimeoutRef.current) {
-                clearTimeout(syncTimeoutRef.current)
-                syncTimeoutRef.current = null
-              }
 
               setUnsafeApi(api)
               setStatus('connected')
@@ -135,6 +139,15 @@ export function useChain(): UseChainResult {
               retries++
               await new Promise((resolve) => setTimeout(resolve, pollInterval))
             }
+          }
+
+          // リトライ尽き: 旧実装はここで何もせず 'syncing' のまま固まっていた。
+          // タイムアウトタイマーも解除してエラー状態を明示する。
+          clearSyncTimeout()
+          if (mountedRef.current) {
+            console.error('[useChain] Sync polling exhausted retries')
+            setStatus('error')
+            setErrorMessage('チェーン接続がタイムアウトしました (30秒)')
           }
         }
 

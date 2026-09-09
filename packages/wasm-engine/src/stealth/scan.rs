@@ -6,9 +6,6 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use curve25519_dalek::{edwards::CompressedEdwardsY, Scalar};
 use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
 
-#[cfg(target_arch = "wasm32")]
-use web_sys::console;
-
 /// View鍵を使ってトランザクションが自分宛かどうかを判定 (Wasm export)
 ///
 /// # Arguments
@@ -28,8 +25,6 @@ pub fn scan_transaction(
 ) -> bool {
     // 入力検証
     if view_key.len() != 32 || ephemeral_pubkey.len() != 32 || stealth_pubkey.len() != 32 || spend_pubkey.len() != 32 {
-        #[cfg(target_arch = "wasm32")]
-        console::log_1(&"[scan_transaction] Invalid input lengths".into());
         return false;
     }
 
@@ -45,11 +40,7 @@ pub fn scan_transaction(
     let spend_bytes: [u8; 32] = spend_pubkey.try_into().unwrap();
     let spend_point = match CompressedEdwardsY(spend_bytes).decompress() {
         Some(p) => p,
-        None => {
-            #[cfg(target_arch = "wasm32")]
-            console::log_1(&"[scan_transaction] Invalid spend pubkey point".into());
-            return false;
-        }
+        None => return false,
     };
     let h_scalar = Scalar::from_bytes_mod_order(h);
     let h_g = ED25519_BASEPOINT_TABLE * &h_scalar;
@@ -57,23 +48,16 @@ pub fn scan_transaction(
     let expected_stealth_pubkey: [u8; 32] = expected_point.compress().to_bytes();
 
     // 公開鍵のバイト列を直接比較（SS58エンコーディングの差異を回避）
-    let matches = expected_stealth_pubkey == stealth_pubkey;
-    
-    // Debug output (only in wasm)
-    #[cfg(target_arch = "wasm32")]
-    if !matches {
-        console::log_1(&format!(
-            "[scan_transaction] MISMATCH: expected first 8 bytes: {:?}, got: {:?}",
-            &expected_stealth_pubkey[..8],
-            &stealth_pubkey[..8]
-        ).into());
-    }
-    
-    matches
+    // NOTE: view 鍵由来の導出結果 (stealth pubkey prefix 等) を console に出す
+    // デバッグログはメタデータ漏洩になるため置かないこと。
+    expected_stealth_pubkey == stealth_pubkey
 }
 
 /// Debug: derive expected stealth pubkey without comparing (Wasm export)
 /// Used to verify the derivation matches the stored stealth address
+///
+/// NOTE: frontend (`lib/stealth/scanner.ts`) が呼び出しているため export は維持。
+/// 戻り値は view 鍵由来の導出結果なので、呼出側でログに出さないこと。
 #[wasm_bindgen]
 pub fn debug_derive_expected_pubkey(
     view_key: &[u8],

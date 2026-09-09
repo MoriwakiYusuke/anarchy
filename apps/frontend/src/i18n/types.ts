@@ -92,6 +92,8 @@ export type TranslationKey =
   | 'reaction.pleaseConnect'
   | 'reaction.alreadyReacted'
   | 'reaction.submitting'
+  | 'reaction.paused'
+  | 'reaction.resume'
   // Content
   | 'content.loading'
   | 'content.error'
@@ -174,8 +176,6 @@ export type TranslationKey =
   | 'error.networkTimeout'
   // Address
   | 'address.copy'
-  | 'address.copied'
-  | 'address.copyFailed'
   | 'address.clickToCopy'
   // Name
   | 'name.label'
@@ -199,12 +199,8 @@ export type TranslationKey =
   | 'media.remove'
   | 'media.retry'
   | 'media.retrying'
-  | 'media.retryAll'
-  | 'media.clearAll'
-  | 'media.uploadFailed'
   | 'media.processing'
   | 'media.complete'
-  | 'media.loadError'
   | 'error.fileTooLarge'
   | 'error.unsupportedFileType'
   | 'error.tooManyFiles'
@@ -330,6 +326,7 @@ export type TranslationKey =
   | 'dm.compose.newDmLabel'
   | 'dm.compose.newDmPlaceholder'
   | 'dm.compose.openButton'
+  | 'dm.compose.invalidRecipient'
   | 'dm.compose.bodyPlaceholder'
   | 'dm.compose.send'
   | 'dm.compose.sending'

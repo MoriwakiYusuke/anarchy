@@ -4,15 +4,9 @@
 
 import { useCallback, useState } from 'react'
 import { getSharedWorkerPool } from '@/workers/WorkerPool'
+import { chainRpcCall, base64ToUint8Array } from '@/lib/chainRpc'
 
-// Multiple RPC endpoints for failover (add more nodes as they become available)
-// フェイルオーバー用の複数RPCエンドポイント（ノード追加時はここに追加）
-const RPC_ENDPOINTS: string[] = [
-  process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944',
-  // TODO: Add more full nodes for redundancy
-  // 'http://node2.anarchy.network:9944',
-  // 'http://node3.anarchy.network:9944',
-]
+// endpoint 解決 / フェイルオーバーは lib/chainRpc.ts に集約
 const MAX_RETRIES = 3
 const RETRY_DELAY_MS = 1000
 
@@ -37,41 +31,6 @@ export interface UseFragmentsResult {
   isReady: boolean
 }
 
-/**
- * RPC呼び出しユーティリティ（フェイルオーバー対応）
- * Tries each endpoint in order until one succeeds
- */
-async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
-  let lastError: Error | null = null
-  
-  for (const endpoint of RPC_ENDPOINTS) {
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method,
-          params,
-        }),
-      })
-
-      const json = await response.json()
-      if (json.error) {
-        throw new Error(json.error.message || 'RPC error')
-      }
-      return json.result
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err))
-      // Try next endpoint
-      continue
-    }
-  }
-  
-  throw lastError || new Error('All RPC endpoints unreachable')
-}
-
 async function rpcCallWithRetry<T>(
   method: string,
   params: unknown[],
@@ -82,7 +41,8 @@ async function rpcCallWithRetry<T>(
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      return await rpcCall<T>(method, params)
+      // フェイルオーバー / json.error 検査は chainRpc.ts に集約
+      return await chainRpcCall<T>(method, params)
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
       if (attempt < retries) {
@@ -140,7 +100,7 @@ export function useFragments(): UseFragmentsResult {
           )
 
           // Base64デコード
-          const data = Uint8Array.from(atob(result.data), c => c.charCodeAt(0))
+          const data = base64ToUint8Array(result.data)
           shardBytes.push(data)
           setProgress(prev => Math.min(prev + progressPerFragment, 70))
         } catch {

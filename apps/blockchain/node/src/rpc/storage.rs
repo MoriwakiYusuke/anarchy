@@ -36,9 +36,16 @@ use std::sync::Arc;
 // Security Constants (T074)
 // ============================================================================
 
-/// Maximum fragment size: 1GB (1073741824 bytes)
+/// Maximum fragment size: 128MB
 /// 断片サイズの上限。これを超えるリクエストは拒否される。
-pub const MAX_FRAGMENT_SIZE: usize = 1024 * 1024 * 1024;
+///
+/// 根拠: フロントエンドのメディア上限は 256MB (`apps/frontend/src/types/media.ts` の
+/// MAX_IMAGE_SIZE / MAX_VIDEO_SIZE / MAX_FILE_SIZE) で、hybrid_split (k=3, n=5) により
+/// 1 シェアは最大 約 256MB/3 ≈ 86MB。ヘッドルームを含め 128MB に制限する。
+/// 旧値 1GB は実際に生成されるシェアサイズに対して過大で DoS 余地があった。
+/// 注: storage-node 側の P2P FragmentCodec は 10MB cap のため、大型シェアの
+/// ノード間複製には別途整合が必要 (storage-node 側で対応予定)。
+pub const MAX_FRAGMENT_SIZE: usize = 128 * 1024 * 1024;
 
 /// Maximum total leaves in MerkleTree
 /// n値 (総断片数) の上限。SSS (k=3, n=5) の場合は通常5以下。
@@ -403,9 +410,38 @@ pub trait StorageApi {
     async fn get_fragments_with_excess_holders(&self) -> RpcResult<Vec<[u8; 32]>>;
 }
 
+/// Storage Node向け共有HTTPクライアントを取得する。
+///
+/// `reqwest::Client::new()` はデフォルトでタイムアウト無しのため、応答しない
+/// storage-node が 1 台あるだけで RPC が永久にハングしうる。また per-request に
+/// Client を生成するとコネクションプールが活かせない。ここでプロセス全体で
+/// 1 つの Client を once 初期化し、全 `StorageNodeClient` で再利用する
+/// (`reqwest::Client` は内部 Arc なので clone は安価)。
+///
+/// - connect_timeout 5s: 死んだエンドポイントの早期検出
+/// - timeout 180s: MAX_FRAGMENT_SIZE (128MB) の断片転送を低速回線 (Tor 経由含む)
+///   でも完了できる程度に長く、かつ有限に抑える
+fn shared_http_client() -> reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(180))
+                .build()
+                .unwrap_or_else(|e| {
+                    // builder は TLS backend 初期化失敗等でしか失敗しない。
+                    // 万一失敗してもノード全体は止めず、デフォルト Client に退避する。
+                    log::warn!("Failed to build shared reqwest client with timeouts, falling back to default: {}", e);
+                    reqwest::Client::new()
+                })
+        })
+        .clone()
+}
+
 /// Storage Node HTTPクライアント
 pub struct StorageNodeClient {
-    /// HTTPクライアント
+    /// HTTPクライアント (プロセス全体で共有、タイムアウト付き)
     http_client: reqwest::Client,
     /// Storage NodeのベースURL
     storage_node_url: String,
@@ -417,7 +453,7 @@ impl StorageNodeClient {
     /// 新しいクライアントを作成
     pub fn new(storage_node_url: String) -> Self {
         Self {
-            http_client: reqwest::Client::new(),
+            http_client: shared_http_client(),
             storage_node_url,
             chain_keypair: None,
         }
@@ -426,7 +462,7 @@ impl StorageNodeClient {
     /// チェーンノードキーペア付きでクライアントを作成
     pub fn new_with_chain_auth(storage_node_url: String, keypair: SharedChainKeyPair) -> Self {
         Self {
-            http_client: reqwest::Client::new(),
+            http_client: shared_http_client(),
             storage_node_url,
             chain_keypair: Some(keypair),
         }
@@ -1068,7 +1104,7 @@ where
         // Security Validation (T074)
         // ============================================================
 
-        // Fragment size check (max 256KB)
+        // Fragment size check (max MAX_FRAGMENT_SIZE = 128MB)
         if data.len() > MAX_FRAGMENT_SIZE {
             return Err(ErrorObject::owned(
                 ErrorCode::InvalidParams.code(),

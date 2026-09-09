@@ -220,11 +220,15 @@ impl ChallengeMonitor {
             .count()
     }
 
-    /// Clear submitted challenges older than given block
+    /// 対応不要になった challenge を pending map から削除する
+    ///
+    /// 「未提出かつ deadline 未到来」のものだけ残し、提出済み・期限切れの
+    /// エントリは削除する。main ループから定期的に呼ばないと pending map が
+    /// 単調増加する。
     pub async fn cleanup_old_challenges(&self, current_block: u64) {
         let mut pending = self.pending.lock().await;
         pending.retain(|_, pc| {
-            // Keep if not submitted or if deadline hasn't passed
+            // 保持条件: 未提出 かつ deadline がまだ来ていない
             !pc.submitted && pc.challenge.deadline > current_block
         });
     }
@@ -296,5 +300,24 @@ mod tests {
 
         // Should be added to pending (even if proof generation fails)
         assert_eq!(monitor.pending_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_removes_expired_keeps_actionable() {
+        let prover = Arc::new(KzgProver::new());
+        let monitor = ChallengeMonitor::new([42u8; 32], prover);
+
+        // deadline = 200 の challenge を登録 (proof 生成は失敗するが pending には残る)
+        let challenge = make_test_challenge();
+        let _ = monitor.on_challenge_issued(challenge).await;
+        assert_eq!(monitor.pending_count().await, 1);
+
+        // deadline 前のブロックでは保持される (未提出 & 期限内 = actionable)
+        monitor.cleanup_old_challenges(150).await;
+        assert_eq!(monitor.pending_count().await, 1);
+
+        // deadline 到来後は削除される
+        monitor.cleanup_old_challenges(200).await;
+        assert_eq!(monitor.pending_count().await, 0);
     }
 }

@@ -31,13 +31,21 @@ import { extractVideoThumbnail } from '@/lib/videoThumbnail'
 // ブラウザが「応答なし」になるので、必ず WorkerPool 経由で逃がす。
 // 参照: useUpload.ts の同パターン。
 import { getSharedWorkerPool } from '@/workers/WorkerPool'
+// (CLAUDE.md §5) アップロードは chain-node の `storage_uploadFragment` 経由のみ。
+// endpoint 解決 / auth 署名 / json.error 検査は lib/chainRpc.ts に集約。
+import {
+  authenticatedRpcCall,
+  resolveChainRpcEndpoint,
+  uint8ArrayToBase64,
+  type StorageSigner,
+} from '@/lib/chainRpc'
+import { debugError } from '@/lib/debugLog'
 
 // SSS/Reed-Solomon parameters
 const DEFAULT_THRESHOLD = 3  // k: minimum shards to reconstruct
 const DEFAULT_SHARD_COUNT = 5  // n: total shards
-
-/** RPC endpoint (blockchain node - all storage operations go through blockchain node) */
-const RPC_ENDPOINT = process.env.NEXT_PUBLIC_WS_ENDPOINT?.replace('ws://', 'http://').replace('wss://', 'https://') || 'http://127.0.0.1:9944'
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 1000
 
 /** Hook options */
 export interface UseMediaUploadOptions {
@@ -51,6 +59,9 @@ export interface UseMediaUploadOptions {
   maxFiles?: number
   /** Allow video files (default: false for backward compatibility) */
   includeVideo?: boolean
+  /** upload auth 署名用 signer (useUpload.ts と同じ。省略時は無認証 =
+   *  auth disabled な dev storage-node でのみ動作) */
+  signer?: StorageSigner
   /** Progress callback */
   onProgress?: (fileId: string, progress: number) => void
   /** Upload complete callback */
@@ -84,11 +95,12 @@ export interface UseMediaUploadReturn {
  */
 export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUploadReturn {
   const {
-    rpcEndpoint = RPC_ENDPOINT,
+    rpcEndpoint,
     stripExif = true,
     atomicUpload = false,
     maxFiles = MAX_FILES_PER_POST,
     includeVideo = false,
+    signer,
     onProgress,
     onUploadComplete,
     onError,
@@ -287,14 +299,18 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
         k: DEFAULT_THRESHOLD,
         n: DEFAULT_SHARD_COUNT,
       })
-      const { shards, shardHashes, threshold, totalShards } = splitResult
+      const { shards, threshold, totalShards } = splitResult
 
-      // Generate merkle tree from shard chunk hashes — Worker 経由。
+      // Merkle tree をシャード本体から構築 — Worker 経由。
+      // chain-node の `storage_uploadFragment` は「アップロードした data が
+      // merkle proof で root に対して leaf として検証できる」ことを要求する
+      // ため、useUpload.ts と同じく shards 自体を leaf にする (chunk hash ではなく)。
+      // proof 生成は merkle キャッシュに依存するので同一 worker を使う。
       const merkleWorkerIndex = pool.acquireWorker()
       const merkleResult = await pool.executeOnWorker<{ root: Uint8Array; rootHex: string }>(
         merkleWorkerIndex,
         'merkle_build',
-        { fragments: shardHashes },
+        { fragments: shards },
       )
       const merkleRoot = merkleResult.root
       const merkleRootHex = merkleResult.rootHex
@@ -302,28 +318,43 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
       // Update status to uploading
       updateFile(fileId, { status: 'uploading', uploadProgress: 20 })
 
-      // Upload each shard to storage node
+      // Upload each shard via chain-node `storage_uploadFragment`
+      // (CLAUDE.md §5: storage-node 直叩き禁止。useUpload.ts と同じフロー)
+      const endpoints = [resolveChainRpcEndpoint(rpcEndpoint)]
       for (let i = 0; i < totalShards; i++) {
         const shardBytes = shards[i]
         if (!shardBytes) continue
 
-        const response = await fetch(`${rpcEndpoint}/rpc`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'store_fragment',
-            params: {
-              merkle_root: merkleRootHex,
-              index: i,
-              data: Array.from(shardBytes),
-            },
-          }),
-        })
+        // 同じ worker で proof 生成 (merkle キャッシュが必要)
+        const proof = await pool.executeOnWorker<Uint8Array>(
+          merkleWorkerIndex,
+          'merkle_generate_proof',
+          { merkleRootHex, index: i },
+        )
 
-        if (!response.ok) {
-          throw new Error(`Shard upload failed: ${response.status}`)
+        const baseParams = {
+          merkle_root: Array.from(merkleRoot),
+          index: i,
+          data: uint8ArrayToBase64(shardBytes),
+          proof: uint8ArrayToBase64(proof),
+          total_leaves: totalShards,
+        }
+
+        // リトライ付きアップロード。JSON-RPC error (HTTP 200) も
+        // authenticatedRpcCall が検査して throw する。
+        let uploaded = false
+        for (let attempt = 1; attempt <= MAX_RETRIES && !uploaded; attempt++) {
+          try {
+            await authenticatedRpcCall<{ success: boolean; fragment_hash: number[] }>(
+              'storage_uploadFragment',
+              baseParams,
+              { signer, endpoints },
+            )
+            uploaded = true
+          } catch (err) {
+            if (attempt === MAX_RETRIES) throw err
+            await new Promise(r => setTimeout(r, RETRY_DELAY_MS * attempt))
+          }
         }
 
         // Update progress
@@ -353,14 +384,14 @@ export function useMediaUpload(options: UseMediaUploadOptions = {}): UseMediaUpl
         totalShards,
       }
     } catch (err) {
-      console.error('[useMediaUpload] Upload failed:', err)
+      debugError('[useMediaUpload] Upload failed:', err)
       updateFile(fileId, {
         status: 'error',
         error: err instanceof Error ? err.message : 'Unknown error',
       })
       return null
     }
-  }, [rpcEndpoint, stripExif, updateFile, onProgress, pool])
+  }, [rpcEndpoint, stripExif, updateFile, onProgress, pool, signer])
 
   /**
    * Upload all pending files

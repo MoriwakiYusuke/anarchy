@@ -33,6 +33,7 @@ import { initSs58Toolkit, type ScanContext } from '@/lib/dm/scanner';
 import type { SendDmContext } from '@/lib/dm/sender';
 import { sendDmReceipt } from '@/lib/dm/receipt';
 import { startDmScanLoop, type DmScanLoopHandle } from '@/lib/dm/worker';
+import { validateSS58Address } from '@/lib/addressValidation';
 import { debugError } from '@/lib/debugLog';
 import { useDmStore } from '@/lib/dm/store';
 import { exportDmBackup, importDmBackup } from '@/lib/dm/keyManager';
@@ -60,6 +61,7 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
   const [activeTab, setActiveTab] = useState<Tab>('inbox');
   const [selected, setSelected] = useState<AccountId | null>(null);
   const [newRecipient, setNewRecipient] = useState('');
+  const [recipientError, setRecipientError] = useState<string | null>(null);
   const [keyLoaded, setKeyLoaded] = useState(false);
   const loopRef = useRef<DmScanLoopHandle | null>(null);
 
@@ -153,10 +155,17 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
       e.preventDefault();
       const trimmed = newRecipient.trim();
       if (!trimmed) return;
+      // SS58 として decode できない入力は送信フロー深部の不可解なエラーになる前に弾く
+      const validation = validateSS58Address(trimmed);
+      if (!validation.valid) {
+        setRecipientError(t('dm.compose.invalidRecipient'));
+        return;
+      }
+      setRecipientError(null);
       setSelected(trimmed as AccountId);
       setNewRecipient('');
     },
-    [newRecipient],
+    [newRecipient, t],
   );
 
   if (!mounted || !isOpen) return null;
@@ -187,7 +196,10 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
               className={styles.composeInput}
               placeholder={t('dm.compose.newDmPlaceholder')}
               value={newRecipient}
-              onChange={(e) => setNewRecipient(e.target.value)}
+              onChange={(e) => {
+                setNewRecipient(e.target.value);
+                setRecipientError(null);
+              }}
             />
             <button
               type="submit"
@@ -197,6 +209,11 @@ export function DmModal({ isOpen, onClose }: DmModalProps): JSX.Element | null {
               {t('dm.compose.openButton')}
             </button>
           </form>
+          {recipientError && (
+            <p role="alert" className={styles.recipientError}>
+              {recipientError}
+            </p>
+          )}
           <div className={styles.listScroll}>
             <ConversationList onSelect={handleOpenConversation} />
           </div>

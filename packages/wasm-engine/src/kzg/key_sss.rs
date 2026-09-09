@@ -6,6 +6,7 @@
 //! GF(256)上のShamirの秘密分散を自前実装（sharksクレート不要）。
 
 use super::encryption::KEY_SIZE;
+use zeroize::Zeroizing;
 
 // =============================================================================
 // GF(256) Arithmetic (AES/Rijndael field: x^8 + x^4 + x^3 + x + 1)
@@ -198,8 +199,8 @@ pub fn key_split(key: &[u8], k: u8, n: u8) -> Result<KeySplitResult, KeySssError
 /// * `k` - 最小シェア数
 ///
 /// # Returns
-/// 復元された32バイト鍵
-pub fn key_recover(shares: &[KeyShare], k: u8) -> Result<[u8; KEY_SIZE], KeySssError> {
+/// 復元された32バイト鍵 (Zeroizing: drop 時にゼロクリアされる)
+pub fn key_recover(shares: &[KeyShare], k: u8) -> Result<Zeroizing<[u8; KEY_SIZE]>, KeySssError> {
     if shares.len() < k as usize {
         return Err(KeySssError::InsufficientShares);
     }
@@ -225,7 +226,7 @@ pub fn key_recover(shares: &[KeyShare], k: u8) -> Result<[u8; KEY_SIZE], KeySssE
     }
 
     // 各バイト位置で補間
-    let mut key = [0u8; KEY_SIZE];
+    let mut key = Zeroizing::new([0u8; KEY_SIZE]);
     for i in 0..KEY_SIZE {
         let points: Vec<(u8, u8)> = shares
             .iter()
@@ -254,7 +255,7 @@ mod tests {
 
         // 全シェアで復元
         let recovered = key_recover(&result.shares, k).unwrap();
-        assert_eq!(recovered, *key);
+        assert_eq!(*recovered, *key);
     }
 
     #[test]
@@ -268,7 +269,7 @@ mod tests {
         // k個のシェアのみで復元
         let subset: Vec<KeyShare> = result.shares[0..k as usize].to_vec();
         let recovered = key_recover(&subset, k).unwrap();
-        assert_eq!(recovered, *key);
+        assert_eq!(*recovered, *key);
     }
 
     #[test]
@@ -285,7 +286,7 @@ mod tests {
             result.shares[3].clone(),
         ];
         let recovered = key_recover(&subset, k).unwrap();
-        assert_eq!(recovered, *key);
+        assert_eq!(*recovered, *key);
     }
 
     #[test]
@@ -335,7 +336,7 @@ mod tests {
                 result.shares[b].clone(),
             ];
             let recovered = key_recover(&subset, k).unwrap();
-            assert_eq!(recovered, *key, "Failed with shares {} and {}", a, b);
+            assert_eq!(*recovered, *key, "Failed with shares {} and {}", a, b);
         }
     }
 

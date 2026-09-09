@@ -26,6 +26,11 @@ use subxt::{OnlineClient, SubstrateConfig};
 use subxt::dynamic::Value;
 use subxt_signer::sr25519::Keypair as SubxtKeypair;
 
+/// extrinsic 提出〜finalize 待ちに適用する上限時間（秒）。
+/// チェーンが停止・無応答でも main イベントループの select! アームが
+/// 無期限に固まらないようにするための保険。
+const EXTRINSIC_TIMEOUT_SECS: u64 = 120;
+
 /// Rate limiter for declare_holding calls (FR-108)
 pub struct RateLimiter {
     /// Maximum calls per period
@@ -116,6 +121,11 @@ pub struct ChainClient {
     holding_map: Mutex<HashMap<FragmentId, (u64, u32)>>,
     /// Retry configuration for reconnection (Issue 10 fix)
     retry_config: RetryConfig,
+    /// チェーンノード向け HTTP JSON-RPC 用の共有 reqwest クライアント。
+    /// タイムアウト未設定の Client::new() を都度生成していると、相手が
+    /// 無応答のとき main イベントループの select! アームごと固まるため、
+    /// connect 5s / 全体 30s を設定して全呼び出しで使い回す。
+    http_client: reqwest::Client,
 }
 
 impl ChainClient {
@@ -169,6 +179,13 @@ impl ChainClient {
             }
         };
 
+        // 共有 HTTP クライアント（タイムアウト付き）
+        let http_client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .context("Failed to build reqwest client")?;
+
         Ok(Self {
             endpoint: endpoint.to_string(),
             failover_manager,
@@ -179,6 +196,7 @@ impl ChainClient {
             subxt_client: Mutex::new(subxt_client),
             holding_map: Mutex::new(HashMap::new()),
             retry_config: RetryConfig::default(),
+            http_client,
         })
     }
 
@@ -521,40 +539,57 @@ impl ChainClient {
             ],
         );
         
-        // Submit and watch for finalization
-        let mut progress = client
-            .tx()
-            .sign_and_submit_then_watch_default(&tx, &self.subxt_keypair)
-            .await
-            .context("Failed to submit prove_holding_kzg extrinsic")?;
-        
-        // Wait for finalization using next() to get status updates
-        use subxt::tx::TxStatus;
-        loop {
-            match progress.next().await {
-                Some(Ok(TxStatus::InBestBlock(details))) | Some(Ok(TxStatus::InFinalizedBlock(details))) => {
-                    // Check for dispatch error
-                    details.wait_for_success().await.context("Extrinsic dispatch failed")?;
-                    info!(
-                        content_hash = %hex::encode(content_hash),
-                        block_hash = %hex::encode(details.block_hash().0),
-                        "Successfully submitted KZG holding proof - reward pending"
-                    );
-                    break;
-                }
-                Some(Ok(_)) => {
-                    // Other status, continue waiting
-                    continue;
-                }
-                Some(Err(e)) => {
-                    return Err(anyhow::anyhow!("Transaction error: {}", e));
-                }
-                None => {
-                    return Err(anyhow::anyhow!("Transaction stream ended unexpectedly"));
+        // 提出〜finalize 待ち全体にタイムアウトを掛ける。
+        // チェーンが finalize しない状態だとここで永久に待ち続け、
+        // 呼び出し元（main イベントループ）が固まるため。
+        let submit_and_wait = async {
+            // Submit and watch for finalization
+            let mut progress = client
+                .tx()
+                .sign_and_submit_then_watch_default(&tx, &self.subxt_keypair)
+                .await
+                .context("Failed to submit prove_holding_kzg extrinsic")?;
+
+            // Wait for finalization using next() to get status updates
+            use subxt::tx::TxStatus;
+            loop {
+                match progress.next().await {
+                    Some(Ok(TxStatus::InBestBlock(details))) | Some(Ok(TxStatus::InFinalizedBlock(details))) => {
+                        // Check for dispatch error
+                        details.wait_for_success().await.context("Extrinsic dispatch failed")?;
+                        info!(
+                            content_hash = %hex::encode(content_hash),
+                            block_hash = %hex::encode(details.block_hash().0),
+                            "Successfully submitted KZG holding proof - reward pending"
+                        );
+                        return Ok(());
+                    }
+                    Some(Ok(_)) => {
+                        // Other status, continue waiting
+                        continue;
+                    }
+                    Some(Err(e)) => {
+                        return Err(anyhow::anyhow!("Transaction error: {}", e));
+                    }
+                    None => {
+                        return Err(anyhow::anyhow!("Transaction stream ended unexpectedly"));
+                    }
                 }
             }
+        };
+
+        match tokio::time::timeout(Duration::from_secs(EXTRINSIC_TIMEOUT_SECS), submit_and_wait).await {
+            Ok(result) => result?,
+            Err(_) => {
+                warn!(
+                    content_hash = %hex::encode(content_hash),
+                    timeout_secs = EXTRINSIC_TIMEOUT_SECS,
+                    "prove_holding_kzg submission timed out waiting for finalization"
+                );
+                bail!("prove_holding_kzg timed out after {}s", EXTRINSIC_TIMEOUT_SECS);
+            }
         }
-        
+
         self.report_success().await;
         Ok(())
     }
@@ -576,40 +611,55 @@ impl ChainClient {
         // pallet_storage::Call::claim_reward (no parameters)
         let tx = subxt::dynamic::tx("Storage", "claim_reward", Vec::<Value>::new());
         
-        // Submit and watch for finalization
-        let mut progress = client
-            .tx()
-            .sign_and_submit_then_watch_default(&tx, &self.subxt_keypair)
-            .await
-            .context("Failed to submit claim_reward extrinsic")?;
-        
-        // Wait for finalization
-        use subxt::tx::TxStatus;
-        loop {
-            match progress.next().await {
-                Some(Ok(TxStatus::InBestBlock(details))) | Some(Ok(TxStatus::InFinalizedBlock(details))) => {
-                    // Check for dispatch success
-                    details.wait_for_success().await.context("claim_reward failed")?;
-                    
-                    info!(
-                        account = %self.signer_ss58(),
-                        block_hash = %hex::encode(details.block_hash().0),
-                        "Successfully claimed reward"
-                    );
-                    break;
-                }
-                Some(Ok(_)) => {
-                    continue;
-                }
-                Some(Err(e)) => {
-                    return Err(anyhow::anyhow!("Transaction error: {}", e));
-                }
-                None => {
-                    return Err(anyhow::anyhow!("Transaction stream ended unexpectedly"));
+        // 提出〜finalize 待ち全体にタイムアウトを掛ける（submit_holding_proof と同様）
+        let submit_and_wait = async {
+            // Submit and watch for finalization
+            let mut progress = client
+                .tx()
+                .sign_and_submit_then_watch_default(&tx, &self.subxt_keypair)
+                .await
+                .context("Failed to submit claim_reward extrinsic")?;
+
+            // Wait for finalization
+            use subxt::tx::TxStatus;
+            loop {
+                match progress.next().await {
+                    Some(Ok(TxStatus::InBestBlock(details))) | Some(Ok(TxStatus::InFinalizedBlock(details))) => {
+                        // Check for dispatch success
+                        details.wait_for_success().await.context("claim_reward failed")?;
+
+                        info!(
+                            account = %self.signer_ss58(),
+                            block_hash = %hex::encode(details.block_hash().0),
+                            "Successfully claimed reward"
+                        );
+                        return Ok(());
+                    }
+                    Some(Ok(_)) => {
+                        continue;
+                    }
+                    Some(Err(e)) => {
+                        return Err(anyhow::anyhow!("Transaction error: {}", e));
+                    }
+                    None => {
+                        return Err(anyhow::anyhow!("Transaction stream ended unexpectedly"));
+                    }
                 }
             }
+        };
+
+        match tokio::time::timeout(Duration::from_secs(EXTRINSIC_TIMEOUT_SECS), submit_and_wait).await {
+            Ok(result) => result?,
+            Err(_) => {
+                warn!(
+                    account = %self.signer_ss58(),
+                    timeout_secs = EXTRINSIC_TIMEOUT_SECS,
+                    "claim_reward submission timed out waiting for finalization"
+                );
+                bail!("claim_reward timed out after {}s", EXTRINSIC_TIMEOUT_SECS);
+            }
         }
-        
+
         self.report_success().await;
         Ok(())
     }
@@ -687,7 +737,7 @@ impl ChainClient {
             signature,
         };
         
-        let client = reqwest::Client::new();
+        let client = &self.http_client;
         let request = RpcRequest {
             jsonrpc: "2.0",
             id: 1,
@@ -794,7 +844,7 @@ impl ChainClient {
             message: String,
         }
         
-        let client = reqwest::Client::new();
+        let client = &self.http_client;
         let request = RpcRequest {
             jsonrpc: "2.0",
             id: 1,
@@ -851,7 +901,7 @@ impl ChainClient {
             message: String,
         }
         
-        let client = reqwest::Client::new();
+        let client = &self.http_client;
         let request = RpcRequest {
             jsonrpc: "2.0",
             id: 1,
@@ -883,6 +933,17 @@ impl ChainClient {
         }
         
         rpc_response.result.ok_or_else(|| anyhow::anyhow!("No result in RPC response"))
+    }
+
+    /// 最新ブロック番号を取得する（challenge cleanup の期限判定用）
+    pub async fn latest_block_number(&self) -> Result<u64> {
+        let client = self.ensure_subxt_client().await?;
+        let block = client
+            .blocks()
+            .at_latest()
+            .await
+            .context("Failed to fetch latest block")?;
+        Ok(block.number().into())
     }
 
     /// Poll for new challenges targeting our account (T047, Issue 11 fix)

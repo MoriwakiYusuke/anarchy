@@ -14,7 +14,7 @@
 
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useDmStore, receiptKey } from '@/lib/dm/store';
 import { sendDmReceipt } from '@/lib/dm/receipt';
 import { useNicknameOf } from '@/hooks/useNicknameOf';
@@ -63,21 +63,31 @@ export function ConversationView({
   // T078 / FR-016: スレッドを開いた際に incoming メッセージへ read receipt を送る。
   //   - opt-out (receiptOptOut=true) は `sendDmReceipt` 側でサプレス。
   //   - idempotent: `sentReceipts` に記録済みなら skip (再マウント / hot reload に耐える)。
+  //   - sentReceipts への記録は **送信成功後のみ**。先に記録すると送信失敗時に
+  //     receipt が永久にサプレスされてしまう。送信中の二重発火は in-flight set で防ぐ。
   //   - context 無し (読み取り専用表示) の場合は emit しない。
+  const inFlightReceipts = useRef(new Set<string>());
   useEffect(() => {
     if (!context) return;
     const store = useDmStore.getState();
     for (const m of messages) {
       if (m.direction !== 'incoming' || m.bodyState !== 'plaintext') continue;
       const key = receiptKey(conversationId, m.messageId, 'read');
-      if (store.sentReceipts.has(key)) continue;
-      store.rememberReceiptSent(key);
+      if (store.sentReceipts.has(key) || inFlightReceipts.current.has(key)) continue;
+      inFlightReceipts.current.add(key);
       void sendDmReceipt(
         { counterparty: conversationId, refMessageId: m.messageId, kind: 'read' },
         context,
-      ).catch((err) => {
-        debugError('[dm-receipt][read]', err);
-      });
+      )
+        .then(() => {
+          useDmStore.getState().rememberReceiptSent(key);
+        })
+        .catch((err) => {
+          debugError('[dm-receipt][read]', err);
+        })
+        .finally(() => {
+          inFlightReceipts.current.delete(key);
+        });
     }
   }, [context, conversationId, messages]);
 

@@ -9,23 +9,12 @@
  */
 
 import type { PolkadotSigner } from 'polkadot-api/signer'
+import { withTimeout } from '@/lib/withTimeout'
 
 /** Timeout for RPC calls in milliseconds.
  *  PoW 移行で block time が 30s に伸びたため finalize 待ちで 60s+。余裕 240s。
  */
 const RPC_TIMEOUT_MS = 240_000
-
-/**
- * Wrap a promise with timeout
- */
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => 
-      setTimeout(() => reject(new Error(`Timeout: ${message}`)), ms)
-    )
-  ])
-}
 
 /**
  * Reaction types matching pallet-reaction's ReactionType enum

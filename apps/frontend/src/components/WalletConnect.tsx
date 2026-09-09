@@ -204,6 +204,7 @@ export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChan
                 {t('wallet.seedHint')}
               </p>
               
+              {/* セキュリティ: ブラウザの拡張スペルチェック / 入力補完によるシードフレーズ流出を防ぐ */}
               <textarea
                 className={styles.seedPhraseInput}
                 value={seedPhraseInput}
@@ -213,6 +214,10 @@ export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChan
                 }}
                 placeholder="word1 word2 word3 ... word12"
                 rows={3}
+                spellCheck={false}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
               />
               
               {seedPhraseError && (
