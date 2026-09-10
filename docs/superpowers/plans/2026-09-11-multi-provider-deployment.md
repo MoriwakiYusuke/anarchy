@@ -110,6 +110,7 @@
 | 跨ホストのピア確立 (別 compose プロジェクト間、Tor のみ) | ✅ socat 経由で 210 秒後に確立、同期開始 |
 | 跨ホストのレジストリ伝播 | ✅ GCP 側は直接登録を受けずに さくらのストレージ 3 台を把握 |
 | **跨ホストの fan-out** | ✅ **GCP のチェーンが さくらのストレージ 3 台すべてに到達** (各ノードのログに受信を確認) |
+| AWS 相当 (チェーンが別ホストのストレージ単独ノード) | ✅ subxt が torsocks 経由で `.onion` の WS に到達し登録成功。さくらのチェーンから `total=4 online=4` として見える |
 
 ## 残っている作業
 
@@ -117,7 +118,7 @@ VPS が要るものだけ。ローカルで済むものは全て完了してい�
 
 | Task | 内容 | 前提 |
 |---|---|---|
-| 1 | ghcr へのイメージ公開 | main への push (CI が自動実行) |
+| ~~1~~ | ~~ghcr へのイメージ公開~~ | ✅ **完了**。public で認証なし pull 可、起動確認済み (233MB / 156MB) |
 | 2 | さくら構築 | さくら VPS |
 | 3 | GCP 構築 | GCP インスタンス + ドメイン |
 | 4 | AWS 構築 | AWS インスタンス |
@@ -404,7 +405,8 @@ Expected: `HTTP/1.1 101 Switching Protocols`
 **さくらとは逆に、ここでは torsocks で包む。** チェーンが別ホストなので
 `--chain-url=ws://<さくらのchain onion>:9944` を指定する。
 
-**subxt (jsonrpsee WS) が torsocks 経由で `.onion` に繋がるかは未検証。**
+**subxt が torsocks 経由で `.onion` の WS に繋がることは実測で確認済み**
+(初回は 10 秒タイムアウトで失敗するがリトライで成功する)。
 失敗する場合は `--chain-url` を GCP のチェーンに向けるか、socat トンネルを検討する。
 
 - [ ] **Step 4: 登録が全チェーンに伝播したか確認**
@@ -519,14 +521,15 @@ Expected: swap を食い潰していない、OOM killer が動いていない
 | Tor はサーバー間のみ | Task 2/3/4 (torsocks の適用範囲を各所で明示) |
 | ローカル接続 | `docs/operations/deployment-multi-provider.md` §7 |
 
-**2. 未検証として残っているもの**
+**2. 未検証項目は残っていない**
 
-- Task 4 Step 3: subxt が torsocks 経由で `.onion` の WS に繋がるか
-  (AWS のストレージ単独ノードのみ該当。さくら/GCP は同一ホストのチェーンを使うので無関係)
+当初「未検証」としていたものは全て実測で決着した:
 
-**解決済み** (当初は未検証だったもの):
-- ~~`/dns4/<onion>/` による libp2p dial~~ → **動かないことを実測で確認**。socat 必須
-- ~~GitHub Actions 上での Docker ビルド~~ → CI 成功 (21m13s / 4m29s)
+| 項目 | 結果 |
+|---|---|
+| `/dns4/<onion>/` による libp2p dial | ❌ **動かない**。socat 必須 (手順書 §5.6) |
+| subxt が torsocks 経由で `.onion` の WS に繋がるか | ✅ **繋がる**。初回はタイムアウトするがリトライで成功 |
+| GitHub Actions 上での Docker ビルド | ✅ 成功 (main で 22m17s / 5m42s)。ghcr のイメージを pull して起動確認済み |
 
 **3. スコープ外 (意図的)**
 
