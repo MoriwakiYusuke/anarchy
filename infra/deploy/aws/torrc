@@ -1,0 +1,19 @@
+# AWS — ストレージ 1 台のみ
+#
+# チェーンは別ホスト (さくら) にあるため、ストレージは torsocks で包む。
+# 名前空間の共有は不要 (同一ホストに通信相手がいない)。
+
+DataDirectory /var/lib/tor
+RunAsDaemon 0
+Log notice stdout
+
+SocksPort 127.0.0.1:9050 IsolateClientAddr IsolateSOCKSAuth
+
+# チェーンノード (さくら / GCP) がここに fan-out する
+HiddenServiceDir /var/lib/tor/anarchy-storage
+HiddenServiceVersion 3
+HiddenServicePort 3030 127.0.0.1:3030
+
+ClientUseIPv6 1
+ClientPreferIPv6ORPort 0
+SafeLogging 1

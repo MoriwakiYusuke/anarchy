@@ -1,0 +1,11 @@
+# ストレージノード設定テンプレート。
+# storage-1.toml .. storage-3.toml に展開し、signer_seed をノードごとに変えること:
+#   for i in 1 2 3; do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
+#
+# public_url / chain_url / rpc_port は compose が CLI で渡すのでここには書かない。
+capacity = 10737418240        # 10 GiB
+declare_rate_limit = 10
+auth_enabled = true
+dev_mode = false              # 本番では実 SRS を用意すること
+listen_addr = "/ip4/0.0.0.0/tcp/4001"
+signer_seed = "CHANGE_ME"

@@ -1,0 +1,59 @@
+# AWS — storage×1 (3 プロバイダ目)
+#
+# さくら/GCP と決定的に違う点: **チェーンが同一ホストに無い**。
+# そのため storage を torsocks で包み、--chain-url に .onion を指定する
+# (さくらでは逆に包まない — 同一ホストのチェーンに直結するため)。
+#
+# 名前空間は tor と共有する。同一ホストに通信相手がいないので
+# netns コンテナを挟む必要は無く、AllowOutboundLocalhost で
+# tor の SOCKS (127.0.0.1:9050) に届けば足りる。
+#
+# ⚠️ storage-node は subxt (jsonrpsee WS) でチェーンに繋ぐ。これが torsocks 経由で
+#    .onion の WS に到達できるかは **未検証**。繋がらない場合は onion-proxy
+#    (socat) を挟んで --chain-url を ws://127.0.0.1:<local>:9944 に向けること。
+#
+# 手順:
+#   cp storage.toml.tmpl storage.toml   # signer_seed を openssl rand -hex 32 で生成
+#   docker compose up -d tor
+#   docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname   # .env に設定
+#   docker compose up -d
+
+services:
+  tor:
+    build:
+      context: ../../docker/tor
+    image: anarchy/tor:local
+    restart: unless-stopped
+    volumes:
+      - tor-data:/var/lib/tor
+      - ./torrc:/etc/tor/torrc:ro
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 9050"]
+      interval: 5s
+      timeout: 2s
+      retries: 24
+      start_period: 10s
+
+  storage:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3030
+      - --public-url=${AWS_STORAGE_PUBLIC_URL:?tor の anarchy-storage/hostname を設定してください}
+      - --chain-url=ws://${SAKURA_CHAIN_ONION:?さくらの chain onion を設定してください}:9944
+    volumes:
+      - storage-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage.toml:/etc/anarchy/storage.toml:ro
+
+volumes:
+  tor-data:
+  storage-data:
