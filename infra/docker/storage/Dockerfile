@@ -46,7 +46,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 zlib1g libzstd1 torsocks \
     && rm -rf /var/lib/apt/lists/*
 
-RUN printf 'TorAddress tor\nTorPort 9050\nAllowInbound 1\n' > /etc/tor/torsocks.conf
+# torsocks.conf の TorAddress は **IP しか受け付けない** (ホスト名を書くと
+# 解決されず socks5 connect が Connection refused になる)。
+# ここでは同一ネットワーク名前空間で tor が動く場合の既定値だけ置き、
+# コンテナを分ける構成では compose 側でこのファイルを上書きマウントすること。
+RUN printf 'TorAddress 127.0.0.1\nTorPort 9050\nAllowInbound 1\n' > /etc/tor/torsocks.conf
 
 RUN useradd -r -u 10001 -m -d /data anarchy
 COPY --from=builder /usr/local/bin/anarchy-storage-node /usr/local/bin/anarchy-storage-node

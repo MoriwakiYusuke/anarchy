@@ -2,7 +2,11 @@
 #
 # infra/docker/tor/torrc との違い:
 #   あちらは「ホスト上のバイナリ + コンテナの tor」向けで host.docker.internal を指す。
-#   こちらはノードもコンテナなので compose のサービス名で引く。
+#   こちらはノードもコンテナ。
+#
+# 注意: HiddenServicePort の転送先にホスト名は使えない (tor が
+# "Unparseable address in hidden service port configuration" で起動に失敗する)。
+# compose.yml 側で固定 IP を割り当て、ここでは IP で書くこと。
 
 DataDirectory /var/lib/tor
 RunAsDaemon 0
@@ -16,13 +20,13 @@ SocksPort 0.0.0.0:9050 IsolateClientAddr IsolateSOCKSAuth
 # ---- Hidden Service: チェーンノード ----
 HiddenServiceDir /var/lib/tor/anarchy-chain
 HiddenServiceVersion 3
-HiddenServicePort 30333 chain:30333
-HiddenServicePort 9944  chain:9944
+HiddenServicePort 30333 172.28.0.20:30333
+HiddenServicePort 9944  172.28.0.20:9944
 
 # ---- Hidden Service: ストレージノード ----
 HiddenServiceDir /var/lib/tor/anarchy-storage
 HiddenServiceVersion 3
-HiddenServicePort 3030 storage:3030
+HiddenServicePort 3030 172.28.0.30:3030
 
 ClientUseIPv6 1
 ClientPreferIPv6ORPort 0

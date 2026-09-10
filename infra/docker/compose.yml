@@ -23,6 +23,9 @@ services:
       context: ./tor
     image: anarchy/tor:local
     restart: unless-stopped
+    networks:
+      anarchy:
+        ipv4_address: 172.28.0.10
     volumes:
       - tor-data:/var/lib/tor
       - ./torrc:/etc/tor/torrc:ro
@@ -39,8 +42,10 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # torsocks で包んで .onion に出られるようにする。
-    # イメージ内の /etc/tor/torsocks.conf が TorAddress tor / TorPort 9050 を指している。
+    # chain は torsocks で包む。ストレージのエンドポイントは .onion で登録されるため、
+    # fan-out には SOCKS 経由の名前解決が必要 (reqwest に socks feature が無い)。
+    # 同一ホストのストレージ宛も Tor をループして届く。
+    # torsocks.conf は compose からマウントする (TorAddress は IP のみ受け付けるため)。
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-node"]
     command:
       - --chain=/etc/anarchy/chainspec.json
@@ -52,8 +57,12 @@ services:
       - --mine
       - --coinbase=${ANARCHY_COINBASE:?ANARCHY_COINBASE を設定してください}
       - --randomx-mode=light
+    networks:
+      anarchy:
+        ipv4_address: 172.28.0.20
     volumes:
       - chain-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
       - ./chainspec.json:/etc/anarchy/chainspec.json:ro
 
   storage:
@@ -64,7 +73,17 @@ services:
         condition: service_healthy
       chain:
         condition: service_started
-    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    # storage は torsocks で包まない。
+    #
+    # torsocks はプロセスの **全て** の outbound を Tor に流すため、包むと
+    # ws://chain:9944 (compose ネットワーク内) まで Tor 経由で解決しようとして
+    # "Unable to resolve. Status reply: 4" で失敗する。
+    # storage の outbound は同一ホストのチェーンだけなので Tor は不要。
+    # inbound は tor の Hidden Service が転送するのでこちら側に torsocks は要らない。
+    #
+    # チェーンが別ホストにある構成 (AWS のストレージ単独ノード) では話が逆で、
+    # 包んだ上で --chain-url に .onion を指定すること。
+    entrypoint: ["/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
@@ -73,9 +92,20 @@ services:
       # 初回起動時に tor が生成した hostname を控えて設定すること。
       - --public-url=${ANARCHY_STORAGE_PUBLIC_URL:?tor の anarchy-storage/hostname を設定してください}
       - --chain-url=ws://chain:9944
+    networks:
+      anarchy:
+        ipv4_address: 172.28.0.30
     volumes:
       - storage-data:/data
       - ./storage.toml:/etc/anarchy/storage.toml:ro
+
+networks:
+  # tor の HiddenServicePort は転送先にホスト名を受け付けない (IP かソケットのみ) ため、
+  # サービス名では書けない。固定 IP を割り当てて torrc から参照する。
+  anarchy:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
 
 volumes:
   tor-data:

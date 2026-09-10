@@ -52,7 +52,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # tor は別コンテナで動かす前提。compose のサービス名で引く。
 # 別構成にする場合はこのファイルを上書きマウントすること。
-RUN printf 'TorAddress tor\nTorPort 9050\nAllowInbound 1\n' > /etc/tor/torsocks.conf
+# torsocks.conf の TorAddress は **IP しか受け付けない** (ホスト名を書くと
+# 解決されず socks5 connect が Connection refused になる)。
+# ここでは同一ネットワーク名前空間で tor が動く場合の既定値だけ置き、
+# コンテナを分ける構成では compose 側でこのファイルを上書きマウントすること。
+RUN printf 'TorAddress 127.0.0.1\nTorPort 9050\nAllowInbound 1\n' > /etc/tor/torsocks.conf
 
 RUN useradd -r -u 10001 -m -d /data anarchy
 COPY --from=builder /usr/local/bin/anarchy-node /usr/local/bin/anarchy-node
