@@ -36,7 +36,7 @@ See [`.claude/skills/dev-command/SKILL.md`](.claude/skills/dev-command/SKILL.md)
 
 **MORAL token precision**: 12 decimals (1 MORAL = 1_000_000_000_000 units). Post costs: `PostBaseCost + content_bytes × PostByteCost` (defaults: 10 MORAL + 0.1 MORAL/byte).
 
-**Rust toolchain**: Stable channel with `wasm32v1-none` target and `rust-src` component (configured in [apps/blockchain/rust-toolchain.toml](apps/blockchain/rust-toolchain.toml)).
+**Rust toolchain**: **1.93.1 に固定** (`wasm32v1-none` target + `rust-src` component、[apps/blockchain/rust-toolchain.toml](apps/blockchain/rust-toolchain.toml))。`stable` にすると新しい rustc が引かれ、pinned な polkadot-sdk stable2503 の wasm ランタイムがリンクできなくなる (sp_io のホスト関数が undefined symbol になる)。**SDK を上げるまで rustc も上げられない。**
 
 ### Compatibility Policy
 
