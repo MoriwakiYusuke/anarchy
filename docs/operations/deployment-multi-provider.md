@@ -133,7 +133,38 @@ ERROR torsocks: Unable to resolve. Status reply: 4
 | ストレージ (チェーンと同一ホスト) | **包まない** | outbound は同一ホストのチェーンだけ。inbound は Hidden Service が転送 |
 | ストレージ (チェーンが別ホスト = AWS) | **包む** | `--chain-url` に `.onion` を指定する |
 
-### 5.4 Tor の connect は遅い
+### 5.4 同一ホストのチェーンノード同士は 127.0.0.1 でピアさせる
+
+§5.3 の帰結。torsocks の除外設定は **`AllowOutboundLocalhost` (127.0.0.0/8) だけ**で、
+サブネット単位の除外ができない (設定キーは `AllowInbound` / `AllowOutboundLocalhost` /
+`IsolatePID` / `OnionAddrRange` / `TorAddress` / `TorPort` の 6 つのみ)。
+
+固定 IP でピアさせようとすると **チェーンが互いに繋がらない**:
+
+```
+chain-2 | PERROR torsocks: socks5 libc connect: Connection refused
+chain-2 | 💤 Idle (0 peers), best: #0
+```
+
+**対処**: 同一ホストのチェーンを 1 つのネットワーク名前空間に相乗りさせ、
+`127.0.0.1` + `AllowOutboundLocalhost 1` でピアさせる。
+
+### 5.5 名前空間の保持は tor ではなく専用コンテナに持たせる
+
+チェーンを `network_mode: "service:tor"` にすると、**tor を再起動したときに
+名前空間が作り直され、相乗りしているチェーンが取り残される**。
+
+実測: tor 再起動後、チェーンは動き続けるが `peers=0` になり、
+採掘ノードだけが単独で進んで **チェーンが分岐した** (chain-1 が #44、chain-2 が #29)。
+自然復帰せず、チェーンコンテナの再起動が必要だった。
+
+**対処**: 何もしない `netns` コンテナ (`alpine sleep infinity`) に名前空間を持たせ、
+tor もチェーンもそこに相乗りする。これで tor の再起動と切り離せる。
+
+修正後の実測: tor 再起動を跨いで `peers=1` を維持し、ブロックも揃って進行
+(#8 → #11 → #14)、`.onion` fan-out も復帰した。
+
+### 5.6 Tor の connect は遅い
 
 `.onion` 宛の `connect_timeout` は 60 秒に設定済み
 ([storage.rs](../../apps/blockchain/node/src/rpc/storage.rs) の `ANONYMOUS_CONNECT_TIMEOUT`)。
@@ -238,8 +269,27 @@ docker compose up -d chain storage
 | `No Storage Nodes connected` | チェーンがレジストリを持っていない。同期完了と `storage_getNodes` を確認 |
 | 起動直後に `timestamp of the block is too far in the future` | **一過性**。`MinimumPeriod` が 15 秒なので、低難易度でブロックが 15 秒未満で出ると発生する。難易度が上がれば収まる |
 | フロントの WS が数十秒で切れる | nginx の `proxy_read_timeout`。3600s にする |
+| 同一ホストのチェーンが `peers=0` のまま | §5.4。固定 IP でピアさせている。名前空間を共有して 127.0.0.1 にする |
+| tor 再起動後にチェーンが分岐した | §5.5。`netns` コンテナを使っていない。応急処置はチェーンコンテナの再起動 |
 
-## 9. 既知の制約
+## 9. 障害・復帰シナリオの実測結果
+
+compose で実際に停止・再起動して観測したもの。**推測ではない。**
+
+| シナリオ | 結果 |
+|---|---|
+| ストレージ停止 → 再起動 | ✅ 自動再登録。ハートビート (30 秒間隔) で復帰。データは volume で永続 |
+| 採掘ノード停止 | ✅ 他チェーンは状態を保持 (best が巻き戻らない)。レジストリもオンチェーンから読めるため `total=2 online=2` を維持 |
+| 採掘ノード再起動 | ✅ 自動でピア再確立、ブロック追従を再開。genesis から始まり直さない |
+| tor 再起動 (netns コンテナあり) | ✅ onion アドレス不変、`peers=1` 維持、fan-out 復帰 |
+| tor 再起動 (netns コンテナなし) | ❌ **チェーンが分岐する**。§5.5 参照 |
+| チェーン間のレジストリ伝播 | ✅ 直接登録を受けていないノードもオンチェーン経由で全ストレージを把握 |
+
+**onion アドレスは tor の volume に永続する。** volume を消さない限り再起動で変わらないので、
+`--public-url` や bootnode の設定を書き直す必要はない。
+逆に `docker compose down -v` すると **onion が再生成され全設定が無効になる**ので注意。
+
+## 10. 既知の制約
 
 - **`X-Chain-Auth` は timestamp とメソッド名しか署名していない** (nonce も body
   ハッシュも無い)。窓の間は replay 可能。チェーン↔ストレージが Tor 経由なので

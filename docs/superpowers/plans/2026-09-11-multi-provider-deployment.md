@@ -52,8 +52,13 @@
 - **`HiddenServicePort` の転送先にホスト名は使えない** (IP かソケットのみ)。
   compose のネットワークに固定 IP を割り当てること
 - **`torsocks.conf` の `TorAddress` もホスト名不可**
-- **torsocks は全ての outbound を Tor に流す。** 同一ホスト宛の通信を持つプロセスを
-  包んではいけない
+- **torsocks は全ての outbound を Tor に流す。** 除外設定は
+  `AllowOutboundLocalhost` (127.0.0.0/8) だけでサブネット単位の除外はできない。
+  同一ホストのチェーン同士は **1 つのネットワーク名前空間を共有し 127.0.0.1 で
+  ピアさせること**。固定 IP でピアさせると `peers=0` のまま繋がらない (実測済み)
+- **名前空間の保持は tor ではなく `netns` コンテナに持たせる。**
+  `network_mode: "service:tor"` にすると tor 再起動で名前空間が作り直され、
+  チェーンが取り残されて **分岐する** (実測: chain-1 が #44、chain-2 が #29)
 - **採掘は 1 ノードのみ** (`chain-s1`)。`--randomx-mode light`
 - **GCP には swap 2GB** を入れる
 - **既存データとの互換性は考慮しない** (CLAUDE.md Compatibility Policy)
@@ -83,6 +88,16 @@
 
 **compose で tor + chain + storage を実際に起動し、`storage_getFragment` が
 `.onion` 経由で `Fragment not found` を返すところまで確認済み** (= 経路が通っている)。
+
+さらに 2 チェーン + 2 ストレージ構成で障害・復帰シナリオを実測した
+(詳細は [deployment-multi-provider.md §9](../../operations/deployment-multi-provider.md)):
+
+| シナリオ | 結果 |
+|---|---|
+| ストレージ停止 → 再起動 | ✅ 自動再登録、データ永続 |
+| 採掘ノード停止 → 再起動 | ✅ 他ノードは状態保持、復帰後にピア再確立 |
+| tor 再起動 | ✅ onion 不変、ピア維持 (`netns` コンテナ導入後) |
+| チェーン間のレジストリ伝播 | ✅ 直接登録を受けていないノードも把握 |
 
 ## 残っている作業
 

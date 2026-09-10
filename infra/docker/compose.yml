@@ -1,31 +1,53 @@
 # Anarchy 全コンテナ構成 (リファレンス)
 #
-# tor / chain / storage を 1 ホストで動かす最小構成。実デプロイでは
-# ノード数とポートを増やす (docs/superpowers/plans/ の計画を参照)。
+# tor / chain / storage を 1 ホストで動かす最小構成。実デプロイではノード数を増やす
+# (docs/superpowers/plans/2026-09-11-multi-provider-deployment.md 参照)。
 #
 # 使い方:
-#   docker compose -f infra/docker/compose.yml up -d
-#   docker compose -f infra/docker/compose.yml exec tor cat /var/lib/tor/anarchy-chain/hostname
+#   cp ../deploy/anarchy-portfolio-raw.json chainspec.json
+#   cp storage.toml.example storage.toml     # signer_seed を openssl rand -hex 32 で生成
+#   docker compose up -d netns tor
+#   docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname   # .env に設定
+#   docker compose up -d
 #
-# イメージは ghcr から引くか、ローカルでビルドしたものを使う:
-#   ANARCHY_IMAGE_TAG=local docker compose -f infra/docker/compose.yml up -d
+# ---- ネットワーク設計 (実測に基づく。変更前に必ず読むこと) ----
 #
-# ネットワーク方針:
-#   ノードは compose ネットワーク内でのみ listen し、ポートを publish しない。
-#   外部からの到達は tor の Hidden Service 経由のみ。
-#   (--tor-mode による強制機構は削除済み。torsocks でラップするだけ。)
-
-x-image-prefix: &registry ghcr.io/moriwakiyusuke
+# 1. チェーンノードは netns コンテナの名前空間を共有し、127.0.0.1 でピアする。
+#    torsocks は **プロセスの全 outbound を Tor に流す** ため、同一ホストのノード宛も
+#    Tor で名前解決しようとして失敗する
+#    (PERROR torsocks: socks5 libc connect: Connection refused)。
+#    torsocks の除外設定は AllowOutboundLocalhost (127.0.0.0/8) しか無く、
+#    サブネット単位の除外ができないため、localhost に寄せるしかない。
+#
+# 2. 名前空間の保持は tor ではなく netns コンテナに持たせる。
+#    tor を直接 network_mode の対象にすると、tor 再起動で名前空間が作り直され、
+#    相乗りしているチェーンが取り残されてピアが切れ、チェーンが分岐する (実測済み)。
+#
+# 3. tor の HiddenServicePort は転送先にホスト名を受け付けない (IP かソケットのみ)。
+#    storage は別コンテナなので固定 IP を割り当てる。
+#
+# 4. storage は torsocks で包まない。outbound は同一ホストのチェーンだけで、
+#    inbound は Hidden Service が転送する。
+#    チェーンが別ホストにある構成 (AWS のストレージ単独ノード) では逆に包み、
+#    --chain-url に .onion を指定する。
 
 services:
+  # ネットワーク名前空間の保持だけを担う。上記 2 の理由でこれが必要。
+  netns:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+    networks:
+      anarchy:
+        ipv4_address: 172.28.0.10
+
   tor:
     build:
       context: ./tor
     image: anarchy/tor:local
     restart: unless-stopped
-    networks:
-      anarchy:
-        ipv4_address: 172.28.0.10
+    network_mode: "service:netns"
+    depends_on: [netns]
     volumes:
       - tor-data:/var/lib/tor
       - ./torrc:/etc/tor/torrc:ro
@@ -39,13 +61,12 @@ services:
   chain:
     image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
     restart: unless-stopped
+    network_mode: "service:netns"
     depends_on:
       tor:
         condition: service_healthy
     # chain は torsocks で包む。ストレージのエンドポイントは .onion で登録されるため、
     # fan-out には SOCKS 経由の名前解決が必要 (reqwest に socks feature が無い)。
-    # 同一ホストのストレージ宛も Tor をループして届く。
-    # torsocks.conf は compose からマウントする (TorAddress は IP のみ受け付けるため)。
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-node"]
     command:
       - --chain=/etc/anarchy/chainspec.json
@@ -57,9 +78,6 @@ services:
       - --mine
       - --coinbase=${ANARCHY_COINBASE:?ANARCHY_COINBASE を設定してください}
       - --randomx-mode=light
-    networks:
-      anarchy:
-        ipv4_address: 172.28.0.20
     volumes:
       - chain-data:/data
       - ./torsocks.conf:/etc/tor/torsocks.conf:ro
@@ -73,25 +91,16 @@ services:
         condition: service_healthy
       chain:
         condition: service_started
-    # storage は torsocks で包まない。
-    #
-    # torsocks はプロセスの **全て** の outbound を Tor に流すため、包むと
-    # ws://chain:9944 (compose ネットワーク内) まで Tor 経由で解決しようとして
-    # "Unable to resolve. Status reply: 4" で失敗する。
-    # storage の outbound は同一ホストのチェーンだけなので Tor は不要。
-    # inbound は tor の Hidden Service が転送するのでこちら側に torsocks は要らない。
-    #
-    # チェーンが別ホストにある構成 (AWS のストレージ単独ノード) では話が逆で、
-    # 包んだ上で --chain-url に .onion を指定すること。
+    # 上記 4 の理由で torsocks を使わない。
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
       - --rpc-port=3030
       # 他ホストのチェーンからも到達できる .onion を広告する。
-      # 初回起動時に tor が生成した hostname を控えて設定すること。
       - --public-url=${ANARCHY_STORAGE_PUBLIC_URL:?tor の anarchy-storage/hostname を設定してください}
-      - --chain-url=ws://chain:9944
+      # netns コンテナの IP 経由でチェーンの RPC に繋ぐ
+      - --chain-url=ws://172.28.0.10:9944
     networks:
       anarchy:
         ipv4_address: 172.28.0.30
@@ -100,8 +109,6 @@ services:
       - ./storage.toml:/etc/anarchy/storage.toml:ro
 
 networks:
-  # tor の HiddenServicePort は転送先にホスト名を受け付けない (IP かソケットのみ) ため、
-  # サービス名では書けない。固定 IP を割り当てて torrc から参照する。
   anarchy:
     ipam:
       config:
