@@ -1,0 +1,29 @@
+# 全コンテナ構成 (compose.yml) 用の torrc。
+#
+# infra/docker/tor/torrc との違い:
+#   あちらは「ホスト上のバイナリ + コンテナの tor」向けで host.docker.internal を指す。
+#   こちらはノードもコンテナなので compose のサービス名で引く。
+
+DataDirectory /var/lib/tor
+RunAsDaemon 0
+Log notice stdout
+
+# ノードコンテナが torsocks 経由で外に出るための SOCKS。
+# コンテナ間でしか使わないので 0.0.0.0 で listen する
+# (compose.yml では publish しないため外部には出ない)。
+SocksPort 0.0.0.0:9050 IsolateClientAddr IsolateSOCKSAuth
+
+# ---- Hidden Service: チェーンノード ----
+HiddenServiceDir /var/lib/tor/anarchy-chain
+HiddenServiceVersion 3
+HiddenServicePort 30333 chain:30333
+HiddenServicePort 9944  chain:9944
+
+# ---- Hidden Service: ストレージノード ----
+HiddenServiceDir /var/lib/tor/anarchy-storage
+HiddenServiceVersion 3
+HiddenServicePort 3030 storage:3030
+
+ClientUseIPv6 1
+ClientPreferIPv6ORPort 0
+SafeLogging 1

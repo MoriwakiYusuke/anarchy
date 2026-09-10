@@ -1,0 +1,83 @@
+# Anarchy 全コンテナ構成 (リファレンス)
+#
+# tor / chain / storage を 1 ホストで動かす最小構成。実デプロイでは
+# ノード数とポートを増やす (docs/superpowers/plans/ の計画を参照)。
+#
+# 使い方:
+#   docker compose -f infra/docker/compose.yml up -d
+#   docker compose -f infra/docker/compose.yml exec tor cat /var/lib/tor/anarchy-chain/hostname
+#
+# イメージは ghcr から引くか、ローカルでビルドしたものを使う:
+#   ANARCHY_IMAGE_TAG=local docker compose -f infra/docker/compose.yml up -d
+#
+# ネットワーク方針:
+#   ノードは compose ネットワーク内でのみ listen し、ポートを publish しない。
+#   外部からの到達は tor の Hidden Service 経由のみ。
+#   (--tor-mode による強制機構は削除済み。torsocks でラップするだけ。)
+
+x-image-prefix: &registry ghcr.io/moriwakiyusuke
+
+services:
+  tor:
+    build:
+      context: ./tor
+    image: anarchy/tor:local
+    restart: unless-stopped
+    volumes:
+      - tor-data:/var/lib/tor
+      - ./torrc:/etc/tor/torrc:ro
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 9050"]
+      interval: 5s
+      timeout: 2s
+      retries: 24
+      start_period: 10s
+
+  chain:
+    image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
+    restart: unless-stopped
+    depends_on:
+      tor:
+        condition: service_healthy
+    # torsocks で包んで .onion に出られるようにする。
+    # イメージ内の /etc/tor/torsocks.conf が TorAddress tor / TorPort 9050 を指している。
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-node"]
+    command:
+      - --chain=/etc/anarchy/chainspec.json
+      - --base-path=/data
+      - --listen-addr=/ip4/0.0.0.0/tcp/30333
+      - --rpc-port=9944
+      - --rpc-external
+      - --rpc-cors=all
+      - --mine
+      - --coinbase=${ANARCHY_COINBASE:?ANARCHY_COINBASE を設定してください}
+      - --randomx-mode=light
+    volumes:
+      - chain-data:/data
+      - ./chainspec.json:/etc/anarchy/chainspec.json:ro
+
+  storage:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    depends_on:
+      tor:
+        condition: service_healthy
+      chain:
+        condition: service_started
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3030
+      # 他ホストのチェーンからも到達できる .onion を広告する。
+      # 初回起動時に tor が生成した hostname を控えて設定すること。
+      - --public-url=${ANARCHY_STORAGE_PUBLIC_URL:?tor の anarchy-storage/hostname を設定してください}
+      - --chain-url=ws://chain:9944
+    volumes:
+      - storage-data:/data
+      - ./storage.toml:/etc/anarchy/storage.toml:ro
+
+volumes:
+  tor-data:
+  chain-data:
+  storage-data:
