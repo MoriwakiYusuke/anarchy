@@ -1,6 +1,7 @@
 #!/bin/bash
 # 複数ノードでローカルテストネットを起動するスクリプト
-# Usage: ./scripts/run-multi-node.sh [start [N]|stop|status|logs] [--tor-mode=off|outbound-only|forced]
+# Usage: ./scripts/run-multi-node.sh [start [N]|stop|status|logs]
+#        TORSOCKS=1 を付けると torsocks 経由で起動する
 
 set -e
 
@@ -11,7 +12,6 @@ DATA_DIR="$PROJECT_DIR/data"
 LOG_DIR="$PROJECT_DIR/logs"
 
 # Tor mode (default: off)
-TOR_MODE="off"
 
 # ノード名（最大10ノード）
 NODE_NAMES=(alice bob charlie dave eve ferdie one two nine ten)
@@ -126,22 +126,13 @@ start_node() {
         node_key_flag="--node-key 0000000000000000000000000000000000000000000000000000000000000001"
     fi
     
-    # Tor mode support
+    # Tor 経由で動かしたい場合は TORSOCKS=1 を付けて呼ぶ。
+    # ノード側に強制機構は無く、単に torsocks でラップするだけ。
     local cmd="$NODE_BIN"
-    local tor_mode_flag=""
-    if [ "$TOR_MODE" != "off" ]; then
-        tor_mode_flag="--tor-mode $TOR_MODE"
-        if [ "$TOR_MODE" = "forced" ] || [ "$TOR_MODE" = "outbound-only" ]; then
-            # Use torsocks wrapper
-            if [ -f "$SCRIPT_DIR/anarchy-tor.sh" ]; then
-                cmd="$SCRIPT_DIR/anarchy-tor.sh $NODE_BIN"
-            else
-                log_warn "anarchy-tor.sh not found, using torsocks directly"
-                cmd="torsocks $NODE_BIN"
-            fi
-        fi
+    if [ "${TORSOCKS:-0}" = "1" ]; then
+        cmd="torsocks $NODE_BIN"
     fi
-    
+
     $cmd \
         --chain local \
         --"$name" \
@@ -155,7 +146,6 @@ start_node() {
         $mining_flag \
         $bootnode_flag \
         $node_key_flag \
-        $tor_mode_flag \
         --unsafe-force-node-key-generation \
         > "$LOG_DIR/$name.log" 2>&1 &
     
@@ -328,7 +318,7 @@ purge_data() {
 }
 
 usage() {
-    echo "Usage: $0 <command> [options] [--tor-mode=MODE]"
+    echo "Usage: $0 <command> [options]"
     echo ""
     echo "Commands:"
     echo "  start [N]   Start N nodes (default: $DEFAULT_NODE_COUNT, max: $MAX_NODE_COUNT)"
@@ -339,32 +329,17 @@ usage() {
     echo "  purge       Delete all chain data"
     echo ""
     echo "Tor Modes:"
-    echo "  --tor-mode=off           Normal TCP (default, development only)"
-    echo "  --tor-mode=outbound-only Outbound via Tor, inbound exposed (WARNING)"
-    echo "  --tor-mode=forced        Full anonymity via Tor (requires Onion Service)"
+    echo "  TORSOCKS=1               torsocks 経由で起動する (環境変数)"
     echo ""
     echo "Examples:"
     echo "  $0 start        # Start 3 nodes (alice/bob validators + charlie full node)"
     echo "  $0 start 5      # Start 5 nodes"
     echo "  $0 start 10     # Start 10 nodes (maximum)"
-    echo "  $0 start 3 --tor-mode=outbound-only  # Start 3 nodes with Tor outbound"
+    echo "  TORSOCKS=1 $0 start 3                # Start 3 nodes under torsocks"
     echo ""
     echo "Available node names: ${NODE_NAMES[*]}"
 }
 
-# Parse --tor-mode argument
-for arg in "$@"; do
-    case $arg in
-        --tor-mode=*)
-            TOR_MODE="${arg#*=}"
-            if [[ ! "$TOR_MODE" =~ ^(off|outbound-only|forced)$ ]]; then
-                log_error "Invalid tor-mode: $TOR_MODE"
-                log_error "Valid values: off, outbound-only, forced"
-                exit 1
-            fi
-            ;;
-    esac
-done
 
 case "${1:-}" in
     start)

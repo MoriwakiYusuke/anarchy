@@ -1,0 +1,24 @@
+{
+  // Anarchy フロント — Cloudflare Workers Static Assets
+  //
+  // このアプリは src/app/ が page.tsx / layout.tsx / providers.tsx の 3 ファイルだけの
+  // 実質シングルページ SPA で、動的ルート・middleware・cookies()/headers() を
+  // どれも使わない。サーバランタイムが不要なので next build (output: 'export') の
+  // 出力をそのまま配信でき、vinext / OpenNext は要らない。
+  // 静的アセット配信は課金対象外。
+  //
+  // CF 固有なのはこのファイルだけ。out/ はただの静的ファイル群なので、
+  // 別のホスティングに移す場合はこれを消して out/ を上げ直すだけでよい。
+  //
+  // デプロイ:
+  //   NEXT_PUBLIC_CHAIN_RPC_URL=wss://<GCPのドメイン>/rpc pnpm --filter @anarchy/frontend build
+  //   cd apps/frontend && npx wrangler deploy
+  "name": "anarchy-frontend",
+  // compatibility_date は **過去日** でなければならない (未来日は CF に拒否される)。
+  // ランタイム挙動を固定するためのもので、今日である必要はない。
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./out",
+    "not_found_handling": "single-page-application"
+  }
+}

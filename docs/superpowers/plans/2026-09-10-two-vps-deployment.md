@@ -1,5 +1,12 @@
 # Anarchy 2-VPS デプロイ実装計画
 
+> ⚠️ **SUPERSEDED (2026-09-11)** — この計画は
+> [2026-09-11-multi-provider-deployment.md](2026-09-11-multi-provider-deployment.md)
+> に置き換えられた。事業者選定・無料枠調査・Cloudflare フロントの検討を経て、
+> 「VPS 2 台」から「さくら + GCP + AWS + Cloudflare の 4 プロバイダ」構成に変わった。
+> 本計画の Task 1 (storage-node `--public-url`) は実装済み (`7fc943c`)。
+> 履歴として残すが、これを実行しないこと。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** VPS 2 台に Anarchy を本番デプロイし、VPS B のフロント経由とローカル経由の 2 経路からアクセスできる状態にする。

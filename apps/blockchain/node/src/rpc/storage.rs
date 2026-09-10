@@ -457,25 +457,70 @@ pub trait StorageApi {
 /// 1 つの Client を once 初期化し、全 `StorageNodeClient` で再利用する
 /// (`reqwest::Client` は内部 Arc なので clone は安価)。
 ///
-/// - connect_timeout 5s: 死んだエンドポイントの早期検出
+/// - connect_timeout: 直結は 5s (死んだエンドポイントの早期検出)、
+///   `.onion` / `.i2p` は 60s (下記参照)
 /// - timeout 180s: MAX_FRAGMENT_SIZE (128MB) の断片転送を低速回線 (Tor 経由含む)
 ///   でも完了できる程度に長く、かつ有限に抑える
+///
+/// Tor 経由の connect は SOCKS ネゴシエーション + 回線構築 + ランデブーを含むため、
+/// clearnet の TCP connect とは桁が違う。同一ホストでディスクリプタ公開済みという
+/// 好条件でも実測 1.4-3.9 秒かかり、跨ホストの初回接続はさらに伸びる。
+/// 単一の 5 秒では `.onion` のストレージノードに永久に到達できない
+/// (`tcp connect error: deadline has elapsed` で必ず落ちる)。
+const DIRECT_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const ANONYMOUS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// エンドポイントが匿名ネットワーク (`.onion` / `.i2p`) 宛か。
+///
+/// ホスト部のサフィックス一致で判定する。`onion.example.com` のような
+/// 紛らわしいドメインを誤って長いタイムアウト側に倒さないため、
+/// 文字列の部分一致ではなく URL をパースしてホストを取り出す。
+fn is_anonymous_endpoint(url: &str) -> bool {
+    match url::Url::parse(url) {
+        Ok(parsed) => match parsed.host_str() {
+            Some(host) => {
+                let host = host.to_ascii_lowercase();
+                host.ends_with(".onion") || host.ends_with(".i2p")
+            }
+            None => false,
+        },
+        Err(_) => false,
+    }
+}
+
+fn build_client(connect_timeout: std::time::Duration) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(connect_timeout)
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .unwrap_or_else(|e| {
+            // builder は TLS backend 初期化失敗等でしか失敗しない。
+            // 万一失敗してもノード全体は止めず、デフォルト Client に退避する。
+            log::warn!("Failed to build shared reqwest client with timeouts, falling back to default: {}", e);
+            reqwest::Client::new()
+        })
+}
+
+/// 直結エンドポイント用の共有クライアント
 fn shared_http_client() -> reqwest::Client {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            reqwest::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(5))
-                .timeout(std::time::Duration::from_secs(180))
-                .build()
-                .unwrap_or_else(|e| {
-                    // builder は TLS backend 初期化失敗等でしか失敗しない。
-                    // 万一失敗してもノード全体は止めず、デフォルト Client に退避する。
-                    log::warn!("Failed to build shared reqwest client with timeouts, falling back to default: {}", e);
-                    reqwest::Client::new()
-                })
-        })
-        .clone()
+    CLIENT.get_or_init(|| build_client(DIRECT_CONNECT_TIMEOUT)).clone()
+}
+
+/// `.onion` / `.i2p` エンドポイント用の共有クライアント (connect timeout が長い)
+fn shared_anonymous_http_client() -> reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| build_client(ANONYMOUS_CONNECT_TIMEOUT)).clone()
+}
+
+/// エンドポイントに応じて適切なクライアントを選ぶ
+fn http_client_for(endpoint: &str) -> reqwest::Client {
+    if is_anonymous_endpoint(endpoint) {
+        shared_anonymous_http_client()
+    } else {
+        shared_http_client()
+    }
 }
 
 /// Storage Node HTTPクライアント
@@ -492,7 +537,7 @@ impl StorageNodeClient {
     /// 新しいクライアントを作成
     pub fn new(storage_node_url: String) -> Self {
         Self {
-            http_client: shared_http_client(),
+            http_client: http_client_for(&storage_node_url),
             storage_node_url,
             chain_keypair: None,
         }
@@ -501,7 +546,7 @@ impl StorageNodeClient {
     /// チェーンノードキーペア付きでクライアントを作成
     pub fn new_with_chain_auth(storage_node_url: String, keypair: SharedChainKeyPair) -> Self {
         Self {
-            http_client: shared_http_client(),
+            http_client: http_client_for(&storage_node_url),
             storage_node_url,
             chain_keypair: Some(keypair),
         }
@@ -2195,6 +2240,33 @@ mod tests {
     }
 
     // T033補足: Storage Nodeクライアントのテスト
+    #[test]
+    fn is_anonymous_endpoint_detects_onion_and_i2p() {
+        assert!(is_anonymous_endpoint("http://abc.onion:3030"));
+        assert!(is_anonymous_endpoint("http://ABC.ONION:3030"));
+        assert!(is_anonymous_endpoint("http://foo.i2p/"));
+        assert!(!is_anonymous_endpoint("http://127.0.0.1:3030"));
+        assert!(!is_anonymous_endpoint("https://s1.example.com:3030"));
+        // .onion を含むだけのドメインは対象外 (サフィックス一致であること)
+        assert!(!is_anonymous_endpoint("https://onion.example.com/"));
+        assert!(!is_anonymous_endpoint("not a url"));
+    }
+
+    #[test]
+    fn anonymous_endpoints_get_a_longer_connect_timeout() {
+        // Tor の回線確立は clearnet の TCP connect より桁違いに遅い。
+        // 実測 (同一ホスト / ディスクリプタ公開済み) で connect に 1.4-3.9 秒かかり、
+        // 跨ホストの初回接続はさらに伸びる。
+        assert!(
+            ANONYMOUS_CONNECT_TIMEOUT > DIRECT_CONNECT_TIMEOUT,
+            "onion 宛の connect timeout は直結より長くなければならない"
+        );
+        assert!(
+            ANONYMOUS_CONNECT_TIMEOUT >= std::time::Duration::from_secs(30),
+            "実測 3.9 秒 + 跨ホストの余裕を見て 30 秒以上にすること"
+        );
+    }
+
     #[test]
     fn test_storage_client_creation() {
         // StorageNodeClientが正しく作成されることのテスト

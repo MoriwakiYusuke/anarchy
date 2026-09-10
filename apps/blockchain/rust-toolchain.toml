@@ -1,4 +1,17 @@
+# バージョンを明示的に固定する。
+#
+# channel = "stable" にしていると rustup が常に最新 stable を引くため、
+# 環境ごとにビルド結果が変わる。実際に 2026-09 時点で:
+#   - ローカル (1.93.1, 更新が止まっていた): ビルド成功
+#   - コンテナ (1.98.1, 最新 stable):        wasm ランタイムのリンクで失敗
+#     ext_crypto_sr25519_verify_version_2 などの sp_io ホスト関数が
+#     undefined symbol になる
+#
+# pinned な polkadot-sdk (stable2503) は新しい rustc の wasm リンク挙動に
+# 追従できないため、SDK を上げるまでは rustc も上げられない。
+# ローカルで `rustup update` を打っただけでビルドが壊れる状態を避けるため、
+# ここで固定する。SDK を上げる際にセットで見直すこと。
 [toolchain]
-channel = "stable"
+channel = "1.93.1"
 components = ["rust-src"]
 targets = ["wasm32v1-none"]

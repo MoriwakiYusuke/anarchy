@@ -1,0 +1,5 @@
+# 実際の設定は signer_seed を含むためコミットしない (storage.toml.example を使うこと)
+storage.toml
+# chainspec は infra/deploy/anarchy-portfolio-raw.json が正。ここへはコピーして使う
+chainspec.json
+.env

@@ -1,0 +1,11 @@
+# ストレージノード設定のサンプル。
+# 実運用では storage.toml にコピーし signer_seed を生成し直すこと:
+#   openssl rand -hex 32
+#
+# public_url / chain_url / rpc_port は compose.yml が CLI で渡すのでここには書かない。
+capacity = 10737418240        # 10 GiB
+declare_rate_limit = 10
+auth_enabled = true
+dev_mode = true               # 本番では false + 実 SRS を用意すること
+listen_addr = "/ip4/0.0.0.0/tcp/4001"
+signer_seed = "CHANGE_ME_openssl_rand_hex_32"
