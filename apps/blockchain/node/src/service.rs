@@ -512,6 +512,21 @@ pub fn new_full(
                                 log::info!(target: "pow-miner",
                                     "🏆 Submitted valid seal at nonce {} (difficulty {})",
                                     nonce, difficulty);
+                                // 提出済みの pre_hash を掘り直しても stale seal にしかならない。
+                                // 新しい build が来るまで待つ。これが無いと、ブロックを見つけた
+                                // 直後から次の build までの間 (目標 30s) ずっと同じ問題を解き直し、
+                                // 1 コアを焼き続ける。最低難易度 100 では 1 ブロックあたり平均
+                                // 100 ハッシュしか要らないため、待たない場合の CPU の 9 割以上が
+                                // この空回りに費やされる。
+                                loop {
+                                    std::thread::sleep(Duration::from_millis(200));
+                                    match mining_handle_for_thread.metadata() {
+                                        // 新しい build が来た / ワーカが停止した → 再開する
+                                        Some(m) if m.pre_hash != initial_pre_hash => break,
+                                        None => break,
+                                        _ => {}
+                                    }
+                                }
                             } else {
                                 log::debug!(target: "pow-miner",
                                     "submit() rejected seal at nonce {} (likely stale build)",
