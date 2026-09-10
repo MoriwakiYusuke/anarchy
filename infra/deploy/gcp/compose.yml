@@ -1,0 +1,87 @@
+# GCP — chain×1 + 公開 wss (nginx はホスト側で動かす)
+#
+# さくらへは全て Tor 経由。bootnode は socat トンネル経由で指定する。
+#
+# /dns4/<onion>/ 形式は **動かない** (実測済み)。理由:
+#   - sc-network の transport は /onion3/ を dial できない
+#   - /dns4/ なら torsocks が拾えるかと思ったが、rust-libp2p の DNS transport は
+#     hickory-dns で独自に UDP の DNS 問い合わせをするため libc の getaddrinfo を
+#     通らず、torsocks が名前解決を捕捉できない。dial の形跡すら残らず peers=0 のまま
+#
+# そこで socat で .onion をローカル TCP に落とし、libp2p にはローカルアドレスとして
+# 見せる (apps/blockchain/scripts/onion-proxy.sh と同じ手口)。
+#
+# 手順:
+#   cp ../anarchy-portfolio-raw.json chainspec.json
+#   docker compose up -d netns tor
+#   # .env に SAKURA_CHAIN_ONION と SAKURA_CHAIN_PEER_ID を設定
+#   docker compose up -d
+
+services:
+  netns:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+    networks: [anarchy]
+
+  tor:
+    build:
+      context: ../../docker/tor
+    image: anarchy/tor:local
+    restart: unless-stopped
+    network_mode: "service:netns"
+    depends_on: [netns]
+    volumes:
+      - tor-data:/var/lib/tor
+      - ./torrc:/etc/tor/torrc:ro
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 9050"]
+      interval: 5s
+      timeout: 2s
+      retries: 24
+      start_period: 10s
+
+  # .onion をローカル TCP に落とすトンネル。
+  # libp2p は /onion3/ を dial できず、/dns4/ も torsocks で捕捉できないため必須。
+  onion-proxy:
+    image: alpine/socat:latest
+    restart: unless-stopped
+    network_mode: "service:netns"
+    depends_on:
+      tor:
+        condition: service_healthy
+    command: >-
+      TCP-LISTEN:30350,bind=127.0.0.1,reuseaddr,fork
+      SOCKS4A:127.0.0.1:${SAKURA_CHAIN_ONION:?さくらの chain onion を設定してください}:30333,socksport=9050
+
+  chain:
+    image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
+    restart: unless-stopped
+    network_mode: "service:netns"
+    depends_on:
+      tor:
+        condition: service_healthy
+      onion-proxy:
+        condition: service_started
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-node"]
+    command:
+      - --chain=/etc/anarchy/chainspec.json
+      - --base-path=/data
+      - --listen-addr=/ip4/0.0.0.0/tcp/30333
+      - --rpc-port=9944
+      - --rpc-external
+      - --rpc-cors=${ANARCHY_RPC_CORS:-all}
+      - --unsafe-force-node-key-generation
+      # socat が 127.0.0.1:30350 で待ち受け、Tor 経由でさくらの 30333 に繋ぐ
+      - --bootnodes=/ip4/127.0.0.1/tcp/30350/p2p/${SAKURA_CHAIN_PEER_ID:?さくらの chain-1 peer ID を設定してください}
+    volumes:
+      - chain-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./chainspec.json:/etc/anarchy/chainspec.json:ro
+
+networks:
+  anarchy:
+
+volumes:
+  tor-data:
+  chain-data:

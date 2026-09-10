@@ -56,6 +56,9 @@
   `AllowOutboundLocalhost` (127.0.0.0/8) だけでサブネット単位の除外はできない。
   同一ホストのチェーン同士は **1 つのネットワーク名前空間を共有し 127.0.0.1 で
   ピアさせること**。固定 IP でピアさせると `peers=0` のまま繋がらない (実測済み)
+- **`/dns4/<onion>/` の bootnode は動かない。** libp2p に `.onion` を dial させるには
+  socat でローカル TCP に落とすしかない (rust-libp2p の DNS transport は hickory-dns で
+  独自に UDP 問い合わせをするため torsocks が捕捉できない)。実測済み
 - **名前空間の保持は tor ではなく `netns` コンテナに持たせる。**
   `network_mode: "service:tor"` にすると tor 再起動で名前空間が作り直され、
   チェーンが取り残されて **分岐する** (実測: chain-1 が #44、chain-2 が #29)
@@ -98,6 +101,15 @@
 | 採掘ノード停止 → 再起動 | ✅ 他ノードは状態保持、復帰後にピア再確立 |
 | tor 再起動 | ✅ onion 不変、ピア維持 (`netns` コンテナ導入後) |
 | チェーン間のレジストリ伝播 | ✅ 直接登録を受けていないノードも把握 |
+
+**さらに本番形状 (さくら chain×3 + storage×3) と跨ホスト接続を実測した:**
+
+| 検証 | 結果 |
+|---|---|
+| さくら本番形状 | ✅ チェーン 3 台が `peers=2` で全て best 一致、ストレージ 3 台が `.onion` 登録 |
+| 跨ホストのピア確立 (別 compose プロジェクト間、Tor のみ) | ✅ socat 経由で 210 秒後に確立、同期開始 |
+| 跨ホストのレジストリ伝播 | ✅ GCP 側は直接登録を受けずに さくらのストレージ 3 台を把握 |
+| **跨ホストの fan-out** | ✅ **GCP のチェーンが さくらのストレージ 3 台すべてに到達** (各ノードのログに受信を確認) |
 
 ## 残っている作業
 
@@ -313,10 +325,10 @@ Expected: `free -h` の Swap 行に 2.0Gi
 
 - [ ] **Step 3: chain を torsocks 込みで起動**
 
-bootnode は `/dns4/<さくらのchain onion>/tcp/30333/p2p/<peer-id>`。
+bootnode は **socat トンネル経由**で指定する。`infra/deploy/gcp/compose.yml` に
+`onion-proxy` サービスとして組み込み済み。
 
-**この形式が dial できるかは未検証。** torsocks が `getaddrinfo` を乗っ取って
-`.onion` を仮想 IP にマップする挙動に依存している。
+`/dns4/<onion>/` は **動かないことを実測で確認済み** (§5.6)。
 
 - [ ] **Step 4: さくらと同期しているか確認**
 
@@ -507,11 +519,14 @@ Expected: swap を食い潰していない、OOM killer が動いていない
 | Tor はサーバー間のみ | Task 2/3/4 (torsocks の適用範囲を各所で明示) |
 | ローカル接続 | `docs/operations/deployment-multi-provider.md` §7 |
 
-**2. 未検証として明示したもの**
+**2. 未検証として残っているもの**
 
-- Task 3 Step 3: `/dns4/<onion>/` による libp2p dial (Step 5 に socat フォールバック)
 - Task 4 Step 3: subxt が torsocks 経由で `.onion` の WS に繋がるか
-- Task 1 Step 1: GitHub Actions 上での Docker ビルド (ローカルでは検証済み)
+  (AWS のストレージ単独ノードのみ該当。さくら/GCP は同一ホストのチェーンを使うので無関係)
+
+**解決済み** (当初は未検証だったもの):
+- ~~`/dns4/<onion>/` による libp2p dial~~ → **動かないことを実測で確認**。socat 必須
+- ~~GitHub Actions 上での Docker ビルド~~ → CI 成功 (21m13s / 4m29s)
 
 **3. スコープ外 (意図的)**
 

@@ -164,7 +164,25 @@ tor もチェーンもそこに相乗りする。これで tor の再起動と�
 修正後の実測: tor 再起動を跨いで `peers=1` を維持し、ブロックも揃って進行
 (#8 → #11 → #14)、`.onion` fan-out も復帰した。
 
-### 5.6 Tor の connect は遅い
+### 5.6 `/dns4/<onion>/` の bootnode は動かない — socat が必須
+
+libp2p に `.onion` を dial させる方法は **socat でローカル TCP に落とすしかない**。
+
+| 形式 | 結果 |
+|---|---|
+| `/onion3/<addr>:30333/p2p/<id>` | ❌ sc-network の `build_transport` は DNS(TCP)+WS のみで onion transport を持たない |
+| `/dns4/<addr>.onion/tcp/30333/p2p/<id>` | ❌ **実測で `peers=0` のまま 5 分経過。dial の形跡すら残らない** |
+| `/ip4/127.0.0.1/tcp/<local>/p2p/<id>` + socat | ✅ **実測で 210 秒後にピア確立、同期開始** |
+
+`/dns4/` が通らないのは、torsocks が `getaddrinfo` を hook するのに対し、
+**rust-libp2p の DNS transport は hickory-dns で独自に UDP の DNS 問い合わせを行い
+libc の resolver を通らない**ため。torsocks が名前解決を捕捉できず、
+`.onion` を解決できる者が誰もいないまま終わる。
+
+socat は `SOCKS4A` で Tor の SOCKS ポートに繋ぐ (SOCKS4A はホスト名解決を
+プロキシ側に委ねるので `.onion` が渡せる)。
+
+### 5.7 Tor の connect は遅い
 
 `.onion` 宛の `connect_timeout` は 60 秒に設定済み
 ([storage.rs](../../apps/blockchain/node/src/rpc/storage.rs) の `ANONYMOUS_CONNECT_TIMEOUT`)。
@@ -236,9 +254,15 @@ ANARCHY_RUNNING_UNDER_TORSOCKS=1 torsocks ./target/release/anarchy-node \
 NEXT_PUBLIC_CHAIN_RPC_URL=ws://127.0.0.1:9944 pnpm dev:frontend
 ```
 
-`peers: 0` が続く場合は `apps/blockchain/scripts/onion-proxy.sh` で socat トンネルを
-立て、`/ip4/127.0.0.2/tcp/30333/p2p/<peer-id>` を bootnode にする
-(sc-network の transport は `/onion3/` を dial できないため)。
+**`/dns4/<onion>/` 形式は使えない (実測済み)。** socat トンネルが必須:
+
+```bash
+socat TCP-LISTEN:30350,bind=127.0.0.1,reuseaddr,fork \
+      SOCKS4A:127.0.0.1:<さくらのchain onion>:30333,socksport=9050
+# bootnode は /ip4/127.0.0.1/tcp/30350/p2p/<peer-id>
+```
+
+理由は §5.7 を参照。
 
 ### パターン B: フロントのみローカル
 

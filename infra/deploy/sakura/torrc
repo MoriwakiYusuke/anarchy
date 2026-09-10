@@ -1,0 +1,33 @@
+# さくら用 torrc
+#
+# 注意: HiddenServicePort の転送先にホスト名は使えない (IP かソケットのみ)。
+# チェーンは netns と名前空間を共有しているので 127.0.0.1、
+# ストレージは別コンテナなので compose の固定 IP。
+
+DataDirectory /var/lib/tor
+RunAsDaemon 0
+Log notice stdout
+
+SocksPort 127.0.0.1:9050 IsolateClientAddr IsolateSOCKSAuth
+
+# ---- チェーン 3 台 ----
+# 9944 だけ公開すれば十分だが、運用確認用に 3 台とも出しておく
+HiddenServiceDir /var/lib/tor/anarchy-chain
+HiddenServiceVersion 3
+HiddenServicePort 30333 127.0.0.1:30333
+HiddenServicePort 30334 127.0.0.1:30334
+HiddenServicePort 30335 127.0.0.1:30335
+HiddenServicePort 9944  127.0.0.1:9944
+HiddenServicePort 9945  127.0.0.1:9945
+HiddenServicePort 9946  127.0.0.1:9946
+
+# ---- ストレージ 3 台 ----
+HiddenServiceDir /var/lib/tor/anarchy-storage
+HiddenServiceVersion 3
+HiddenServicePort 3030 172.28.0.31:3030
+HiddenServicePort 3031 172.28.0.32:3031
+HiddenServicePort 3032 172.28.0.33:3032
+
+ClientUseIPv6 1
+ClientPreferIPv6ORPort 0
+SafeLogging 1

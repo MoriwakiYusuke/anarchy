@@ -1,0 +1,191 @@
+# さくら — chain×3 + storage×3 + 採掘
+#
+# ネットワーク設計の根拠は infra/docker/compose.yml のコメントと
+# docs/operations/deployment-multi-provider.md §5 を参照。要点:
+#   - チェーンは netns コンテナの名前空間を共有し 127.0.0.1 でピアする
+#     (torsocks は全 outbound を Tor に流すため、同一ホスト宛は localhost に寄せる)
+#   - 名前空間は tor ではなく netns コンテナが持つ
+#     (tor 再起動でチェーンが取り残されて分岐するのを防ぐ)
+#   - storage は torsocks で包まない
+#
+# 手順:
+#   cp ../anarchy-portfolio-raw.json chainspec.json
+#   for i in 1 2 3; do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
+#   docker compose up -d netns tor
+#   docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname   # .env に設定
+#   docker compose up -d chain-1
+#   docker compose logs chain-1 | grep "Local node identity"            # .env の CHAIN1_PEER_ID に設定
+#   docker compose up -d
+
+services:
+  # 名前空間の保持だけを担う (tor の再起動と切り離すため)
+  netns:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+    networks:
+      anarchy:
+        ipv4_address: 172.28.0.10
+
+  tor:
+    build:
+      context: ../../docker/tor
+    image: anarchy/tor:local
+    restart: unless-stopped
+    network_mode: "service:netns"
+    depends_on: [netns]
+    volumes:
+      - tor-data:/var/lib/tor
+      - ./torrc:/etc/tor/torrc:ro
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 9050"]
+      interval: 5s
+      timeout: 2s
+      retries: 24
+      start_period: 10s
+
+  chain-1:
+    image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
+    restart: unless-stopped
+    network_mode: "service:netns"
+    depends_on:
+      tor:
+        condition: service_healthy
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-node"]
+    command:
+      - --chain=/etc/anarchy/chainspec.json
+      - --base-path=/data
+      - --listen-addr=/ip4/0.0.0.0/tcp/30333
+      - --rpc-port=9944
+      - --rpc-external
+      - --rpc-cors=all
+      - --node-key=0000000000000000000000000000000000000000000000000000000000000001
+      - --mine
+      - --coinbase=${ANARCHY_COINBASE:?ANARCHY_COINBASE を設定してください}
+      - --randomx-mode=light
+    volumes:
+      - chain1-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./chainspec.json:/etc/anarchy/chainspec.json:ro
+
+  chain-2:
+    image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
+    restart: unless-stopped
+    network_mode: "service:netns"
+    depends_on:
+      tor:
+        condition: service_healthy
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-node"]
+    command:
+      - --chain=/etc/anarchy/chainspec.json
+      - --base-path=/data
+      - --listen-addr=/ip4/0.0.0.0/tcp/30334
+      - --rpc-port=9945
+      - --rpc-external
+      - --rpc-cors=all
+      - --unsafe-force-node-key-generation
+      - --bootnodes=/ip4/127.0.0.1/tcp/30333/p2p/${CHAIN1_PEER_ID:?chain-1 の Local node identity を設定してください}
+    volumes:
+      - chain2-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./chainspec.json:/etc/anarchy/chainspec.json:ro
+
+  chain-3:
+    image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
+    restart: unless-stopped
+    network_mode: "service:netns"
+    depends_on:
+      tor:
+        condition: service_healthy
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-node"]
+    command:
+      - --chain=/etc/anarchy/chainspec.json
+      - --base-path=/data
+      - --listen-addr=/ip4/0.0.0.0/tcp/30335
+      - --rpc-port=9946
+      - --rpc-external
+      - --rpc-cors=all
+      - --unsafe-force-node-key-generation
+      - --bootnodes=/ip4/127.0.0.1/tcp/30333/p2p/${CHAIN1_PEER_ID:?chain-1 の Local node identity を設定してください}
+    volumes:
+      - chain3-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./chainspec.json:/etc/anarchy/chainspec.json:ro
+
+  storage-1:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    depends_on:
+      chain-1:
+        condition: service_started
+    # storage は torsocks で包まない (outbound は同一ホストのチェーンのみ)
+    entrypoint: ["/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3030
+      - --public-url=${STORAGE1_PUBLIC_URL:?tor の anarchy-storage/hostname から設定してください}
+      - --chain-url=ws://172.28.0.10:9944
+    networks:
+      anarchy:
+        ipv4_address: 172.28.0.31
+    volumes:
+      - storage1-data:/data
+      - ./storage-1.toml:/etc/anarchy/storage.toml:ro
+
+  storage-2:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    depends_on:
+      chain-1:
+        condition: service_started
+    # storage は torsocks で包まない (outbound は同一ホストのチェーンのみ)
+    entrypoint: ["/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3031
+      - --public-url=${STORAGE2_PUBLIC_URL:?tor の anarchy-storage/hostname から設定してください}
+      - --chain-url=ws://172.28.0.10:9944
+    networks:
+      anarchy:
+        ipv4_address: 172.28.0.32
+    volumes:
+      - storage2-data:/data
+      - ./storage-2.toml:/etc/anarchy/storage.toml:ro
+
+  storage-3:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    depends_on:
+      chain-1:
+        condition: service_started
+    # storage は torsocks で包まない (outbound は同一ホストのチェーンのみ)
+    entrypoint: ["/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3032
+      - --public-url=${STORAGE3_PUBLIC_URL:?tor の anarchy-storage/hostname から設定してください}
+      - --chain-url=ws://172.28.0.10:9944
+    networks:
+      anarchy:
+        ipv4_address: 172.28.0.33
+    volumes:
+      - storage3-data:/data
+      - ./storage-3.toml:/etc/anarchy/storage.toml:ro
+
+networks:
+  anarchy:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  tor-data:
+  chain1-data:
+  chain2-data:
+  chain3-data:
+  storage1-data:
+  storage2-data:
+  storage3-data:
