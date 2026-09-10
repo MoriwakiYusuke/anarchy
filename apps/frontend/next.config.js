@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // 静的 export (Cloudflare Workers Static Assets / 任意の静的ホスティング用)
+  output: 'export',
+  // export では Next.js の画像オプティマイザ (サーバ) が使えない。
+  // このアプリの画像は実質すべて復号済み blob なので元々最適化対象外。
+  images: { unoptimized: true },
   // Transpile polkadot packages to handle WASM and SSR issues
   transpilePackages: [
     'anarchy-wasm-engine',
