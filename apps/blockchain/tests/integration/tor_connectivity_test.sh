@@ -89,34 +89,6 @@ check_tor_running() {
 # Script Tests (no binary needed)
 # ============================================================
 
-test_wrapper_script_exists() {
-    log_test "Testing anarchy-tor.sh wrapper script exists"
-    
-    local wrapper="${BLOCKCHAIN_DIR}/scripts/anarchy-tor.sh"
-    
-    if [[ ! -x "$wrapper" ]]; then
-        log_fail "Wrapper script not found or not executable: $wrapper"
-        return 1
-    fi
-    
-    log_pass "anarchy-tor.sh exists and is executable"
-    return 0
-}
-
-test_wrapper_sets_env_var() {
-    log_test "Testing anarchy-tor.sh sets environment variable"
-    
-    local wrapper="${BLOCKCHAIN_DIR}/scripts/anarchy-tor.sh"
-    
-    if grep -q "ANARCHY_RUNNING_UNDER_TORSOCKS=1" "$wrapper"; then
-        log_pass "Wrapper sets ANARCHY_RUNNING_UNDER_TORSOCKS=1"
-        return 0
-    else
-        log_fail "Wrapper missing environment variable export"
-        return 1
-    fi
-}
-
 test_setup_script() {
     log_test "Testing tor-setup.sh script"
     
@@ -159,38 +131,6 @@ test_onion_script() {
 # Source Code Tests
 # ============================================================
 
-test_tor_mode_enum_in_cli() {
-    log_test "Testing TorMode enum exists in cli.rs"
-    
-    if grep -q "pub enum TorMode" "${BLOCKCHAIN_DIR}/node/src/cli.rs"; then
-        log_pass "TorMode enum found in cli.rs"
-        return 0
-    else
-        log_fail "TorMode enum not found in cli.rs"
-        return 1
-    fi
-}
-
-test_tor_mode_values() {
-    log_test "Testing TorMode has correct values (Off, OutboundOnly, Forced)"
-    
-    local cli_file="${BLOCKCHAIN_DIR}/node/src/cli.rs"
-    local found_all=true
-    
-    for mode in "Off" "OutboundOnly" "Forced"; do
-        if ! grep -q "$mode" "$cli_file"; then
-            log_fail "TorMode::$mode not found"
-            found_all=false
-        fi
-    done
-    
-    if $found_all; then
-        log_pass "All TorMode values found"
-        return 0
-    fi
-    return 1
-}
-
 test_onion_validation_function() {
     log_test "Testing validate_onion_address function exists"
     
@@ -199,18 +139,6 @@ test_onion_validation_function() {
         return 0
     else
         log_fail "validate_onion_address function not found"
-        return 1
-    fi
-}
-
-test_mainnet_enforcement() {
-    log_test "Testing mainnet Tor enforcement code exists"
-    
-    if grep -q 'contains("mainnet")' "${BLOCKCHAIN_DIR}/node/src/command.rs"; then
-        log_pass "Mainnet enforcement logic found"
-        return 0
-    else
-        log_fail "Mainnet enforcement logic not found"
         return 1
     fi
 }
@@ -230,86 +158,6 @@ test_unit_tests_exist() {
 # ============================================================
 # Binary Tests (requires built node)
 # ============================================================
-
-test_tor_mode_cli_help() {
-    if [[ -z "$NODE_BINARY" ]]; then
-        log_skip "No binary, skipping CLI help test"
-        return 0
-    fi
-    
-    log_test "Testing --tor-mode appears in --help output"
-    
-    if timeout 5 "$NODE_BINARY" --help 2>&1 | grep -q "tor-mode"; then
-        log_pass "--tor-mode found in help output"
-        return 0
-    else
-        log_fail "--tor-mode not found in help output"
-        return 1
-    fi
-}
-
-test_tor_mode_off_help() {
-    if [[ -z "$NODE_BINARY" ]]; then
-        log_skip "No binary, skipping tor-mode=off test"
-        return 0
-    fi
-    
-    log_test "Testing --tor-mode=off with --help (should work)"
-    
-    if timeout 5 "$NODE_BINARY" --tor-mode=off --help > /dev/null 2>&1; then
-        log_pass "tor-mode=off accepted"
-        return 0
-    else
-        log_fail "tor-mode=off rejected unexpectedly"
-        return 1
-    fi
-}
-
-test_forced_mode_without_torsocks() {
-    if [[ -z "$NODE_BINARY" ]]; then
-        log_skip "No binary, skipping forced mode test"
-        return 0
-    fi
-    
-    log_test "Testing --tor-mode=forced without torsocks (should fail)"
-    
-    # Ensure env var is not set
-    unset ANARCHY_RUNNING_UNDER_TORSOCKS 2>/dev/null || true
-    
-    local output
-    output=$(timeout 10 "$NODE_BINARY" --tor-mode=forced --chain=dev 2>&1 || true)
-    
-    if echo "$output" | grep -qi "torsocks"; then
-        log_pass "forced mode correctly requires torsocks"
-        return 0
-    else
-        log_fail "forced mode should require torsocks"
-        echo "Output: $output"
-        return 1
-    fi
-}
-
-test_forced_mode_with_env_var() {
-    if [[ -z "$NODE_BINARY" ]]; then
-        log_skip "No binary, skipping env var test"
-        return 0
-    fi
-    
-    log_test "Testing --tor-mode=forced with ANARCHY_RUNNING_UNDER_TORSOCKS=1"
-    
-    # Set env var and run with --help (should not fail)
-    export ANARCHY_RUNNING_UNDER_TORSOCKS=1
-    
-    if timeout 5 "$NODE_BINARY" --tor-mode=forced --help > /dev/null 2>&1; then
-        log_pass "forced mode accepts torsocks env var"
-        unset ANARCHY_RUNNING_UNDER_TORSOCKS
-        return 0
-    else
-        log_fail "forced mode should work with env var set"
-        unset ANARCHY_RUNNING_UNDER_TORSOCKS
-        return 1
-    fi
-}
 
 # ============================================================
 # Tor Connectivity Tests (requires Tor installed and running)
@@ -529,25 +377,13 @@ main() {
     
     # Script tests (always run)
     echo -e "\n${BLUE}--- Script Tests ---${NC}"
-    run_test test_wrapper_script_exists
-    run_test test_wrapper_sets_env_var
     run_test test_setup_script
     run_test test_onion_script
     
     # Source code tests
     echo -e "\n${BLUE}--- Source Code Tests ---${NC}"
-    run_test test_tor_mode_enum_in_cli
-    run_test test_tor_mode_values
     run_test test_onion_validation_function
-    run_test test_mainnet_enforcement
     run_test test_unit_tests_exist
-    
-    # Binary tests
-    echo -e "\n${BLUE}--- Binary Tests ---${NC}"
-    run_test test_tor_mode_cli_help
-    run_test test_tor_mode_off_help
-    run_test test_forced_mode_without_torsocks
-    run_test test_forced_mode_with_env_var
     
     # Connectivity tests
     echo -e "\n${BLUE}--- Connectivity Tests ---${NC}"

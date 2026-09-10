@@ -67,7 +67,7 @@ The following rules must NEVER be violated. Violations completely destroy trustw
 
 ### Security Principles (non-negotiable)
 
-1. **Network anonymity**: Tor/I2P enforced at libp2p transport layer — no IP metadata leakage
+1. **Network anonymity (運用で担保、コードによる強制は無し)**: ノードを Tor 経由で動かす場合は `torsocks` でラップし、inbound は Hidden Service 経由にする。**ノード側に強制機構は存在しない** — `--tor-mode` とその enforcement は削除済み。torsocks による LD_PRELOAD は libp2p transport の置き換えではなく、そもそも根本的な対策ではなかった (sc-network は `build_transport` が DNS(TCP)+WS 固定でカスタム transport を注入できず、rust-libp2p の Tor transport も使えない)。運用パターンは [docs/operations/tor-connection-patterns.md](docs/operations/tor-connection-patterns.md) を参照
 2. **Client-side key management**: Private keys are held in session memory only. Users authenticate via seed-phrase-derived AccountId (sr25519). Keys are never persisted to browser storage; cross-device access requires a user-exported, password-encrypted backup file.
 3. **Client-side only crypto**: Encryption, SSS fragmentation, metadata stripping must happen client-side before transmission
 4. **Foreground PoW only**: Reaction mining controlled via Page Visibility API

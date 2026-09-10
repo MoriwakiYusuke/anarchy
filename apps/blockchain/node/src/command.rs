@@ -2,33 +2,12 @@
 
 use crate::{
     chain_spec,
-    cli::{Cli, Subcommand, TorMode},
+    cli::{Cli, Subcommand},
     service,
 };
 use clap::Parser;
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
-
-/// Environment variable that indicates the node is running under torsocks wrapper
-const TORSOCKS_ENV_VAR: &str = "ANARCHY_RUNNING_UNDER_TORSOCKS";
-
-/// Check if running under torsocks wrapper
-/// Detects either:
-/// 1. Our custom environment variable (ANARCHY_RUNNING_UNDER_TORSOCKS)
-/// 2. LD_PRELOAD containing "torsocks" (set by torsocks command)
-fn is_running_under_torsocks() -> bool {
-    // Check our custom variable first
-    if std::env::var(TORSOCKS_ENV_VAR).is_ok() {
-        return true;
-    }
-    // Check LD_PRELOAD for torsocks library
-    if let Ok(ld_preload) = std::env::var("LD_PRELOAD") {
-        if ld_preload.to_lowercase().contains("torsocks") {
-            return true;
-        }
-    }
-    false
-}
 
 /// Sanitize Onion addresses in a string for privacy-safe logging
 /// 
@@ -116,52 +95,6 @@ fn validate_public_addresses(config: &sc_service::Configuration) -> Result<(), S
         let addr_str = addr.to_string();
         if addr_str.contains("/onion3/") {
             validate_onion_address(&addr_str)?;
-        }
-    }
-    Ok(())
-}
-
-/// Apply Tor mode configuration to network settings.
-///
-/// Returns `Err` instead of `process::exit` on misconfiguration so that the
-/// caller can shut down RocksDB and other resources gracefully (#28-CRIT-2).
-fn apply_tor_mode(
-    tor_mode: TorMode,
-    config: &mut sc_service::Configuration,
-) -> Result<(), sc_cli::Error> {
-    match tor_mode {
-        TorMode::Off => {
-            log::info!("🌐 Tor mode: OFF - Direct TCP connections (development only)");
-        }
-        TorMode::OutboundOnly => {
-            log::warn!("⚠️  Tor mode: OUTBOUND-ONLY - Your inbound IP is EXPOSED!");
-            log::warn!("⚠️  Use --tor-mode=forced for full anonymity in production");
-
-            if !is_running_under_torsocks() {
-                log::warn!("⚠️  Not running under torsocks. Outbound traffic may leak!");
-                log::warn!("⚠️  Use: ./scripts/anarchy-tor.sh ./anarchy-node --tor-mode=outbound-only");
-            }
-        }
-        TorMode::Forced => {
-            // ① Outbound Lock: Require torsocks environment
-            if !is_running_under_torsocks() {
-                return Err(sc_cli::Error::Input(
-                    "Tor mode FORCED requires running under torsocks. \
-                     Usage: ./scripts/anarchy-tor.sh ./anarchy-node --tor-mode=forced"
-                        .to_string(),
-                ));
-            }
-
-            // ② Inbound Lock: Force listen on localhost only
-            let localhost_addr: sc_network::Multiaddr = "/ip4/127.0.0.1/tcp/30333"
-                .parse()
-                .expect("Valid multiaddr");
-
-            config.network.listen_addresses = vec![localhost_addr];
-
-            log::info!("🔒 Tor mode: FORCED - Full anonymity enabled");
-            log::info!("🔒 ① Outbound Lock: All traffic via Tor (torsocks detected)");
-            log::info!("🔒 ② Inbound Lock: Listening on 127.0.0.1:30333 only (Onion Service required)");
         }
     }
     Ok(())
@@ -275,30 +208,16 @@ pub fn run() -> sc_cli::Result<()> {
             })
         }
         None => {
-            let tor_mode = cli.tor_mode;
             let mine = cli.mine;
             let coinbase = cli.coinbase.clone();
             let randomx_mode = cli.randomx_mode;
             let runner = cli.create_runner(&cli.run)?;
-            runner.run_node_until_exit(|mut config| async move {
+            runner.run_node_until_exit(|config| async move {
                 // Validate Onion addresses in --public-addr if any
                 if let Err(e) = validate_public_addresses(&config) {
                     log::error!("🚫 Invalid public address: {}", e);
                     return Err(sc_cli::Error::Input(e));
                 }
-
-                // Mainnet requires forced Tor mode - override any user setting
-                let effective_tor_mode = if config.chain_spec.id().contains("mainnet") {
-                    if tor_mode != TorMode::Forced {
-                        log::warn!("⚠️  Mainnet requires --tor-mode=forced. Overriding user setting.");
-                    }
-                    TorMode::Forced
-                } else {
-                    tor_mode
-                };
-
-                // Apply Tor mode configuration
-                apply_tor_mode(effective_tor_mode, &mut config)?;
 
                 service::new_full(config, mine, coinbase, randomx_mode)
                     .map_err(sc_cli::Error::Service)
@@ -414,80 +333,4 @@ mod tests {
         assert_eq!("", result);
     }
 
-    // ============================================================
-    // is_running_under_torsocks() tests
-    // ============================================================
-
-    #[test]
-    fn test_torsocks_env_not_set() {
-        // Ensure both env vars are not set
-        std::env::remove_var(TORSOCKS_ENV_VAR);
-        std::env::remove_var("LD_PRELOAD");
-        assert!(!is_running_under_torsocks());
-    }
-
-    #[test]
-    fn test_torsocks_env_set() {
-        // Set the env var
-        std::env::set_var(TORSOCKS_ENV_VAR, "1");
-        assert!(is_running_under_torsocks());
-        // Clean up
-        std::env::remove_var(TORSOCKS_ENV_VAR);
-    }
-
-    #[test]
-    fn test_torsocks_env_empty_value() {
-        // Even empty value should return true (var exists)
-        std::env::set_var(TORSOCKS_ENV_VAR, "");
-        assert!(is_running_under_torsocks());
-        // Clean up
-        std::env::remove_var(TORSOCKS_ENV_VAR);
-    }
-
-    #[test]
-    fn test_torsocks_ld_preload_detection() {
-        // Ensure our custom var is not set
-        std::env::remove_var(TORSOCKS_ENV_VAR);
-        
-        // Set LD_PRELOAD with torsocks library (as torsocks command does)
-        std::env::set_var("LD_PRELOAD", "/usr/lib/x86_64-linux-gnu/torsocks/libtorsocks.so");
-        assert!(is_running_under_torsocks());
-        
-        // Test case-insensitive matching
-        std::env::set_var("LD_PRELOAD", "/path/to/LIBTORSOCKS.so");
-        assert!(is_running_under_torsocks());
-        
-        // Clean up
-        std::env::remove_var("LD_PRELOAD");
-    }
-
-    #[test]
-    fn test_torsocks_ld_preload_non_torsocks() {
-        // Ensure our custom var is not set
-        std::env::remove_var(TORSOCKS_ENV_VAR);
-        
-        // LD_PRELOAD without torsocks should return false
-        std::env::set_var("LD_PRELOAD", "/some/other/library.so");
-        assert!(!is_running_under_torsocks());
-        
-        // Clean up
-        std::env::remove_var("LD_PRELOAD");
-    }
-
-    // ============================================================
-    // TorMode enum tests
-    // ============================================================
-
-    #[test]
-    fn test_tor_mode_default() {
-        assert_eq!(TorMode::default(), TorMode::Off);
-    }
-
-    #[test]
-    fn test_tor_mode_equality() {
-        assert_eq!(TorMode::Off, TorMode::Off);
-        assert_eq!(TorMode::OutboundOnly, TorMode::OutboundOnly);
-        assert_eq!(TorMode::Forced, TorMode::Forced);
-        assert_ne!(TorMode::Off, TorMode::Forced);
-    }
 }
