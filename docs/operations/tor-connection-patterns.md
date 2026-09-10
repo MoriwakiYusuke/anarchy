@@ -22,6 +22,7 @@ Anarchy における Tor 接続は、**「内部通信は直結、外部通信�
 | **開発/ソロ** | マシンA | マシンA | マシンA | `localhost` (直結) |
 | **ハイドラ(頭)** | 世界中 | 公開サーバー | 隠しサーバー | `Frontend -> Tor -> Node` |
 | **リモート操作** | マシンA | マシンA | 遠隔地 | `Local UI -> Tor -> Node` |
+| **マルチプロバイダ** (§2.5, 本番) | 世界中 | Cloudflare (静的) | GCP / さくら / AWS | `Browser -> wss -> GCP chain -> Tor -> 各ストレージ` |
 
 ---
 
@@ -90,6 +91,16 @@ const response = await fetch('http://your-node.onion:9944', { agent });
 
 **結論**: **フロントサーバーが Tor クライアントとして動く必要がある**
 
+> **⚠️ 注記 (2026-09): この案は実装されていない。**
+>
+> 上記の Next.js API Routes + `SocksProxyAgent` は成立しない:
+> - App Router の route handler は **WebSocket upgrade をサポートしない**。
+>   PAPI は WS 前提なので `fetch` + agent の例はそのまま流用できない
+> - 静的 SPA が「サーバ必須」に退化し、静的ホスティングが使えなくなる
+>
+> 中継が必要な場合はアプリの外 (nginx + socat) に置くこと。
+> 未使用だった `socks-proxy-agent` 依存は削除済み。
+
 ---
 
 ### 2.4 カスタム・フロント型（セキュア接続）
@@ -120,6 +131,65 @@ NEXT_PUBLIC_RPC_ENDPOINT=socks5h://127.0.0.1:9050/your-node.onion:9944
 ```
 
 **結論**: **UI が直接 Tor ネットワークへダイブする構成**
+
+> **⚠️ 注記 (2026-09): 上の設定例は誤り。**
+>
+> `NEXT_PUBLIC_CHAIN_RPC_URL` に `socks5h://...` は指定できない。
+> PAPI の `getWsProvider` は `ws://` / `wss://` しか受け付けず、SOCKS プロキシを
+> 差し込む口も無い (受信側のウォッチドッグ `heartbeatTimeout` があるだけで、
+> ping も送らない)。`ALL_PROXY` 環境変数もブラウザには効かない。
+>
+> ブラウザから `.onion` に繋ぐ現実的な方法は **Tor Browser を使う** ことだけ。
+> その場合 `NEXT_PUBLIC_CHAIN_RPC_URL=ws://<onion>:9944` を指定する
+> (`wss` ではない — `.onion` 向けの CA 証明書は特殊で、Tor 自体が
+> onion アドレス = 公開鍵で認証と暗号化を行うため `ws` で足りる)。
+> ただしフロントを clearnet の `https://` で配ると mixed content で
+> ブロックされるため、フロントも onion 上で配信する必要がある。
+
+---
+
+### 2.5 マルチプロバイダ分散型（本番デプロイ・実測済み）
+
+```
+ユーザー ──HTTPS──▶ Cloudflare Workers (フロント / 静的)
+                          │ wss
+                          ▼
+                     GCP e2-micro ──────Tor──────▶ さくら
+                     chain×1                       chain×3 + storage×3 + 採掘
+                     nginx                    └──▶ AWS t3.micro
+                                                   storage×1
+```
+
+**用途**: 本番デプロイ / ポートフォリオ公開
+
+**特徴**:
+- GCP のチェーンが さくら/AWS のストレージへ **直接** fan-out する
+  (さくらのチェーンを中継しない)。エンドポイントはオンチェーンと gossip の
+  二重経路で伝播する
+- サーバー間は全て Tor Hidden Service 経由。公開ポートは GCP の 443 のみ
+- さくらは公開ポートを一切開けない
+
+#### 実測で判明した制約
+
+コンテナで実際に疎通させるまで表面化しなかったもの。設定を書く前に必ず読むこと。
+
+| 制約 | 内容 |
+|---|---|
+| **`HiddenServicePort` の転送先にホスト名は使えない** | IP かソケットのみ。compose のサービス名で書くと tor が `Unparseable address in hidden service port configuration` で起動に失敗する。**固定 IP を割り当てること** |
+| **`torsocks.conf` の `TorAddress` もホスト名不可** | 解決されず `socks5 libc connect: Connection refused` になる。IP で書くこと |
+| **torsocks は全ての outbound を Tor に流す** | 同一ホスト宛の通信まで Tor 経由で解決しようとして `Unable to resolve. Status reply: 4` で落ちる。**同一ホストは直結、サーバー間だけ Tor** という切り分けが必要 |
+| **Tor の connect は clearnet より桁違いに遅い** | 同一ホスト / ディスクリプタ公開済みという好条件でも実測 connect=1.4〜3.9 秒。跨プロバイダの初回接続はさらに伸びる。`.onion` 宛の `connect_timeout` は 60 秒に設定済み |
+| **PoW の起動直後は timestamp エラーが出る** | `MinimumPeriod` が 15 秒 (`SLOT_DURATION / 2`) なので、難易度が低い起動直後にブロックが 15 秒未満で見つかると timestamp が壁時計より未来になり import が弾かれる。難易度が上がれば収まる**一過性**の現象 |
+
+#### torsocks の適用範囲
+
+| プロセス | torsocks | 理由 |
+|---|---|---|
+| チェーンノード | **包む** | ストレージが `.onion` で登録されるため fan-out に SOCKS 経由の名前解決が要る (reqwest に `socks` feature が無い) |
+| ストレージ (チェーンと同一ホスト) | **包まない** | outbound は同一ホストのチェーンだけ。inbound は Hidden Service が転送する |
+| ストレージ (チェーンが別ホスト) | **包む** | `--chain-url` に `.onion` を指定する |
+
+**手順**: [deployment-multi-provider.md](deployment-multi-provider.md)
 
 ---
 
