@@ -14,7 +14,9 @@
   //   NEXT_PUBLIC_CHAIN_RPC_URL=wss://<GCPのドメイン>/rpc pnpm --filter @anarchy/frontend build
   //   cd apps/frontend && npx wrangler deploy
   "name": "anarchy-frontend",
-  "compatibility_date": "2026-09-11",
+  // compatibility_date は **過去日** でなければならない (未来日は CF に拒否される)。
+  // ランタイム挙動を固定するためのもので、今日である必要はない。
+  "compatibility_date": "2026-09-01",
   "assets": {
     "directory": "./out",
     "not_found_handling": "single-page-application"

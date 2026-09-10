@@ -91,16 +91,15 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
       - name: Smoke test the image
-        # push したイメージではなくローカルにロードしたものを叩きたいので、
-        # ここでは build-push-action の出力タグの 1 つを使って再実行する
+        # build-push-action は push: true でもローカル daemon にイメージを
+        # ロードしないため、明示的に pull してから起動する
+        # (docker run の暗黙 pull に頼ると失敗時の切り分けがしづらい)。
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           IMAGE="$(echo '${{ steps.meta.outputs.tags }}' | head -1)"
-          echo "testing $IMAGE"
-          if [ '${{ github.event_name }}' = 'pull_request' ]; then
-            echo "PR ではイメージを push していないためスキップ"
-            exit 0
-          fi
+          echo "pulling $IMAGE"
+          docker pull "$IMAGE"
           # このバイナリは --version を受け付けない (clap の設定上)。
           # --help が正常終了することでイメージが起動可能なことを確認する。
           docker run --rm "$IMAGE" --help > /dev/null

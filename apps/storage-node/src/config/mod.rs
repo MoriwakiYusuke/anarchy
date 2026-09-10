@@ -183,6 +183,10 @@ impl Config {
 
         config.apply_overrides(overrides);
 
+        // 広告 URL は起動時に検証する。ここで落とさないと、正常起動したまま
+        // 登録だけが延々失敗し続ける状態になる。
+        config.validate()?;
+
         Ok(config)
     }
 
@@ -208,6 +212,19 @@ impl Config {
         }
     }
 
+    /// 起動時の設定検証。**登録が延々失敗し続ける状態を避けるため早期に落とす。**
+    ///
+    /// `public_url` はチェーンノードに登録され、その後すべてのチェーンが
+    /// この URL に直接 fan-out する。スキーム欠落や typo があるとチェーン側の
+    /// endpoint policy に弾かれ、ストレージ自身は正常起動したまま 30 秒ごとに
+    /// 登録を再試行し続けるだけになる (ログを見ないと気付けない)。
+    pub fn validate(&self) -> Result<()> {
+        if let Some(url) = &self.public_url {
+            validate_public_url(url)?;
+        }
+        Ok(())
+    }
+
     /// チェーンノードへの登録時に広告する URL を解決する。
     ///
     /// `public_url` が未設定の場合のみ loopback にフォールバックする。
@@ -218,6 +235,29 @@ impl Config {
             .clone()
             .unwrap_or_else(|| format!("http://127.0.0.1:{}", self.rpc_port))
     }
+}
+
+/// 広告 URL がチェーンノードから到達可能な形式か検証する。
+///
+/// ここで見るのは形式だけ (実際に到達できるかは起動時には分からない)。
+/// チェーン側の endpoint policy と同じ条件 — http/https スキームとホストの存在 —
+/// を先に確認しておく。
+fn validate_public_url(url: &str) -> Result<()> {
+    let parsed = url::Url::parse(url)
+        .with_context(|| format!("public_url をパースできません: {url:?} (例: http://<onion>:3030)"))?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => anyhow::bail!(
+            "public_url のスキームは http か https である必要があります (指定値: {other:?}, url: {url:?})"
+        ),
+    }
+
+    if parsed.host_str().is_none() {
+        anyhow::bail!("public_url にホストがありません: {url:?}");
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -255,6 +295,44 @@ mod tests {
         assert_eq!(config.rpc_port, 4040);
         assert!(!config.auth_enabled);
         assert_eq!(config.signer_seed.len(), 64);
+    }
+
+    #[test]
+    fn validate_public_url_accepts_reachable_forms() {
+        for url in [
+            "http://abc123.onion:3030",
+            "https://s1.example.com:3030",
+            "http://203.0.113.10:3030",
+        ] {
+            assert!(validate_public_url(url).is_ok(), "{} は通るべき", url);
+        }
+    }
+
+    #[test]
+    fn validate_public_url_rejects_malformed() {
+        // スキーム欠落: 一番ありがちなタイポ
+        assert!(validate_public_url("abc123.onion:3030").is_err());
+        // スキーム違い
+        assert!(validate_public_url("ws://abc123.onion:3030").is_err());
+        // ホスト無し
+        assert!(validate_public_url("http://").is_err());
+        // そもそも URL でない
+        assert!(validate_public_url("not a url").is_err());
+    }
+
+    #[test]
+    fn load_rejects_invalid_public_url_at_startup() {
+        // 起動時に落とす。登録が延々失敗し続ける状態を避けるため。
+        let mut config = Config::default();
+        config.public_url = Some("abc123.onion:3030".to_string());
+        assert!(config.validate().is_err());
+
+        config.public_url = Some("http://abc123.onion:3030".to_string());
+        assert!(config.validate().is_ok());
+
+        // 未設定ならフォールバックするので検証対象外
+        config.public_url = None;
+        assert!(config.validate().is_ok());
     }
 
     #[test]
