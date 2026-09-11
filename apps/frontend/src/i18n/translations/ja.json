@@ -19,7 +19,7 @@
   "wallet.devTestAccount": "開発用テストアカウント",
   "wallet.seedHint": "シードフレーズ（12または24単語）を入力するか、新規生成してください",
   "wallet.generate": "新規生成",
-  "wallet.seedNote": "※ シードフレーズはブラウザのメモリ内のみに保持され、ページを閉じると消去されます",
+  "wallet.seedNote": "※ シードフレーズはこのブラウザ (IndexedDB) に保存され、リロード後もログイン状態が維持されます。この端末から消すには「切断」を押してください",
   "wallet.selectAccount": "選択してください",
   "wallet.seedWarning": "⚠️ このシードフレーズを安全な場所に保存してください。紛失すると資産にアクセスできなくなります。",
   "wallet.copy": "コピー",

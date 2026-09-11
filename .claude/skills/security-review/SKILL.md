@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: Anarchy の非妥協セキュリティ原則 (Tor/I2P 強制、client-side のみ暗号、秘密鍵 session-only、foreground PoW、X-Chain-Auth) のチェックリスト。認証・秘密鍵処理・新規 RPC/extrinsic 追加・Storage node 通信・ユーザー入力処理時、PR レビュー時に使用する。プロジェクト固有ルールをカバーし、一般的な OWASP チェックも補完的に含む。
+description: Anarchy の非妥協セキュリティ原則 (Tor/I2P 強制、client-side のみ暗号、秘密鍵は IDB 保存 (Disconnect でクリア)、foreground PoW、X-Chain-Auth) のチェックリスト。認証・秘密鍵処理・新規 RPC/extrinsic 追加・Storage node 通信・ユーザー入力処理時、PR レビュー時に使用する。プロジェクト固有ルールをカバーし、一般的な OWASP チェックも補完的に含む。
 ---
 
 # Security Review — Anarchy
@@ -12,7 +12,7 @@ Anarchy は **L1 blockchain + 分散ストレージで構築された匿名 SNS*
 ## 🔴 非妥協原則 (Non-Negotiable Principles)
 
 1. **Network anonymity** — libp2p transport 層で Tor/I2P を enforce、IP メタデータ漏洩ゼロ
-2. **Client-side key management** — 秘密鍵は session memory のみ。永続化しない。エクスポートはパスワード暗号化バックアップのみ
+2. **Client-side key management** — 秘密鍵はブラウザから出ない。ログイン session (address + seed) は `lib/account/sessionStore` で IndexedDB に **平文保存** (2026-09-12 オーナー判断、リロード復帰のため)。Disconnect で必ずクリアすること。エクスポートはパスワード暗号化バックアップのみ
 3. **Client-side only crypto** — 暗号化 / SSS 断片化 / メタデータ除去は送信前にクライアント側で完了
 4. **Foreground PoW** — reaction mining はタブが foreground のときのみ (Page Visibility API)
 

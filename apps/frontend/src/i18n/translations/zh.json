@@ -19,7 +19,7 @@
   "wallet.devTestAccount": "开发测试账户",
   "wallet.seedHint": "输入助记词（12或24个单词）或生成新的",
   "wallet.generate": "生成新的",
-  "wallet.seedNote": "※ 助记词仅保存在浏览器内存中，关闭页面后将被清除",
+  "wallet.seedNote": "※ 助记词保存在此浏览器 (IndexedDB) 中，刷新后仍保持登录。要从此设备删除请点击「断开连接」",
   "wallet.selectAccount": "请选择",
   "wallet.seedWarning": "⚠️ 请将此助记词保存在安全的地方。如果丢失，您将无法访问您的资产。",
   "wallet.copy": "复制",

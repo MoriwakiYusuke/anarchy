@@ -27,7 +27,7 @@ type AuthMode = 'dev' | 'seedphrase'
 
 export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChange }: Props) {
   const { t } = useLocale()
-  const { account, signer, setAccount } = useAccount()
+  const { account, signer, setAccount, isRestoring } = useAccount()
   const [selectedAccount, setSelectedAccount] = useState<string>('')
   const devAccountsEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_ACCOUNTS === '1'
   const [authMode, setAuthMode] = useState<AuthMode>(devAccountsEnabled ? 'dev' : 'seedphrase')
@@ -182,25 +182,28 @@ export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChan
             {t('wallet.disconnect')}
           </button>
         </div>
+      ) : isRestoring ? (
+        // IndexedDB からの復帰待ち。フォームを一瞬出してから消すちらつきを避ける
+        <div className={styles.loading}>{t('wallet.connecting')}</div>
       ) : (
         <div className={styles.connect}>
-          {/* モード切替タブ */}
-          <div className={styles.modeTabs}>
-            <button
-              className={`${styles.modeTab} ${authMode === 'seedphrase' ? styles.active : ''}`}
-              onClick={() => setAuthMode('seedphrase')}
-            >
-              {t('wallet.seedPhrase')}
-            </button>
-            {devAccountsEnabled && (
+          {/* モード切替タブは dev ビルドでだけ出す (本番はシードフレーズ一択なので不要) */}
+          {devAccountsEnabled && (
+            <div className={styles.modeTabs}>
+              <button
+                className={`${styles.modeTab} ${authMode === 'seedphrase' ? styles.active : ''}`}
+                onClick={() => setAuthMode('seedphrase')}
+              >
+                {t('wallet.seedPhrase')}
+              </button>
               <button
                 className={`${styles.modeTab} ${authMode === 'dev' ? styles.active : ''}`}
                 onClick={() => setAuthMode('dev')}
               >
                 {t('wallet.dev')}
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {authMode === 'seedphrase' ? (
             <div className={styles.seedPhraseSection}>

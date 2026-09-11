@@ -6,6 +6,10 @@ import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 jest.mock('@/components/WalletConnect.module.css', () => new Proxy({}, { get: (_, k) => String(k) }))
+
+// jest.setup の固定スタブを上書きして isRestoring を切り替えられるようにする
+const mockAccountCtx = { account: null as string | null, signer: null, mainRawSigner: null, setAccount: jest.fn(), isRestoring: false }
+jest.mock('@/lib/account/context', () => ({ useAccount: () => mockAccountCtx }))
 jest.mock('@/components/FaucetButton', () => ({ FaucetButton: () => null }))
 jest.mock('@/hooks/useMoralBalance', () => ({
   useMoralBalance: () => ({ balance: null, isLoading: false, refetch: jest.fn() }),
@@ -24,14 +28,30 @@ function renderWithFlag(enabled: boolean) {
 
 afterEach(() => {
   delete process.env.NEXT_PUBLIC_ENABLE_DEV_ACCOUNTS
+  mockAccountCtx.isRestoring = false
 })
 
 describe('WalletConnect dev accounts gate', () => {
-  test('フラグ未設定: dev タブが無く、シードフレーズ入力が最初から表示される', () => {
+  test('フラグ未設定: タブ行ごと無く、シードフレーズ入力が最初から表示される', () => {
     renderWithFlag(false)
     expect(screen.queryByRole('button', { name: '開発用' })).not.toBeInTheDocument()
+    // 選択肢が 1 つしか無いのでタブ自体を出さない
+    expect(screen.queryByRole('button', { name: 'シードフレーズ' })).not.toBeInTheDocument()
     expect(screen.queryByText('開発用テストアカウント')).not.toBeInTheDocument()
     expect(screen.getByPlaceholderText('word1 word2 word3 ... word12')).toBeInTheDocument()
+  })
+
+  test('フラグ=1: シードフレーズ / 開発用 の 2 タブが出る', () => {
+    renderWithFlag(true)
+    expect(screen.getByRole('button', { name: 'シードフレーズ' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '開発用' })).toBeInTheDocument()
+  })
+
+  test('session 復帰中は接続フォームを出さない', () => {
+    mockAccountCtx.isRestoring = true
+    renderWithFlag(false)
+    expect(screen.queryByPlaceholderText('word1 word2 word3 ... word12')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '接続' })).not.toBeInTheDocument()
   })
 
   test('フラグ=1: dev タブが表示され、初期タブは dev', () => {

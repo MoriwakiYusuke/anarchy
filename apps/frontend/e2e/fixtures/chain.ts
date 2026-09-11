@@ -27,12 +27,24 @@ async function waitForChainConnected(page: Page): Promise<void> {
 }
 
 async function connectDev(page: Page, account: 'Alice' | 'Bob' | 'Charlie'): Promise<void> {
-  await page.locator('aside select').selectOption(`//${account}`);
-  await page.locator('aside button:has-text("Connect")').click();
+  const wallet = page.locator('aside');
+  const select = wallet.locator('select');
+  // reload 後は IndexedDB の session から自動復帰するので select が出ない。
+  // その場合は Connected になるのを待つだけ (復帰中は "Connecting..." が出ている)。
+  const restored = await wallet
+    .getByText('Connected', { exact: false })
+    .first()
+    .waitFor({ state: 'visible', timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!restored) {
+    await select.selectOption(`//${account}`);
+    await wallet.locator('button:has-text("Connect")').click();
+  }
   // Wallet パネルが Connected 状態に遷移するまで待つ。
-  await expect(
-    page.locator('aside').getByText('Connected', { exact: false }).first(),
-  ).toBeVisible({ timeout: 30_000 });
+  await expect(wallet.getByText('Connected', { exact: false }).first()).toBeVisible({
+    timeout: 30_000,
+  });
 }
 
 export const test = base.extend<ChainFixtures>({
