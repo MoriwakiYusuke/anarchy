@@ -54,6 +54,10 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
   const [posts, setPosts] = useState<Post[]>([])
   const [repliesMap, setRepliesMap] = useState<Map<number, NestedReplyData[]>>(new Map())
   const [isLoading, setIsLoading] = useState(true)
+  // 初回ロードが一度でも成功したか。refresh 中にローディング表示へ差し替えると
+  // PostItem が全部 unmount され、返信直後の repliesExpanded 等のローカル state が
+  // 消える (thread-reply E2E で発覚) ので、2 回目以降は既存表示を維持して裏で再取得する。
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [hasError, setHasError] = useState(false)
   // 再試行ボタン用カウンタ (インクリメントすると effect が再実行され再フェッチする)
   const [retryCount, setRetryCount] = useState(0)
@@ -245,6 +249,7 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
         if (cancelled) return
         setPosts(displayRoots)
         setRepliesMap(repliesData)
+        setHasLoadedOnce(true)
       } catch (err) {
         debugError('[Timeline] Failed to fetch posts:', err)
         if (!cancelled) setHasError(true)
@@ -262,7 +267,7 @@ export function Timeline({ client, unsafeApi, account, signer, storageSigner, re
     }
   }, [unsafeApi, refreshTrigger, retryCount])
 
-  if (isLoading) {
+  if (isLoading && !hasLoadedOnce) {
     return (
       <div className={styles.loading}>
         {t('timeline.loading')}
