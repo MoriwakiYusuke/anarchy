@@ -183,7 +183,46 @@ libc の resolver を通らない**ため。torsocks が名前解決を捕捉で
 socat は `SOCKS4A` で Tor の SOCKS ポートに繋ぐ (SOCKS4A はホスト名解決を
 プロキシ側に委ねるので `.onion` が渡せる)。
 
-### 5.7 Tor の connect は遅い
+### 5.7 GRANDPA を動かさないとフロントが繋がらない
+
+**これを落とすとフロントが "Connecting..." から進まない。** 3 条件すべてが要る。
+
+| # | 必要なこと | 落とした場合 |
+|---|---|---|
+| 1 | keystore に `gran` 鍵を投入する | voter が投票できない |
+| 2 | `--validator` を付ける | `Role: FULL` になり voter が投票に参加しない |
+| 3 | オーソリティの **2/3 以上**が投票する | 閾値未満でファイナライズしない |
+
+chainspec は Alice と Bob の 2 人をオーソリティに登録しているため、
+**1 人 (1/2) では 2/3 に届かず finalized が #0 のまま止まる**。
+chain-1 を Alice、chain-2 を Bob として 2 台とも validator にする。
+
+```bash
+docker compose exec -T chain-1 /usr/local/bin/anarchy-node key insert \
+  --base-path /data --chain /etc/anarchy/chainspec.json \
+  --scheme ed25519 --suri "//Alice" --key-type gran
+docker compose exec -T chain-2 /usr/local/bin/anarchy-node key insert \
+  --base-path /data --chain /etc/anarchy/chainspec.json \
+  --scheme ed25519 --suri "//Bob" --key-type gran
+docker compose up -d chain-1 chain-2
+```
+
+**なぜフロントが死ぬのか**: PAPI は新 JSON-RPC 仕様 (`chainHead_v1_*`) を使い、
+`chainHead_v1_follow` はファイナライズを前提にしている。finalized が進まないと
+即座に `{"event":"stop"}` を返し、PAPI が接続を確立できない。
+
+確認方法:
+
+```bash
+docker compose logs chain-1 --tail 5 | grep -oE "best: #[0-9]+.*finalized #[0-9]+"
+# finalized が #0 のままなら上の 3 条件を確認する
+```
+
+**`--validator` と `--rpc-external` は併用できない**
+(`--rpc-external option shouldn't be used if the node is running as a validator`)。
+core のチェーンは RPC を外部公開する必要が無いので `--rpc-external` を外す。
+
+### 5.8 Tor の connect は遅い
 
 `.onion` 宛の `connect_timeout` は 60 秒に設定済み
 ([storage.rs](../../apps/blockchain/node/src/rpc/storage.rs) の `ANONYMOUS_CONNECT_TIMEOUT`)。
@@ -223,6 +262,53 @@ nginx は `proxy_read_timeout 3600s` が **必須**。デフォルトの 60 秒�
 
 セキュリティグループは **22 番のみ**。ストレージは Tor 経由でのみ公開する。
 チェーンが別ホストなので **torsocks で包み**、`--chain-url` に `.onion` を指定する。
+
+### 5.9 ミニファイアが @scure/sr25519 を壊す
+
+ブラウザでこれが出てアプリが起動しない場合:
+
+```
+Uncaught SyntaxError: Octal escape sequences are not allowed in template strings
+```
+
+`@scure/sr25519` の以下の式がミニファイアに定数畳み込みされるのが原因。
+
+```js
+ソース:       t.witnessScalar(`proving${'\0'}0`, ...)   // 正しいコード
+ミニファイ後: `proving\00`                              // 構文エラー
+```
+
+テンプレートリテラル内の `\0` は 8 進エスケープ扱いで禁止されており、
+チャンク全体が読めなくなる。
+
+**再ビルドでは直らない** (決定的な変換のため)。実測:
+
+| 方法 | 結果 |
+|---|---|
+| Turbopack で再ビルド | ❌ 2 ファイルでエラー |
+| webpack で再ビルド | ❌ 1 ファイルでエラー |
+| terser の `evaluate: false` | ❌ 効かない (Next は SWC minifier を使う) |
+| minify 全無効 | ✅ 直るがバンドルが肥大 |
+| **パッチ** | ✅ |
+
+`patches/@scure__sr25519@*.patch` でテンプレートリテラルを文字列連結に変えている。
+`@scure/sr25519` は v1.0.0 (hdkd 経由) と v0.2.0 (@polkadot/util-crypto 経由) の
+両方が入るため **両方にパッチが要る**。
+
+パッチが効いていないときは `pnpm-workspace.yaml` の `patchedDependencies` に
+両方が登録されているか確認し、`node_modules/.pnpm/@scure+sr25519@*` を消して
+`pnpm install --force` する。
+
+ビルド後は必ず構文チェックすること:
+
+```bash
+node -e "
+const fs=require('fs'),vm=require('vm'),path=require('path');
+let bad=0;(function w(d){for(const e of fs.readdirSync(d)){const p=path.join(d,e);
+fs.statSync(p).isDirectory()?w(p):p.endsWith('.js')&&(()=>{try{new vm.Script(fs.readFileSync(p,'utf8'))}catch(x){bad++;console.log('NG',p,x.message)}})()}})('out');
+console.log(bad?'エラー '+bad+' 件':'OK');
+"
+```
 
 ### 6.4 フロント (Cloudflare Workers)
 
@@ -282,6 +368,27 @@ docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname   # .env に�
 docker compose up -d chain storage
 ```
 
+## 7.5 本番に対する E2E
+
+デプロイ後の疎通確認は Playwright で自動化してある。
+
+```bash
+cd apps/frontend
+pnpm exec playwright test -c playwright.prod.config.ts
+```
+
+`e2e-prod/post-live.spec.ts` が 2 本:
+
+| テスト | 何を保証するか |
+|---|---|
+| チェーンに接続できる | フロント配信 + wss + GRANDPA ファイナライズ + **バンドルに構文エラーが無いこと** (§5.9 の回帰検出) |
+| 投稿してタイムラインに反映される | ブラウザ → Workers → nginx → gateway のチェーン → Tor → ストレージ → 採掘・ファイナライズ → 読み戻し の全経路 |
+
+**本番チェーンに実際に extrinsic を投げる**。MORAL を消費し投稿が残る点に注意。
+
+ローカル向けの `playwright.config.ts` とは別ファイルにしてある
+(あちらは `webServer` で `next dev` を立てる前提)。
+
 ## 8. トラブルシューティング
 
 | 症状 | 原因と対処 |
@@ -294,6 +401,12 @@ docker compose up -d chain storage
 | `No Storage Nodes connected` | チェーンがレジストリを持っていない。同期完了と `storage_getNodes` を確認 |
 | 起動直後に `timestamp of the block is too far in the future` | **一過性**。`MinimumPeriod` が 15 秒なので、低難易度でブロックが 15 秒未満で出ると発生する。難易度が上がれば収まる |
 | フロントの WS が数十秒で切れる | nginx の `proxy_read_timeout`。3600s にする |
+| フロントが "Connecting..." から進まない | §5.7。`finalized #0` のままでないか確認する |
+| `502 Bad Gateway` | nginx の `proxy_pass` が `127.0.0.1` を指している。チェーンは netns の名前空間内なので固定 IP を指す |
+| `Provided Host header is not whitelisted` | `--rpc-cors` を絞ると Host フィルタも有効になる。nginx で `proxy_set_header Host "localhost:9944";` に固定する |
+| `unknown directive "http2"` | Ubuntu 24.04 の nginx は 1.24。`listen 443 ssl http2;` の旧書式を使う |
+| ブラウザで `Octal escape sequences are not allowed in template strings` | §5.9 |
+| `apt` が `archive.ubuntu.com` に届かない | ネットワークは正常でもミラーだけ落ちていることがある。`bootstrap.sh` が到達性を確認して国内ミラーに切り替える |
 | 同一ホストのチェーンが `peers=0` のまま | §5.4。固定 IP でピアさせている。名前空間を共有して 127.0.0.1 にする |
 | tor 再起動後にチェーンが分岐した | §5.5。`netns` コンテナを使っていない。応急処置はチェーンコンテナの再起動 |
 

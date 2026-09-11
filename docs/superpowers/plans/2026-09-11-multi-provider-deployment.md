@@ -112,9 +112,29 @@
 | **跨ホストの fan-out** | ✅ **gateway のチェーンが core のストレージ 3 台すべてに到達** (各ノードのログに受信を確認) |
 | storage-only 相当 (チェーンが別ホストのストレージ単独ノード) | ✅ subxt が torsocks 経由で `.onion` の WS に到達し登録成功。core のチェーンから `total=4 online=4` として見える |
 
-## 残っている作業
+## デプロイ実績 (2026-09-11)
 
-VPS が要るものだけ。ローカルで済むものは全て完了している。
+**core と gateway は実際に構築し、フロントまで公開済み。**
+
+| ホスト | 実体 | 状態 |
+|---|---|---|
+| core | さくらのVPS 4G `133.167.36.41` | chain×3 (peers=2) + storage×3 + 採掘 |
+| gateway | GCP e2-micro `35.247.80.162` (静的IP) | chain×1 + storage×3 + nginx/LE |
+| フロント | Cloudflare Workers | https://anarchy2026.org |
+| RPC | | wss://rpc.anarchy2026.org/rpc |
+
+構築中に判明し、**計画になかった**問題 (すべて手順書に反映済み):
+
+| 問題 | 手順書 |
+|---|---|
+| GRANDPA が動かずフロントが "Connecting..." で止まる | §5.7 |
+| ミニファイアが @scure/sr25519 を壊しバンドルが読めない | §5.9 |
+| `--validator` と `--rpc-external` は併用不可 | §5.7 |
+| nginx から netns 内のチェーンが見えず 502 | §8 |
+| `--rpc-cors` を絞ると Host フィルタも有効になる | §8 |
+| Ubuntu のミラーに到達できない / dpkg ロック競合 | `bootstrap.sh` が自動対処 |
+
+## 残っている作業
 
 | Task | 内容 | 前提 |
 |---|---|---|
