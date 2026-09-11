@@ -97,6 +97,7 @@ services:
       - --listen-addr=/ip4/0.0.0.0/tcp/30335
       - --rpc-port=9946
       - --prometheus-port=9617
+      - --rpc-external
       - --rpc-cors=all
       - --unsafe-force-node-key-generation
       - --bootnodes=/ip4/127.0.0.1/tcp/30333/p2p/${CHAIN1_PEER_ID:?chain-1 の Local node identity を設定してください}
@@ -109,7 +110,7 @@ services:
     image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
     restart: unless-stopped
     depends_on:
-      chain-1:
+      chain-3:
         condition: service_started
     # 同一ホストのチェーンに直結するので torsocks で包まない
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
@@ -118,7 +119,7 @@ services:
       - --data-dir=/data
       - --rpc-port=3030
       - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3030
-      - --chain-url=ws://172.28.0.10:9944
+      - --chain-url=ws://172.28.0.10:9946
     networks:
       anarchy:
         ipv4_address: 172.28.0.31
@@ -130,7 +131,7 @@ services:
     image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
     restart: unless-stopped
     depends_on:
-      chain-1:
+      chain-3:
         condition: service_started
     # 同一ホストのチェーンに直結するので torsocks で包まない
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
@@ -139,7 +140,7 @@ services:
       - --data-dir=/data
       - --rpc-port=3031
       - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3031
-      - --chain-url=ws://172.28.0.10:9944
+      - --chain-url=ws://172.28.0.10:9946
     networks:
       anarchy:
         ipv4_address: 172.28.0.32
@@ -151,7 +152,7 @@ services:
     image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
     restart: unless-stopped
     depends_on:
-      chain-1:
+      chain-3:
         condition: service_started
     # 同一ホストのチェーンに直結するので torsocks で包まない
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
@@ -160,7 +161,7 @@ services:
       - --data-dir=/data
       - --rpc-port=3032
       - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3032
-      - --chain-url=ws://172.28.0.10:9944
+      - --chain-url=ws://172.28.0.10:9946
     networks:
       anarchy:
         ipv4_address: 172.28.0.33

@@ -159,6 +159,12 @@ def main():
         W("      SOCKS4A:127.0.0.1:${CORE_CHAIN_ONION:?core の chain onion を設定してください}:30333,socksport=9050")
         W("")
 
+    # 同居ストレージの登録先。validator は RPC を外に出せないので、validator でない
+    # 最初のチェーンにする (core なら chain-3、gateway なら chain-1)。
+    storage_chain = a.validators + 1
+    if not remote_chain and storage_chain > a.chains:
+        sys.exit("全チェーンが validator だと同居ストレージの登録先が無い。--chains を --validators より大きくすること")
+
     for i in range(1, a.chains + 1):
         p2p, rpc, prom = P2P_BASE + i, RPC_BASE + i, PROM_BASE + i
         is_validator = i <= a.validators
@@ -170,7 +176,10 @@ def main():
             f"--rpc-port={rpc}",
             f"--prometheus-port={prom}",
         ]
-        if a.public_rpc and i == 1:
+        # validator でないチェーンは RPC を netns の IP でも受ける (--rpc-external)。
+        # --validator は --rpc-external と排他で、その場合 RPC は netns 内の 127.0.0.1 にしか
+        # bind されず、同居ストレージ (別コンテナ、172.N.0.3x) から届かない。
+        if not is_validator:
             cmd.append("--rpc-external")
         # 公開 RPC でも --rpc-cors は all にする。特定オリジンを渡すと Substrate は
         # Host ヘッダのフィルタも有効にし (listen アドレスの loopback 表現しか通さない)、
@@ -233,7 +242,7 @@ def main():
             W('    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]')
         else:
             W("    depends_on:")
-            W("      chain-1:")
+            W(f"      chain-{storage_chain}:")
             W("        condition: service_started")
             W("    # 同一ホストのチェーンに直結するので torsocks で包まない")
             W('    entrypoint: ["/usr/local/bin/anarchy-storage-node"]')
@@ -245,7 +254,7 @@ def main():
         if remote_chain:
             W("      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944")
         else:
-            W(f"      - --chain-url=ws://{IP_NETNS}:9944")
+            W(f"      - --chain-url=ws://{IP_NETNS}:{RPC_BASE + storage_chain}")
         if not remote_chain:
             W("    networks:")
             W("      anarchy:")
