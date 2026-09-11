@@ -16,7 +16,7 @@
 //! - 読み込み: 同様にBlockchain Node経由（将来はインデクサーキャッシュ）
 //! - マルチノード: 断片を複数ノードに分散配置（耐障害性向上）
 
-use crate::rpc::{SharedStorageNodes, StorageNodeRegistry};
+use crate::rpc::{RegisterOutcome, SharedStorageNodes, StorageNodeRegistry};
 use anarchy_runtime::opaque::Block;
 use jsonrpsee::{
     core::RpcResult,
@@ -1210,17 +1210,22 @@ where
         let registered_at = node.registered_at;
         let latency_ms = node.latency_ms;
 
-        if registry.register(node) {
-            log::info!("Storage Node registered: {} (total: {} nodes)", url, registry.nodes.len());
-
-            // Gossipで他チェーンノードにブロードキャスト (署名付き, finding #2)
-            self.gossip_handle.broadcast_registration(url.clone(), registered_at, latency_ms, proof);
-
-            Ok(true)
-        } else {
-            log::info!("Storage Node already registered: {}", url);
-            Ok(false) // 既に登録済みの場合もエラーにはしない
+        let outcome = registry.register_outcome(node);
+        match outcome {
+            RegisterOutcome::Added =>
+                log::info!("Storage Node registered: {} (total: {} nodes)", url, registry.nodes.len()),
+            RegisterOutcome::Refreshed => log::debug!("Storage Node heartbeat: {}", url),
+            RegisterOutcome::Unchanged => log::debug!("Storage Node heartbeat (no newer than known): {}", url),
         }
+
+        // Gossipで他チェーンノードにブロードキャスト (署名付き, finding #2)。
+        // ハートビート (再登録) も中継する。他のチェーンはこのノードを gossip 経由でしか
+        // 知らないので、中継しないと NODE_STALE_AFTER_SECS 後にそちらで offline 扱いになる。
+        if outcome != RegisterOutcome::Unchanged {
+            self.gossip_handle.broadcast_registration(url.clone(), registered_at, latency_ms, proof);
+        }
+
+        Ok(outcome == RegisterOutcome::Added) // 既に登録済みの場合もエラーにはしない
     }
 
     async fn upload_fragment(&self, request: UploadFragmentRequest) -> RpcResult<UploadFragmentResponse> {

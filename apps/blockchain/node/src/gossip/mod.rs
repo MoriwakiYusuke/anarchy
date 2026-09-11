@@ -18,7 +18,7 @@
 //! ```
 
 use crate::rpc::storage::{verify_registration_signature, RegistrationProof, MAX_TIMESTAMP_SKEW_SECS};
-use crate::rpc::{EndpointPolicy, RegisteredStorageNode, SharedStorageNodes};
+use crate::rpc::{EndpointPolicy, RegisterOutcome, RegisteredStorageNode, SharedStorageNodes};
 use log::{debug, info, warn};
 use parity_scale_codec::{Decode, Encode};
 use sc_network::{
@@ -258,6 +258,19 @@ impl StorageNodeGossip {
         info!("Broadcasted storage node registration to {} peers: {}", peer_count, endpoint);
     }
 
+    /// 受信した gossip をそのまま (再エンコードせず) 送信元以外の接続ピアへ流す
+    async fn relay_except(&mut self, from: &sc_network::PeerId, encoded: &[u8]) -> usize {
+        let mut sent = 0;
+        for peer in self.connected_peers.iter() {
+            if peer == from {
+                continue;
+            }
+            let _ = self.notification_service.send_async_notification(peer, encoded.to_vec()).await;
+            sent += 1;
+        }
+        sent
+    }
+
     /// 受信した通知を処理
     async fn handle_notification(&mut self, peer: sc_network::PeerId, notification: Vec<u8>) {
         let message = match StorageNodeGossipMessage::decode(&mut &notification[..]) {
@@ -332,14 +345,29 @@ impl StorageNodeGossip {
                     }),
                 };
 
-                if registry.register(node) {
-                    if was_at_capacity {
-                        info!("Added storage node from gossip (LRU eviction triggered): {} (total: {})",
-                            endpoint, registry.nodes.len());
-                    } else {
-                        info!("Added storage node from gossip: {} (total: {})", endpoint, registry.nodes.len());
+                let outcome = registry.register_outcome(node);
+                let total = registry.nodes.len();
+                drop(registry);
+
+                match outcome {
+                    RegisterOutcome::Added => {
+                        if was_at_capacity {
+                            info!("Added storage node from gossip (LRU eviction triggered): {} (total: {})",
+                                endpoint, total);
+                        } else {
+                            info!("Added storage node from gossip: {} (total: {})", endpoint, total);
+                        }
                     }
+                    RegisterOutcome::Refreshed => debug!("Heartbeat via gossip: {}", endpoint),
+                    RegisterOutcome::Unchanged => return,
                 }
+
+                // 新規または新しいハートビートなら、送信元以外のピアへ中継する。
+                // gossip は 1 ホップしか届かないので、core の chain-3 に登録された
+                // ノードのハートビートが chain-1 経由で gateway に届くにはこれが要る。
+                // 同じハートビートは 2 回目以降 Unchanged で止まるのでループしない。
+                let relayed = self.relay_except(&peer, &notification).await;
+                debug!("Relayed registration of {} to {} peers", endpoint, relayed);
             }
             StorageNodeGossipMessage::SyncRequest => {
                 debug!("Received sync request from {:?}", peer);

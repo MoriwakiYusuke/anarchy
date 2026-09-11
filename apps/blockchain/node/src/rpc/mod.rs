@@ -65,6 +65,14 @@ pub const MAX_RATE_LIMIT_ENTRIES: usize = 10_000;
 /// 短くしすぎると同一ホストのノードまで一時的に外れて upload が失敗する。
 pub const NODE_STALE_AFTER_SECS: u64 = 180;
 
+/// `StorageNodeRegistry::register_outcome` の結果
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegisterOutcome {
+    Added,
+    Refreshed,
+    Unchanged,
+}
+
 fn unix_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -136,16 +144,32 @@ impl StorageNodeRegistry {
     /// ノードを登録（重複チェック付き）
     /// Issue 7 fix: Evicts oldest node if registry is full
     ///
-    /// 既に同じ endpoint があればハートビートとして扱い、生存時刻を進めて
-    /// online に戻す (戻り値は false のまま = 新規追加ではない)。
+    /// 既に同じ endpoint があればハートビートとして扱う (詳細は `register_outcome`)。
+    /// 戻り値は「新規追加されたか」。
     pub fn register(&mut self, node: RegisteredStorageNode) -> bool {
+        matches!(self.register_outcome(node), RegisterOutcome::Added)
+    }
+
+    /// `register` の詳細版。gossip の中継判断に使う:
+    /// - `Added`     … 新規。中継する
+    /// - `Refreshed` … 既知だが生存時刻が進んだ (= 新しいハートビート)。中継する
+    /// - `Unchanged` … 既知で生存時刻も進まない (= 自分が中継したものが回ってきた等)。中継しない
+    ///
+    /// 「進んだときだけ中継」がループ止めになっている。同じハートビートは
+    /// 2 回目以降どこで受けても `Unchanged` になる。
+    pub fn register_outcome(&mut self, node: RegisteredStorageNode) -> RegisterOutcome {
         if let Some(existing) = self.nodes.iter_mut().find(|n| n.endpoint == node.endpoint) {
-            // gossip 経由の古い sync 応答で時刻が巻き戻らないよう max を取る
-            existing.last_health_check = existing.last_health_check.max(node.last_health_check);
             existing.is_online = true;
-            return false;
+            if node.last_health_check > existing.last_health_check {
+                existing.last_health_check = node.last_health_check;
+                // 最新の署名付き証明を保持する (sync 応答で中継するときに古い証明を配らない)
+                if node.registration_proof.is_some() {
+                    existing.registration_proof = node.registration_proof;
+                }
+                return RegisterOutcome::Refreshed;
+            }
+            return RegisterOutcome::Unchanged;
         }
-        
         // Issue 7 fix: Check registry size and evict oldest if full
         if self.nodes.len() >= self.max_size {
             // Find oldest node (by registered_at)
@@ -166,7 +190,7 @@ impl StorageNodeRegistry {
         }
         
         self.nodes.push(node);
-        true
+        RegisterOutcome::Added
     }
     
     /// 生存判定: `is_online` かつ最後のハートビートが `NODE_STALE_AFTER_SECS` 以内。
@@ -351,11 +375,14 @@ mod tests {
         assert_eq!(registry.online_node_count(), 0, "stale node must not be selected");
         assert!(registry.online_nodes_shuffled().is_empty());
 
-        // ハートビート = 同じ endpoint の再登録。新規追加ではないので false だが生存時刻は進む
+        // ハートビート = 同じ endpoint の再登録。新規追加ではないが生存時刻は進む
         node.last_health_check = now;
-        assert!(!registry.register(node));
+        assert_eq!(registry.register_outcome(node.clone()), RegisterOutcome::Refreshed);
         assert_eq!(registry.online_node_count(), 1);
         assert_eq!(registry.nodes.len(), 1, "heartbeat must not duplicate the entry");
+
+        // 同じハートビートがもう一度来ても進まない (= gossip の中継ループ止め)
+        assert_eq!(registry.register_outcome(node), RegisterOutcome::Unchanged);
     }
 
     /// 古い sync 応答で生存時刻が巻き戻らない
