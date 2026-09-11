@@ -52,12 +52,15 @@ docker compose up -d netns tor           # storage-only は tor だけ
 docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname   # → .env STORAGE_PUBLIC_URL_BASE
 docker compose exec tor cat /var/lib/tor/anarchy-chain/hostname     # core のみ。gateway/storage-only の CORE_CHAIN_ONION に
 
-# validator がいるホストのみ: gran 鍵を keystore に入れる (chain-N ごと、Alice/Bob …)
-docker compose run --rm --entrypoint anarchy-node chain-1 key insert \
-    --base-path /data --chain /chainspec.json --scheme ed25519 --suri //Alice --key-type gran
-
 docker compose up -d chain-1
 docker compose logs chain-1 | grep "Local node identity"            # → .env CHAIN1_PEER_ID
+
+# validator がいるホストのみ: gran 鍵を keystore に入れる (chain-N ごと、Alice/Bob …)。
+# 鍵は volume 内の keystore に入るので、チェーン volume を消したら入れ直す
+docker compose exec -T chain-1 /usr/local/bin/anarchy-node key insert \
+    --base-path /data --chain /etc/anarchy/chainspec.json --scheme ed25519 --suri //Alice --key-type gran
+docker compose restart chain-1
+
 docker compose up -d
 ```
 
