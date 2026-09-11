@@ -61,8 +61,9 @@ wasm-pack build --target web --out-dir pkg
 
 ```bash
 pnpm install                 # 全 workspace dep (事前に wasm-pack build 必須)
-pnpm dev:frontend            # http://localhost:3000
-pnpm build:frontend          # production build
+pnpm dev:frontend            # http://localhost:3000 (.env.development で dev アカウント //Alice 等が有効)
+pnpm build:frontend          # production build (dev アカウント UI は bundle から除去。NEXT_PUBLIC_ENABLE_DEV_ACCOUNTS=1 で含める)
+cd apps/frontend && npx wrangler dev   # Basic 認証 Worker 込みでローカル配信 (.dev.vars に BASIC_AUTH_USER/PASSWORD)
 
 # apps/frontend/ から
 cd apps/frontend && pnpm test     # Jest ユニット/統合

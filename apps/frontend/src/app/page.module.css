@@ -57,6 +57,16 @@
   display: inline-block;
 }
 
+/* 画面には出さず、DOM テキスト / 支援技術には残す (h1 の先頭 "A" 用)。
+   h1 は flex なので直下に置くと blockify されてアクセシブル名が "A narchy" になる
+   (Chromium 実測)。必ず .titleText の中に inline で置き、幅 0 にして隠す。 */
+.visuallyHidden {
+  display: inline;
+  font-size: 0;
+  color: transparent;
+  user-select: none;
+}
+
 .subtitle {
   color: #888888;
   font-family: 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace;

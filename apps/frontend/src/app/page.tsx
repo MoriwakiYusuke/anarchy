@@ -53,13 +53,17 @@ export default function Home() {
           <div className={styles.headerTop}>
             <LanguageSwitcher variant="compact" />
           </div>
-          <h1 className={styles.title} aria-label="Anarchy">
+          {/* DOM テキストを "Anarchy" にする: 先頭の A は視覚的には SVG ロゴが担い、
+              テキストとしては visually-hidden な span が担う。SVG は装飾扱い (aria-hidden)。
+              aria-label で名前を上書きせず、スクリーンリーダー / 検索エンジン / コピペ全部が
+              同じ "Anarchy" を得るようにしている。 */}
+          <h1 className={styles.title}>
             <svg
               className={styles.logo}
               xmlns="http://www.w3.org/2000/svg"
               viewBox="20 20 200 200"
-              role="img"
-              aria-label="A"
+              aria-hidden="true"
+              focusable="false"
             >
               <defs>
                 <linearGradient id="anarchyRing" x1="0" y1="0" x2="1" y2="1">
@@ -74,7 +78,9 @@ export default function Home() {
               </g>
               <path d="M55 178 L185 178" stroke="url(#anarchyRing)" strokeWidth="6" />
             </svg>
-            <span className={styles.titleText}>narchy</span>
+            <span className={styles.titleText}>
+              <span className={styles.visuallyHidden}>A</span>narchy
+            </span>
           </h1>
           <p className={styles.subtitle}>{t('app.subtitle')}</p>
           <div className={styles.status}>

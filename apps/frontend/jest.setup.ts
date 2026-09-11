@@ -5,31 +5,34 @@ import { TextEncoder, TextDecoder } from 'util';
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder as typeof global.TextDecoder;
 
-// Mock matchMedia for useReducedMotion hook tests
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: jest.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: jest.fn(),
-    removeListener: jest.fn(),
-    addEventListener: jest.fn(),
-    removeEventListener: jest.fn(),
-    dispatchEvent: jest.fn(),
-  })),
-});
+// window 依存のモックは jsdom 環境のみ (worker/ のテストは @jest-environment node で走る)
+if (typeof window !== 'undefined') {
+  // Mock matchMedia for useReducedMotion hook tests
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: jest.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  });
 
-// Mock localStorage for i18n persistence tests
-const localStorageMock = {
-  getItem: jest.fn(),
-  setItem: jest.fn(),
-  removeItem: jest.fn(),
-  clear: jest.fn(),
-};
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
-});
+  // Mock localStorage for i18n persistence tests
+  const localStorageMock = {
+    getItem: jest.fn(),
+    setItem: jest.fn(),
+    removeItem: jest.fn(),
+    clear: jest.fn(),
+  };
+  Object.defineProperty(window, 'localStorage', {
+    value: localStorageMock,
+  });
+}
 
 jest.mock('@/hooks/useNicknameOf', () => ({
   useNicknameOf: () => null,
@@ -66,3 +69,11 @@ jest.mock('@/i18n', () => ({
   DEFAULT_LOCALE: 'ja',
   SUPPORTED_LOCALES: ['en', 'ja', 'zh'],
 }));
+
+// jsdom 環境には structuredClone が無い。fake-indexeddb (postContentCache テスト) が
+// 値の格納時に呼ぶので、Node の v8 serializer で代替する。
+if (typeof globalThis.structuredClone !== 'function') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const v8 = require('node:v8');
+  globalThis.structuredClone = <T>(value: T): T => v8.deserialize(v8.serialize(value));
+}

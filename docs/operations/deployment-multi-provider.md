@@ -363,7 +363,37 @@ NEXT_PUBLIC_CHAIN_RPC_URL=wss://rpc.<ドメイン>/rpc \
 NEXT_PUBLIC_WS_ENDPOINT=wss://rpc.<ドメイン>/rpc \
   pnpm --filter @anarchy/frontend build
 
-cd apps/frontend && npx wrangler deploy
+cd apps/frontend
+npx wrangler secret put BASIC_AUTH_USER       # 初回のみ (下記「Basic 認証」参照)
+npx wrangler secret put BASIC_AUTH_PASSWORD
+npx wrangler deploy
+```
+
+#### Basic 認証 (Worker)
+
+フロントは [worker/index.ts](../../apps/frontend/worker/index.ts) の Worker が前段に立ち、
+`Authorization: Basic` を検証してから静的アセットを返す (`assets.run_worker_first: true`)。
+
+| 状態 | 応答 |
+|---|---|
+| secrets 未設定 | **503** (fail-closed。設定漏れで公開状態にならない) |
+| ヘッダ無し / 不一致 | 401 + `WWW-Authenticate: Basic realm="anarchy"` |
+| 一致 | 静的アセット (SPA fallback 含む) |
+
+- 資格情報は `wrangler secret put BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD`。ダッシュボードにも入らないので更新は同コマンドで
+- ローカル確認: `apps/frontend/.dev.vars` (gitignore 済) に同名で書いて `npx wrangler dev` → `curl -u user:pass http://127.0.0.1:8787/`
+- 全リクエストが Worker を通るため、静的配信も Worker 呼び出しとして課金対象 (無料枠 10 万 req/日)
+- **守るのは静的フロントだけ。** `wss://rpc.<ドメイン>/rpc` はブラウザの WebSocket が Basic 認証ヘッダを付けられないため、ここでは保護されない
+- 認証を外すときは wrangler.jsonc の `main` / `assets.binding` / `assets.run_worker_first` を消せば元の無課金静的配信に戻る
+
+#### dev アカウントログインは本番ビルドに入らない
+
+`//Alice` 等の dev タブは `NEXT_PUBLIC_ENABLE_DEV_ACCOUNTS=1` のビルドでしか描画されない
+([lib/devAccounts.ts](../../apps/frontend/src/lib/devAccounts.ts))。`pnpm dev` は
+`.env.development` で有効、`next build` は明示しない限り無効で、bundle からも dead code として落ちる:
+
+```bash
+grep -rl 'devSection,children\|//Charlie' apps/frontend/out/_next/static/chunks | wc -l   # → 0
 ```
 
 #### ⚠️ 環境変数は 2 つある

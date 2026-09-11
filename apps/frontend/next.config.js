@@ -6,6 +6,13 @@ const nextConfig = {
   // export では Next.js の画像オプティマイザ (サーバ) が使えない。
   // このアプリの画像は実質すべて復号済み blob なので元々最適化対象外。
   images: { unoptimized: true },
+  // 開発用テストアカウント (//Alice 等) の入口を出すかどうか。ここで '0'/'1' の定数に
+  // 正規化してから DefinePlugin に渡すことで、未設定時も `process.env.X === '1'` が
+  // ビルド時に false へ畳まれ、dev ログイン UI / DEV_PHRASE 派生が bundle から消える。
+  // `pnpm dev` は .env.development で 1、`next build` は明示しない限り 0。
+  env: {
+    NEXT_PUBLIC_ENABLE_DEV_ACCOUNTS: process.env.NEXT_PUBLIC_ENABLE_DEV_ACCOUNTS === '1' ? '1' : '0',
+  },
   // Transpile polkadot packages to handle WASM and SSR issues
   transpilePackages: [
     'anarchy-wasm-engine',

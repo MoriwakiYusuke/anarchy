@@ -5,6 +5,7 @@ import { useStorage, type HybridMetadata, type StorageSigner } from '@/hooks/use
 import { useLocale } from '@/i18n/context'
 import { decodePostContent, mediaToDataUrl } from '@/lib/postCodec'
 import type { MediaItem as PostMediaItem } from '@/lib/postCodec'
+import { getCachedContent, putCachedContent } from '@/lib/postContentCache'
 import { CopyIcon, CheckIcon, ReplyIcon } from '@/components/Icons'
 import { ImageModal } from '@/components/ImageModal'
 import { ReactionButton } from '@/components/ReactionButton'
@@ -100,10 +101,14 @@ export function PostItem({
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // 復元済みバイト列は Merkle root をキーに IndexedDB へキャッシュする (lib/postContentCache)。
+  // ヒットすれば storage RPC も Worker も使わないので、pool の isReady を待たずに描画できる。
+  // ミス時のみ従来通り復元し、成功したら put する。
   useEffect(() => {
-    if (!contentRef || !isReady) return
+    if (!contentRef) return
+    let cancelled = false
+
     const fetchContent = async () => {
-      setIsLoading(true)
       setError(null)
       try {
         // Handle PAPI Binary type - may have asBytes() method
@@ -121,6 +126,19 @@ export function PostItem({
           throw new Error(`Invalid merkle root length: ${merkleRoot.length}`)
         }
 
+        const cached = await getCachedContent(merkleRoot)
+        if (cancelled) return
+        if (cached) {
+          const decoded = decodePostContent(cached)
+          setContent(decoded.text)
+          setDecodedMedia(decoded.media)
+          return
+        }
+
+        // キャッシュミス: Worker pool が起動するまで待つ (isReady が変わると effect が再実行される)
+        if (!isReady) return
+        setIsLoading(true)
+
         const metadata: HybridMetadata = {
           originalLen: contentRef.total_size,
           ciphertextLen: contentRef.ciphertext_len,
@@ -131,17 +149,24 @@ export function PostItem({
         }
 
         const result = await recoverContent(merkleRoot, metadata)
+        if (cancelled) return
         const decoded = decodePostContent(result.data)
         setContent(decoded.text)
         setDecodedMedia(decoded.media)
+        // 復元に成功した生バイトのみキャッシュ (失敗時は何も残さない)
+        void putCachedContent(merkleRoot, result.data)
       } catch (err) {
+        if (cancelled) return
         console.error(`[PostItem] Failed to recover content for post ${postId}:`, err)
         setError(err instanceof Error ? err.message : String(err))
       } finally {
-        setIsLoading(false)
+        if (!cancelled) setIsLoading(false)
       }
     }
     void fetchContent()
+    return () => {
+      cancelled = true
+    }
   }, [contentRef, isReady, recoverContent, postId])
 
   // Determine what to display

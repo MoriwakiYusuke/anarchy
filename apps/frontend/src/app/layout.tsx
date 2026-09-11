@@ -5,8 +5,8 @@ import { ClientProviders } from './providers'
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // maximum-scale / user-scalable=no は付けない: ピンチズームを奪うのはアクセシビリティ上 NG。
+  // iOS の入力フォーカス時の自動ズームは input の font-size を 16px 以上にして防ぐ。
   themeColor: '#000000',
 }
 
