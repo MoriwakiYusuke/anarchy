@@ -1,3 +1,6 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - apps/*
+  - packages/*
+
+patchedDependencies:
+  '@scure/sr25519@1.0.0': patches/@scure__sr25519@1.0.0.patch
