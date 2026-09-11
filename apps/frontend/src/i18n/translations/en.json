@@ -19,7 +19,7 @@
   "wallet.devTestAccount": "Dev Test Accounts",
   "wallet.seedHint": "Enter a seed phrase (12 or 24 words) or generate a new one",
   "wallet.generate": "Generate New",
-  "wallet.seedNote": "※ Seed phrase is stored only in browser memory and will be cleared when the page is closed",
+  "wallet.seedNote": "※ Seed phrase is kept in this browser (IndexedDB) so you stay signed in after a reload. Press Disconnect to remove it from this device",
   "wallet.selectAccount": "Select an account",
   "wallet.seedWarning": "⚠️ Save this seed phrase in a safe place. You will lose access to your assets if you lose it.",
   "wallet.copy": "Copy",
