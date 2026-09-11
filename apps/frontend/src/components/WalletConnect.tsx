@@ -15,7 +15,8 @@ interface Props {
   onBalanceChange?: (refetch: () => void) => void
 }
 
-// 開発用: テストアカウント
+// 開発用: テストアカウント。NEXT_PUBLIC_ENABLE_DEV_ACCOUNTS=1 のビルドでのみ UI に出る。
+// 条件は必ず process.env をインラインで参照する (lib/devAccounts.ts のヘッダ参照)。
 const TEST_ACCOUNTS = [
   { name: 'Alice', seed: '//Alice' },
   { name: 'Bob', seed: '//Bob' },
@@ -28,7 +29,8 @@ export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChan
   const { t } = useLocale()
   const { account, signer, setAccount } = useAccount()
   const [selectedAccount, setSelectedAccount] = useState<string>('')
-  const [authMode, setAuthMode] = useState<AuthMode>('dev')
+  const devAccountsEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_ACCOUNTS === '1'
+  const [authMode, setAuthMode] = useState<AuthMode>(devAccountsEnabled ? 'dev' : 'seedphrase')
   const [seedPhraseInput, setSeedPhraseInput] = useState<string>('')
   const [seedPhraseError, setSeedPhraseError] = useState<string | null>(null)
   const [generatedPhrase, setGeneratedPhrase] = useState<string | null>(null)
@@ -190,12 +192,14 @@ export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChan
             >
               {t('wallet.seedPhrase')}
             </button>
-            <button
-              className={`${styles.modeTab} ${authMode === 'dev' ? styles.active : ''}`}
-              onClick={() => setAuthMode('dev')}
-            >
-              {t('wallet.dev')}
-            </button>
+            {devAccountsEnabled && (
+              <button
+                className={`${styles.modeTab} ${authMode === 'dev' ? styles.active : ''}`}
+                onClick={() => setAuthMode('dev')}
+              >
+                {t('wallet.dev')}
+              </button>
+            )}
           </div>
 
           {authMode === 'seedphrase' ? (
@@ -256,7 +260,7 @@ export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChan
                 </button>
               </div>
             </div>
-          ) : (
+          ) : devAccountsEnabled ? (
             <div className={styles.devSection}>
               <p className={styles.hint}>
                 {t('wallet.devTestAccount')}
@@ -281,7 +285,7 @@ export function WalletConnect({ client, unsafeApi, refreshTrigger, onBalanceChan
                 {t('wallet.connect')}
               </button>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
