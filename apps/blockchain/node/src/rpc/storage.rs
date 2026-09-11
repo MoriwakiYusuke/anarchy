@@ -16,7 +16,7 @@
 //! - 読み込み: 同様にBlockchain Node経由（将来はインデクサーキャッシュ）
 //! - マルチノード: 断片を複数ノードに分散配置（耐障害性向上）
 
-use crate::rpc::SharedStorageNodes;
+use crate::rpc::{SharedStorageNodes, StorageNodeRegistry};
 use anarchy_runtime::opaque::Block;
 use jsonrpsee::{
     core::RpcResult,
@@ -1500,11 +1500,15 @@ where
         // インメモリレジストリからノードを取得
         let registry = self.storage_nodes.read().await;
         
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let mut nodes: Vec<NodeInfo> = registry.nodes
             .iter()
             .map(|node| NodeInfo {
                 endpoint: node.endpoint.clone(),
-                is_online: node.is_online,
+                is_online: StorageNodeRegistry::is_live(node, now),
                 registered_at: node.registered_at,
             })
             .collect();

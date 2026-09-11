@@ -52,6 +52,26 @@ pub const MIN_REREGISTER_INTERVAL_SECS: u64 = 30;
 /// エントリの prune に加え、この上限を超えたら最古エントリを退去する。
 pub const MAX_RATE_LIMIT_ENTRIES: usize = 10_000;
 
+/// ハートビートが途絶えてから「オフライン」とみなすまでの秒数。
+///
+/// storage-node は 30 秒ごとに `register_endpoint` を打ち直す (main.rs の
+/// heartbeat_interval)。それが `register()` で「重複」として捨てられていたため
+/// 生存確認が一切無く、消えたホストのノードが永遠に online のまま残っていた
+/// (本番で撤去した 10 台に読み出しのたび Tor 接続を試み、タイムラインが
+/// Loading... で固まった)。
+///
+/// 6 回分 (180 秒) にしているのは、Tor 経由のハートビートは数秒単位で遅延・
+/// 欠落するのと、他チェーンから gossip で伝わるノードは中継の分さらに遅れるため。
+/// 短くしすぎると同一ホストのノードまで一時的に外れて upload が失敗する。
+pub const NODE_STALE_AFTER_SECS: u64 = 180;
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 impl StorageNodeRegistry {
     /// 新しいレジストリを作成
     pub fn new() -> Self {
@@ -115,8 +135,14 @@ impl StorageNodeRegistry {
     
     /// ノードを登録（重複チェック付き）
     /// Issue 7 fix: Evicts oldest node if registry is full
+    ///
+    /// 既に同じ endpoint があればハートビートとして扱い、生存時刻を進めて
+    /// online に戻す (戻り値は false のまま = 新規追加ではない)。
     pub fn register(&mut self, node: RegisteredStorageNode) -> bool {
-        if self.nodes.iter().any(|n| n.endpoint == node.endpoint) {
+        if let Some(existing) = self.nodes.iter_mut().find(|n| n.endpoint == node.endpoint) {
+            // gossip 経由の古い sync 応答で時刻が巻き戻らないよう max を取る
+            existing.last_health_check = existing.last_health_check.max(node.last_health_check);
+            existing.is_online = true;
             return false;
         }
         
@@ -143,22 +169,29 @@ impl StorageNodeRegistry {
         true
     }
     
+    /// 生存判定: `is_online` かつ最後のハートビートが `NODE_STALE_AFTER_SECS` 以内。
+    ///
+    /// バックグラウンドの掃除タスクを持たず、参照時に評価する。
+    /// 落ちたノードはハートビートが止まるだけで自然に外れ、復帰すれば次の
+    /// ハートビートで `register()` が online に戻す。
+    pub fn is_live(node: &RegisteredStorageNode, now: u64) -> bool {
+        node.is_online && now.saturating_sub(node.last_health_check) <= NODE_STALE_AFTER_SECS
+    }
+
     /// オンラインノード数を取得
     pub fn online_node_count(&self) -> usize {
-        self.nodes.iter().filter(|n| n.is_online).count()
+        self.online_nodes().len()
     }
     
     /// オンラインノードを取得 (FR-105: オフラインノード除外)
     pub fn online_nodes(&self) -> Vec<&RegisteredStorageNode> {
-        self.nodes.iter().filter(|n| n.is_online).collect()
+        let now = unix_now();
+        self.nodes.iter().filter(|n| Self::is_live(n, now)).collect()
     }
     
     /// ランダムで並び替えたオンラインノードを取得（プライバシー優先）
     pub fn online_nodes_shuffled(&self) -> Vec<RegisteredStorageNode> {
-        let mut online: Vec<_> = self.nodes.iter()
-            .filter(|n| n.is_online)
-            .cloned()
-            .collect();
+        let mut online: Vec<_> = self.online_nodes().into_iter().cloned().collect();
         let mut rng = rand::thread_rng();
         online.shuffle(&mut rng);
         online
@@ -303,6 +336,43 @@ mod tests {
         // Actual connection limiting is tested in integration tests
         use crate::gossip::MAX_CONNECTIONS;
         assert_eq!(MAX_CONNECTIONS, 128);
+    }
+
+    /// ハートビートが止まったノードは NODE_STALE_AFTER_SECS 後に online から外れ、
+    /// 再登録 (ハートビート) で戻る
+    #[test]
+    fn test_stale_node_drops_out_and_heartbeat_revives() {
+        let mut registry = StorageNodeRegistry::new();
+        let now = unix_now();
+
+        let mut node = RegisteredStorageNode::new("http://node1:3030".to_string());
+        node.last_health_check = now - NODE_STALE_AFTER_SECS - 1;
+        assert!(registry.register(node.clone()));
+        assert_eq!(registry.online_node_count(), 0, "stale node must not be selected");
+        assert!(registry.online_nodes_shuffled().is_empty());
+
+        // ハートビート = 同じ endpoint の再登録。新規追加ではないので false だが生存時刻は進む
+        node.last_health_check = now;
+        assert!(!registry.register(node));
+        assert_eq!(registry.online_node_count(), 1);
+        assert_eq!(registry.nodes.len(), 1, "heartbeat must not duplicate the entry");
+    }
+
+    /// 古い sync 応答で生存時刻が巻き戻らない
+    #[test]
+    fn test_heartbeat_never_moves_backwards() {
+        let mut registry = StorageNodeRegistry::new();
+        let now = unix_now();
+
+        let mut fresh = RegisteredStorageNode::new("http://node1:3030".to_string());
+        fresh.last_health_check = now;
+        registry.register(fresh);
+
+        let mut old = RegisteredStorageNode::new("http://node1:3030".to_string());
+        old.last_health_check = now - 1000;
+        registry.register(old);
+
+        assert_eq!(registry.nodes[0].last_health_check, now);
     }
 
     /// Test duplicate node rejection
