@@ -44,5 +44,11 @@
     "@polkadot/keyring": "^14.0.1",
     "@polkadot/util-crypto": "^14.0.1",
     "polkadot-api": "^1.23.3"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@scure/sr25519@1.0.0": "patches/@scure__sr25519@1.0.0.patch",
+      "@scure/sr25519@0.2.0": "patches/@scure__sr25519@0.2.0.patch"
+    }
   }
 }

@@ -4,6 +4,14 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@scure/sr25519@0.2.0':
+    hash: 5c1974cd73ad392eb69303649d91d665f7121675ebde7773986cb0db57837d85
+    path: patches/@scure__sr25519@0.2.0.patch
+  '@scure/sr25519@1.0.0':
+    hash: f56afb9e20a3e7eb6cc3424655506b401c8c8533ce792faa68e092ad493068bd
+    path: patches/@scure__sr25519@1.0.0.patch
+
 importers:
 
   .:
@@ -4087,7 +4095,7 @@ snapshots:
       '@noble/curves': 2.0.1
       '@noble/hashes': 2.0.1
       '@scure/base': 2.0.0
-      '@scure/sr25519': 1.0.0
+      '@scure/sr25519': 1.0.0(patch_hash=f56afb9e20a3e7eb6cc3424655506b401c8c8533ce792faa68e092ad493068bd)
       scale-ts: 1.6.1
 
   '@polkadot-labs/hdkd@0.0.26':
@@ -4319,7 +4327,7 @@ snapshots:
       '@polkadot/x-bigint': 14.0.1
       '@polkadot/x-randomvalues': 14.0.1(@polkadot/util@14.0.1)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.1))
       '@scure/base': 1.2.6
-      '@scure/sr25519': 0.2.0
+      '@scure/sr25519': 0.2.0(patch_hash=5c1974cd73ad392eb69303649d91d665f7121675ebde7773986cb0db57837d85)
       tslib: 2.8.1
 
   '@polkadot/util@13.5.9':
@@ -4564,12 +4572,12 @@ snapshots:
 
   '@scure/base@2.0.0': {}
 
-  '@scure/sr25519@0.2.0':
+  '@scure/sr25519@0.2.0(patch_hash=5c1974cd73ad392eb69303649d91d665f7121675ebde7773986cb0db57837d85)':
     dependencies:
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
 
-  '@scure/sr25519@1.0.0':
+  '@scure/sr25519@1.0.0(patch_hash=f56afb9e20a3e7eb6cc3424655506b401c8c8533ce792faa68e092ad493068bd)':
     dependencies:
       '@noble/curves': 2.0.1
       '@noble/hashes': 2.0.1

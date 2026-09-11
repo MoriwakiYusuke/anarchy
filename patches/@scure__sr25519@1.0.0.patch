@@ -1,0 +1,13 @@
+diff --git a/index.js b/index.js
+index a58044d698f063cfe293f9e9ff70723085866f17..a3588ef6a04aaa36c25c4fd992a5dc359ec0a940 100644
+--- a/index.js
++++ b/index.js
+@@ -382,7 +382,7 @@ const dleq = {
+     proove(keyScalar, nonce, pubPoint, t, input, output, random) {
+         t.protoName('DLEQProof');
+         t.commitPoint('vrf:h', input);
+-        const r = t.witnessScalar(`proving${'\0'}0`, random, [nonce]);
++        const r = t.witnessScalar(('proving' + '\0' + '0'), random, [nonce]);
+         const R = RistrettoPoint.BASE.multiply(r);
+         t.commitPoint('vrf:R=g^r', R);
+         const Hr = input.multiply(r);
