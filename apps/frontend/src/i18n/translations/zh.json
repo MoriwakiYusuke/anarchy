@@ -324,7 +324,7 @@
   "dm.connecting": "连接中…",
   "dm.settings.title": "DM 设置",
   "dm.settings.prepareKey.title": "准备密钥",
-  "dm.settings.prepareKey.description": "DM 加密需要一对隐身地址密钥。密钥仅保存在浏览器内存中,关闭页面后即销毁。可新建一对,或从已有备份恢复。",
+  "dm.settings.prepareKey.description": "DM 加密需要一对隐身地址密钥。密钥与登录信息一起保存在此浏览器 (IndexedDB) 中，刷新后自动恢复；「断开连接」会将其从此设备删除。可新建一对，或从现有备份文件恢复。",
   "dm.settings.prepareKey.newLabel": "新建",
   "dm.settings.prepareKey.newHelp": "为此浏览器生成新密钥对。",
   "dm.settings.prepareKey.generateButton": "生成新密钥",

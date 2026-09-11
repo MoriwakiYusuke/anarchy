@@ -18,7 +18,13 @@ jest.mock('@polkadot/keyring', () => ({
     addFromUri: () => ({ publicKey: new Uint8Array(32), sign: () => new Uint8Array(64) }),
   })),
 }))
-jest.mock('@/lib/stealth/keyManager', () => ({ stealthKeyManager: { destroy: jest.fn() } }))
+const mockStealth = {
+  destroy: jest.fn(),
+  bindAccount: jest.fn(),
+  loadFromBackup: jest.fn().mockResolvedValue(undefined),
+  hasKeys: jest.fn().mockReturnValue(false),
+}
+jest.mock('@/lib/stealth/keyManager', () => ({ stealthKeyManager: mockStealth }))
 jest.mock('@/lib/dm/store', () => ({
   useDmStore: { getState: () => ({ resetForAccountChange: jest.fn() }) },
 }))
@@ -26,10 +32,12 @@ jest.mock('@/lib/dm/store', () => ({
 const mockLoad = jest.fn()
 const mockSave = jest.fn().mockResolvedValue(undefined)
 const mockClear = jest.fn().mockResolvedValue(undefined)
+const mockLoadStealth = jest.fn()
 jest.mock('@/lib/account/sessionStore', () => ({
   loadSession: () => mockLoad(),
   saveSession: (s: unknown) => mockSave(s),
-  clearSession: () => mockClear(),
+  clearAllAuth: () => mockClear(),
+  loadStealthKeys: (a: string) => mockLoadStealth(a),
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -51,8 +59,13 @@ function Probe() {
 
 beforeEach(() => {
   mockLoad.mockReset().mockResolvedValue(null)
+  mockLoadStealth.mockReset().mockResolvedValue(null)
   mockSave.mockClear()
   mockClear.mockClear()
+  mockStealth.destroy.mockClear()
+  mockStealth.bindAccount.mockClear()
+  mockStealth.loadFromBackup.mockClear()
+  mockStealth.hasKeys.mockReturnValue(false)
 })
 
 describe('AccountProvider persistence', () => {
@@ -83,5 +96,48 @@ describe('AccountProvider persistence', () => {
     await act(async () => { screen.getByText('disconnect').click() })
     await waitFor(() => expect(mockClear).toHaveBeenCalledTimes(1))
     expect(screen.getByTestId('account')).toHaveTextContent('none')
+  })
+})
+
+describe('AccountProvider stealth key restore', () => {
+  const KEYS = { scanPriv: new Uint8Array(32).fill(2), spendPriv: new Uint8Array(32).fill(1) }
+
+  test('session 復帰時に account を bind し、保存済み DM 鍵を manager にロードする', async () => {
+    mockLoad.mockResolvedValue({ account: ADDR, seed: 'seed words' })
+    mockLoadStealth.mockResolvedValue(KEYS)
+    render(<AccountProvider><Probe /></AccountProvider>)
+    await waitFor(() => expect(mockStealth.loadFromBackup).toHaveBeenCalledWith(KEYS.scanPriv, KEYS.spendPriv))
+    expect(mockLoadStealth).toHaveBeenCalledWith(ADDR)
+    // bind は load より先 (loadFromBackup 内の persist が正しい account 名義になる)
+    const bindOrder = mockStealth.bindAccount.mock.invocationCallOrder[0]
+    const loadOrder = mockStealth.loadFromBackup.mock.invocationCallOrder[0]
+    expect(mockStealth.bindAccount).toHaveBeenCalledWith(ADDR)
+    expect(bindOrder).toBeLessThan(loadOrder)
+  })
+
+  test('保存済み DM 鍵が無ければロードしない', async () => {
+    mockLoad.mockResolvedValue({ account: ADDR, seed: 'seed words' })
+    render(<AccountProvider><Probe /></AccountProvider>)
+    await waitFor(() => expect(mockStealth.bindAccount).toHaveBeenCalledWith(ADDR))
+    await waitFor(() => expect(mockLoadStealth).toHaveBeenCalledWith(ADDR))
+    expect(mockStealth.loadFromBackup).not.toHaveBeenCalled()
+  })
+
+  test('通常の接続でも bind + 保存済み鍵のロードが走る', async () => {
+    mockLoadStealth.mockResolvedValue(KEYS)
+    render(<AccountProvider><Probe /></AccountProvider>)
+    await waitFor(() => expect(screen.getByTestId('restoring')).toHaveTextContent('false'))
+    await act(async () => { screen.getByText('connect').click() })
+    await waitFor(() => expect(mockStealth.loadFromBackup).toHaveBeenCalledWith(KEYS.scanPriv, KEYS.spendPriv))
+  })
+
+  test('切断で bind 解除 + 全 auth 情報クリア', async () => {
+    mockLoad.mockResolvedValue({ account: ADDR, seed: 'seed words' })
+    render(<AccountProvider><Probe /></AccountProvider>)
+    await waitFor(() => expect(screen.getByTestId('account')).toHaveTextContent(ADDR))
+    await act(async () => { screen.getByText('disconnect').click() })
+    await waitFor(() => expect(mockClear).toHaveBeenCalledTimes(1))
+    expect(mockStealth.bindAccount).toHaveBeenLastCalledWith(null)
+    expect(mockStealth.destroy).toHaveBeenCalled()
   })
 })

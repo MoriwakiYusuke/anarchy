@@ -10,6 +10,8 @@ export interface IdbKv<T> {
   get(key: string): Promise<T | undefined>
   put(key: string, value: T): Promise<void>
   delete(key: string): Promise<void>
+  /** store 内の全レコードを消す */
+  clear(): Promise<void>
 }
 
 export function createIdbKv<T>(dbName: string, storeName: string, version = 1): IdbKv<T> {
@@ -70,5 +72,6 @@ export function createIdbKv<T>(dbName: string, storeName: string, version = 1): 
     },
     put: (key, value) => write((store) => store.put(value, key)),
     delete: (key) => write((store) => store.delete(key)),
+    clear: () => write((store) => store.clear()),
   }
 }

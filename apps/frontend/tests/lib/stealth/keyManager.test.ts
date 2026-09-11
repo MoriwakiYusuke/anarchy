@@ -7,6 +7,14 @@
 import { StealthKeyManager } from '../../../src/lib/stealth/keyManager';
 import type { StealthKeyPair } from '../../../src/lib/stealth/types';
 
+// 永続化層はモック (本体は src/lib/account/__tests__/sessionStore.test.ts で検証)
+const mockSaveStealth = jest.fn().mockResolvedValue(undefined);
+const mockClearStealth = jest.fn().mockResolvedValue(undefined);
+jest.mock('@/lib/account/sessionStore', () => ({
+  saveStealthKeys: (...a: unknown[]) => mockSaveStealth(...a),
+  clearStealthKeys: (...a: unknown[]) => mockClearStealth(...a),
+}));
+
 // Mock fetch for wasm initialization
 global.fetch = jest.fn().mockResolvedValue({
   ok: true,
@@ -29,6 +37,13 @@ jest.mock('anarchy-wasm-engine', () => ({
   generate_stealth_keys: jest.fn(() => ({
     spend_key: new Uint8Array(32).fill(1),
     view_key: new Uint8Array(32).fill(2),
+    spend_pubkey: new Uint8Array(32).fill(3),
+    view_pubkey: new Uint8Array(32).fill(4),
+    meta_address: 'st:anarchy:test-meta-address',
+  })),
+  restore_stealth_keys: jest.fn((spendPriv: Uint8Array, scanPriv: Uint8Array) => ({
+    spend_key: new Uint8Array(spendPriv),
+    view_key: new Uint8Array(scanPriv),
     spend_pubkey: new Uint8Array(32).fill(3),
     view_pubkey: new Uint8Array(32).fill(4),
     meta_address: 'st:anarchy:test-meta-address',
@@ -167,6 +182,55 @@ describe('StealthKeyManager', () => {
       manager.destroy();
       // Should not throw
       expect(manager.hasKeys()).toBe(false);
+    });
+  });
+
+  describe('persistence (bindAccount)', () => {
+    const ALICE = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+
+    it('account 未 bind なら生成しても保存しない', async () => {
+      await manager.generateKeys();
+      expect(mockSaveStealth).not.toHaveBeenCalled();
+    });
+
+    it('bind 済みなら generateKeys で scan/spend 秘密鍵を account 名義で保存する', async () => {
+      manager.bindAccount(ALICE);
+      const kp = await manager.generateKeys();
+      expect(mockSaveStealth).toHaveBeenCalledWith(ALICE, {
+        scanPriv: kp.viewKey,
+        spendPriv: kp.spendKey,
+      });
+    });
+
+    it('bind 済みなら loadFromBackup でも保存する (backup import / 復帰)', async () => {
+      manager.bindAccount(ALICE);
+      const scan = new Uint8Array(32).fill(9);
+      const spend = new Uint8Array(32).fill(8);
+      await manager.loadFromBackup(scan, spend);
+      expect(mockSaveStealth).toHaveBeenCalledWith(ALICE, expect.objectContaining({ scanPriv: expect.any(Uint8Array), spendPriv: expect.any(Uint8Array) }));
+    });
+
+    it('destroy はメモリだけ消して保存分は残す (beforeunload 用)', async () => {
+      manager.bindAccount(ALICE);
+      await manager.generateKeys();
+      manager.destroy();
+      expect(manager.hasKeys()).toBe(false);
+      expect(mockClearStealth).not.toHaveBeenCalled();
+    });
+
+    it('discard はメモリと保存分の両方を消す (鍵破棄ボタン)', async () => {
+      manager.bindAccount(ALICE);
+      await manager.generateKeys();
+      await manager.discard();
+      expect(manager.hasKeys()).toBe(false);
+      expect(mockClearStealth).toHaveBeenCalledWith(ALICE);
+    });
+
+    it('bindAccount(null) 以降は保存しない', async () => {
+      manager.bindAccount(ALICE);
+      manager.bindAccount(null);
+      await manager.generateKeys();
+      expect(mockSaveStealth).not.toHaveBeenCalled();
     });
   });
 
