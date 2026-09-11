@@ -315,12 +315,34 @@ console.log(bad?'エラー '+bad+' 件':'OK');
 ```bash
 cd packages/wasm-engine && wasm-pack build --target web --out-dir pkg
 cd ../.. && pnpm install          # file: 依存はコピーなので wasm-pack 後に必須
-NEXT_PUBLIC_CHAIN_RPC_URL=wss://<GCPのドメイン>/rpc pnpm --filter @anarchy/frontend build
+
+# ⚠️ 環境変数は 2 つとも要る (下記参照)
+NEXT_PUBLIC_CHAIN_RPC_URL=wss://rpc.<ドメイン>/rpc \
+NEXT_PUBLIC_WS_ENDPOINT=wss://rpc.<ドメイン>/rpc \
+  pnpm --filter @anarchy/frontend build
+
 cd apps/frontend && npx wrangler deploy
 ```
 
-`NEXT_PUBLIC_*` は **ビルド時に焼き込まれる**。付け忘れると `ws://127.0.0.1:9944`
-のままになるので、`out/_next/static/chunks/` を grep して確認すること。
+#### ⚠️ 環境変数は 2 つある
+
+同じ値を指すが **用途が違い、片方だけだと投稿が失敗する**。
+
+| 変数 | 用途 | 落とした場合 |
+|---|---|---|
+| `NEXT_PUBLIC_CHAIN_RPC_URL` | PAPI の **WebSocket** 接続 ([chain-client.ts](../../apps/frontend/src/lib/chain-client.ts)) | `Connecting...` から進まない |
+| `NEXT_PUBLIC_WS_ENDPOINT` | `storage_uploadFragment` を叩く **HTTP** エンドポイント ([chainRpc.ts](../../apps/frontend/src/lib/chainRpc.ts)) | 接続はできるが **投稿時に `Failed to fetch`** |
+
+`chainRpc.ts` は `NEXT_PUBLIC_WS_ENDPOINT` を `ws://`→`http://` に変換して使い、
+未設定だと `http://127.0.0.1:9944` にフォールバックする。ブラウザから見た
+localhost なので当然到達できない。**実際にこれで投稿が失敗した。**
+
+`NEXT_PUBLIC_*` は **ビルド時に焼き込まれる**ので、ビルド後に必ず確認すること:
+
+```bash
+grep -rlF "wss://rpc.<ドメイン>/rpc" apps/frontend/out/_next/static/chunks/ | wc -l
+# 2 以上なら両方焼き込まれている (1 なら片方だけ)
+```
 
 デプロイ後、gateway のチェーンの `--rpc-cors` に払い出された URL を設定する
 (フロントと RPC が別オリジンになるため)。
@@ -402,6 +424,7 @@ pnpm exec playwright test -c playwright.prod.config.ts
 | 起動直後に `timestamp of the block is too far in the future` | **一過性**。`MinimumPeriod` が 15 秒なので、低難易度でブロックが 15 秒未満で出ると発生する。難易度が上がれば収まる |
 | フロントの WS が数十秒で切れる | nginx の `proxy_read_timeout`。3600s にする |
 | フロントが "Connecting..." から進まない | §5.7。`finalized #0` のままでないか確認する |
+| 投稿時に `Failed to fetch` | `NEXT_PUBLIC_WS_ENDPOINT` 未設定。`storage_uploadFragment` が `http://127.0.0.1:9944` に飛んでいる (§6.4) |
 | `502 Bad Gateway` | nginx の `proxy_pass` が `127.0.0.1` を指している。チェーンは netns の名前空間内なので固定 IP を指す |
 | `Provided Host header is not whitelisted` | `--rpc-cors` を絞ると Host フィルタも有効になる。nginx で `proxy_set_header Host "localhost:9944";` に固定する |
 | `unknown directive "http2"` | Ubuntu 24.04 の nginx は 1.24。`listen 443 ssl http2;` の旧書式を使う |
