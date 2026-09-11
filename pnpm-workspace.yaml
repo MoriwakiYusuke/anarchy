@@ -2,6 +2,11 @@ packages:
   - apps/*
   - packages/*
 
+allowBuilds:
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+
 patchedDependencies:
   '@scure/sr25519@1.0.0': patches/@scure__sr25519@1.0.0.patch
   '@scure/sr25519@0.2.0': patches/@scure__sr25519@0.2.0.patch
