@@ -4,6 +4,12 @@
 # core を外部に晒さずに済ませるための前面。
 # (今回は GCP の Always Free 枠で運用)
 #
+# storage×5 も同居させる。台数は **RAM が律速**:
+#   OS 300MB + Docker 80MB + chain 462MB + tor 40MB = 約 882MB / 1GB
+#   残り ~140MB → storage 5 台 (20MB × 5 = 100MB) で余裕 40MB
+# 10 台載せると 200MB 必要でチェーンが OOM kill される。
+# ストレージが減るよりチェーンが落ちるほうが痛いので 5 台に留める。
+#
 # core へは全て Tor 経由。bootnode は socat トンネル経由で指定する。
 #
 # /dns4/<onion>/ 形式は **動かない** (実測済み)。理由:
@@ -26,7 +32,9 @@ services:
     image: alpine:3.20
     command: ["sleep", "infinity"]
     restart: unless-stopped
-    networks: [anarchy]
+    networks:
+      anarchy:
+        ipv4_address: 172.30.0.10
 
   tor:
     build:
@@ -83,9 +91,122 @@ services:
       - ./torsocks.conf:/etc/tor/torsocks.conf:ro
       - ./chainspec.json:/etc/anarchy/chainspec.json:ro
 
+  storage-1:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    # 同一ホストのチェーンに直結するので torsocks で包まない
+    entrypoint: ["/usr/local/bin/anarchy-storage-node"]
+    depends_on:
+      chain:
+        condition: service_started
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3030
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3030
+      - --chain-url=ws://172.30.0.10:9944
+    networks:
+      anarchy:
+        ipv4_address: 172.30.0.31
+    volumes:
+      - storage1-data:/data
+      - ./storage-1.toml:/etc/anarchy/storage.toml:ro
+
+  storage-2:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    # 同一ホストのチェーンに直結するので torsocks で包まない
+    entrypoint: ["/usr/local/bin/anarchy-storage-node"]
+    depends_on:
+      chain:
+        condition: service_started
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3031
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3031
+      - --chain-url=ws://172.30.0.10:9944
+    networks:
+      anarchy:
+        ipv4_address: 172.30.0.32
+    volumes:
+      - storage2-data:/data
+      - ./storage-2.toml:/etc/anarchy/storage.toml:ro
+
+  storage-3:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    # 同一ホストのチェーンに直結するので torsocks で包まない
+    entrypoint: ["/usr/local/bin/anarchy-storage-node"]
+    depends_on:
+      chain:
+        condition: service_started
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3032
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3032
+      - --chain-url=ws://172.30.0.10:9944
+    networks:
+      anarchy:
+        ipv4_address: 172.30.0.33
+    volumes:
+      - storage3-data:/data
+      - ./storage-3.toml:/etc/anarchy/storage.toml:ro
+
+  storage-4:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    # 同一ホストのチェーンに直結するので torsocks で包まない
+    entrypoint: ["/usr/local/bin/anarchy-storage-node"]
+    depends_on:
+      chain:
+        condition: service_started
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3033
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3033
+      - --chain-url=ws://172.30.0.10:9944
+    networks:
+      anarchy:
+        ipv4_address: 172.30.0.34
+    volumes:
+      - storage4-data:/data
+      - ./storage-4.toml:/etc/anarchy/storage.toml:ro
+
+  storage-5:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    # 同一ホストのチェーンに直結するので torsocks で包まない
+    entrypoint: ["/usr/local/bin/anarchy-storage-node"]
+    depends_on:
+      chain:
+        condition: service_started
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3034
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3034
+      - --chain-url=ws://172.30.0.10:9944
+    networks:
+      anarchy:
+        ipv4_address: 172.30.0.35
+    volumes:
+      - storage5-data:/data
+      - ./storage-5.toml:/etc/anarchy/storage.toml:ro
+
 networks:
   anarchy:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   tor-data:
   chain-data:
+  storage1-data:
+  storage2-data:
+  storage3-data:
+  storage4-data:
+  storage5-data:

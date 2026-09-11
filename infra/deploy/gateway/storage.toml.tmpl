@@ -1,0 +1,13 @@
+# gateway 同居ストレージの設定テンプレート。
+#   for i in $(seq 1 5); do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
+
+# 1 台あたり 3 GiB。5 台で 15 GiB。
+# GCP Always Free の標準永続ディスクは 30GB まで。
+# OS + Docker + イメージで 8GB、チェーン DB の成長分を見て 15 GiB に抑える。
+capacity = 3221225472
+
+declare_rate_limit = 10
+auth_enabled = true
+dev_mode = false
+listen_addr = "/ip4/0.0.0.0/tcp/4001"
+signer_seed = "CHANGE_ME"

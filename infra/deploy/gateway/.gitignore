@@ -1,2 +1,3 @@
+storage-*.toml
 .env
 chainspec.json

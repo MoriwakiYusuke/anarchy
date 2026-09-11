@@ -1,7 +1,9 @@
-# AWS — ストレージ 1 台のみ
+# storage-only 用 torrc — storage×10
 #
-# チェーンは別ホスト (さくら) にあるため、ストレージは torsocks で包む。
-# 名前空間の共有は不要 (同一ホストに通信相手がいない)。
+# チェーンは別ホストにあるため、ストレージは torsocks で包む。
+# ストレージは tor と名前空間を共有しているので転送先は 127.0.0.1。
+#
+# 注意: HiddenServicePort の転送先にホスト名は使えない (IP かソケットのみ)。
 
 DataDirectory /var/lib/tor
 RunAsDaemon 0
@@ -9,10 +11,20 @@ Log notice stdout
 
 SocksPort 127.0.0.1:9050 IsolateClientAddr IsolateSOCKSAuth
 
-# チェーンノード (さくら / GCP) がここに fan-out する
+# チェーンノード (core / gateway) がここに fan-out する。
+# 10 台とも同じ onion で、仮想ポートだけ変える。
 HiddenServiceDir /var/lib/tor/anarchy-storage
 HiddenServiceVersion 3
 HiddenServicePort 3030 127.0.0.1:3030
+HiddenServicePort 3031 127.0.0.1:3031
+HiddenServicePort 3032 127.0.0.1:3032
+HiddenServicePort 3033 127.0.0.1:3033
+HiddenServicePort 3034 127.0.0.1:3034
+HiddenServicePort 3035 127.0.0.1:3035
+HiddenServicePort 3036 127.0.0.1:3036
+HiddenServicePort 3037 127.0.0.1:3037
+HiddenServicePort 3038 127.0.0.1:3038
+HiddenServicePort 3039 127.0.0.1:3039
 
 ClientUseIPv6 1
 ClientPreferIPv6ORPort 0

@@ -1,8 +1,13 @@
-# storage-only — storage×1
+# storage-only — storage×10
 #
-# チェーンを持たない独立したストレージノード。分散の実態を作るために
-# core / gateway とは別の事業者に置く。
-# (今回は AWS の Free Tier で運用。無料枠は 12 ヶ月で失効する点に注意)
+# チェーンを持たない、ストレージ専用ホスト。
+# 1GB の箱に storage-node (実測 20MB) を 10 台載せる。
+#   10 × 20MB = 200MB + tor 40MB + OS 300MB ≈ 540MB / 1GB
+#
+# ⚠️ 10 台は同一ホストなので **障害ドメインは 1 つ**。
+#    ホストが落ちれば 10 台まとめて落ちる。冗長化ではなく、
+#    fan-out 先を増やして KZG-VSS の k/n 分散を実際に働かせるのが目的。
+#    本当の冗長化は core / gateway 側のストレージが担う。
 #
 # core / gateway と決定的に違う点: **チェーンが同一ホストに無い**。
 # そのため storage を torsocks で包み、--chain-url に .onion を指定する
@@ -12,12 +17,13 @@
 # netns コンテナを挟む必要は無く、AllowOutboundLocalhost で
 # tor の SOCKS (127.0.0.1:9050) に届けば足りる。
 #
-# ⚠️ storage-node は subxt (jsonrpsee WS) でチェーンに繋ぐ。これが torsocks 経由で
-#    .onion の WS に到達できるかは **未検証**。繋がらない場合は onion-proxy
-#    (socat) を挟んで --chain-url を ws://127.0.0.1:<local>:9944 に向けること。
+# ⚠️ AWS t3.micro はバースト型。CPU クレジットが尽きると
+#    `unlimited` モードでは **追加課金** が発生する。
+#    インスタンス作成時にクレジット仕様を `standard` にすること。
 #
 # 手順:
-#   cp storage.toml.tmpl storage.toml   # signer_seed を openssl rand -hex 32 で生成
+#   for i in $(seq 1 10); do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
+#   cp .env.example .env
 #   docker compose up -d tor
 #   docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname   # .env に設定
 #   docker compose up -d
@@ -38,7 +44,7 @@ services:
       retries: 24
       start_period: 10s
 
-  storage:
+  storage-1:
     image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
     restart: unless-stopped
     network_mode: "service:tor"
@@ -51,13 +57,202 @@ services:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
       - --rpc-port=3030
-      - --public-url=${STORAGE_PUBLIC_URL:?tor の anarchy-storage/hostname を設定してください}
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3030
       - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
     volumes:
-      - storage-data:/data
+      - storage1-data:/data
       - ./torsocks.conf:/etc/tor/torsocks.conf:ro
-      - ./storage.toml:/etc/anarchy/storage.toml:ro
+      - ./storage-1.toml:/etc/anarchy/storage.toml:ro
+
+  storage-2:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3031
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3031
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
+    volumes:
+      - storage2-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage-2.toml:/etc/anarchy/storage.toml:ro
+
+  storage-3:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3032
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3032
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
+    volumes:
+      - storage3-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage-3.toml:/etc/anarchy/storage.toml:ro
+
+  storage-4:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3033
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3033
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
+    volumes:
+      - storage4-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage-4.toml:/etc/anarchy/storage.toml:ro
+
+  storage-5:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3034
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3034
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
+    volumes:
+      - storage5-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage-5.toml:/etc/anarchy/storage.toml:ro
+
+  storage-6:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3035
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3035
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
+    volumes:
+      - storage6-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage-6.toml:/etc/anarchy/storage.toml:ro
+
+  storage-7:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3036
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3036
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
+    volumes:
+      - storage7-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage-7.toml:/etc/anarchy/storage.toml:ro
+
+  storage-8:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3037
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3037
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
+    volumes:
+      - storage8-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage-8.toml:/etc/anarchy/storage.toml:ro
+
+  storage-9:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3038
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3038
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
+    volumes:
+      - storage9-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage-9.toml:/etc/anarchy/storage.toml:ro
+
+  storage-10:
+    image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
+    restart: unless-stopped
+    network_mode: "service:tor"
+    depends_on:
+      tor:
+        condition: service_healthy
+    # チェーンが別ホストなので包む
+    entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
+    command:
+      - --config=/etc/anarchy/storage.toml
+      - --data-dir=/data
+      - --rpc-port=3039
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3039
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
+    volumes:
+      - storage10-data:/data
+      - ./torsocks.conf:/etc/tor/torsocks.conf:ro
+      - ./storage-10.toml:/etc/anarchy/storage.toml:ro
 
 volumes:
   tor-data:
-  storage-data:
+  storage1-data:
+  storage2-data:
+  storage3-data:
+  storage4-data:
+  storage5-data:
+  storage6-data:
+  storage7-data:
+  storage8-data:
+  storage9-data:
+  storage10-data:

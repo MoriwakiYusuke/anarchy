@@ -1,9 +1,19 @@
-# ストレージノード設定テンプレート。
-# storage-1.toml .. storage-3.toml に展開し、signer_seed をノードごとに変えること:
-#   for i in 1 2 3; do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
+# storage-only 用のストレージノード設定テンプレート。
+# 10 台分に展開し、signer_seed をノードごとに変えること:
+#   for i in $(seq 1 10); do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
 #
 # public_url / chain_url / rpc_port は compose が CLI で渡すのでここには書かない。
-capacity = 10737418240        # 10 GiB
+
+# 1 台あたり 2 GiB。10 台で 20 GiB。
+#
+# core (3 台 × 10 GiB) より小さいのは **ディスクが先に尽きるため**。
+# AWS t3.micro のルートボリュームは無料枠で 30GB まで。
+# OS + Docker + イメージで 8GB 程度使うので、実際に使えるのは 22GB 前後。
+# capacity は「宣言値」に対して超過チェックされる (storage/mod.rs の
+# `if prev + new_size > self.capacity`) ため、実ディスクより大きく宣言すると
+# ノードは「まだ空きがある」と思って書き込み続け、ディスク full で落ちる。
+capacity = 2147483648
+
 declare_rate_limit = 10
 auth_enabled = true
 dev_mode = false              # 本番では実 SRS を用意すること
