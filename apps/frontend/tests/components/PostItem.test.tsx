@@ -60,6 +60,15 @@ jest.mock('@/hooks/useStorage', () => ({
   }),
 }))
 
+// Mock postContentCache — キャッシュ自体は src/lib/__tests__/postContentCache.test.ts で検証済み。
+// ここでは PostItem が「ヒットなら RPC を叩かない / 復元成功なら put する」境界だけを見る。
+const mockGetCachedContent = jest.fn()
+const mockPutCachedContent = jest.fn()
+jest.mock('@/lib/postContentCache', () => ({
+  getCachedContent: (...args: unknown[]) => mockGetCachedContent(...args),
+  putCachedContent: (...args: unknown[]) => mockPutCachedContent(...args),
+}))
+
 // Mock PostForm — avoids pulling in polkadot-api (ESM) through the component tree
 jest.mock('@/components/PostForm', () => ({
   PostForm: () => null,
@@ -110,6 +119,8 @@ describe('PostItem', () => {
     jest.clearAllMocks()
     sharedPoolSpy.executeCount = 0
     mockRecoverContent.mockReset()
+    mockGetCachedContent.mockReset().mockResolvedValue(null)
+    mockPutCachedContent.mockReset().mockResolvedValue(undefined)
     mockIsReady = true
     mockDecodedText = ''
     mockDecodedMedia = []
@@ -179,6 +190,59 @@ describe('PostItem', () => {
       await waitFor(() => {
         expect(screen.getByText(/Network error/)).toBeInTheDocument()
       })
+    })
+
+    it('cache hit: renders cached bytes without calling recoverContent, even before the pool is ready', async () => {
+      mockIsReady = false
+      mockDecodedText = 'Cached content'
+      mockGetCachedContent.mockResolvedValueOnce(new Uint8Array([7, 7, 7]))
+
+      render(
+        <PostItem
+          {...defaultProps}
+          contentRef={contentRef}
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Cached content')).toBeInTheDocument()
+      })
+      expect(mockGetCachedContent).toHaveBeenCalledWith(new Uint8Array(contentRef.root))
+      expect(mockRecoverContent).not.toHaveBeenCalled()
+      expect(mockPutCachedContent).not.toHaveBeenCalled()
+    })
+
+    it('cache miss: stores recovered bytes under the merkle root', async () => {
+      mockDecodedText = 'Fresh content'
+      const recovered = new Uint8Array([1, 2, 3])
+      mockRecoverContent.mockResolvedValueOnce({ data: recovered })
+
+      render(
+        <PostItem
+          {...defaultProps}
+          contentRef={contentRef}
+        />
+      )
+
+      await waitFor(() => {
+        expect(mockPutCachedContent).toHaveBeenCalledWith(new Uint8Array(contentRef.root), recovered)
+      })
+    })
+
+    it('cache miss + recovery failure: nothing is stored', async () => {
+      mockRecoverContent.mockRejectedValueOnce(new Error('Network error'))
+
+      render(
+        <PostItem
+          {...defaultProps}
+          contentRef={contentRef}
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText(/Network error/)).toBeInTheDocument()
+      })
+      expect(mockPutCachedContent).not.toHaveBeenCalled()
     })
 
     it('waits for isReady before recovering', async () => {

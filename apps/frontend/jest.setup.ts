@@ -66,3 +66,11 @@ jest.mock('@/i18n', () => ({
   DEFAULT_LOCALE: 'ja',
   SUPPORTED_LOCALES: ['en', 'ja', 'zh'],
 }));
+
+// jsdom 環境には structuredClone が無い。fake-indexeddb (postContentCache テスト) が
+// 値の格納時に呼ぶので、Node の v8 serializer で代替する。
+if (typeof globalThis.structuredClone !== 'function') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const v8 = require('node:v8');
+  globalThis.structuredClone = <T>(value: T): T => v8.deserialize(v8.serialize(value));
+}
