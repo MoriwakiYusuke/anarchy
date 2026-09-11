@@ -17,6 +17,11 @@
   // compatibility_date は **過去日** でなければならない (未来日は CF に拒否される)。
   // ランタイム挙動を固定するためのもので、今日である必要はない。
   "compatibility_date": "2026-09-01",
+  // 独自ドメインで配信する。routes に書くと wrangler deploy で自動設定される。
+  // custom_domain: true にすると Cloudflare が DNS レコードと証明書を自動管理する。
+  "routes": [
+    { "pattern": "anarchy2026.org", "custom_domain": true }
+  ],
   "assets": {
     "directory": "./out",
     "not_found_handling": "single-page-application"
