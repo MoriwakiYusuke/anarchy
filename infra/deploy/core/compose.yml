@@ -60,7 +60,10 @@ services:
       - --base-path=/data
       - --listen-addr=/ip4/0.0.0.0/tcp/30333
       - --rpc-port=9944
-      - --rpc-external
+      # --rpc-external は --validator と併用できない
+      # ("--rpc-external option shouldn't be used if the node is running as a validator")。
+      # core の RPC を外部公開する必要は無く、同一ホストの storage は
+      # netns の IP 経由で届くので外して問題ない。
       - --rpc-cors=all
       - --node-key=0000000000000000000000000000000000000000000000000000000000000001
       # GRANDPA voter は AUTHORITY ロールでないと投票しない。
