@@ -9,7 +9,7 @@ compose.yml / torrc / torsocks.conf / storage.toml.tmpl / .env.example を生成
   ./gen.py core --chains 3 --validators 2 --mine --storage 3 --capacity 10G --node-key 00…01
 
   # gateway: chain×1 + storage×3、core を bootnode にし、RPC を nginx 経由で公開する
-  ./gen.py gateway --chains 1 --storage 3 --capacity 5G --bootnode-core --public-rpc --domain rpc.example.org --subnet 30
+  ./gen.py gateway --chains 1 --storage 3 --capacity 5G --bootnode-core --public-rpc --domain rpc.example.org --cors-origin https://example.org --subnet 30
 
   # storage-only: storage×10、チェーンは別ホスト
   ./gen.py storage-only --storage 10 --capacity 2G
@@ -56,6 +56,9 @@ def main():
     ap.add_argument("--public-rpc", action="store_true",
                     help="chain-1 の RPC を外部に出す (--rpc-external)。validator とは併用不可")
     ap.add_argument("--domain", help="--public-rpc のとき nginx conf に使うホスト名 (例: rpc.anarchy2026.org)")
+    ap.add_argument("--cors-origin", metavar="ORIGIN",
+                    help="--public-rpc のときフロントのオリジン (例: https://anarchy2026.org)。"
+                         " --rpc-cors と nginx の preflight 応答の両方に使う")
     ap.add_argument("--node-key", metavar="HEX64",
                     help="chain-1 の libp2p 秘密鍵 (hex 64 桁)。**他ホストから bootnode として参照されるホストだけ**に指定する。"
                          " 未指定なら初回起動時に生成され volume に永続化される (peer ID はログから取得)")
@@ -63,8 +66,8 @@ def main():
                     help="compose ネットワークの第 3 オクテット (172.N.0.0/24)。既定 28")
     a = ap.parse_args()
 
-    if a.public_rpc and not a.domain:
-        sys.exit("--public-rpc には --domain が必要 (nginx conf を生成するため)")
+    if a.public_rpc and not (a.domain and a.cors_origin):
+        sys.exit("--public-rpc には --domain と --cors-origin が必要 (nginx conf を生成するため)")
     if a.node_key and len(a.node_key) != 64:
         sys.exit("--node-key は hex 64 桁")
 
@@ -103,7 +106,7 @@ def main():
         ([f"--storage {a.storage}"] if a.storage else []) +
         ([f"--capacity {a.capacity}"] if a.storage else []) +
         (["--bootnode-core"] if a.bootnode_core else []) +
-        (["--public-rpc", f"--domain {a.domain}"] if a.public_rpc else []) +
+        (["--public-rpc", f"--domain {a.domain}", f"--cors-origin {a.cors_origin}"] if a.public_rpc else []) +
         ([f"--node-key {a.node_key}"] if a.node_key else []) +
         ([f"--subnet {a.subnet}"] if a.subnet != 28 else [])))
     W("#")
@@ -169,7 +172,7 @@ def main():
         ]
         if a.public_rpc and i == 1:
             cmd.append("--rpc-external")
-        cmd.append("--rpc-cors=${ANARCHY_RPC_CORS:-all}" if (a.public_rpc and i == 1) else "--rpc-cors=all")
+        cmd.append(f"--rpc-cors={a.cors_origin}" if (a.public_rpc and i == 1) else "--rpc-cors=all")
         if i == 1 and a.node_key:
             cmd.append(f"--node-key={a.node_key}")
         else:
@@ -339,7 +342,7 @@ def main():
         E += ["# tor 起動後: docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname",
               "# ポート番号は付けない (compose が付ける)", "STORAGE_PUBLIC_URL_BASE=http://CHANGE_ME.onion", ""]
     if a.public_rpc:
-        E += ["# フロントのオリジン (別オリジンなので CORS が要る)", "# ANARCHY_RPC_CORS=https://example.org", ""]
+        pass  # CORS origin は gen.py の --cors-origin で compose に焼き込む (nginx と揃える必要があるため)
     E += ["# イメージ (省略時は ghcr の latest)"]
     if not remote_chain:
         E += [f"# ANARCHY_NODE_IMAGE={REGISTRY}/anarchy-node:latest"]
@@ -374,6 +377,22 @@ def main():
                 ssl_protocols TLSv1.2 TLSv1.3;
 
                 location /rpc {{
+                    # CORS の preflight は nginx が返す。
+                    # Substrate は --rpc-cors に特定オリジンを渡すと tower-http の CorsLayer を
+                    # allow_origin だけで組む (sc-rpc-server utils.rs try_into_cors) ので、
+                    # Access-Control-Allow-Headers が無く、Content-Type: application/json の
+                    # POST (storage_uploadFragment 等の HTTP RPC) が preflight で落ちて
+                    # ブラウザでは "Failed to fetch" になる。WS は preflight が無いので繋がる。
+                    # 実レスポンスの Allow-Origin は Substrate が付けるので、ここでは OPTIONS だけ扱う
+                    # (両方が付けると値が重複してブラウザが拒否する)。
+                    if ($request_method = OPTIONS) {{
+                        add_header Access-Control-Allow-Origin  "{a.cors_origin}" always;
+                        add_header Access-Control-Allow-Methods "POST, GET, OPTIONS" always;
+                        add_header Access-Control-Allow-Headers "Content-Type" always;
+                        add_header Access-Control-Max-Age 86400 always;
+                        return 204;
+                    }}
+
                     # チェーンは netns の名前空間内で動くため、ホストの 127.0.0.1 からは見えない。
                     # compose で固定した netns の IP を指す (サブネットは gen.py の --subnet と一致)。
                     proxy_pass http://{IP_NETNS}:{rpc_port};

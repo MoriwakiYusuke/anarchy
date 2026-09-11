@@ -268,6 +268,26 @@ nginx は `proxy_read_timeout 3600s` が **必須**。デフォルトの 60 秒�
 (`gen.py --chains 0` がこの形を出す)。1 台 2 GiB × 10 = 20 GiB は t3.micro の
 30 GB ルートボリュームから OS + Docker 分を引いた逆算値。
 
+### 5.10 `--rpc-cors` を絞ると HTTP RPC の preflight が落ちる
+
+`--rpc-cors=<origin>` を渡すと sc-rpc-server は tower-http の `CorsLayer` を
+**`allow_origin` だけで組む** (`try_into_cors`)。`all` のときだけ `permissive()`。
+そのため preflight の応答に `Access-Control-Allow-Headers` が無く、
+`Content-Type: application/json` の POST (storage_uploadFragment 等の HTTP RPC) は
+ブラウザで **"Failed to fetch"** になる。WS は preflight が無いので繋がってしまい、
+「接続はできるのに投稿だけ失敗する」という見え方をする。
+
+対処は nginx で `OPTIONS` だけ 204 + CORS ヘッダを返す (gen.py の `--cors-origin` が
+`nginx-anarchy.conf` に焼き込む)。実レスポンス側は Substrate が `Allow-Origin` を付けるので
+nginx では触らない (両方が付けると値が重複してブラウザが拒否する)。
+
+検証:
+```sh
+curl -X OPTIONS https://rpc.anarchy2026.org/rpc -H 'Origin: https://anarchy2026.org' \
+  -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' -D - -o /dev/null
+# → 204 と access-control-allow-headers: Content-Type
+```
+
 ### 5.9 ミニファイアが @scure/sr25519 を壊す
 
 ブラウザでこれが出てアプリが起動しない場合:
@@ -429,7 +449,7 @@ pnpm exec playwright test -c playwright.prod.config.ts
 | 起動直後に `timestamp of the block is too far in the future` | **一過性**。`MinimumPeriod` が 15 秒なので、低難易度でブロックが 15 秒未満で出ると発生する。難易度が上がれば収まる |
 | フロントの WS が数十秒で切れる | nginx の `proxy_read_timeout`。3600s にする |
 | フロントが "Connecting..." から進まない | §5.7。`finalized #0` のままでないか確認する |
-| 投稿時に `Failed to fetch` | `NEXT_PUBLIC_WS_ENDPOINT` 未設定。`storage_uploadFragment` が `http://127.0.0.1:9944` に飛んでいる (§6.4) |
+| 投稿時に `Failed to fetch` | (1) `NEXT_PUBLIC_WS_ENDPOINT` 未設定で `storage_uploadFragment` が `http://127.0.0.1:9944` に飛んでいる (§6.4)。(2) バンドルは正しいのに落ちるなら CORS preflight (§5.10) — `curl -X OPTIONS` で `access-control-allow-headers` が返るか確認 |
 | `502 Bad Gateway` | nginx の `proxy_pass` が `127.0.0.1` を指している。チェーンは netns の名前空間内なので固定 IP を指す |
 | `Provided Host header is not whitelisted` | `--rpc-cors` を絞ると Host フィルタも有効になる。nginx で `proxy_set_header Host "localhost:9944";` に固定する |
 | `unknown directive "http2"` | Ubuntu 24.04 の nginx は 1.24。`listen 443 ssl http2;` の旧書式を使う |

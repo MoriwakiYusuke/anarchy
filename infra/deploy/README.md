@@ -10,7 +10,7 @@
 
 # gateway: chain×1 + storage×3。core を bootnode にし、RPC を nginx 経由で公開
 ./gen.py gateway --chains 1 --storage 3 --capacity 5G --bootnode-core \
-    --public-rpc --domain rpc.anarchy2026.org --subnet 30
+    --public-rpc --domain rpc.anarchy2026.org --cors-origin https://anarchy2026.org --subnet 30
 
 # storage-only: storage×10。チェーンは core (Tor 経由)
 ./gen.py storage-only --storage 10 --capacity 2G
@@ -26,7 +26,7 @@
 | `--mine` | chain-1 で採掘。**1 ホストだけ**にする (複数採掘は reorg) |
 | `--storage N --capacity SIZE` | ストレージ台数と 1 台あたりの宣言容量 (実ディスクから逆算) |
 | `--bootnode-core` | core の chain-1 を socat トンネル経由で bootnode にする |
-| `--public-rpc --domain HOST` | chain-1 の RPC を外に出し、`nginx-anarchy.conf` も生成 |
+| `--public-rpc --domain HOST --cors-origin ORIGIN` | chain-1 の RPC を外に出し、`nginx-anarchy.conf` も生成。ORIGIN はフロントのオリジン |
 | `--node-key HEX64` | chain-1 の libp2p 鍵を固定。**他ホストから bootnode として参照されるホストだけ** |
 | `--subnet N` | `172.N.0.0/24`。既定 28。nginx の `proxy_pass` もこれに追従する |
 

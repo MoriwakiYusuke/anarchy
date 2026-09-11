@@ -1,7 +1,7 @@
 # gateway — chain×1 + storage×3
 #
 # ⚠️ このファイルは gen.py が生成する。手で編集せず、引数を変えて再生成すること:
-#   ./gen.py gateway --chains 1 --storage 3 --capacity 5G --bootnode-core --public-rpc --domain rpc.anarchy2026.org --subnet 30
+#   ./gen.py gateway --chains 1 --storage 3 --capacity 5G --bootnode-core --public-rpc --domain rpc.anarchy2026.org --cors-origin https://anarchy2026.org --subnet 30
 #
 # 設計の根拠は gen.py 冒頭と docs/operations/deployment-multi-provider.md §5 を参照。
 
@@ -62,7 +62,7 @@ services:
       - --rpc-port=9944
       - --prometheus-port=9615
       - --rpc-external
-      - --rpc-cors=${ANARCHY_RPC_CORS:-all}
+      - --rpc-cors=https://anarchy2026.org
       - --unsafe-force-node-key-generation
       - --bootnodes=/ip4/127.0.0.1/tcp/30350/p2p/${CORE_CHAIN_PEER_ID:?core の chain-1 peer ID を設定してください}
     volumes:
