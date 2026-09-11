@@ -63,6 +63,12 @@ services:
       - --rpc-external
       - --rpc-cors=all
       - --node-key=0000000000000000000000000000000000000000000000000000000000000001
+      # GRANDPA voter は AUTHORITY ロールでないと投票しない。
+      # これが無いと Role: FULL で起動し、keystore に gran 鍵があっても
+      # ファイナライズが進まず finalized #0 のまま止まる。
+      # PAPI の chainHead_v1_follow はファイナライズ前提なので即 stop を返し、
+      # フロントが "Connecting..." から進まなくなる。
+      - --validator
       - --mine
       - --coinbase=${ANARCHY_COINBASE:?ANARCHY_COINBASE を設定してください}
       - --randomx-mode=light
