@@ -30,6 +30,11 @@
 | `--node-key HEX64` | chain-1 の libp2p 鍵を固定。**他ホストから bootnode として参照されるホストだけ** |
 | `--subnet N` | `172.N.0.0/24`。既定 28。nginx の `proxy_pass` もこれに追従する |
 
+## ホストの調達
+
+- core (さくら VPS 4G) / gateway (GCP e2-micro) はコンソール / `gcloud` で手作業
+- storage-only (AWS t3.micro) は [aws-storage-only.sh](aws-storage-only.sh) が冪等に作る (`stop` / `start` / `destroy` も)
+
 ## 生成後の手順 (ホスト上)
 
 `.env` `storage-*.toml` `chainspec.json` は gitignore 済み。ホスト上で作る。
