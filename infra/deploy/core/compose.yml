@@ -93,8 +93,12 @@ services:
       - --base-path=/data
       - --listen-addr=/ip4/0.0.0.0/tcp/30334
       - --rpc-port=9945
-      - --rpc-external
       - --rpc-cors=all
+      # chainspec のオーソリティは Alice と Bob の 2 人。GRANDPA は 2/3 以上の
+      # 投票が必要なので、Alice だけ (1/2) では閾値に届かずファイナライズしない。
+      # chain-2 を Bob として voter に参加させる。
+      # (--rpc-external は --validator と併用できないので外す)
+      - --validator
       - --unsafe-force-node-key-generation
       - --bootnodes=/ip4/127.0.0.1/tcp/30333/p2p/${CHAIN1_PEER_ID:?chain-1 の Local node identity を設定してください}
     volumes:
