@@ -8,7 +8,9 @@
  * `setAccount(seed)` の `seed` は signer 2 種 (`signer` = PAPI, `mainRawSigner` = raw
  * sr25519) を導出した後 React state には載せない。ただしリロード後に接続状態を
  * 復帰させるため、`lib/account/sessionStore` (IndexedDB) に account + seed を
- * **平文で保存** する。切断 (`setAccount(null, null)`) で必ず消す。
+ * **平文で保存** する。DM/ステルス鍵も同じ store に account ごとに保存され
+ * (StealthKeyManager.bindAccount 経由)、接続 / 復帰時にここでロードし直す。
+ * 切断 (`setAccount(null, null)`) で session と全 DM 鍵をまとめて消す。
  * 復帰中は `isRestoring` が true になり、WalletConnect は接続フォームを出さない。
  *
  * アカウント変更 (null → A → B → null) に追従して
@@ -30,7 +32,7 @@ import { useApi } from '@/hooks/useApi';
 import { stealthKeyManager } from '@/lib/stealth/keyManager';
 import { useDmStore } from '@/lib/dm/store';
 import type { StorageSigner } from '@/lib/dm/sender';
-import { clearSession, loadSession, saveSession } from '@/lib/account/sessionStore';
+import { clearAllAuth, loadSession, loadStealthKeys, saveSession } from '@/lib/account/sessionStore';
 
 export interface AccountContextValue {
   /** 接続中のアカウント SS58 アドレス。未接続なら null。 */
@@ -55,7 +57,7 @@ export function AccountProvider({ children }: PropsWithChildren): JSX.Element {
   const [isRestoring, setIsRestoring] = useState(true);
   const previousAccountRef = useRef<string | null>(null);
 
-  // account が変化したら DM 関連 state を破棄する。
+  // account が変化したら DM 関連 state を破棄し、新 account の保存済み DM 鍵をロードする。
   // null → null は無視、初回マウント (前回 null + 初期値 null) も無視。
   useEffect(() => {
     const prev = previousAccountRef.current;
@@ -65,6 +67,23 @@ export function AccountProvider({ children }: PropsWithChildren): JSX.Element {
       useDmStore.getState().resetForAccountChange();
     }
     previousAccountRef.current = account;
+
+    // bind を先に (loadFromBackup 内の persist が新 account 名義になるように)
+    stealthKeyManager.bindAccount(account);
+    if (!account) return;
+    let cancelled = false;
+    void (async () => {
+      const keys = await loadStealthKeys(account);
+      if (cancelled || !keys || stealthKeyManager.hasKeys()) return;
+      try {
+        await stealthKeyManager.loadFromBackup(keys.scanPriv, keys.spendPriv);
+      } catch (err) {
+        console.error('[AccountProvider] failed to restore stealth keys:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [account]);
 
   // signer 導出本体。persist=true で sessionStore へ保存 (復帰時は保存し直さない)。
@@ -74,7 +93,8 @@ export function AccountProvider({ children }: PropsWithChildren): JSX.Element {
       if (!seed || !acct) {
         setSigner(null);
         setMainRawSigner(null);
-        void clearSession();
+        // 切断: session + 全 account の DM 鍵を消す
+        void clearAllAuth();
         return;
       }
       if (persist) void saveSession({ account: acct, seed });
@@ -109,13 +129,17 @@ export function AccountProvider({ children }: PropsWithChildren): JSX.Element {
     [applyAccount],
   );
 
-  // マウント時に前回のログイン状態を復帰する
+  // マウント時に一度だけ前回のログイン状態を復帰する。
+  // applyAccount を deps に入れると (identity が変わった場合に) 切断直後に再復帰して
+  // しまうので、ref 経由で最新の applyAccount を参照しつつ mount-only にする。
+  const applyAccountRef = useRef(applyAccount);
+  applyAccountRef.current = applyAccount;
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const saved = await loadSession();
-        if (!cancelled && saved) applyAccount(saved.account, saved.seed, false);
+        if (!cancelled && saved) applyAccountRef.current(saved.account, saved.seed, false);
       } finally {
         if (!cancelled) setIsRestoring(false);
       }
@@ -123,7 +147,7 @@ export function AccountProvider({ children }: PropsWithChildren): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [applyAccount]);
+  }, []);
 
   const value = useMemo(
     () => ({ account, signer, mainRawSigner, setAccount, isRestoring }),

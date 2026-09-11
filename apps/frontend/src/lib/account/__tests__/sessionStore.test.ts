@@ -48,3 +48,38 @@ describe('sessionStore', () => {
     await expect(s.clearSession()).resolves.toBeUndefined();
   });
 });
+
+const ALICE = SESSION.account
+const BOB = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty'
+const KEYS = { scanPriv: new Uint8Array(32).fill(2), spendPriv: new Uint8Array(32).fill(1) }
+
+describe('stealth keys per account', () => {
+  test('account ごとに保存 / 読み出しできる', async () => {
+    const a = await load()
+    await a.saveStealthKeys(ALICE, KEYS)
+    const b = await load()
+    expect(await b.loadStealthKeys(ALICE)).toEqual(KEYS)
+    expect(await b.loadStealthKeys(BOB)).toBeNull()
+  })
+
+  test('clearStealthKeys でその account の鍵だけ消える', async () => {
+    const a = await load()
+    await a.saveStealthKeys(ALICE, KEYS)
+    await a.saveStealthKeys(BOB, KEYS)
+    await a.clearStealthKeys(ALICE)
+    expect(await a.loadStealthKeys(ALICE)).toBeNull()
+    expect(await a.loadStealthKeys(BOB)).toEqual(KEYS)
+  })
+
+  test('clearAllAuth で session も全 account の鍵も消える (切断)', async () => {
+    const a = await load()
+    await a.saveSession(SESSION)
+    await a.saveStealthKeys(ALICE, KEYS)
+    await a.saveStealthKeys(BOB, KEYS)
+    await a.clearAllAuth()
+    const b = await load()
+    expect(await b.loadSession()).toBeNull()
+    expect(await b.loadStealthKeys(ALICE)).toBeNull()
+    expect(await b.loadStealthKeys(BOB)).toBeNull()
+  })
+})

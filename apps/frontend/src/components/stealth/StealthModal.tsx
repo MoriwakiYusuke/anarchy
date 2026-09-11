@@ -155,7 +155,8 @@ export function StealthModal({
 
   const handleClearKeys = useCallback(() => {
     if (confirm('本当に鍵を破棄しますか？バックアップがない場合、資金を失う可能性があります。')) {
-      stealthKeyManager.destroy();
+      // メモリと IndexedDB の保存分の両方を消す (destroy はメモリだけ)
+      void stealthKeyManager.discard();
       setMetaAddress(null);
       setBalances([]);
     }

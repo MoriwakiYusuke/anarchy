@@ -1,12 +1,17 @@
 /**
  * StealthKeyManager - Session Key Management
- * 
- * ステルス鍵のセッション管理。
- * 鍵はメモリにのみ保持され、ブラウザ/localStorage/IndexedDBには保存しない。
- * セッション終了時（beforeunload）に自動破棄。
+ *
+ * ステルス鍵のセッション管理。鍵はメモリに保持し、beforeunload で `destroy()` する。
+ *
+ * 永続化 (2026-09-12、CLAUDE.md Security Principle #2 改訂): `bindAccount(account)`
+ * されている間は generate / import / load のたびに scan/spend 秘密鍵を
+ * `lib/account/sessionStore` (IndexedDB, 平文, account ごと) に保存し、
+ * AccountProvider がログイン復帰時に `loadFromBackup` で戻す。
+ * - `destroy()`  … メモリだけ破棄 (リロード / アカウント切替)。保存分は残る
+ * - `discard()`  … メモリ + 保存分を破棄 (ユーザーの「鍵を破棄」操作)
  */
-
 import type { StealthKeyPair } from './types';
+import { clearStealthKeys, saveStealthKeys } from '@/lib/account/sessionStore';
 
 // Wasm functions will be imported dynamically to support both sync and async loading
 type WasmModule = typeof import('anarchy-wasm-engine');
@@ -81,6 +86,24 @@ function freeWasmObject(obj: unknown): void {
 export class StealthKeyManager {
   private keyPair: StealthKeyPair | null = null;
   private beforeUnloadHandler: (() => void) | null = null;
+  /** 永続化先の account。null なら保存しない。 */
+  private boundAccount: string | null = null;
+
+  /**
+   * 鍵の永続化先アカウントを設定する。AccountProvider が接続/切断で呼ぶ。
+   */
+  bindAccount(account: string | null): void {
+    this.boundAccount = account;
+  }
+
+  /** 現在の keyPair を bound account 名義で保存 (fire-and-forget)。 */
+  private persist(): void {
+    if (!this.boundAccount || !this.keyPair) return;
+    void saveStealthKeys(this.boundAccount, {
+      scanPriv: this.keyPair.viewKey,
+      spendPriv: this.keyPair.spendKey,
+    });
+  }
 
   /**
    * Generate new stealth key pair
@@ -110,6 +133,7 @@ export class StealthKeyManager {
 
     // Register cleanup handler
     this.registerCleanupHandler();
+    this.persist();
 
     return this.keyPair;
   }
@@ -140,6 +164,7 @@ export class StealthKeyManager {
 
     // Register cleanup handler
     this.registerCleanupHandler();
+    this.persist();
   }
 
   /**
@@ -172,6 +197,7 @@ export class StealthKeyManager {
     freeWasmObject(wasmKeys);
 
     this.registerCleanupHandler();
+    this.persist();
   }
 
   /**
@@ -245,7 +271,16 @@ export class StealthKeyManager {
   }
 
   /**
-   * Destroy keys from memory with secure wipe
+   * メモリと IndexedDB の保存分の両方を破棄する (ユーザー操作の「鍵を破棄」)。
+   */
+  async discard(): Promise<void> {
+    const account = this.boundAccount;
+    this.destroy();
+    if (account) await clearStealthKeys(account);
+  }
+
+  /**
+   * Destroy keys from memory with secure wipe (保存分はそのまま)
    */
   destroy(): void {
     if (this.keyPair) {

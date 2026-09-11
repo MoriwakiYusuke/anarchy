@@ -324,7 +324,7 @@
   "dm.connecting": "Connecting…",
   "dm.settings.title": "DM Settings",
   "dm.settings.prepareKey.title": "Prepare key",
-  "dm.settings.prepareKey.description": "DM encryption requires a stealth address keypair. The key is held only in this browser's memory and discarded when the page is closed. Either generate a new one or restore from an existing backup file.",
+  "dm.settings.prepareKey.description": "DM encryption requires a stealth address keypair. The key is kept in this browser (IndexedDB) together with your login and restored after a reload; Disconnect removes it from this device. Either generate a new one or restore from an existing backup file.",
   "dm.settings.prepareKey.newLabel": "Generate new",
   "dm.settings.prepareKey.newHelp": "Generate a new keypair for this browser.",
   "dm.settings.prepareKey.generateButton": "Generate a new key",

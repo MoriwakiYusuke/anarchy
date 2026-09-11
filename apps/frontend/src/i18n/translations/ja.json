@@ -326,7 +326,7 @@
   "dm.connecting": "接続中…",
   "dm.settings.title": "DM 設定",
   "dm.settings.prepareKey.title": "鍵を準備",
-  "dm.settings.prepareKey.description": "DM の暗号化にはステルスアドレス用の鍵ペアが必要です。鍵はこのブラウザのメモリ内だけで管理し、ページを閉じると破棄されます。新しく作るか、既存のバックアップファイルから復元してください。",
+  "dm.settings.prepareKey.description": "DM の暗号化にはステルスアドレス用の鍵ペアが必要です。鍵はログイン情報と一緒にこのブラウザ (IndexedDB) に保存され、リロード後も復帰します。「切断」でこの端末から消えます。新しく生成するか、既存のバックアップファイルから復元してください。",
   "dm.settings.prepareKey.newLabel": "新規発行",
   "dm.settings.prepareKey.newHelp": "このブラウザ用に新しい鍵ペアを生成します。",
   "dm.settings.prepareKey.generateButton": "新しい鍵を生成",
