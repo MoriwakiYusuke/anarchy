@@ -1,6 +1,10 @@
-# GCP — chain×1 + 公開 wss (nginx はホスト側で動かす)
+# gateway — chain×1 + 公開 wss (nginx はホスト側で動かす)
 #
-# さくらへは全て Tor 経由。bootnode は socat トンネル経由で指定する。
+# フロントの接続先になる公開エントリポイント。
+# core を外部に晒さずに済ませるための前面。
+# (今回は GCP の Always Free 枠で運用)
+#
+# core へは全て Tor 経由。bootnode は socat トンネル経由で指定する。
 #
 # /dns4/<onion>/ 形式は **動かない** (実測済み)。理由:
 #   - sc-network の transport は /onion3/ を dial できない
@@ -14,7 +18,7 @@
 # 手順:
 #   cp ../anarchy-portfolio-raw.json chainspec.json
 #   docker compose up -d netns tor
-#   # .env に SAKURA_CHAIN_ONION と SAKURA_CHAIN_PEER_ID を設定
+#   # .env に CORE_CHAIN_ONION と CORE_CHAIN_PEER_ID を設定
 #   docker compose up -d
 
 services:
@@ -52,7 +56,7 @@ services:
         condition: service_healthy
     command: >-
       TCP-LISTEN:30350,bind=127.0.0.1,reuseaddr,fork
-      SOCKS4A:127.0.0.1:${SAKURA_CHAIN_ONION:?さくらの chain onion を設定してください}:30333,socksport=9050
+      SOCKS4A:127.0.0.1:${CORE_CHAIN_ONION:?core の chain onion を設定してください}:30333,socksport=9050
 
   chain:
     image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
@@ -72,8 +76,8 @@ services:
       - --rpc-external
       - --rpc-cors=${ANARCHY_RPC_CORS:-all}
       - --unsafe-force-node-key-generation
-      # socat が 127.0.0.1:30350 で待ち受け、Tor 経由でさくらの 30333 に繋ぐ
-      - --bootnodes=/ip4/127.0.0.1/tcp/30350/p2p/${SAKURA_CHAIN_PEER_ID:?さくらの chain-1 peer ID を設定してください}
+      # socat が 127.0.0.1:30350 で待ち受け、Tor 経由で core の 30333 に繋ぐ
+      - --bootnodes=/ip4/127.0.0.1/tcp/30350/p2p/${CORE_CHAIN_PEER_ID:?core の chain-1 peer ID を設定してください}
     volumes:
       - chain-data:/data
       - ./torsocks.conf:/etc/tor/torsocks.conf:ro

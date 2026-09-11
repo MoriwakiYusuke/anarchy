@@ -1,4 +1,7 @@
-# さくら — chain×3 + storage×3 + 採掘
+# core — chain×3 + storage×3 + 採掘
+#
+# 重いバックエンド。公開ポートを一切開けず、外部との通信は全て Tor 経由。
+# (今回は さくらのVPS 4Gプランで運用しているが、構成は事業者に依存しない)
 #
 # ネットワーク設計の根拠は infra/docker/compose.yml のコメントと
 # docs/operations/deployment-multi-provider.md §5 を参照。要点:

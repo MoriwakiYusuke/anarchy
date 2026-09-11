@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# さくら VPS の初期セットアップ。初回ログイン後に 1 回だけ実行する。
+# core ホスト (chain×3 + storage×3 + 採掘) の初期セットアップ。
+# 初回ログイン後に 1 回だけ実行する。
 #
-#   curl -fsSL https://raw.githubusercontent.com/MoriwakiYusuke/anarchy/main/infra/deploy/sakura/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/MoriwakiYusuke/anarchy/main/infra/deploy/core/bootstrap.sh | bash
 # または clone 後に
-#   ./infra/deploy/sakura/bootstrap.sh
+#   ./infra/deploy/core/bootstrap.sh
 #
 # やること:
 #   - パッケージ更新
-#   - タイムゾーンを UTC に (GCP は US リージョンなのでログを突き合わせやすくする)
+#   - タイムゾーンを UTC に (ホストが別リージョンに散るのでログを突き合わせやすくする)
 #   - swap 2GB + swappiness=10
 #   - Docker
 #
 # やらないこと:
-#   - ufw は入れない。さくら外部のパケットフィルタ (22番のみ開放) と重複するため
+#   - ufw は入れない。事業者側のパケットフィルタ (22番のみ開放) と重複するため
 #   - ポートも開けない。チェーン/ストレージは Tor の Hidden Service 経由でのみ公開する
 set -euo pipefail
 
@@ -61,7 +62,7 @@ cat <<'NEXT'
 
 次の手順:
   git clone https://github.com/MoriwakiYusuke/anarchy.git
-  cd anarchy/infra/deploy/sakura
+  cd anarchy/infra/deploy/core
   cp ../anarchy-portfolio-raw.json chainspec.json
   for i in 1 2 3; do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
   cp .env.example .env      # ANARCHY_COINBASE を自分の SS58 に

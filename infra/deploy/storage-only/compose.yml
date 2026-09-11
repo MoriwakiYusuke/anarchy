@@ -1,8 +1,12 @@
-# AWS — storage×1 (3 プロバイダ目)
+# storage-only — storage×1
 #
-# さくら/GCP と決定的に違う点: **チェーンが同一ホストに無い**。
+# チェーンを持たない独立したストレージノード。分散の実態を作るために
+# core / gateway とは別の事業者に置く。
+# (今回は AWS の Free Tier で運用。無料枠は 12 ヶ月で失効する点に注意)
+#
+# core / gateway と決定的に違う点: **チェーンが同一ホストに無い**。
 # そのため storage を torsocks で包み、--chain-url に .onion を指定する
-# (さくらでは逆に包まない — 同一ホストのチェーンに直結するため)。
+# (core では逆に包まない — 同一ホストのチェーンに直結するため)。
 #
 # 名前空間は tor と共有する。同一ホストに通信相手がいないので
 # netns コンテナを挟む必要は無く、AllowOutboundLocalhost で
@@ -47,8 +51,8 @@ services:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
       - --rpc-port=3030
-      - --public-url=${AWS_STORAGE_PUBLIC_URL:?tor の anarchy-storage/hostname を設定してください}
-      - --chain-url=ws://${SAKURA_CHAIN_ONION:?さくらの chain onion を設定してください}:9944
+      - --public-url=${STORAGE_PUBLIC_URL:?tor の anarchy-storage/hostname を設定してください}
+      - --chain-url=ws://${CORE_CHAIN_ONION:?core の chain onion を設定してください}:9944
     volumes:
       - storage-data:/data
       - ./torsocks.conf:/etc/tor/torsocks.conf:ro

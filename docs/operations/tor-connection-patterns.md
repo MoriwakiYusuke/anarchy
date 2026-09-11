@@ -163,11 +163,11 @@ NEXT_PUBLIC_RPC_ENDPOINT=socks5h://127.0.0.1:9050/your-node.onion:9944
 **用途**: 本番デプロイ / ポートフォリオ公開
 
 **特徴**:
-- GCP のチェーンが さくら/AWS のストレージへ **直接** fan-out する
-  (さくらのチェーンを中継しない)。エンドポイントはオンチェーンと gossip の
+- gateway のチェーンが core / storage-only のストレージへ **直接** fan-out する
+  (core のチェーンを中継しない)。エンドポイントはオンチェーンと gossip の
   二重経路で伝播する
-- サーバー間は全て Tor Hidden Service 経由。公開ポートは GCP の 443 のみ
-- さくらは公開ポートを一切開けない
+- サーバー間は全て Tor Hidden Service 経由。公開ポートは gateway の 443 のみ
+- core は公開ポートを一切開けない
 
 #### 実測で判明した制約
 

@@ -1,36 +1,37 @@
 # マルチプロバイダ デプロイ手順書
 
-> **対象構成**: さくら (有料) + GCP (Always Free) + AWS (Free Tier) + Cloudflare Workers
+> **対象構成**: core + gateway + storage-only + フロント
+> (今回の割り当て: さくらのVPS / GCP Always Free / AWS Free Tier / Cloudflare Workers)
 > **接続パターン**: [tor-connection-patterns.md §2.5](tor-connection-patterns.md)
 > **実装計画**: [docs/superpowers/plans/2026-09-11-multi-provider-deployment.md](../superpowers/plans/2026-09-11-multi-provider-deployment.md)
 
 ## 1. トポロジ
 
 ```
-ユーザー ──HTTPS──▶ Cloudflare Workers (フロント / 静的 export)
-                          │ wss://<GCPドメイン>/rpc
+ユーザー ──HTTPS──▶ フロント (静的 export / Cloudflare Workers)
+                          │ wss://<gateway のドメイン>/rpc
                           ▼
-                     GCP e2-micro (1GB, Always Free)
+                     gateway            ← GCP e2-micro (1GB, Always Free)
                      chain×1 + nginx
                           │
                           │ Tor (torsocks + Hidden Service)
-                          ├──────────────▶ さくら (8GB, 有料)
+                          ├──────────────▶ core       ← さくらのVPS 4G (有料)
                           │                chain×3 + storage×3 + 採掘
                           │                公開ポートなし
-                          └──────────────▶ AWS t3.micro (1GB, 12ヶ月無料)
+                          └──────────────▶ storage-only ← AWS t3.micro (12ヶ月無料)
                                            storage×1
 ```
 
-**有料はさくら 1 台のみ。** 公開されるポートは GCP の 443 だけ。
+**有料は core の 1 台のみ。** 公開されるポートは gateway の 443 だけ。
 
-### なぜ GCP がフロントの接続先か
+### なぜ gateway がフロントの接続先か
 
-さくらは重いバックエンド (採掘 + 大半のストレージ) を持ち、公開ポートを一切開けない。
-GCP を公開エントリポイントにすることで、さくらの所在を晒さずに済む。
+core は重いバックエンド (採掘 + 大半のストレージ) を持ち、公開ポートを一切開けない。
+gateway を公開エントリポイントにすることで、core の所在を晒さずに済む。
 
-GCP のチェーンは **さくら/AWS のストレージへ直接 fan-out する** (さくらのチェーンを
+gateway のチェーンは **core / storage-only のストレージへ直接 fan-out する** (core のチェーンを
 中継しない)。エンドポイントはオンチェーンと gossip の二重経路で伝播するため、
-GCP はチェーンを同期するだけで全ストレージノードを把握できる。
+gateway はチェーンを同期するだけで全ストレージノードを把握できる。
 
 ## 2. 実測値 (2026-09-11)
 
@@ -38,8 +39,8 @@ GCP はチェーンを同期するだけで全ストレージノードを把握�
 
 | 項目 | 実測 | 備考 |
 |---|---|---|
-| chain-node RSS (採掘なし) | **462 MB** (コンテナ) / 525 MB (ネイティブ) | GCP の 1GB に収まる |
-| chain-node RSS (採掘あり) | **996 MB** | RandomX light の 256MB データセット込み。さくら向け |
+| chain-node RSS (採掘なし) | **462 MB** (コンテナ) / 525 MB (ネイティブ) | gateway の 1GB に収まる |
+| chain-node RSS (採掘あり) | **996 MB** | RandomX light の 256MB データセット込み。core 向け |
 | storage-node RSS | **20 MB** | どの無料枠にも入る |
 | 採掘スレッド CPU | **29.7% of 1 core** | 90 秒計測、6 blocks |
 | フロント静的 export | **4.8 MB** (`out/`) | wasm 604KB を含む |
@@ -50,7 +51,7 @@ GCP はチェーンを同期するだけで全ストレージノードを把握�
 ## 3. 前提
 
 - 全ホスト **x86_64 / Ubuntu 24.04 LTS**、Docker と Docker Compose
-- GCP のドメインと DNS A レコード (Let's Encrypt 用)
+- gateway のドメインと DNS A レコード (Let's Encrypt 用)
 - Cloudflare アカウント (Workers)
 - イメージは `ghcr.io/moriwakiyusuke/anarchy-node` / `anarchy-storage-node`
 
@@ -193,7 +194,7 @@ socat は `SOCKS4A` で Tor の SOCKS ポートに繋ぐ (SOCKS4A はホスト�
 
 ## 6. 各ホストの構築
 
-### 6.1 さくら (chain×3 + storage×3 + 採掘)
+### 6.1 core (chain×3 + storage×3 + 採掘)
 
 1. tor を起動し onion を 2 本取得する (chain 用 / storage 用)
 2. chain×3 を起動。**採掘は 1 台だけ** (`--mine --randomx-mode light`)。
@@ -202,12 +203,12 @@ socat は `SOCKS4A` で Tor の SOCKS ポートに繋ぐ (SOCKS4A はホスト�
 4. `storage_getNodes` で 3 台が `http://<onion>:303X` として登録されたことを確認。
    **`127.0.0.1` が 1 件でもあれば `--public-url` が効いていない**
 
-### 6.2 GCP (chain×1 + nginx)
+### 6.2 gateway (chain×1 + nginx)
 
 1. swap 2GB (§4.2)
-2. tor を起動 (SOCKS のみ。Hidden Service は不要 — さくらへは outbound のみ)
-3. chain×1 を起動。bootnode に さくらの chain onion を指定
-4. **さくら/AWS のストレージに到達できることを確認してから先に進む**
+2. tor を起動 (SOCKS のみ。Hidden Service は不要 — core へは outbound のみ)
+3. chain×1 を起動。bootnode に core の chain onion を指定
+4. **core / storage-only のストレージに到達できることを確認してから先に進む**
 5. nginx + Let's Encrypt で `wss://<domain>/rpc` を公開
 
 nginx は `proxy_read_timeout 3600s` が **必須**。デフォルトの 60 秒では PoW の
@@ -218,12 +219,12 @@ nginx は `proxy_read_timeout 3600s` が **必須**。デフォルトの 60 秒�
 ウォッチドッグだけで **ping を送らない** ため、ブロック間隔の隙間で接続が
 本当にアイドルになり切断される。
 
-### 6.3 AWS (storage×1)
+### 6.3 storage-only (storage×1)
 
 セキュリティグループは **22 番のみ**。ストレージは Tor 経由でのみ公開する。
 チェーンが別ホストなので **torsocks で包み**、`--chain-url` に `.onion` を指定する。
 
-### 6.4 Cloudflare Workers (フロント)
+### 6.4 フロント (Cloudflare Workers)
 
 ```bash
 cd packages/wasm-engine && wasm-pack build --target web --out-dir pkg
@@ -235,7 +236,7 @@ cd apps/frontend && npx wrangler deploy
 `NEXT_PUBLIC_*` は **ビルド時に焼き込まれる**。付け忘れると `ws://127.0.0.1:9944`
 のままになるので、`out/_next/static/chunks/` を grep して確認すること。
 
-デプロイ後、GCP のチェーンの `--rpc-cors` に払い出された URL を設定する
+デプロイ後、gateway のチェーンの `--rpc-cors` に払い出された URL を設定する
 (フロントと RPC が別オリジンになるため)。
 
 ## 7. ローカルからの接続

@@ -6,7 +6,7 @@
 
 **Goal:** 4 プロバイダに Anarchy を分散デプロイし、Cloudflare 上のフロントから常時アクセスできる状態にする。有料はさくら 1 台のみ。
 
-**Architecture:** さくら (有料・非公開) がチェーン 3 台 + ストレージ 3 台 + 採掘を持つ重いバックエンド。GCP の無料枠 (e2-micro) がチェーン 1 台と公開 `wss` エンドポイントを持つエントリポイント。AWS 無料枠にストレージ 1 台。フロントは静的 export して Cloudflare Workers Static Assets に置く。サーバ間は全て Tor hidden service 経由 (torsocks)、公開されるのは GCP の 443 のみ。
+**Architecture:** core (有料・非公開) がチェーン 3 台 + ストレージ 3 台 + 採掘を持つ重いバックエンド。GCP の無料枠 (e2-micro) がチェーン 1 台と公開 `wss` エンドポイントを持つエントリポイント。AWS 無料枠にストレージ 1 台。フロントは静的 export して Cloudflare Workers Static Assets に置く。サーバ間は全て Tor hidden service 経由 (torsocks)、公開されるのは gateway の 443 のみ。
 
 **Tech Stack:** Polkadot SDK stable2503 (PoW/RandomX), Rust storage-node (libp2p + axum), Next.js 16 静的 export + PAPI, Tor (hidden service + SOCKS5), nginx, systemd, Wrangler
 
@@ -18,10 +18,10 @@
 
 | 項目 | 決定 |
 |---|---|
-| さくら (8GB クラス) | chain×3 + storage×3 + 採掘。**公開ポートを開けない** (Tor のみ) |
-| GCP e2-micro (Always Free, 1GB) | chain×1 + nginx。**フロントの接続先**。常時稼働 |
+| **core** (さくらのVPS 4G) | chain×3 + storage×3 + 採掘。**公開ポートを開けない** (Tor のみ) |
+| **gateway** (GCP e2-micro, Always Free) | chain×1 + nginx。**フロントの接続先**。常時稼働 |
 | AWS t3.micro (Free Tier, 1GB) | storage×1。**無料枠は 12 ヶ月で失効** |
-| Cloudflare Workers | フロント (静的 export)。Static Assets は課金対象外 |
+| **フロント** (Cloudflare Workers) | 静的 export。Static Assets は課金対象外 |
 | 配布方式 | **コンテナ (ghcr.io) + docker compose**。バイナリ転送はしない |
 | Tor | サーバー間のみ。同一ホスト内は直結 |
 | フロント公開形態 | clearnet のみ |
@@ -106,11 +106,11 @@
 
 | 検証 | 結果 |
 |---|---|
-| さくら本番形状 | ✅ チェーン 3 台が `peers=2` で全て best 一致、ストレージ 3 台が `.onion` 登録 |
+| core の本番形状 | ✅ チェーン 3 台が `peers=2` で全て best 一致、ストレージ 3 台が `.onion` 登録 |
 | 跨ホストのピア確立 (別 compose プロジェクト間、Tor のみ) | ✅ socat 経由で 210 秒後に確立、同期開始 |
-| 跨ホストのレジストリ伝播 | ✅ GCP 側は直接登録を受けずに さくらのストレージ 3 台を把握 |
-| **跨ホストの fan-out** | ✅ **GCP のチェーンが さくらのストレージ 3 台すべてに到達** (各ノードのログに受信を確認) |
-| AWS 相当 (チェーンが別ホストのストレージ単独ノード) | ✅ subxt が torsocks 経由で `.onion` の WS に到達し登録成功。さくらのチェーンから `total=4 online=4` として見える |
+| 跨ホストのレジストリ伝播 | ✅ gateway 側は直接登録を受けずに core のストレージ 3 台を把握 |
+| **跨ホストの fan-out** | ✅ **gateway のチェーンが core のストレージ 3 台すべてに到達** (各ノードのログに受信を確認) |
+| storage-only 相当 (チェーンが別ホストのストレージ単独ノード) | ✅ subxt が torsocks 経由で `.onion` の WS に到達し登録成功。core のチェーンから `total=4 online=4` として見える |
 
 ## 残っている作業
 
@@ -119,10 +119,10 @@ VPS が要るものだけ。ローカルで済むものは全て完了してい�
 | Task | 内容 | 前提 |
 |---|---|---|
 | ~~1~~ | ~~ghcr へのイメージ公開~~ | ✅ **完了**。public で認証なし pull 可、起動確認済み (233MB / 156MB) |
-| 2 | さくら構築 | さくら VPS |
-| 3 | GCP 構築 | GCP インスタンス + ドメイン |
-| 4 | AWS 構築 | AWS インスタンス |
-| 5 | Cloudflare デプロイ | CF アカウント + GCP のドメイン確定 |
+| 2 | core 構築 | VPS 1 台 (今回は さくらのVPS 4G) |
+| 3 | gateway 構築 | GCP インスタンス + ドメイン |
+| 4 | storage-only 構築 | AWS インスタンス |
+| 5 | Cloudflare デプロイ | CF アカウント + gateway のドメイン確定 |
 | 6 | ブラウザ E2E 検証 | 上記すべて |
 
 ## File Structure
@@ -183,14 +183,14 @@ Expected: `OK`
 
 ---
 
-### Task 2: さくら — chain×3 + storage×3 + 採掘
+### Task 2: core — chain×3 + storage×3 + 採掘
 
 `infra/docker/compose.yml` は 1 ノードずつの最小構成なので、3 台ずつに増やす。
 固定 IP と torrc の `HiddenServicePort` を対応させること。
 
 **Files:**
-- Create: `infra/deploy/sakura/compose.yml`
-- Create: `infra/deploy/sakura/torrc`
+- Create: `infra/deploy/core/compose.yml`
+- Create: `infra/deploy/core/torrc`
 
 **Interfaces:**
 - Consumes: ghcr のイメージ、`infra/deploy/anarchy-portfolio-raw.json`
@@ -281,7 +281,7 @@ Expected: 30% 前後 (ローカル実測 29.7%)。100% 近い場合は `d0c6978`
 - [ ] **Step 9: コミット**
 
 ```bash
-git add infra/deploy/sakura/
+git add infra/deploy/core/
 git commit -m "chore(deploy): add sakura compose (3 chain + 3 storage)
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -289,15 +289,15 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 3: GCP — chain×1 + 公開 wss
+### Task 3: gateway — chain×1 + 公開 wss
 
 **Files:**
-- Create: `infra/deploy/gcp/compose.yml`
-- Create: `infra/deploy/gcp/torrc`
-- Create: `infra/deploy/gcp/nginx-anarchy.conf`
+- Create: `infra/deploy/gateway/compose.yml`
+- Create: `infra/deploy/gateway/torrc`
+- Create: `infra/deploy/gateway/nginx-anarchy.conf`
 
 **Interfaces:**
-- Consumes: さくらの chain onion と peer ID
+- Consumes: core の chain onion と peer ID
 - Produces: `wss://<domain>/rpc`
 
 - [ ] **Step 1: インスタンス作成と swap**
@@ -322,16 +322,16 @@ Expected: `free -h` の Swap 行に 2.0Gi
 
 - [ ] **Step 2: torrc は SOCKS のみ**
 
-さくらへは outbound だけなので Hidden Service は不要。
+core へは outbound だけなので Hidden Service は不要。
 
 - [ ] **Step 3: chain を torsocks 込みで起動**
 
-bootnode は **socat トンネル経由**で指定する。`infra/deploy/gcp/compose.yml` に
+bootnode は **socat トンネル経由**で指定する。`infra/deploy/gateway/compose.yml` に
 `onion-proxy` サービスとして組み込み済み。
 
 `/dns4/<onion>/` は **動かないことを実測で確認済み** (§5.6)。
 
-- [ ] **Step 4: さくらと同期しているか確認**
+- [ ] **Step 4: core と同期しているか確認**
 
 Expected: `peers` が 1 以上、`isSyncing` が false に落ち着く。
 `free -h` で swap を食い潰していないことも確認
@@ -346,7 +346,7 @@ socat TCP-LISTEN:30333,bind=127.0.0.2,reuseaddr,fork \
 bootnode を `/ip4/127.0.0.2/tcp/30333/p2p/<peer-id>` に差し替える。
 torsocks が localhost 宛を遮断する場合は `AllowOutboundLocalhost 1` を追加。
 
-- [ ] **Step 6: さくら/AWS のストレージに到達できることを確認**
+- [ ] **Step 6: core / storage-only のストレージに到達できることを確認**
 
 **ここが構成の核心。通らなければ先に進んでも無意味。**
 
@@ -383,13 +383,13 @@ Expected: `HTTP/1.1 101 Switching Protocols`
 
 ---
 
-### Task 4: AWS — storage×1
+### Task 4: storage-only — storage×1
 
 3 プロバイダ目。ストレージは実測 20MB なので t3.micro に余裕で収まる。
 
 **Files:**
-- Create: `infra/deploy/aws/compose.yml`
-- Create: `infra/deploy/aws/torrc`
+- Create: `infra/deploy/storage-only/compose.yml`
+- Create: `infra/deploy/storage-only/torrc`
 
 - [ ] **Step 1: インスタンス作成**
 
@@ -407,7 +407,7 @@ Expected: `HTTP/1.1 101 Switching Protocols`
 
 **subxt が torsocks 経由で `.onion` の WS に繋がることは実測で確認済み**
 (初回は 10 秒タイムアウトで失敗するがリトライで成功する)。
-失敗する場合は `--chain-url` を GCP のチェーンに向けるか、socat トンネルを検討する。
+失敗する場合は `--chain-url` を gateway のチェーンに向けるか、socat トンネルを検討する。
 
 - [ ] **Step 4: 登録が全チェーンに伝播したか確認**
 
@@ -441,7 +441,7 @@ NEXT_PUBLIC_CHAIN_RPC_URL=wss://<GCPのドメイン>/rpc pnpm --filter @anarchy/
 ```bash
 grep -ro "wss://[^\"']*" apps/frontend/out/_next/static/chunks/ | head -3
 ```
-Expected: GCP のドメインが現れる。**ここを飛ばさないこと** — 環境変数を
+Expected: gateway のドメインが現れる。**ここを飛ばさないこと** — 環境変数を
 付け忘れると `ws://127.0.0.1:9944` のままデプロイされる
 
 - [ ] **Step 4: デプロイ**
@@ -453,7 +453,7 @@ Expected: `https://anarchy-frontend.<subdomain>.workers.dev` が払い出され�
 
 - [ ] **Step 5: CORS を通す**
 
-GCP のチェーンの `--rpc-cors` に払い出された URL を設定して再起動する
+gateway のチェーンの `--rpc-cors` に払い出された URL を設定して再起動する
 (フロントと RPC が別オリジンのため)。
 
 ---
@@ -468,7 +468,7 @@ Expected: DevTools の Network で `wss://<GCPドメイン>/rpc` が `101` で�
 
 - [ ] **Step 2: ブロックが進むことを確認**
 
-Expected: ブロック番号が増える (さくらの chain-1 が採掘している)
+Expected: ブロック番号が増える (core の chain-1 が採掘している)
 
 - [ ] **Step 3: ウォレット作成と faucet**
 
@@ -480,13 +480,13 @@ Expected: エラーなく完了。`No Storage Nodes connected` が出る場合�
 
 - [ ] **Step 5: サーバー側で fan-out を確認**
 
-GCP: `Fragment uploaded to Storage Node`
+gateway: `Fragment uploaded to Storage Node`
 さくら/AWS: 断片受信のログ (配置は merkle_root 依存なのでどれか 1 台)
 
 - [ ] **Step 6: リロードして読み戻せることを確認**
 
 Expected: 投稿本文が表示される
-(= GCP のチェーンが別プロバイダのストレージから断片を取得して復元できている)
+(= gateway のチェーンが別プロバイダのストレージから断片を取得して復元できている)
 
 - [ ] **Step 7: メモリと OOM を確認 (GCP)**
 
@@ -513,8 +513,8 @@ Expected: swap を食い潰していない、OOM killer が動いていない
 
 | 要件 | 対応 |
 |---|---|
-| さくら: chain×3 + storage×3 + 採掘、公開ポートなし | Task 2 |
-| GCP: chain×1 + 公開 wss | Task 3 |
+| core: chain×3 + storage×3 + 採掘、公開ポートなし | Task 2 |
+| gateway: chain×1 + 公開 wss | Task 3 |
 | AWS: storage×1 | Task 4 |
 | Cloudflare: フロント | Task 5 |
 | コンテナ配布 (ghcr) | Task 1 |
