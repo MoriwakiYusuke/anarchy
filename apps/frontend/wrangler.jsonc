@@ -1,19 +1,27 @@
 {
-  // Anarchy フロント — Cloudflare Workers Static Assets
+  // Anarchy フロント — Cloudflare Workers Static Assets + Basic 認証 Worker
   //
   // このアプリは src/app/ が page.tsx / layout.tsx / providers.tsx の 3 ファイルだけの
   // 実質シングルページ SPA で、動的ルート・middleware・cookies()/headers() を
   // どれも使わない。サーバランタイムが不要なので next build (output: 'export') の
   // 出力をそのまま配信でき、vinext / OpenNext は要らない。
-  // 静的アセット配信は課金対象外。
   //
-  // CF 固有なのはこのファイルだけ。out/ はただの静的ファイル群なので、
-  // 別のホスティングに移す場合はこれを消して out/ を上げ直すだけでよい。
+  // worker/index.ts は Basic 認証ゲートだけ。run_worker_first で全リクエストが Worker を
+  // 通るため、静的アセットも Worker 呼び出しとして課金対象 (無料枠 10 万 req/日) になる。
+  // 認証が不要になったら main / run_worker_first / binding を外せば元の無課金配信に戻る。
+  //
+  // CF 固有なのはこのファイルと worker/ だけ。out/ はただの静的ファイル群なので、
+  // 別のホスティングに移す場合はこれらを消して out/ を上げ直すだけでよい。
   //
   // デプロイ:
   //   NEXT_PUBLIC_CHAIN_RPC_URL=wss://<GCPのドメイン>/rpc pnpm --filter @anarchy/frontend build
-  //   cd apps/frontend && npx wrangler deploy
+  //   cd apps/frontend
+  //   npx wrangler secret put BASIC_AUTH_USER       # 初回のみ。未設定だと Worker は 503 を返す (fail-closed)
+  //   npx wrangler secret put BASIC_AUTH_PASSWORD
+  //   npx wrangler deploy
+  // ローカル確認: .dev.vars (gitignore 済) に同名の変数を書いて `npx wrangler dev`。
   "name": "anarchy-frontend",
+  "main": "worker/index.ts",
   // compatibility_date は **過去日** でなければならない (未来日は CF に拒否される)。
   // ランタイム挙動を固定するためのもので、今日である必要はない。
   "compatibility_date": "2026-09-01",
@@ -24,6 +32,10 @@
   ],
   "assets": {
     "directory": "./out",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    // Worker から env.ASSETS.fetch() で静的配信に委譲する
+    "binding": "ASSETS",
+    // 全リクエストを先に Worker (Basic 認証) に通す
+    "run_worker_first": true
   }
 }

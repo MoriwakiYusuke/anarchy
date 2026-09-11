@@ -7,3 +7,7 @@ public/wasm/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# wrangler dev 用ローカル secrets (BASIC_AUTH_*)
+.dev.vars
+.wrangler/
