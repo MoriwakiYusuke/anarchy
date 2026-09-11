@@ -16,16 +16,24 @@ test.describe('Header brand', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    // h1 全体は aria-label="Anarchy" で 1 つのワードマークとしてアクセシブル
+    // 見出しのアクセシブル名は DOM テキストそのものが "Anarchy" (aria-label 頼みではない)。
+    // 検索エンジンやコピー&ペーストも "narchy" ではなく "Anarchy" を得る。
     const heading = page.getByRole('heading', { level: 1, name: 'Anarchy' });
     await expect(heading).toBeVisible();
+    await expect(heading).toHaveText('Anarchy');
 
-    // ロゴ SVG は h1 内に inline 配置されている (二重 A 表示の回帰を阻止)
-    await expect(heading.locator('svg[aria-label="A"]')).toBeVisible();
-
-    // 末尾のテキスト部分は "narchy" のみ (ワードマークが "A Anarchy" に戻っていない)
-    await expect(heading).toContainText('narchy');
+    // ロゴ SVG は h1 内に inline 配置された装飾 (aria-hidden)。先頭の "A" は
+    // 視覚的には SVG、DOM 上は visually-hidden な span が担う (二重 A 表示の回帰を阻止)。
+    await expect(heading.locator('svg[aria-hidden="true"]')).toBeVisible();
     await expect(heading).not.toContainText('AAnarchy');
+  });
+
+  test('viewport allows pinch zoom (no maximum-scale / user-scalable=no)', async ({ page }) => {
+    await page.goto('/');
+    const content = await page.locator('meta[name="viewport"]').getAttribute('content');
+    expect(content).toContain('width=device-width');
+    expect(content).not.toMatch(/maximum-scale/);
+    expect(content).not.toMatch(/user-scalable=no/);
   });
 
   test('favicon and icon.svg are served by Next.js metadata', async ({ page, baseURL }) => {
