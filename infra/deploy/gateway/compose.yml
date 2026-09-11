@@ -62,7 +62,7 @@ services:
       - --rpc-port=9944
       - --prometheus-port=9615
       - --rpc-external
-      - --rpc-cors=https://anarchy2026.org
+      - --rpc-cors=all
       - --unsafe-force-node-key-generation
       - --bootnodes=/ip4/127.0.0.1/tcp/30350/p2p/${CORE_CHAIN_PEER_ID:?core の chain-1 peer ID を設定してください}
     volumes:

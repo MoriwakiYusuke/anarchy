@@ -298,6 +298,13 @@ curl -X OPTIONS https://rpc.anarchy2026.org/rpc -H 'Origin: https://anarchy2026.
 # → 204 と access-control-allow-headers: Content-Type
 ```
 
+
+**追記 (2026-09-12)**: 同じ Host フィルタが **同居ストレージの登録も弾く**。ストレージは
+`--chain-url=ws://172.N.0.10:9944` で netns の IP を叩くため `Host: 172.N.0.10:9944` となり、
+`register_endpoint` が "Provided Host header is not whitelisted" (テキスト) を返してストレージ側では
+`Failed to parse response: error decoding response body` に見える。そのためチェーンは
+**`--rpc-cors=all` にし、ブラウザ向けの絞り込みは nginx の preflight 応答だけで行う** (gen.py はそう出す)。
+
 ### 5.9 ミニファイアが @scure/sr25519 を壊す
 
 ブラウザでこれが出てアプリが起動しない場合:

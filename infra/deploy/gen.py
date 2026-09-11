@@ -172,7 +172,12 @@ def main():
         ]
         if a.public_rpc and i == 1:
             cmd.append("--rpc-external")
-        cmd.append(f"--rpc-cors={a.cors_origin}" if (a.public_rpc and i == 1) else "--rpc-cors=all")
+        # 公開 RPC でも --rpc-cors は all にする。特定オリジンを渡すと Substrate は
+        # Host ヘッダのフィルタも有効にし (listen アドレスの loopback 表現しか通さない)、
+        # 同居ストレージが送る Host: 172.N.0.10:9944 の登録が
+        # "Provided Host header is not whitelisted" で弾かれる。
+        # ブラウザ向けの CORS 絞り込みは nginx の preflight 応答 (--cors-origin) で行う。
+        cmd.append("--rpc-cors=all")
         if i == 1 and a.node_key:
             cmd.append(f"--node-key={a.node_key}")
         else:
