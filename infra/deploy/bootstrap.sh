@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# core ホスト (chain×3 + storage×3 + 採掘) の初期セットアップ。
-# 初回ログイン後に 1 回だけ実行する。
+# ホスト (core / gateway / storage-only 共通) の初期セットアップ。
+# 初回ログイン後に 1 回だけ実行する。役割による差は無い (差は compose 側にある)。
 #
-#   curl -fsSL https://raw.githubusercontent.com/MoriwakiYusuke/anarchy/main/infra/deploy/core/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/MoriwakiYusuke/anarchy/main/infra/deploy/bootstrap.sh | bash
 # または clone 後に
-#   ./infra/deploy/core/bootstrap.sh
+#   ./infra/deploy/bootstrap.sh
 #
 # やること:
 #   - パッケージ更新
@@ -99,16 +99,8 @@ cat <<'NEXT'
 
 次の手順:
   git clone https://github.com/MoriwakiYusuke/anarchy.git
-  cd anarchy/infra/deploy/core
-  cp ../anarchy-portfolio-raw.json chainspec.json
-  for i in 1 2 3; do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
-  cp .env.example .env      # ANARCHY_COINBASE を自分の SS58 に
-  docker compose up -d netns tor
-  docker compose exec tor cat /var/lib/tor/anarchy-chain/hostname     # 控える
-  docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname   # .env に設定
-  docker compose up -d chain-1
-  docker compose logs chain-1 | grep "Local node identity"            # .env の CHAIN1_PEER_ID に
-  docker compose up -d
+  cd anarchy/infra/deploy/<core|gateway|storage-only>
+  # 以降は infra/deploy/README.md の「生成後の手順」
 
 詳細は docs/operations/deployment-multi-provider.md
 NEXT

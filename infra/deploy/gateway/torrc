@@ -1,7 +1,6 @@
-# GCP 用 torrc
+# gateway 用 torrc (gen.py が生成)
 #
-# GCP はチェーン 1 台のみ。さくら/AWS へは outbound だけなので
-# Hidden Service は不要 (向こうから dial されることがない)。
+# HiddenServicePort の転送先にホスト名は使えない (IP かソケットのみ)。
 
 DataDirectory /var/lib/tor
 RunAsDaemon 0

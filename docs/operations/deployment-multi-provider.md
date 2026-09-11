@@ -233,6 +233,9 @@ core のチェーンは RPC を外部公開する必要が無いので `--rpc-ex
 
 ## 6. 各ホストの構築
 
+compose 一式は `infra/deploy/gen.py` が生成する (手順は [infra/deploy/README.md](../../infra/deploy/README.md))。
+台数を変えるときは引数を変えて再生成するだけで、以下は各ホストで押さえるべき要点。
+
 ### 6.1 core (chain×3 + storage×3 + 採掘)
 
 1. tor を起動し onion を 2 本取得する (chain 用 / storage 用)
@@ -242,7 +245,7 @@ core のチェーンは RPC を外部公開する必要が無いので `--rpc-ex
 4. `storage_getNodes` で 3 台が `http://<onion>:303X` として登録されたことを確認。
    **`127.0.0.1` が 1 件でもあれば `--public-url` が効いていない**
 
-### 6.2 gateway (chain×1 + nginx)
+### 6.2 gateway (chain×1 + storage×3 + nginx)
 
 1. swap 2GB (§4.2)
 2. tor を起動 (SOCKS のみ。Hidden Service は不要 — core へは outbound のみ)
@@ -258,10 +261,12 @@ nginx は `proxy_read_timeout 3600s` が **必須**。デフォルトの 60 秒�
 ウォッチドッグだけで **ping を送らない** ため、ブロック間隔の隙間で接続が
 本当にアイドルになり切断される。
 
-### 6.3 storage-only (storage×1)
+### 6.3 storage-only (storage×10)
 
 セキュリティグループは **22 番のみ**。ストレージは Tor 経由でのみ公開する。
-チェーンが別ホストなので **torsocks で包み**、`--chain-url` に `.onion` を指定する。
+チェーンが別ホストなので **torsocks で包み**、`--chain-url` に `.onion` を指定する
+(`gen.py --chains 0` がこの形を出す)。1 台 2 GiB × 10 = 20 GiB は t3.micro の
+30 GB ルートボリュームから OS + Docker 分を引いた逆算値。
 
 ### 5.9 ミニファイアが @scure/sr25519 を壊す
 

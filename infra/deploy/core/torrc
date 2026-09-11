@@ -1,8 +1,6 @@
-# さくら用 torrc
+# core 用 torrc (gen.py が生成)
 #
-# 注意: HiddenServicePort の転送先にホスト名は使えない (IP かソケットのみ)。
-# チェーンは netns と名前空間を共有しているので 127.0.0.1、
-# ストレージは別コンテナなので compose の固定 IP。
+# HiddenServicePort の転送先にホスト名は使えない (IP かソケットのみ)。
 
 DataDirectory /var/lib/tor
 RunAsDaemon 0
@@ -10,8 +8,7 @@ Log notice stdout
 
 SocksPort 127.0.0.1:9050 IsolateClientAddr IsolateSOCKSAuth
 
-# ---- チェーン 3 台 ----
-# 9944 だけ公開すれば十分だが、運用確認用に 3 台とも出しておく
+# ---- Hidden Service: チェーン ----
 HiddenServiceDir /var/lib/tor/anarchy-chain
 HiddenServiceVersion 3
 HiddenServicePort 30333 127.0.0.1:30333
@@ -21,7 +18,7 @@ HiddenServicePort 9944  127.0.0.1:9944
 HiddenServicePort 9945  127.0.0.1:9945
 HiddenServicePort 9946  127.0.0.1:9946
 
-# ---- ストレージ 3 台 ----
+# ---- Hidden Service: ストレージ 3 台 ----
 HiddenServiceDir /var/lib/tor/anarchy-storage
 HiddenServiceVersion 3
 HiddenServicePort 3030 172.28.0.31:3030

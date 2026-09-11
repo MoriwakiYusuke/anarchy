@@ -1,32 +1,9 @@
 # storage-only — storage×10
 #
-# チェーンを持たない、ストレージ専用ホスト。
-# 1GB の箱に storage-node (実測 20MB) を 10 台載せる。
-#   10 × 20MB = 200MB + tor 40MB + OS 300MB ≈ 540MB / 1GB
+# ⚠️ このファイルは gen.py が生成する。手で編集せず、引数を変えて再生成すること:
+#   ./gen.py storage-only --storage 10 --capacity 2G
 #
-# ⚠️ 10 台は同一ホストなので **障害ドメインは 1 つ**。
-#    ホストが落ちれば 10 台まとめて落ちる。冗長化ではなく、
-#    fan-out 先を増やして KZG-VSS の k/n 分散を実際に働かせるのが目的。
-#    本当の冗長化は core / gateway 側のストレージが担う。
-#
-# core / gateway と決定的に違う点: **チェーンが同一ホストに無い**。
-# そのため storage を torsocks で包み、--chain-url に .onion を指定する
-# (core では逆に包まない — 同一ホストのチェーンに直結するため)。
-#
-# 名前空間は tor と共有する。同一ホストに通信相手がいないので
-# netns コンテナを挟む必要は無く、AllowOutboundLocalhost で
-# tor の SOCKS (127.0.0.1:9050) に届けば足りる。
-#
-# ⚠️ AWS t3.micro はバースト型。CPU クレジットが尽きると
-#    `unlimited` モードでは **追加課金** が発生する。
-#    インスタンス作成時にクレジット仕様を `standard` にすること。
-#
-# 手順:
-#   for i in $(seq 1 10); do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
-#   cp .env.example .env
-#   docker compose up -d tor
-#   docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname   # .env に設定
-#   docker compose up -d
+# 設計の根拠は gen.py 冒頭と docs/operations/deployment-multi-provider.md §5 を参照。
 
 services:
   tor:
@@ -51,7 +28,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
@@ -71,7 +48,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
@@ -91,7 +68,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
@@ -111,7 +88,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
@@ -131,7 +108,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
@@ -151,7 +128,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
@@ -171,7 +148,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
@@ -191,7 +168,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
@@ -211,7 +188,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
@@ -231,7 +208,7 @@ services:
     depends_on:
       tor:
         condition: service_healthy
-    # チェーンが別ホストなので包む
+    # チェーンが別ホストなので torsocks で包む (--chain-url が .onion)
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml

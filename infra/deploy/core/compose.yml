@@ -1,24 +1,9 @@
 # core — chain×3 + storage×3 + 採掘
 #
-# 重いバックエンド。公開ポートを一切開けず、外部との通信は全て Tor 経由。
-# (今回は さくらのVPS 4Gプランで運用しているが、構成は事業者に依存しない)
+# ⚠️ このファイルは gen.py が生成する。手で編集せず、引数を変えて再生成すること:
+#   ./gen.py core --chains 3 --validators 2 --mine --storage 3 --capacity 10G --node-key 0000000000000000000000000000000000000000000000000000000000000001
 #
-# ネットワーク設計の根拠は infra/docker/compose.yml のコメントと
-# docs/operations/deployment-multi-provider.md §5 を参照。要点:
-#   - チェーンは netns コンテナの名前空間を共有し 127.0.0.1 でピアする
-#     (torsocks は全 outbound を Tor に流すため、同一ホスト宛は localhost に寄せる)
-#   - 名前空間は tor ではなく netns コンテナが持つ
-#     (tor 再起動でチェーンが取り残されて分岐するのを防ぐ)
-#   - storage は torsocks で包まない
-#
-# 手順:
-#   cp ../anarchy-portfolio-raw.json chainspec.json
-#   for i in 1 2 3; do sed "s/CHANGE_ME/$(openssl rand -hex 32)/" storage.toml.tmpl > storage-$i.toml; done
-#   docker compose up -d netns tor
-#   docker compose exec tor cat /var/lib/tor/anarchy-storage/hostname   # .env に設定
-#   docker compose up -d chain-1
-#   docker compose logs chain-1 | grep "Local node identity"            # .env の CHAIN1_PEER_ID に設定
-#   docker compose up -d
+# 設計の根拠は gen.py 冒頭と docs/operations/deployment-multi-provider.md §5 を参照。
 
 services:
   # 名前空間の保持だけを担う (tor の再起動と切り離すため)
@@ -54,23 +39,17 @@ services:
     depends_on:
       tor:
         condition: service_healthy
+    # GRANDPA voter。keystore に gran 鍵の投入が別途必要 (README 参照)。
+    # 採掘はこの 1 台だけ。複数採掘は reorg を招く。
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-node"]
     command:
       - --chain=/etc/anarchy/chainspec.json
       - --base-path=/data
       - --listen-addr=/ip4/0.0.0.0/tcp/30333
       - --rpc-port=9944
-      # --rpc-external は --validator と併用できない
-      # ("--rpc-external option shouldn't be used if the node is running as a validator")。
-      # core の RPC を外部公開する必要は無く、同一ホストの storage は
-      # netns の IP 経由で届くので外して問題ない。
+      - --prometheus-port=9615
       - --rpc-cors=all
       - --node-key=0000000000000000000000000000000000000000000000000000000000000001
-      # GRANDPA voter は AUTHORITY ロールでないと投票しない。
-      # これが無いと Role: FULL で起動し、keystore に gran 鍵があっても
-      # ファイナライズが進まず finalized #0 のまま止まる。
-      # PAPI の chainHead_v1_follow はファイナライズ前提なので即 stop を返し、
-      # フロントが "Connecting..." から進まなくなる。
       - --validator
       - --mine
       - --coinbase=${ANARCHY_COINBASE:?ANARCHY_COINBASE を設定してください}
@@ -87,19 +66,17 @@ services:
     depends_on:
       tor:
         condition: service_healthy
+    # GRANDPA voter。keystore に gran 鍵の投入が別途必要 (README 参照)。
     entrypoint: ["torsocks", "/usr/local/bin/anarchy-node"]
     command:
       - --chain=/etc/anarchy/chainspec.json
       - --base-path=/data
       - --listen-addr=/ip4/0.0.0.0/tcp/30334
       - --rpc-port=9945
+      - --prometheus-port=9616
       - --rpc-cors=all
-      # chainspec のオーソリティは Alice と Bob の 2 人。GRANDPA は 2/3 以上の
-      # 投票が必要なので、Alice だけ (1/2) では閾値に届かずファイナライズしない。
-      # chain-2 を Bob として voter に参加させる。
-      # (--rpc-external は --validator と併用できないので外す)
-      - --validator
       - --unsafe-force-node-key-generation
+      - --validator
       - --bootnodes=/ip4/127.0.0.1/tcp/30333/p2p/${CHAIN1_PEER_ID:?chain-1 の Local node identity を設定してください}
     volumes:
       - chain2-data:/data
@@ -119,7 +96,7 @@ services:
       - --base-path=/data
       - --listen-addr=/ip4/0.0.0.0/tcp/30335
       - --rpc-port=9946
-      - --rpc-external
+      - --prometheus-port=9617
       - --rpc-cors=all
       - --unsafe-force-node-key-generation
       - --bootnodes=/ip4/127.0.0.1/tcp/30333/p2p/${CHAIN1_PEER_ID:?chain-1 の Local node identity を設定してください}
@@ -134,13 +111,13 @@ services:
     depends_on:
       chain-1:
         condition: service_started
-    # storage は torsocks で包まない (outbound は同一ホストのチェーンのみ)
+    # 同一ホストのチェーンに直結するので torsocks で包まない
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
       - --rpc-port=3030
-      - --public-url=${STORAGE1_PUBLIC_URL:?tor の anarchy-storage/hostname から設定してください}
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3030
       - --chain-url=ws://172.28.0.10:9944
     networks:
       anarchy:
@@ -155,13 +132,13 @@ services:
     depends_on:
       chain-1:
         condition: service_started
-    # storage は torsocks で包まない (outbound は同一ホストのチェーンのみ)
+    # 同一ホストのチェーンに直結するので torsocks で包まない
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
       - --rpc-port=3031
-      - --public-url=${STORAGE2_PUBLIC_URL:?tor の anarchy-storage/hostname から設定してください}
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3031
       - --chain-url=ws://172.28.0.10:9944
     networks:
       anarchy:
@@ -176,13 +153,13 @@ services:
     depends_on:
       chain-1:
         condition: service_started
-    # storage は torsocks で包まない (outbound は同一ホストのチェーンのみ)
+    # 同一ホストのチェーンに直結するので torsocks で包まない
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
     command:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
       - --rpc-port=3032
-      - --public-url=${STORAGE3_PUBLIC_URL:?tor の anarchy-storage/hostname から設定してください}
+      - --public-url=${STORAGE_PUBLIC_URL_BASE:?tor の anarchy-storage/hostname から設定してください}:3032
       - --chain-url=ws://172.28.0.10:9944
     networks:
       anarchy:

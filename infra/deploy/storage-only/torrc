@@ -1,9 +1,6 @@
-# storage-only 用 torrc — storage×10
+# storage-only 用 torrc (gen.py が生成)
 #
-# チェーンは別ホストにあるため、ストレージは torsocks で包む。
-# ストレージは tor と名前空間を共有しているので転送先は 127.0.0.1。
-#
-# 注意: HiddenServicePort の転送先にホスト名は使えない (IP かソケットのみ)。
+# HiddenServicePort の転送先にホスト名は使えない (IP かソケットのみ)。
 
 DataDirectory /var/lib/tor
 RunAsDaemon 0
@@ -11,8 +8,7 @@ Log notice stdout
 
 SocksPort 127.0.0.1:9050 IsolateClientAddr IsolateSOCKSAuth
 
-# チェーンノード (core / gateway) がここに fan-out する。
-# 10 台とも同じ onion で、仮想ポートだけ変える。
+# ---- Hidden Service: ストレージ 10 台 ----
 HiddenServiceDir /var/lib/tor/anarchy-storage
 HiddenServiceVersion 3
 HiddenServicePort 3030 127.0.0.1:3030

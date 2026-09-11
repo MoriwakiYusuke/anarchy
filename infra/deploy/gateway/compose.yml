@@ -1,37 +1,12 @@
-# gateway — chain×1 + 公開 wss (nginx はホスト側で動かす)
+# gateway — chain×1 + storage×3
 #
-# フロントの接続先になる公開エントリポイント。
-# core を外部に晒さずに済ませるための前面。
-# (今回は GCP の Always Free 枠で運用)
+# ⚠️ このファイルは gen.py が生成する。手で編集せず、引数を変えて再生成すること:
+#   ./gen.py gateway --chains 1 --storage 3 --capacity 5G --bootnode-core --public-rpc --domain rpc.anarchy2026.org --subnet 30
 #
-# storage×3 も同居させる。台数は **RAM が律速**。
-#
-# e2-micro の公称は 1GB だが、実測の total は **953Mi**、bootstrap 直後
-# (コンテナゼロ) の available が **523Mi** しかない。
-#   chain 462MB + tor 40MB + storage×3 60MB = 562MB
-# 5 台にすると 602MB で available を超え、チェーンが OOM kill される。
-# ストレージが減るよりチェーンが落ちるほうが痛いので 3 台に留める。
-# ディスクは 26G 空いているので、1 台あたりの容量を増やして総量は維持する
-# (3 台 × 5 GiB = 15 GiB)。
-#
-# core へは全て Tor 経由。bootnode は socat トンネル経由で指定する。
-#
-# /dns4/<onion>/ 形式は **動かない** (実測済み)。理由:
-#   - sc-network の transport は /onion3/ を dial できない
-#   - /dns4/ なら torsocks が拾えるかと思ったが、rust-libp2p の DNS transport は
-#     hickory-dns で独自に UDP の DNS 問い合わせをするため libc の getaddrinfo を
-#     通らず、torsocks が名前解決を捕捉できない。dial の形跡すら残らず peers=0 のまま
-#
-# そこで socat で .onion をローカル TCP に落とし、libp2p にはローカルアドレスとして
-# 見せる (apps/blockchain/scripts/onion-proxy.sh と同じ手口)。
-#
-# 手順:
-#   cp ../anarchy-portfolio-raw.json chainspec.json
-#   docker compose up -d netns tor
-#   # .env に CORE_CHAIN_ONION と CORE_CHAIN_PEER_ID を設定
-#   docker compose up -d
+# 設計の根拠は gen.py 冒頭と docs/operations/deployment-multi-provider.md §5 を参照。
 
 services:
+  # 名前空間の保持だけを担う (tor の再起動と切り離すため)
   netns:
     image: alpine:3.20
     command: ["sleep", "infinity"]
@@ -57,8 +32,8 @@ services:
       retries: 24
       start_period: 10s
 
-  # .onion をローカル TCP に落とすトンネル。
-  # libp2p は /onion3/ を dial できず、/dns4/ も torsocks で捕捉できないため必須。
+  # core の chain onion をローカル TCP に落とすトンネル。
+  # libp2p は /onion3/ も /dns4/<onion>/ も dial できない (実測済み) ため必須。
   onion-proxy:
     image: alpine/socat:latest
     restart: unless-stopped
@@ -70,7 +45,7 @@ services:
       TCP-LISTEN:30350,bind=127.0.0.1,reuseaddr,fork
       SOCKS4A:127.0.0.1:${CORE_CHAIN_ONION:?core の chain onion を設定してください}:30333,socksport=9050
 
-  chain:
+  chain-1:
     image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
     restart: unless-stopped
     network_mode: "service:netns"
@@ -85,24 +60,24 @@ services:
       - --base-path=/data
       - --listen-addr=/ip4/0.0.0.0/tcp/30333
       - --rpc-port=9944
+      - --prometheus-port=9615
       - --rpc-external
       - --rpc-cors=${ANARCHY_RPC_CORS:-all}
       - --unsafe-force-node-key-generation
-      # socat が 127.0.0.1:30350 で待ち受け、Tor 経由で core の 30333 に繋ぐ
       - --bootnodes=/ip4/127.0.0.1/tcp/30350/p2p/${CORE_CHAIN_PEER_ID:?core の chain-1 peer ID を設定してください}
     volumes:
-      - chain-data:/data
+      - chain1-data:/data
       - ./torsocks.conf:/etc/tor/torsocks.conf:ro
       - ./chainspec.json:/etc/anarchy/chainspec.json:ro
 
   storage-1:
     image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
     restart: unless-stopped
+    depends_on:
+      chain-1:
+        condition: service_started
     # 同一ホストのチェーンに直結するので torsocks で包まない
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
-    depends_on:
-      chain:
-        condition: service_started
     command:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
@@ -119,11 +94,11 @@ services:
   storage-2:
     image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
     restart: unless-stopped
+    depends_on:
+      chain-1:
+        condition: service_started
     # 同一ホストのチェーンに直結するので torsocks で包まない
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
-    depends_on:
-      chain:
-        condition: service_started
     command:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
@@ -140,11 +115,11 @@ services:
   storage-3:
     image: ${ANARCHY_STORAGE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-storage-node:latest}
     restart: unless-stopped
+    depends_on:
+      chain-1:
+        condition: service_started
     # 同一ホストのチェーンに直結するので torsocks で包まない
     entrypoint: ["/usr/local/bin/anarchy-storage-node"]
-    depends_on:
-      chain:
-        condition: service_started
     command:
       - --config=/etc/anarchy/storage.toml
       - --data-dir=/data
@@ -158,8 +133,6 @@ services:
       - storage3-data:/data
       - ./storage-3.toml:/etc/anarchy/storage.toml:ro
 
-
-
 networks:
   anarchy:
     ipam:
@@ -168,7 +141,7 @@ networks:
 
 volumes:
   tor-data:
-  chain-data:
+  chain1-data:
   storage1-data:
   storage2-data:
   storage3-data:
