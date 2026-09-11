@@ -47,7 +47,7 @@ gateway はチェーンを同期するだけで全ストレージノードを把
 | chain イメージ | **233 MB** | |
 | storage イメージ | **156 MB** | |
 | Tor connect (同一ホスト) | **1.4〜3.9 秒** | 跨プロバイダはさらに伸びる |
-| storage-only (t3.micro, storage×10) | RAM **561 MB** 使用 / 348 MB 空き | 10 台で 20 GiB を宣言。ディスク 27 GB 空き |
+| storage-only (t3.micro, storage×10) | RAM **561 MB** 使用 / 348 MB 空き | 10 台で 20 GiB を宣言。**現在は費用の都合で撤去済み** (下記) |
 | 本番投稿 E2E (3 プロバイダ跨ぎ) | **1.4〜2.5 分** | KZG 分割 → Tor で AWS へ upload → extrinsic → finalize → 読み戻し |
 
 ## 3. 前提
@@ -270,6 +270,14 @@ nginx は `proxy_read_timeout 3600s` が **必須**。デフォルトの 60 秒�
 (`gen.py --chains 0` がこの形を出す)。1 台 2 GiB × 10 = 20 GiB は t3.micro の
 30 GB ルートボリュームから OS + Docker 分を引いた逆算値。
 
+**2026-09-12 現在、AWS は撤去済み (未稼働)。** 一度 EC2 t3.micro で構築して 3 プロバイダ跨ぎの
+fan-out まで検証したが、このアカウントは 12 ヶ月無料枠が切れており常時稼働で月 $16.5
+(本体 $9.9 + パブリック IPv4 $3.65 + EBS $2.9)、Lightsail nano でも月 $5 かかるため、
+予算 (¥500/月) に収まらず落とした。復活させるときは
+[infra/deploy/aws-storage-only.sh](../../infra/deploy/aws-storage-only.sh) (Lightsail nano 版) を
+`AWS_PROFILE=anarchy` で叩き、README の「生成後の手順」に従う。20 GB ディスクなら
+`gen.py storage-only --storage 10 --capacity 1200M` 程度。
+
 ### 5.10 `--rpc-cors` を絞ると HTTP RPC の preflight が落ちる
 
 `--rpc-cors=<origin>` を渡すと sc-rpc-server は tower-http の `CorsLayer` を
@@ -472,7 +480,7 @@ compose で実際に停止・再起動して観測したもの。**推測では�
 | tor 再起動 (netns コンテナあり) | ✅ onion アドレス不変、`peers=1` 維持、fan-out 復帰 |
 | tor 再起動 (netns コンテナなし) | ❌ **チェーンが分岐する**。§5.5 参照 |
 | チェーン間のレジストリ伝播 | ✅ 直接登録を受けていないノードもオンチェーン経由で全ストレージを把握 |
-| 3 プロバイダ跨ぎの fan-out (2026-09-12) | ✅ gateway (GCP) のチェーンが投稿の 5 断片を **全部 AWS の別ノード** (10 台中 5 台) に配置。`total=16 online=16` |
+| 3 プロバイダ跨ぎの fan-out (2026-09-12) | ✅ gateway (GCP) のチェーンが投稿の 5 断片を **全部 AWS の別ノード** (10 台中 5 台) に配置。`total=16 online=16`。**検証後に AWS は撤去** |
 
 **onion アドレスは tor の volume に永続する。** volume を消さない限り再起動で変わらないので、
 `--public-url` や bootnode の設定を書き直す必要はない。

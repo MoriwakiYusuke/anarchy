@@ -1,46 +1,46 @@
 #!/usr/bin/env bash
-# AWS に storage-only ホスト (t3.micro) を 1 台作る。冪等 (既にあれば作らない)。
+# AWS Lightsail に storage-only ホストを 1 台作る。冪等 (既にあれば作らない)。
 #
 #   AWS_PROFILE=anarchy ./infra/deploy/aws-storage-only.sh          # 作成 + IP 表示
-#   AWS_PROFILE=anarchy ./infra/deploy/aws-storage-only.sh stop     # 停止 (課金はEBSのみ)
+#   AWS_PROFILE=anarchy ./infra/deploy/aws-storage-only.sh stop     # 停止 (Lightsail は停止中も定額課金。節約にはならない)
 #   AWS_PROFILE=anarchy ./infra/deploy/aws-storage-only.sh start
-#   AWS_PROFILE=anarchy ./infra/deploy/aws-storage-only.sh destroy  # インスタンス削除 (SG / key は残す)
+#   AWS_PROFILE=anarchy ./infra/deploy/aws-storage-only.sh destroy  # インスタンス + 静的 IP を削除
+#
+# EC2 ではなく Lightsail にした理由 (2026-09-12):
+#   EC2 t3.micro は本体 $9.9 + パブリック IPv4 $3.65 + EBS 30GB $2.9 = 月 $16.5。
+#   このアカウントは 2025-01 作成で 12 ヶ月無料枠が切れている。
+#   Lightsail nano は IP・20GB SSD・1TB 転送込みで月 $5 固定。常時起動が前提なのでこちら。
+#   IPv6-only の nano ($3.50) もあるが ghcr.io / github.com が IPv6 非対応で
+#   docker pull を Tor 経由にする細工が要るため、dual-stack を選んだ。
 #
 # 作るもの:
-#   - key pair  anarchy            ← ~/.ssh/id_ed25519.pub を import
-#   - SG        anarchy-storage-only  inbound は 22/tcp のみ。ストレージは Tor HS 経由でしか出さない
-#   - instance  anarchy-storage-only  t3.micro / Ubuntu 24.04 / gp3 30GB / CPU credits = standard
-#
-# CPU credits を standard にする理由: unlimited (t3 の既定) だとバーストが課金される。
-# storage-node は 10 台でも CPU をほぼ使わないので standard で足りる。
-#
-# ルートボリューム 30GB は無料枠の上限。storage×10 × 2GiB = 20GiB を宣言している根拠
-# (gen.py storage-only --capacity 2G)。
+#   - key pair   anarchy               ← ~/.ssh/id_ed25519.pub を import
+#   - instance   anarchy-storage-only  nano_3_0 (512MB / 2vCPU / 20GB) Ubuntu 24.04
+#   - static IP  anarchy-storage-only-ip (attach 中は無料。stop/start で IP が変わらないように)
+#   - firewall   22/tcp のみ (Lightsail 既定の 80 は閉じる)。ストレージは Tor HS 経由でしか出さない
 set -euo pipefail
 
 REGION=${AWS_REGION:-ap-northeast-1}
+ZONE=${AWS_ZONE:-${REGION}a}
 NAME=anarchy-storage-only
 KEY_NAME=anarchy
+SIP_NAME=$NAME-ip          # Lightsail はリソース種別を跨いで名前が一意なのでインスタンス名と同じにできない
+BUNDLE=${BUNDLE:-nano_3_0}
 PUBKEY=${PUBKEY:-$HOME/.ssh/id_ed25519.pub}
 aws() { command aws --region "$REGION" --output text "$@"; }
 log() { printf '\n\033[36m==> %s\033[0m\n' "$*"; }
 
-instance_id() {
-  aws ec2 describe-instances \
-    --filters "Name=tag:Name,Values=$NAME" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
-    --query 'Reservations[].Instances[].InstanceId'
-}
-public_ip() {
-  aws ec2 describe-instances --instance-ids "$1" --query 'Reservations[].Instances[].PublicIpAddress'
-}
+exists() { aws lightsail get-instance --instance-name "$NAME" --query 'instance.name' 2>/dev/null; }
+state()  { aws lightsail get-instance-state --instance-name "$NAME" --query 'state.name'; }
+ip()     { aws lightsail get-instance --instance-name "$NAME" --query 'instance.publicIpAddress'; }
+wait_running() { until [ "$(state)" = running ]; do sleep 5; done; }
 
 case "${1:-create}" in
-  stop)    aws ec2 stop-instances  --instance-ids "$(instance_id)" >/dev/null; log "停止中"; exit ;;
-  start)   ID=$(instance_id); aws ec2 start-instances --instance-ids "$ID" >/dev/null
-           aws ec2 wait instance-running --instance-ids "$ID"
-           log "起動: ubuntu@$(public_ip "$ID")  (IP は停止/起動で変わる)"; exit ;;
-  destroy) ID=$(instance_id); [ -n "$ID" ] && aws ec2 terminate-instances --instance-ids "$ID" >/dev/null
-           log "削除: $ID"; exit ;;
+  stop)    aws lightsail stop-instance  --instance-name "$NAME" >/dev/null; log "停止中 (課金は止まらない)"; exit ;;
+  start)   aws lightsail start-instance --instance-name "$NAME" >/dev/null; wait_running; log "起動: ubuntu@$(ip)"; exit ;;
+  destroy) aws lightsail delete-instance --instance-name "$NAME" >/dev/null 2>&1 && echo "instance 削除"
+           aws lightsail release-static-ip --static-ip-name "$SIP_NAME" >/dev/null 2>&1 && echo "static ip 解放"
+           log "削除完了 (key pair $KEY_NAME は残す)"; exit ;;
   create)  ;;
   *) echo "usage: $0 [create|stop|start|destroy]" >&2; exit 2 ;;
 esac
@@ -49,49 +49,44 @@ log "認証確認"
 aws sts get-caller-identity --query 'Arn'
 
 log "key pair: $KEY_NAME"
-if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" >/dev/null 2>&1; then
-  aws ec2 import-key-pair --key-name "$KEY_NAME" --public-key-material "fileb://$PUBKEY" >/dev/null
+if ! aws lightsail get-key-pair --key-pair-name "$KEY_NAME" >/dev/null 2>&1; then
+  aws lightsail import-key-pair --key-pair-name "$KEY_NAME" \
+    --public-key-base64 "$(cat "$PUBKEY")" >/dev/null   # CLI が base64 化する。自分で encode すると "format not valid"
   echo "imported $PUBKEY"
 else
   echo "exists"
 fi
 
-log "security group: $NAME (22/tcp のみ)"
-VPC=$(aws ec2 describe-vpcs --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId')
-SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=$NAME" "Name=vpc-id,Values=$VPC" \
-       --query 'SecurityGroups[0].GroupId' 2>/dev/null || true)
-if [ -z "$SG" ] || [ "$SG" = "None" ]; then
-  SG=$(aws ec2 create-security-group --group-name "$NAME" --vpc-id "$VPC" \
-         --description "anarchy storage-only: ssh only, storage is Tor HS" --query GroupId)
-  aws ec2 authorize-security-group-ingress --group-id "$SG" --protocol tcp --port 22 --cidr 0.0.0.0/0 >/dev/null
-  echo "created $SG"
+log "instance: $NAME ($BUNDLE, $ZONE)"
+if [ -z "$(exists)" ]; then
+  aws lightsail create-instances --instance-names "$NAME" --availability-zone "$ZONE" \
+    --blueprint-id ubuntu_24_04 --bundle-id "$BUNDLE" --key-pair-name "$KEY_NAME" \
+    --tags key=project,value=anarchy >/dev/null
+  echo "created"
 else
-  echo "exists $SG"
+  echo "exists"
+fi
+wait_running
+
+log "static IP: $SIP_NAME"
+if ! aws lightsail get-static-ip --static-ip-name "$SIP_NAME" >/dev/null 2>&1; then
+  aws lightsail allocate-static-ip --static-ip-name "$SIP_NAME" >/dev/null
+  echo "allocated"
+fi
+if [ "$(aws lightsail get-static-ip --static-ip-name "$SIP_NAME" --query 'staticIp.isAttached')" != "True" ]; then
+  aws lightsail attach-static-ip --static-ip-name "$SIP_NAME" --instance-name "$NAME" >/dev/null
+  echo "attached"
+else
+  echo "attached (already)"
 fi
 
-log "instance: $NAME"
-ID=$(instance_id)
-if [ -z "$ID" ]; then
-  AMI=$(aws ssm get-parameter \
-          --name /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id \
-          --query 'Parameter.Value')
-  echo "AMI $AMI (Ubuntu 24.04)"
-  ID=$(aws ec2 run-instances \
-         --image-id "$AMI" --instance-type t3.micro --key-name "$KEY_NAME" \
-         --security-group-ids "$SG" \
-         --credit-specification CpuCredits=standard \
-         --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=30,VolumeType=gp3,DeleteOnTermination=true}' \
-         --metadata-options HttpTokens=required \
-         --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$NAME},{Key=project,Value=anarchy}]" \
-                              "ResourceType=volume,Tags=[{Key=Name,Value=$NAME},{Key=project,Value=anarchy}]" \
-         --query 'Instances[0].InstanceId')
-  echo "created $ID"
-else
-  echo "exists $ID"
-fi
-aws ec2 wait instance-running --instance-ids "$ID"
-IP=$(public_ip "$ID")
+log "firewall: 22/tcp のみ"
+aws lightsail put-instance-public-ports --instance-name "$NAME" \
+  --port-infos fromPort=22,toPort=22,protocol=tcp >/dev/null
+aws lightsail get-instance-port-states --instance-name "$NAME" \
+  --query 'portStates[].[fromPort,protocol,state]' --output text
 
+IP=$(ip)
 cat <<NEXT
 
 ubuntu@$IP

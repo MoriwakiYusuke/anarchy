@@ -33,7 +33,7 @@
 ## ホストの調達
 
 - core (さくら VPS 4G) / gateway (GCP e2-micro) はコンソール / `gcloud` で手作業
-- storage-only (AWS t3.micro) は [aws-storage-only.sh](aws-storage-only.sh) が冪等に作る (`stop` / `start` / `destroy` も)
+- storage-only (AWS Lightsail nano, **現在は未稼働**) は [aws-storage-only.sh](aws-storage-only.sh) が冪等に作る (`stop` / `start` / `destroy` も)
 
 ## 生成後の手順 (ホスト上)
 
