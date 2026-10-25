@@ -67,6 +67,10 @@ def main():
     ap.add_argument("--chain-mem", default="1G", metavar="SIZE",
                     help="chain 1 台あたりのメモリ上限 (例: 1G, 640M)。既定 1G。"
                          " コンテナの mem_limit と、ノード内キャッシュ (--db-cache = 1/4, --trie-cache-size = 1/16) の両方に使う")
+    ap.add_argument("--miner-mem", default="2G", metavar="SIZE",
+                    help="採掘する chain (--mine の chain-1) だけの mem_limit。既定 2G。"
+                         " RandomX の採掘ループがキャッシュとは別に ~1GB 使うため --chain-mem では足りない (1G で OOM kill ループを実測)。"
+                         " キャッシュサイズは --chain-mem 由来のまま")
     a = ap.parse_args()
 
     if a.public_rpc and not (a.domain and a.cors_origin):
@@ -112,7 +116,8 @@ def main():
         (["--public-rpc", f"--domain {a.domain}", f"--cors-origin {a.cors_origin}"] if a.public_rpc else []) +
         ([f"--node-key {a.node_key}"] if a.node_key else []) +
         ([f"--subnet {a.subnet}"] if a.subnet != 28 else []) +
-        ([f"--chain-mem {a.chain_mem}"] if a.chains else [])))
+        ([f"--chain-mem {a.chain_mem}"] if a.chains else []) +
+        ([f"--miner-mem {a.miner_mem}"] if a.mine else [])))
     W("#")
     W("# 設計の根拠は gen.py 冒頭と docs/operations/deployment-multi-provider.md §5 を参照。")
     W("")
@@ -225,8 +230,9 @@ def main():
         W(f"  chain-{i}:")
         W(f"    image: ${{ANARCHY_NODE_IMAGE:-{REGISTRY}/anarchy-node:latest}}")
         W("    restart: unless-stopped")
-        W(f"    mem_limit: {chain_mem_mib}m")
-        W(f"    memswap_limit: {chain_mem_mib}m")
+        mem_mib = parse_size(a.miner_mem) // 1024**2 if is_miner else chain_mem_mib
+        W(f"    mem_limit: {mem_mib}m")
+        W(f"    memswap_limit: {mem_mib}m")
         W('    network_mode: "service:netns"')
         W("    depends_on:")
         W("      tor:")
