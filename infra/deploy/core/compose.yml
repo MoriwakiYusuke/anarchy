@@ -1,7 +1,7 @@
 # core — chain×3 + storage×3 + 採掘
 #
 # ⚠️ このファイルは gen.py が生成する。手で編集せず、引数を変えて再生成すること:
-#   ./gen.py core --chains 3 --validators 2 --mine --storage 3 --capacity 10G --node-key 0000000000000000000000000000000000000000000000000000000000000001 --chain-mem 1G
+#   ./gen.py core --chains 3 --validators 2 --mine --storage 3 --capacity 10G --node-key 0000000000000000000000000000000000000000000000000000000000000001 --chain-mem 1G --miner-mem 2G
 #
 # 設計の根拠は gen.py 冒頭と docs/operations/deployment-multi-provider.md §5 を参照。
 
@@ -35,8 +35,8 @@ services:
   chain-1:
     image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
     restart: unless-stopped
-    mem_limit: 1024m
-    memswap_limit: 1024m
+    mem_limit: 2048m
+    memswap_limit: 2048m
     network_mode: "service:netns"
     depends_on:
       tor:
