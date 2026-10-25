@@ -1,7 +1,7 @@
 # core — chain×3 + storage×3 + 採掘
 #
 # ⚠️ このファイルは gen.py が生成する。手で編集せず、引数を変えて再生成すること:
-#   ./gen.py core --chains 3 --validators 2 --mine --storage 3 --capacity 10G --node-key 0000000000000000000000000000000000000000000000000000000000000001
+#   ./gen.py core --chains 3 --validators 2 --mine --storage 3 --capacity 10G --node-key 0000000000000000000000000000000000000000000000000000000000000001 --chain-mem 1G
 #
 # 設計の根拠は gen.py 冒頭と docs/operations/deployment-multi-provider.md §5 を参照。
 
@@ -35,6 +35,8 @@ services:
   chain-1:
     image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
     restart: unless-stopped
+    mem_limit: 1024m
+    memswap_limit: 1024m
     network_mode: "service:netns"
     depends_on:
       tor:
@@ -48,6 +50,8 @@ services:
       - --listen-addr=/ip4/0.0.0.0/tcp/30333
       - --rpc-port=9944
       - --prometheus-port=9615
+      - --db-cache=256
+      - --trie-cache-size=67108864
       - --rpc-cors=all
       - --node-key=0000000000000000000000000000000000000000000000000000000000000001
       - --validator
@@ -62,6 +66,8 @@ services:
   chain-2:
     image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
     restart: unless-stopped
+    mem_limit: 1024m
+    memswap_limit: 1024m
     network_mode: "service:netns"
     depends_on:
       tor:
@@ -74,6 +80,8 @@ services:
       - --listen-addr=/ip4/0.0.0.0/tcp/30334
       - --rpc-port=9945
       - --prometheus-port=9616
+      - --db-cache=256
+      - --trie-cache-size=67108864
       - --rpc-cors=all
       - --unsafe-force-node-key-generation
       - --validator
@@ -86,6 +94,8 @@ services:
   chain-3:
     image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
     restart: unless-stopped
+    mem_limit: 1024m
+    memswap_limit: 1024m
     network_mode: "service:netns"
     depends_on:
       tor:
@@ -97,6 +107,8 @@ services:
       - --listen-addr=/ip4/0.0.0.0/tcp/30335
       - --rpc-port=9946
       - --prometheus-port=9617
+      - --db-cache=256
+      - --trie-cache-size=67108864
       - --rpc-external
       - --rpc-cors=all
       - --unsafe-force-node-key-generation

@@ -1,7 +1,7 @@
 # gateway — chain×1 + storage×3
 #
 # ⚠️ このファイルは gen.py が生成する。手で編集せず、引数を変えて再生成すること:
-#   ./gen.py gateway --chains 1 --storage 3 --capacity 5G --bootnode-core --public-rpc --domain rpc.anarchy2026.org --cors-origin https://anarchy2026.org --subnet 30
+#   ./gen.py gateway --chains 1 --storage 3 --capacity 5G --bootnode-core --public-rpc --domain rpc.anarchy2026.org --cors-origin https://anarchy2026.org --subnet 30 --chain-mem 640M
 #
 # 設計の根拠は gen.py 冒頭と docs/operations/deployment-multi-provider.md §5 を参照。
 
@@ -48,6 +48,8 @@ services:
   chain-1:
     image: ${ANARCHY_NODE_IMAGE:-ghcr.io/moriwakiyusuke/anarchy-node:latest}
     restart: unless-stopped
+    mem_limit: 640m
+    memswap_limit: 640m
     network_mode: "service:netns"
     depends_on:
       tor:
@@ -61,6 +63,8 @@ services:
       - --listen-addr=/ip4/0.0.0.0/tcp/30333
       - --rpc-port=9944
       - --prometheus-port=9615
+      - --db-cache=160
+      - --trie-cache-size=41943040
       - --rpc-external
       - --rpc-cors=all
       - --unsafe-force-node-key-generation

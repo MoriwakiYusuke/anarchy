@@ -64,6 +64,9 @@ def main():
                          " 未指定なら初回起動時に生成され volume に永続化される (peer ID はログから取得)")
     ap.add_argument("--subnet", type=int, default=28, metavar="N",
                     help="compose ネットワークの第 3 オクテット (172.N.0.0/24)。既定 28")
+    ap.add_argument("--chain-mem", default="1G", metavar="SIZE",
+                    help="chain 1 台あたりのメモリ上限 (例: 1G, 640M)。既定 1G。"
+                         " コンテナの mem_limit と、ノード内キャッシュ (--db-cache = 1/4, --trie-cache-size = 1/16) の両方に使う")
     a = ap.parse_args()
 
     if a.public_rpc and not (a.domain and a.cors_origin):
@@ -108,7 +111,8 @@ def main():
         (["--bootnode-core"] if a.bootnode_core else []) +
         (["--public-rpc", f"--domain {a.domain}", f"--cors-origin {a.cors_origin}"] if a.public_rpc else []) +
         ([f"--node-key {a.node_key}"] if a.node_key else []) +
-        ([f"--subnet {a.subnet}"] if a.subnet != 28 else [])))
+        ([f"--subnet {a.subnet}"] if a.subnet != 28 else []) +
+        ([f"--chain-mem {a.chain_mem}"] if a.chains else [])))
     W("#")
     W("# 設計の根拠は gen.py 冒頭と docs/operations/deployment-multi-provider.md §5 を参照。")
     W("")
@@ -165,6 +169,13 @@ def main():
     if not remote_chain and storage_chain > a.chains:
         sys.exit("全チェーンが validator だと同居ストレージの登録先が無い。--chains を --validators より大きくすること")
 
+    # Substrate の既定は --db-cache 1024 MiB + --trie-cache-size 1 GiB で、数週間かけて膨らむ (core で各 chain ~1GB を実測)。
+    # gateway (e2-micro, RAM 953MB) ではホストごと OOM → swap thrash で SSH も通らなくなった (2026-09/10 に 2 回)。
+    # キャッシュを上限の内側に収め、それでも超えたら mem_limit でコンテナだけ OOM kill → restart させる。
+    # memswap_limit = mem_limit でコンテナに swap を使わせない (swap thrash がホストハングの直接原因)。
+    chain_mem_mib = parse_size(a.chain_mem) // 1024**2
+    db_cache_mib, trie_cache_bytes = chain_mem_mib // 4, parse_size(a.chain_mem) // 16
+
     for i in range(1, a.chains + 1):
         p2p, rpc, prom = P2P_BASE + i, RPC_BASE + i, PROM_BASE + i
         is_validator = i <= a.validators
@@ -175,6 +186,8 @@ def main():
             f"--listen-addr=/ip4/0.0.0.0/tcp/{p2p}",
             f"--rpc-port={rpc}",
             f"--prometheus-port={prom}",
+            f"--db-cache={db_cache_mib}",
+            f"--trie-cache-size={trie_cache_bytes}",
         ]
         # validator でないチェーンは RPC を netns の IP でも受ける (--rpc-external)。
         # --validator は --rpc-external と排他で、その場合 RPC は netns 内の 127.0.0.1 にしか
@@ -212,6 +225,8 @@ def main():
         W(f"  chain-{i}:")
         W(f"    image: ${{ANARCHY_NODE_IMAGE:-{REGISTRY}/anarchy-node:latest}}")
         W("    restart: unless-stopped")
+        W(f"    mem_limit: {chain_mem_mib}m")
+        W(f"    memswap_limit: {chain_mem_mib}m")
         W('    network_mode: "service:netns"')
         W("    depends_on:")
         W("      tor:")
